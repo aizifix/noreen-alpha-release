@@ -273,7 +273,7 @@ export default function ClientDashboard() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
         <Link href="/client/events/new">
-          <button className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg flex items-center gap-2">
+          <button className="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2 rounded-lg flex items-center gap-2">
             <Plus className="h-5 w-5" /> Book New Event
           </button>
         </Link>
@@ -326,22 +326,22 @@ export default function ClientDashboard() {
           {["Overview", "Events", "Payments", "Notifications"].map((tab) => (
             <button
               key={tab}
-              className={`pb-2 px-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? "border-green-600 text-green-700" : "border-transparent text-gray-500 hover:text-green-700"}`}
+              className={`pb-2 px-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? "border-brand-500 text-brand-600" : "border-transparent text-gray-500 hover:text-brand-600"}`}
               onClick={() => setActiveTab(tab)}
             >
               {tab}
               {tab === "Events" && (
-                <span className="ml-1 bg-green-100 text-green-700 rounded-full px-2 text-xs">
+                <span className="ml-1 bg-brand-100 text-brand-600 rounded-full px-2 text-xs">
                   2
                 </span>
               )}
               {tab === "Payments" && (
-                <span className="ml-1 bg-green-100 text-green-700 rounded-full px-2 text-xs">
+                <span className="ml-1 bg-brand-100 text-brand-600 rounded-full px-2 text-xs">
                   2
                 </span>
               )}
               {tab === "Notifications" && (
-                <span className="ml-1 bg-green-100 text-green-700 rounded-full px-2 text-xs">
+                <span className="ml-1 bg-brand-100 text-brand-600 rounded-full px-2 text-xs">
                   2
                 </span>
               )}
@@ -401,7 +401,7 @@ export default function ClientDashboard() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{notif.title}</span>
                       {notif.status && (
-                        <span className="ml-1 bg-green-100 text-green-700 rounded-full px-2 text-xs">
+                        <span className="ml-1 bg-brand-100 text-brand-600 rounded-full px-2 text-xs">
                           {notif.status}
                         </span>
                       )}

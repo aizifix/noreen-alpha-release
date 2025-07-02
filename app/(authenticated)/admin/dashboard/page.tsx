@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { secureStorage } from "@/app/utils/encryption";
-import { protectRoute } from "@/app/utils/routeProtection";
 import {
   Calendar,
   Users,
@@ -590,33 +589,14 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    try {
-      // Protect route from unauthorized access and back navigation
-      protectRoute();
+    // Fetch initial data
+    fetchDashboardData();
 
-      const userData = secureStorage.getItem("user");
-      if (
-        !userData ||
-        !userData.user_role ||
-        userData.user_role.toLowerCase() !== "admin"
-      ) {
-        console.log("Invalid user data in dashboard:", userData);
-        router.push("/auth/login");
-        return;
-      }
+    // Set up auto-refresh interval (every 5 minutes)
+    const refreshInterval = setInterval(fetchDashboardData, 5 * 60 * 1000);
 
-      // Fetch initial data
-      fetchDashboardData();
-
-      // Set up auto-refresh interval (every 5 minutes)
-      const refreshInterval = setInterval(fetchDashboardData, 5 * 60 * 1000);
-
-      return () => clearInterval(refreshInterval);
-    } catch (error) {
-      console.error("Error accessing user data:", error);
-      router.push("/auth/login");
-    }
-  }, [router]);
+    return () => clearInterval(refreshInterval);
+  }, []); // Remove router dependency and authentication check (handled by layout)
 
   if (isLoading) {
     return (

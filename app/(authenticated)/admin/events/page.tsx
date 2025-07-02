@@ -10,7 +10,7 @@ import axios from "axios";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 
-// Updated interface to match tbl_events structure
+// Enhanced interface to match updated tbl_events structure
 interface Event {
   event_id: number;
   original_booking_reference?: string;
@@ -25,7 +25,7 @@ interface Event {
   event_date: string;
   start_time?: string;
   end_time?: string;
-  payment_status: "pending" | "partial" | "paid" | "overdue" | "cancelled";
+  payment_status: "unpaid" | "partial" | "paid" | "refunded";
   package_id?: number;
   venue_id?: number;
   total_budget: number;
@@ -34,24 +34,54 @@ interface Event {
   payment_schedule_type_id?: number;
   reference_number?: string;
   additional_notes?: string;
-  event_status:
-    | "draft"
-    | "confirmed"
-    | "in-progress"
-    | "completed"
-    | "cancelled";
+  event_status: "draft" | "confirmed" | "on_going" | "done" | "cancelled";
   booking_date?: string;
   booking_time?: string;
   created_by?: number;
+  updated_by?: number;
+  created_at?: string;
+  updated_at?: string;
+  event_attachments?: any[];
+  event_feedback_id?: number;
+  event_wedding_form_id?: number;
+  is_recurring?: boolean;
+  recurrence_rule?: any;
+  cancellation_reason?: string;
+  finalized_at?: string;
+  client_signature?: string;
   // Joined data from related tables
   venue_name?: string;
   venue_location?: string;
+  venue_contact?: string;
+  venue_capacity?: number;
+  venue_price?: number;
   client_name?: string;
+  client_first_name?: string;
+  client_last_name?: string;
+  client_suffix?: string;
   client_email?: string;
+  client_contact?: string;
+  client_pfp?: string;
+  client_birthdate?: string;
+  client_joined_date?: string;
+  client_username?: string;
   event_type_name?: string;
+  event_type_description?: string;
   package_title?: string;
+  package_description?: string;
   admin_name?: string;
   organizer_name?: string;
+  created_by_name?: string;
+  updated_by_name?: string;
+  payment_schedule_name?: string;
+  payment_schedule_description?: string;
+  installment_count?: number;
+  wedding_details?: any;
+  feedback?: any;
+  components?: any[];
+  timeline?: any[];
+  payment_schedule?: any[];
+  payments?: any[];
 }
 
 export default function EventsPage() {
@@ -121,6 +151,11 @@ export default function EventsPage() {
     }
   };
 
+  const handleViewDetails = (eventId: number) => {
+    console.log("🎯 Navigating to event details for event:", eventId);
+    router.push(`/admin/events/${eventId}`);
+  };
+
   // Get events for a specific date
   const getEventsForDate = (date: Date) => {
     // Format date as YYYY-MM-DD without timezone conversion
@@ -173,13 +208,13 @@ export default function EventsPage() {
           bg: "bg-yellow-100",
           text: "text-yellow-700",
         };
-      case "in-progress":
+      case "on_going":
         return {
           border: "border-blue-500",
           bg: "bg-blue-100",
           text: "text-blue-700",
         };
-      case "completed":
+      case "done":
         return {
           border: "border-purple-500",
           bg: "bg-purple-100",
@@ -384,41 +419,98 @@ export default function EventsPage() {
           <div className="space-y-3">
             {dayEvents.map((event) => {
               const colors = getStatusColor(event.event_status);
+              const paymentColors = getPaymentStatusColor(event.payment_status);
+
+              const getClientInitials = (name: string) => {
+                return name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("")
+                  .toUpperCase();
+              };
+
+              const getProfileImageUrl = (pfpPath?: string) => {
+                if (!pfpPath) return null;
+                if (pfpPath.startsWith("http")) {
+                  return pfpPath;
+                }
+                // Use the image serving script for proper image delivery
+                return `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(pfpPath)}`;
+              };
+
               return (
                 <div
                   key={event.event_id}
-                  className={`p-3 rounded-lg border-l-4 ${colors.border} ${colors.bg} cursor-pointer hover:opacity-80`}
+                  className={`p-3 rounded-lg border-l-4 ${colors.border} ${colors.bg} cursor-pointer hover:opacity-80 transition-all duration-200`}
                   onClick={() => router.push(`/admin/events/${event.event_id}`)}
                 >
-                  <h4 className="font-medium text-sm">{event.event_title}</h4>
-                  <p className="text-xs text-gray-600 mt-1">
-                    Client: {event.client_name || "Unknown"}
-                  </p>
-                  {event.start_time && event.end_time && (
-                    <p className="text-xs text-gray-600">
-                      Time:{" "}
-                      {format(
-                        new Date(`2000-01-01T${event.start_time}`),
-                        "h:mm a"
-                      )}{" "}
-                      -{" "}
-                      {format(
-                        new Date(`2000-01-01T${event.end_time}`),
-                        "h:mm a"
+                  <div className="flex items-start space-x-3">
+                    {/* Client Profile Picture */}
+                    <div className="relative flex-shrink-0">
+                      {event.client_pfp &&
+                      getProfileImageUrl(event.client_pfp) ? (
+                        <img
+                          src={getProfileImageUrl(event.client_pfp)}
+                          alt={`${event.client_name}'s profile`}
+                          className="w-8 h-8 rounded-full object-cover border border-gray-200"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                            e.currentTarget.nextElementSibling?.classList.remove(
+                              "hidden"
+                            );
+                          }}
+                        />
+                      ) : null}
+                      <div
+                        className={`w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ${event.client_pfp ? "hidden" : ""}`}
+                      >
+                        <span className="text-white font-medium text-xs">
+                          {getClientInitials(event.client_name || "C")}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-sm truncate">
+                        {event.event_title}
+                      </h4>
+                      <p className="text-xs text-gray-600 mt-1 truncate">
+                        Client: {event.client_name || "Unknown"}
+                      </p>
+                      {event.start_time && event.end_time && (
+                        <p className="text-xs text-gray-600">
+                          {format(
+                            new Date(`2000-01-01T${event.start_time}`),
+                            "h:mm a"
+                          )}{" "}
+                          -{" "}
+                          {format(
+                            new Date(`2000-01-01T${event.end_time}`),
+                            "h:mm a"
+                          )}
+                        </p>
                       )}
-                    </p>
-                  )}
-                  <p className="text-xs text-gray-600">
-                    Guests: {event.guest_count}
-                  </p>
-                  <p className="text-xs text-gray-600">
-                    Budget: ₱{event.total_budget?.toLocaleString()}
-                  </p>
-                  <span
-                    className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-2 ${colors.bg} ${colors.text}`}
-                  >
-                    {event.event_status}
-                  </span>
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="text-xs text-gray-600">
+                          <span>Guests: {event.guest_count}</span>
+                          <span className="mx-1">•</span>
+                          <span>₱{event.total_budget?.toLocaleString()}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2 mt-2">
+                        <span
+                          className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${colors.bg} ${colors.text}`}
+                        >
+                          {event.event_status}
+                        </span>
+                        <span
+                          className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
+                        >
+                          {event.payment_status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -441,20 +533,15 @@ export default function EventsPage() {
           bg: "bg-blue-100",
           text: "text-blue-700",
         };
-      case "pending":
+      case "unpaid":
         return {
           bg: "bg-yellow-100",
           text: "text-yellow-700",
         };
-      case "overdue":
+      case "refunded":
         return {
           bg: "bg-red-100",
           text: "text-red-700",
-        };
-      case "cancelled":
-        return {
-          bg: "bg-gray-100",
-          text: "text-gray-700",
         };
       default:
         return {
@@ -468,7 +555,7 @@ export default function EventsPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
           <p className="mt-2 text-gray-500">Loading events...</p>
         </div>
       </div>
@@ -481,19 +568,19 @@ export default function EventsPage() {
         <h1 className="text-2xl font-bold">Event Management</h1>
         <div className="flex gap-2">
           <button
-            className={`px-4 py-2 rounded font-semibold border ${view === "calendar" ? "bg-green-600 text-white border-green-600" : "bg-white text-green-700 border-green-600"}`}
+            className={`px-4 py-2 rounded font-semibold border ${view === "calendar" ? "bg-brand-500 text-white border-brand-500" : "bg-white text-brand-600 border-brand-500"}`}
             onClick={() => setView("calendar")}
           >
             Calendar
           </button>
           <button
-            className={`px-4 py-2 rounded font-semibold border ${view === "list" ? "bg-green-600 text-white border-green-600" : "bg-white text-green-700 border-green-600"}`}
+            className={`px-4 py-2 rounded font-semibold border ${view === "list" ? "bg-brand-500 text-white border-brand-500" : "bg-white text-brand-600 border-brand-500"}`}
             onClick={() => setView("list")}
           >
             List
           </button>
           <button
-            className="ml-2 px-4 py-2 rounded bg-green-500 text-white font-semibold hover:bg-green-600 flex items-center gap-2"
+            className="ml-2 px-4 py-2 rounded bg-brand-500 text-white font-semibold hover:bg-brand-600 flex items-center gap-2"
             onClick={() => router.push("/admin/event-builder")}
           >
             <Plus className="h-4 w-4" />
@@ -530,17 +617,16 @@ export default function EventsPage() {
           <option value="">All Statuses</option>
           <option value="draft">Draft</option>
           <option value="confirmed">Confirmed</option>
-          <option value="in-progress">In Progress</option>
-          <option value="completed">Completed</option>
+          <option value="on_going">On Going</option>
+          <option value="done">Done</option>
           <option value="cancelled">Cancelled</option>
         </select>
         <select className="border rounded px-3 py-2">
           <option value="">All Payment Status</option>
-          <option value="pending">Pending</option>
+          <option value="unpaid">Unpaid</option>
           <option value="partial">Partial</option>
           <option value="paid">Paid</option>
-          <option value="overdue">Overdue</option>
-          <option value="cancelled">Cancelled</option>
+          <option value="refunded">Refunded</option>
         </select>
       </div>
 
@@ -566,11 +652,11 @@ export default function EventsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-blue-100 border-l-4 border-blue-500"></div>
-                  <span>In Progress</span>
+                  <span>On Going</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-purple-100 border-l-4 border-purple-500"></div>
-                  <span>Completed</span>
+                  <span>Done</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-red-100 border-l-4 border-red-500"></div>
@@ -589,7 +675,13 @@ export default function EventsPage() {
               <div
                 key={event.event_id}
                 className={`rounded-lg shadow border-t-4 ${colors.border} bg-white p-6 flex flex-col justify-between hover:shadow-lg transition-shadow cursor-pointer`}
-                onClick={() => router.push(`/admin/events/${event.event_id}`)}
+                onClick={() => {
+                  console.log(
+                    "🃏 Event card clicked, navigating to:",
+                    `/admin/events/${event.event_id}`
+                  );
+                  router.push(`/admin/events/${event.event_id}`);
+                }}
               >
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -632,11 +724,67 @@ export default function EventsPage() {
                     </div>
                   )}
 
-                  <div className="text-sm mb-2 space-y-1">
-                    <div>
-                      <span className="font-semibold">Client:</span>{" "}
-                      {event.client_name || "Unknown Client"}
+                  {/* Client Information Section */}
+                  <div className="mb-3 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center space-x-3 mb-2">
+                      {/* Client Profile Picture */}
+                      <div className="relative flex-shrink-0">
+                        {event.client_pfp &&
+                          (() => {
+                            const pfpPath = event.client_pfp;
+                            const imageUrl =
+                              pfpPath && pfpPath.startsWith("http")
+                                ? pfpPath
+                                : pfpPath
+                                  ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(pfpPath)}`
+                                  : null;
+                            return (
+                              <img
+                                src={imageUrl}
+                                alt={`${event.client_name}'s profile`}
+                                className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                  e.currentTarget.nextElementSibling?.classList.remove(
+                                    "hidden"
+                                  );
+                                }}
+                              />
+                            );
+                          })()}
+                        <div
+                          className={`w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ${event.client_pfp ? "hidden" : ""}`}
+                        >
+                          <span className="text-white font-medium text-sm">
+                            {event.client_name
+                              ? event.client_name
+                                  .split(" ")
+                                  .map((n) => n[0])
+                                  .join("")
+                                  .toUpperCase()
+                              : "C"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm text-gray-900">
+                          {event.client_name || "Unknown Client"}
+                        </div>
+                        {event.client_email && (
+                          <div className="text-xs text-gray-600 truncate">
+                            {event.client_email}
+                          </div>
+                        )}
+                        {event.client_contact && (
+                          <div className="text-xs text-gray-600">
+                            {event.client_contact}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                  </div>
+
+                  <div className="text-sm mb-2 space-y-1">
                     <div>
                       <span className="font-semibold">Venue:</span>{" "}
                       {event.venue_name || "TBD"}
@@ -710,7 +858,14 @@ export default function EventsPage() {
                   >
                     <span>💳</span> Payments
                   </button>
-                  <button className="px-3 py-1 rounded bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
+                  <button
+                    className="px-3 py-1 rounded bg-green-600 text-white text-sm font-semibold hover:bg-green-700"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleViewDetails(event.event_id);
+                    }}
+                  >
                     View Details
                   </button>
                 </div>

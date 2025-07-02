@@ -17,7 +17,7 @@ import { PackageDetails } from "@/app/components/admin/event-builder/package-det
 import { VenueSelection } from "@/app/components/admin/event-builder/venue-selection";
 import { ComponentCustomization } from "@/app/components/admin/event-builder/components-customization";
 import { BudgetTracking } from "@/app/components/admin/event-builder/budget-tracking";
-import { PaymentStep } from "@/app/components/admin/event-builder/payment-step";
+import PaymentStep from "@/app/components/admin/event-builder/payment-step";
 import { OrganizerSelection } from "@/app/components/admin/event-builder/organizer-selection";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -49,6 +49,7 @@ import type {
   TimelineItem,
 } from "@/app/types/event-builder";
 import WeddingFormStep from "@/app/components/admin/event-builder/wedding-form-step";
+import AttachmentsStep from "@/app/components/admin/event-builder/attachments-step";
 
 // Function to format currency
 const formatCurrency = (amount: number) => {
@@ -63,6 +64,29 @@ interface EventData {
   eventTitle: string;
   eventDate: string;
   eventId: string;
+}
+
+// File attachment interface
+interface FileAttachment {
+  file: File;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  uploadedPath?: string;
+  uploadedAt?: string;
+}
+
+// Enhanced event details interface
+interface EnhancedEventDetails extends EventDetails {
+  theme?: string;
+  description?: string;
+  isRecurring?: boolean;
+  recurrenceRule?: {
+    frequency: "daily" | "weekly" | "monthly" | "yearly";
+    interval: number;
+    endDate?: string;
+    endAfter?: number;
+  };
 }
 
 interface WeddingFormData {
@@ -164,17 +188,38 @@ export default function EventBuilderPage() {
     address: "",
   });
 
-  const [eventDetails, setEventDetails] = useState<EventDetails>({
-    title: "",
-    type: "wedding",
-    date: "",
-    startTime: "",
-    endTime: "",
-    capacity: 100,
-    notes: "",
-    venue: "",
-    package: "",
+  // Enhanced event details with new fields
+  const [eventDetails, setEventDetails] = useState<EnhancedEventDetails>(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const defaultDate = tomorrow.toISOString().split("T")[0]; // YYYY-MM-DD format
+
+    return {
+      title: "",
+      type: "wedding",
+      date: defaultDate,
+      startTime: "10:00",
+      endTime: "18:00",
+      capacity: 100,
+      notes: "",
+      venue: "",
+      package: "",
+      theme: "",
+      description: "",
+      isRecurring: false,
+      recurrenceRule: {
+        frequency: "monthly",
+        interval: 1,
+      },
+    };
   });
+
+  // File attachments state
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState<boolean>(false);
+
+  // Client signature state
+  const [clientSignature, setClientSignature] = useState<string>("");
 
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(
     null
@@ -202,6 +247,7 @@ export default function EventBuilderPage() {
   const [timelineData, setTimelineData] = useState<TimelineItem[]>([]);
   const [showMissingRefDialog, setShowMissingRefDialog] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [weddingFormData, setWeddingFormData] = useState<WeddingFormData>({
     // Basic Information
     nuptial: "",
@@ -283,6 +329,94 @@ export default function EventBuilderPage() {
   const [packageVenues, setPackageVenues] = useState<any[]>([]);
   const [allVenues, setAllVenues] = useState<any[]>([]);
 
+  // File upload handling functions
+  const handleFileUpload = async (files: File[]) => {
+    if (!files.length) return;
+
+    setUploadingFiles(true);
+    const uploadedAttachments: FileAttachment[] = [];
+
+    try {
+      for (const file of files) {
+        // Validate file size (max 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+          toast({
+            title: "File Too Large",
+            description: `${file.name} is larger than 10MB. Please choose a smaller file.`,
+            variant: "destructive",
+          });
+          continue;
+        }
+
+        // Create FormData for file upload
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("operation", "uploadFile");
+        formData.append("fileType", "event_attachment");
+
+        try {
+          const response = await axios.post(
+            "http://localhost/events-api/admin.php",
+            formData,
+            {
+              headers: {
+                "Content-Type": "multipart/form-data",
+              },
+            }
+          );
+
+          if (response.data.status === "success") {
+            uploadedAttachments.push({
+              file,
+              fileName: file.name,
+              fileSize: file.size,
+              fileType: file.type,
+              uploadedPath: response.data.filePath,
+              uploadedAt: new Date().toISOString(),
+            });
+          } else {
+            toast({
+              title: "Upload Failed",
+              description: `Failed to upload ${file.name}: ${response.data.message}`,
+              variant: "destructive",
+            });
+          }
+        } catch (error) {
+          console.error("File upload error:", error);
+          toast({
+            title: "Upload Error",
+            description: `Error uploading ${file.name}`,
+            variant: "destructive",
+          });
+        }
+      }
+
+      // Add uploaded files to attachments state
+      setAttachments((prev) => [...prev, ...uploadedAttachments]);
+
+      if (uploadedAttachments.length > 0) {
+        toast({
+          title: "Files Uploaded",
+          description: `Successfully uploaded ${uploadedAttachments.length} file(s)`,
+        });
+      }
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
+
   // Load all venues as fallback
   const loadAllVenues = async () => {
     try {
@@ -321,72 +455,20 @@ export default function EventBuilderPage() {
 
   // Calculate total budget based on package, venue, guest count, and extras
   const getTotalBudget = () => {
-    let baseBudget = 0;
-    let venueCost = 0;
-    let extraComponentCost = 0;
-
-    // Use original package price if available from API
+    // Fixed pricing based on selected package - venues are included in the bundle
     if (originalPackagePrice !== null && originalPackagePrice > 0) {
-      baseBudget = originalPackagePrice;
-    } else {
-      // Fallback to static package data
-      let selectedPackage = weddingPackages.find(
-        (pkg) => pkg.id === selectedPackageId
-      );
-      if (!selectedPackage) {
-        selectedPackage = eventPackages.find(
-          (pkg) => pkg.id === selectedPackageId
-        ) as (typeof weddingPackages)[number] | undefined;
-      }
-      if (selectedPackage) {
-        baseBudget = selectedPackage.allocatedBudget || selectedPackage.price;
-      }
+      // Return the package price as the fixed total - venues are bundled
+      return originalPackagePrice;
     }
 
-    // Calculate venue cost including inclusions
-    if (selectedVenue) {
-      // Use calculated total_venue_price if available from API
-      if (selectedVenue.total_venue_price) {
-        venueCost = parseFloat(selectedVenue.total_venue_price);
-      } else {
-        // Fallback calculation
-        venueCost = parseFloat(selectedVenue.venue_price) || 0;
-        if (
-          selectedVenue.inclusions &&
-          Array.isArray(selectedVenue.inclusions)
-        ) {
-          venueCost += selectedVenue.inclusions.reduce(
-            (sum: number, inclusion: any) => {
-              return sum + (parseFloat(inclusion.inclusion_price) || 0);
-            },
-            0
-          );
-        }
-      }
-    } else if (selectedVenueId && packageVenues.length > 0) {
-      // If venue ID is selected but selectedVenue object isn't set yet
-      const venue = packageVenues.find(
-        (v) => String(v.venue_id) === String(selectedVenueId)
-      );
-      if (venue) {
-        venueCost = parseFloat(venue.venue_price) || 0;
-        if (venue.inclusions && Array.isArray(venue.inclusions)) {
-          venueCost += venue.inclusions.reduce(
-            (sum: number, inclusion: any) => {
-              return sum + (parseFloat(inclusion.inclusion_price) || 0);
-            },
-            0
-          );
-        }
-      }
-    }
+    // Fallback to component-based calculation if no package price is available
+    let total = 0;
 
-    // Add price of any custom components (isCustom)
-    extraComponentCost = components
-      .filter((comp) => comp.isCustom && comp.included !== false)
-      .reduce((sum, comp) => sum + comp.price, 0);
+    components.forEach((component: DataPackageComponent) => {
+      total += component.price || 0;
+    });
 
-    return baseBudget + venueCost + extraComponentCost;
+    return total;
   };
 
   const totalBudget = getTotalBudget();
@@ -418,9 +500,9 @@ export default function EventBuilderPage() {
   };
 
   // Handle event details update
-  const handleEventDetailsUpdate = (details: Partial<EventDetails>) => {
+  const handleEventDetailsUpdate = (details: Partial<EnhancedEventDetails>) => {
     console.log("Updating event details:", details);
-    setEventDetails((prev: EventDetails) => ({
+    setEventDetails((prev: EnhancedEventDetails) => ({
       ...prev,
       ...details,
     }));
@@ -695,7 +777,12 @@ export default function EventBuilderPage() {
 
   // Handle payment data update
   const handlePaymentDataUpdate = (data: Partial<PaymentData>) => {
-    setPaymentData((prev: PaymentData) => ({ ...prev, ...data }));
+    console.log("Updating payment data:", data);
+    setPaymentData((prev) => {
+      const updated = { ...prev, ...data };
+      console.log("Updated payment data:", updated);
+      return updated;
+    });
   };
 
   // Handle timeline updates
@@ -732,19 +819,71 @@ export default function EventBuilderPage() {
     return eventPkg ? eventPkg.name : "Custom Package";
   };
 
+  const getSelectedVenueName = () => {
+    if (!selectedVenueId) return "";
+
+    // Check package venues first (if a package is selected)
+    if (packageVenues.length > 0) {
+      const packageVenue = packageVenues.find(
+        (v: any) => String(v.venue_id) === String(selectedVenueId)
+      );
+      if (packageVenue)
+        return packageVenue.venue_title || packageVenue.venue_name;
+    }
+
+    // Then check all venues
+    const venue = allVenues.find(
+      (v: any) => String(v.venue_id) === String(selectedVenueId)
+    );
+    return venue ? venue.venue_title || venue.venue_name : "Selected Venue";
+  };
+
   const handleComplete = async () => {
+    // Debug: Log payment data
+    console.log("Payment data before validation:", paymentData);
+    console.log("Down payment method:", paymentData.downPaymentMethod);
+    console.log("Reference number:", paymentData.referenceNumber);
+    console.log("Down payment amount:", paymentData.downPayment);
+
     // Check if reference number is required but missing
     if (
       (paymentData.downPaymentMethod === "gcash" ||
         paymentData.downPaymentMethod === "bank-transfer") &&
-      !paymentData.referenceNumber
+      (!paymentData.referenceNumber ||
+        paymentData.referenceNumber.trim() === "")
     ) {
+      console.log(
+        "Reference number required but missing for method:",
+        paymentData.downPaymentMethod
+      );
+      console.log(
+        "Reference number value:",
+        `"${paymentData.referenceNumber}"`
+      );
+      console.log(
+        "Reference number length:",
+        paymentData.referenceNumber?.length || 0
+      );
+      console.log("Full payment data:", paymentData);
       setShowMissingRefDialog(true);
       return;
     }
 
+    // Debug: Log reference number validation success
+    if (
+      paymentData.downPaymentMethod === "gcash" ||
+      paymentData.downPaymentMethod === "bank-transfer"
+    ) {
+      console.log("✅ Reference number validation passed!");
+      console.log("Reference number:", `"${paymentData.referenceNumber}"`);
+    }
+
+    console.log("🔍 Starting additional validations...");
+
     // Validate client data
+    console.log("Client data:", clientData);
     if (!clientData.id) {
+      console.log("❌ Client validation failed - no client ID");
       toast({
         title: "Error",
         description: "Please select a client before creating an event.",
@@ -752,19 +891,80 @@ export default function EventBuilderPage() {
       });
       return;
     }
+    console.log("✅ Client validation passed");
 
     // Validate event details
-    if (!eventDetails.title || !eventDetails.date) {
+    console.log("Event details:", eventDetails);
+    if (!eventDetails.title) {
+      console.log("❌ Event title validation failed");
       toast({
-        title: "Error",
-        description: "Please fill in event title and date.",
+        title: "Validation Error",
+        description: "Event title is required",
         variant: "destructive",
       });
       return;
     }
 
+    if (!eventDetails.date) {
+      console.log("❌ Event date validation failed");
+      toast({
+        title: "Validation Error",
+        description: "Event date is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!eventDetails.startTime || !eventDetails.endTime) {
+      console.log("❌ Event time validation failed");
+      console.log("Start time:", `"${eventDetails.startTime}"`);
+      console.log("End time:", `"${eventDetails.endTime}"`);
+      toast({
+        title: "Validation Error",
+        description: "Start time and end time are required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!eventDetails.capacity || eventDetails.capacity <= 0) {
+      console.log("❌ Event capacity validation failed");
+      toast({
+        title: "Validation Error",
+        description: "Guest count must be greater than 0",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!eventDetails.theme) {
+      console.log("❌ Event theme validation failed");
+      toast({
+        title: "Validation Error",
+        description: "Event theme is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check for scheduling conflicts
+    if (eventDetails.hasConflicts) {
+      console.log("❌ Scheduling conflicts detected");
+      toast({
+        title: "Scheduling Conflict",
+        description:
+          "There are scheduling conflicts with your selected date and time. Please resolve them before proceeding.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    console.log("✅ Event details validation passed");
+
     // Validate package selection
+    console.log("Selected package ID:", selectedPackageId);
     if (!selectedPackageId) {
+      console.log("❌ Package selection validation failed");
       toast({
         title: "Error",
         description: "Please select a package for the event.",
@@ -772,10 +972,13 @@ export default function EventBuilderPage() {
       });
       return;
     }
+    console.log("✅ Package selection validation passed");
 
     // Get admin user data from secure storage
     const userData = secureStorage.getItem("user");
+    console.log("Admin user data:", userData);
     if (!userData || !userData.user_id) {
+      console.log("❌ Admin user validation failed");
       toast({
         title: "Error",
         description: "Admin user information not found. Please log in again.",
@@ -783,6 +986,9 @@ export default function EventBuilderPage() {
       });
       return;
     }
+    console.log("✅ Admin user validation passed");
+
+    console.log("🚀 All validations passed! Starting event creation...");
 
     try {
       // Prepare event data for API
@@ -798,6 +1004,8 @@ export default function EventBuilderPage() {
               : parseInt(selectedOrganizers[0])
             : null,
         event_title: eventDetails.title || "New Event",
+        event_theme: eventDetails.theme || null,
+        event_description: eventDetails.description || null,
         event_type_id: getEventTypeIdFromName(eventDetails.type),
         guest_count: parseInt(eventDetails.capacity.toString()) || 100,
         event_date: eventDetails.date,
@@ -812,6 +1020,100 @@ export default function EventBuilderPage() {
         reference_number: paymentData.referenceNumber || null,
         additional_notes: eventDetails.notes || null,
         event_status: "draft",
+        // Enhanced fields
+        is_recurring: eventDetails.isRecurring || false,
+        recurrence_rule:
+          eventDetails.isRecurring && eventDetails.recurrenceRule
+            ? JSON.stringify(eventDetails.recurrenceRule)
+            : null,
+        client_signature: clientSignature || null,
+        finalized_at: new Date().toISOString(),
+        // Separate event attachments and payment attachments
+        event_attachments: (() => {
+          const eventAttachments: Array<{
+            original_name: string;
+            file_name: string;
+            file_path: string;
+            file_size: number;
+            file_type: string;
+            description: string;
+            attachment_type: string;
+            uploaded_at: string;
+          }> = [];
+
+          // Add event attachments only
+          if (attachments && attachments.length > 0) {
+            attachments.forEach((attachment) => {
+              eventAttachments.push({
+                original_name: attachment.fileName,
+                file_name:
+                  attachment.uploadedPath?.split("/").pop() ||
+                  attachment.fileName,
+                file_path: attachment.uploadedPath || "",
+                file_size: attachment.fileSize,
+                file_type: attachment.fileType,
+                description: "",
+                attachment_type: "event_attachment",
+                uploaded_at: attachment.uploadedAt || new Date().toISOString(),
+              });
+            });
+          }
+
+          return eventAttachments.length > 0
+            ? JSON.stringify(eventAttachments)
+            : null;
+        })(),
+        // Payment attachments for the down payment
+        payment_attachments: (() => {
+          const paymentAttachments: Array<{
+            original_name: string;
+            file_name: string;
+            file_path: string;
+            file_size: number;
+            file_type: string;
+            description: string;
+            proof_type: string;
+            uploaded_at: string;
+          }> = [];
+
+          // Add payment proof attachments
+          if (paymentData && paymentData.paymentAttachments) {
+            paymentData.paymentAttachments.forEach((proof: any) => {
+              paymentAttachments.push({
+                original_name: proof.original_name,
+                file_name: proof.file_name,
+                file_path: proof.file_path,
+                file_size: proof.file_size,
+                file_type: proof.file_type,
+                description: proof.description,
+                proof_type: proof.proof_type,
+                uploaded_at: proof.uploaded_at,
+              });
+            });
+          }
+
+          // Add payment schedule proof attachments if they're for down payment
+          if (paymentData && paymentData.paymentSchedule) {
+            paymentData.paymentSchedule.forEach((scheduleItem: any) => {
+              if (scheduleItem.proof_files) {
+                scheduleItem.proof_files.forEach((proof: any) => {
+                  paymentAttachments.push({
+                    original_name: proof.original_name,
+                    file_name: proof.file_name,
+                    file_path: proof.file_path,
+                    file_size: proof.file_size,
+                    file_type: proof.file_type,
+                    description: proof.description,
+                    proof_type: proof.proof_type,
+                    uploaded_at: proof.uploaded_at,
+                  });
+                });
+              }
+            });
+          }
+
+          return paymentAttachments.length > 0 ? paymentAttachments : null;
+        })(),
         components: components.map((comp, index) => ({
           component_name: comp.name || "",
           component_price: parseFloat(comp.price?.toString() || "0") || 0,
@@ -838,6 +1140,13 @@ export default function EventBuilderPage() {
       };
 
       console.log("Creating event with data:", eventData);
+      console.log("Payment data being sent:", {
+        total_budget: eventData.total_budget,
+        down_payment: eventData.down_payment,
+        payment_method: eventData.payment_method,
+        reference_number: eventData.reference_number,
+        payment_attachments: eventData.payment_attachments,
+      });
 
       // Call API to create event
       const response = await axios.post(
@@ -908,7 +1217,8 @@ export default function EventBuilderPage() {
           }
         }
 
-        setShowSuccessModal(true);
+        // Show completion confirmation modal instead of success modal
+        setShowCompletionModal(true);
 
         // Log transaction
         console.log("Event created successfully:", {
@@ -932,7 +1242,7 @@ export default function EventBuilderPage() {
           variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("API error:", error);
       // Log more details about the error
       if (axios.isAxiosError(error)) {
@@ -958,9 +1268,8 @@ export default function EventBuilderPage() {
         });
       } else {
         toast({
-          title: "Network Error",
-          description:
-            "Failed to connect to server. Please check your internet connection and try again.",
+          title: "API Error",
+          description: "An unexpected error occurred. Please try again later.",
           variant: "destructive",
         });
       }
@@ -1212,12 +1521,22 @@ export default function EventBuilderPage() {
               return;
             }
 
-            // Check if there are conflicts
+            if (!eventDetails.theme) {
+              toast({
+                title: "Validation Error",
+                description: "Event theme is required",
+                variant: "destructive",
+              });
+              return;
+            }
+
+            // Check for scheduling conflicts
             if (eventDetails.hasConflicts) {
+              console.log("❌ Scheduling conflicts detected");
               toast({
                 title: "Scheduling Conflict",
                 description:
-                  "Please choose a different date or time to avoid conflicts",
+                  "There are scheduling conflicts with your selected date and time. Please resolve them before proceeding.",
                 variant: "destructive",
               });
               return;
@@ -1338,7 +1657,7 @@ export default function EventBuilderPage() {
           suppliers={{}}
           updateData={handleTimelineUpdate}
           onNext={() => {
-            const nextStep = eventDetails.type === "wedding" ? 8 : 7;
+            const nextStep = eventDetails.type === "wedding" ? 9 : 8;
             setCurrentStep(nextStep);
           }}
         />
@@ -1353,10 +1672,215 @@ export default function EventBuilderPage() {
           selectedIds={selectedOrganizers}
           onSelect={setSelectedOrganizers}
           onNext={() => {
-            const nextStep = eventDetails.type === "wedding" ? 9 : 8;
+            const nextStep = eventDetails.type === "wedding" ? 10 : 9;
             setCurrentStep(nextStep);
           }}
         />
+      ),
+    },
+    {
+      id: "attachments",
+      title: "Attachments & Details",
+      description: "Upload files and finalize details",
+      component: (
+        <AttachmentsStep
+          eventDetails={eventDetails}
+          attachments={attachments}
+          uploadingFiles={uploadingFiles}
+          clientSignature={clientSignature}
+          onEventDetailsUpdate={handleEventDetailsUpdate}
+          onFileUpload={handleFileUpload}
+          onRemoveAttachment={removeAttachment}
+          onSignatureUpdate={(signature) => setClientSignature(signature)}
+          formatFileSize={formatFileSize}
+        />
+      ),
+    },
+    {
+      id: "review-invoice",
+      title: "Review & Invoice",
+      description: "Final review of event details and costs",
+      component: (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <span>Event Invoice Summary</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Client Information */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3 text-brand-600">
+                  Client Information
+                </h3>
+                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="text-sm text-gray-600">Name</p>
+                    <p className="font-medium">{clientData.name || "N/A"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Email</p>
+                    <p className="font-medium">{clientData.email || "N/A"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Phone</p>
+                    <p className="font-medium">{clientData.phone || "N/A"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Address</p>
+                    <p className="font-medium">{clientData.address || "N/A"}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Event Details */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3 text-brand-600">
+                  Event Details
+                </h3>
+                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="text-sm text-gray-600">Event Title</p>
+                    <p className="font-medium">{eventDetails.title || "N/A"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Event Type</p>
+                    <p className="font-medium capitalize">
+                      {eventDetails.type || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Theme</p>
+                    <p className="font-medium">{eventDetails.theme || "N/A"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Date</p>
+                    <p className="font-medium">
+                      {eventDetails.date
+                        ? new Date(eventDetails.date).toLocaleDateString()
+                        : "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Time</p>
+                    <p className="font-medium">
+                      {eventDetails.startTime && eventDetails.endTime
+                        ? `${eventDetails.startTime} - ${eventDetails.endTime}`
+                        : eventDetails.startTime || eventDetails.endTime}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Guest Count</p>
+                    <p className="font-medium">
+                      {eventDetails.capacity || "N/A"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Selected Package */}
+              {selectedPackageId && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 text-brand-600">
+                    Selected Package
+                  </h3>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="font-medium">
+                          {getSelectedPackageName()}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          All-inclusive event package
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-brand-600">
+                          {formatCurrency(getTotalBudget())}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          Fixed Bundle Price
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Selected Venue */}
+              {selectedVenueId && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 text-brand-600">
+                    Selected Venue
+                  </h3>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="font-medium">{getSelectedVenueName()}</p>
+                    <p className="text-sm text-gray-600">
+                      Included in package bundle
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Organizers */}
+              {selectedOrganizers.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 text-brand-600">
+                    Assigned Organizers
+                  </h3>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    {getOrganizerNames().map((name, index) => (
+                      <div key={index} className="flex items-center mb-2">
+                        <span className="w-2 h-2 bg-brand-500 rounded-full mr-2"></span>
+                        <span className="font-medium">{name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Cost Breakdown */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3 text-brand-600">
+                  Cost Summary
+                </h3>
+                <div className="p-4 bg-gray-50 rounded-lg space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span>Package Total</span>
+                    <span className="font-medium">
+                      {formatCurrency(getTotalBudget())}
+                    </span>
+                  </div>
+                  <div className="border-t pt-3">
+                    <div className="flex justify-between items-center text-lg font-bold">
+                      <span>Total Amount</span>
+                      <span className="text-brand-600">
+                        {formatCurrency(getTotalBudget())}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-sm text-gray-600 mt-2">
+                    * All venue costs, inclusions, and services are bundled in
+                    the package price
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Notes */}
+              {eventDetails.notes && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 text-brand-600">
+                    Additional Notes
+                  </h3>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-gray-700">{eventDetails.notes}</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       ),
     },
     {
@@ -1372,6 +1896,126 @@ export default function EventBuilderPage() {
       ),
     },
   ];
+
+  const clearForm = () => {
+    // Reset all form state
+    setClientData({
+      id: "",
+      name: "",
+      email: "",
+      phone: "",
+      address: "",
+    });
+
+    setEventDetails({
+      type: "birthday",
+      title: "",
+      date: "",
+      startTime: "",
+      endTime: "",
+      capacity: 0,
+      notes: "",
+      venue: "",
+      package: "",
+      theme: "",
+      description: "",
+      isRecurring: false,
+      recurrenceRule: {
+        frequency: "monthly",
+        interval: 1,
+      },
+    });
+
+    setSelectedPackageId(null);
+    setSelectedVenueId(null);
+    setSelectedVenue(null);
+    setComponents([]);
+    setOriginalPackagePrice(null);
+    setSelectedOrganizers([]);
+
+    setPaymentData({
+      total: 0,
+      paymentType: "half",
+      downPayment: 0,
+      balance: 0,
+      customPercentage: 50,
+      downPaymentMethod: "gcash",
+      referenceNumber: "",
+      notes: "",
+      cashBondRequired: false,
+      cashBondStatus: "pending",
+      scheduleTypeId: 2,
+    });
+
+    setTimelineData([]);
+    setAttachments([]);
+    setClientSignature("");
+    setWeddingFormData({
+      nuptial: "",
+      motif: "",
+      bride_name: "",
+      bride_size: "",
+      groom_name: "",
+      groom_size: "",
+      mother_bride_name: "",
+      mother_bride_size: "",
+      father_bride_name: "",
+      father_bride_size: "",
+      mother_groom_name: "",
+      mother_groom_size: "",
+      father_groom_name: "",
+      father_groom_size: "",
+      maid_of_honor_name: "",
+      maid_of_honor_size: "",
+      best_man_name: "",
+      best_man_size: "",
+      little_bride_name: "",
+      little_bride_size: "",
+      little_groom_name: "",
+      little_groom_size: "",
+      bridesmaids_qty: 0,
+      bridesmaids_names: [],
+      groomsmen_qty: 0,
+      groomsmen_names: [],
+      junior_groomsmen_qty: 0,
+      junior_groomsmen_names: [],
+      flower_girls_qty: 0,
+      flower_girls_names: [],
+      ring_bearer_qty: 0,
+      ring_bearer_names: [],
+      bible_bearer_qty: 0,
+      bible_bearer_names: [],
+      coin_bearer_qty: 0,
+      coin_bearer_names: [],
+      cushions_qty: 0,
+      headdress_qty: 0,
+      shawls_qty: 0,
+      veil_cord_qty: 0,
+      basket_qty: 0,
+      petticoat_qty: 0,
+      neck_bowtie_qty: 0,
+      garter_leg_qty: 0,
+      fitting_form_qty: 0,
+      robe_qty: 0,
+      prepared_by: "",
+      received_by: "",
+      pickup_date: "",
+      return_date: "",
+      customer_signature: "",
+    });
+
+    setCurrentEventId(null);
+    setEventData({
+      eventTitle: "",
+      eventDate: "",
+      eventId: `EV-${Math.floor(Math.random() * 10000)
+        .toString()
+        .padStart(4, "0")}`,
+    });
+
+    // Reset step to first step
+    // Note: This would need to be passed from MultiStepWizard if we want to reset steps
+  };
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -1425,11 +2069,35 @@ export default function EventBuilderPage() {
                     <p className="font-medium">{eventDetails.title}</p>
                   </div>
                 )}
+                {eventDetails.type && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Event Type</p>
+                    <p className="font-medium capitalize">
+                      {eventDetails.type}
+                    </p>
+                  </div>
+                )}
+                {eventDetails.theme && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Theme</p>
+                    <p className="font-medium">{eventDetails.theme}</p>
+                  </div>
+                )}
                 {eventDetails.date && (
                   <div>
                     <p className="text-sm text-muted-foreground">Date</p>
                     <p className="font-medium">
                       {new Date(eventDetails.date).toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+                {(eventDetails.startTime || eventDetails.endTime) && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Time</p>
+                    <p className="font-medium">
+                      {eventDetails.startTime && eventDetails.endTime
+                        ? `${eventDetails.startTime} - ${eventDetails.endTime}`
+                        : eventDetails.startTime || eventDetails.endTime}
                     </p>
                   </div>
                 )}
@@ -1455,6 +2123,12 @@ export default function EventBuilderPage() {
                   <div>
                     <p className="text-sm text-muted-foreground">Package</p>
                     <p className="font-medium">{getSelectedPackageName()}</p>
+                  </div>
+                )}
+                {selectedVenueId && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Venue</p>
+                    <p className="font-medium">{getSelectedVenueName()}</p>
                   </div>
                 )}
                 {totalBudget > 0 && (
@@ -1494,6 +2168,14 @@ export default function EventBuilderPage() {
                     </p>
                     <p className="font-medium capitalize">
                       {paymentData.cashBondStatus}
+                    </p>
+                  </div>
+                )}
+                {eventDetails.notes && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Notes</p>
+                    <p className="font-medium text-sm text-gray-600 max-w-[240px] break-words">
+                      {eventDetails.notes}
                     </p>
                   </div>
                 )}
@@ -1542,6 +2224,65 @@ export default function EventBuilderPage() {
           <DialogFooter>
             <Button onClick={() => setShowMissingRefDialog(false)}>
               Go Back
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Completion Confirmation Modal */}
+      <Dialog open={showCompletionModal} onOpenChange={setShowCompletionModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span>🎉</span>
+              Event Created Successfully!
+            </DialogTitle>
+            <DialogDescription>
+              Your event has been created and saved successfully! What would you
+              like to do next?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col space-y-2 sm:flex-col sm:space-x-0">
+            <Button
+              onClick={() => {
+                setShowCompletionModal(false);
+                clearForm();
+                router.push("/admin/dashboard");
+              }}
+              className="w-full bg-brand-600 hover:bg-brand-700"
+            >
+              Go to Dashboard
+            </Button>
+            <Button
+              onClick={() => {
+                setShowCompletionModal(false);
+                clearForm();
+                router.push("/admin/events");
+              }}
+              variant="outline"
+              className="w-full"
+            >
+              View All Events
+            </Button>
+            <Button
+              onClick={() => {
+                setShowCompletionModal(false);
+                clearForm();
+                router.push(`/admin/events/${currentEventId || "calendar"}`);
+              }}
+              variant="outline"
+              className="w-full"
+            >
+              View Event Calendar
+            </Button>
+            <Button
+              onClick={() => {
+                setShowCompletionModal(false);
+              }}
+              variant="ghost"
+              className="w-full"
+            >
+              Make Changes (Stay Here)
             </Button>
           </DialogFooter>
         </DialogContent>

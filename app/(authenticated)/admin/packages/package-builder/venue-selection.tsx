@@ -1,5 +1,5 @@
 import React from "react";
-import Image from "next/image";
+import { MapPin, Users } from "lucide-react";
 
 interface Venue {
   venue_id: number;
@@ -23,12 +23,15 @@ export const VenueSelection: React.FC<VenueSelectionProps> = ({
   onVenueToggle,
 }) => {
   return (
-    <div className="bg-white rounded-xl shadow p-8 space-y-6">
-      <h2 className="text-xl font-semibold mb-1">Select Venues</h2>
-      <p className="text-gray-500 text-sm mb-4">
-        Choose one or more venues to include in this package. Click a card to
-        select or deselect.
-      </p>
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-medium mb-4">Select Venues</h3>
+        <p className="text-gray-600 mb-6">
+          Choose one or more venues to include in this package. Clients will be
+          able to choose from these selected venues.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {venues.map((venue) => {
           const isSelected = selectedVenueIds.includes(venue.venue_id);
@@ -37,8 +40,8 @@ export const VenueSelection: React.FC<VenueSelectionProps> = ({
               key={venue.venue_id}
               className={`relative border rounded-lg p-0 cursor-pointer transition-all group bg-white shadow-sm flex flex-col items-center ${
                 isSelected
-                  ? "border-blue-500 ring-2 ring-blue-200 bg-blue-50"
-                  : "border-gray-200 hover:border-blue-300"
+                  ? "border-green-500 ring-2 ring-green-200 bg-green-50"
+                  : "border-gray-200 hover:border-green-300 hover:shadow-md"
               }`}
               onClick={() => onVenueToggle(venue.venue_id)}
               style={{ minHeight: 340 }}
@@ -48,33 +51,39 @@ export const VenueSelection: React.FC<VenueSelectionProps> = ({
                   type="checkbox"
                   checked={isSelected}
                   readOnly
-                  className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  className="h-5 w-5 text-green-600 border-gray-300 rounded focus:ring-green-500"
                   tabIndex={-1}
                 />
               </div>
+
               <div className="relative w-full h-28 md:h-32 lg:h-36 rounded-t-lg overflow-hidden">
-                <Image
-                  src={venue.venue_profile_picture || "/placeholder-venue.jpg"}
+                <img
+                  src={
+                    venue.venue_profile_picture
+                      ? `http://localhost/events-api/${venue.venue_profile_picture}`
+                      : "/placeholder-venue.jpg"
+                  }
                   alt={venue.venue_title}
-                  fill
-                  className="object-cover"
+                  className="w-full h-full object-cover"
                 />
               </div>
+
               <div className="relative w-full flex justify-center">
                 <div className="absolute -top-8 z-10">
                   <div className="w-16 h-16 rounded-full border-4 border-white shadow-lg overflow-hidden bg-gray-100">
-                    <Image
+                    <img
                       src={
-                        venue.venue_profile_picture || "/placeholder-venue.jpg"
+                        venue.venue_profile_picture
+                          ? `http://localhost/events-api/${venue.venue_profile_picture}`
+                          : "/placeholder-venue.jpg"
                       }
                       alt={venue.venue_title}
-                      width={64}
-                      height={64}
                       className="object-cover w-16 h-16"
                     />
                   </div>
                 </div>
               </div>
+
               <div className="pt-10 pb-4 px-4 w-full flex-1 flex flex-col items-center text-center">
                 <h4 className="font-semibold text-lg mb-1">
                   {venue.venue_title}
@@ -82,46 +91,17 @@ export const VenueSelection: React.FC<VenueSelectionProps> = ({
                 <p className="text-sm text-gray-600 mb-2 line-clamp-2">
                   {venue.venue_details}
                 </p>
+
                 <div className="flex flex-col gap-1 text-sm text-gray-600 w-full items-center">
                   <span className="flex items-center justify-center">
-                    <svg
-                      className="w-4 h-4 mr-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
+                    <MapPin className="w-4 h-4 mr-1" />
                     {venue.venue_location}
                   </span>
                   <span className="flex items-center justify-center">
-                    <svg
-                      className="w-4 h-4 mr-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                      />
-                    </svg>
+                    <Users className="w-4 h-4 mr-1" />
                     Capacity: {venue.venue_capacity} guests
                   </span>
-                  <span className="font-semibold text-blue-600">
+                  <span className="font-semibold text-green-600 mt-1">
                     ₱{(venue.total_price || 0).toLocaleString()}
                   </span>
                 </div>
@@ -130,6 +110,28 @@ export const VenueSelection: React.FC<VenueSelectionProps> = ({
           );
         })}
       </div>
+
+      {venues.length === 0 && (
+        <div className="text-center py-12">
+          <div className="text-gray-400 mb-4">
+            <MapPin className="w-12 h-12 mx-auto" />
+          </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            No venues available
+          </h3>
+          <p className="text-gray-600">
+            Please add venues to the system before creating packages.
+          </p>
+        </div>
+      )}
+
+      {selectedVenueIds.length === 0 && venues.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <p className="text-amber-800 text-sm">
+            Please select at least one venue for this package.
+          </p>
+        </div>
+      )}
     </div>
   );
 };

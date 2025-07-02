@@ -17,7 +17,7 @@ const SuccessModal: FC<SuccessModalProps> = ({
     <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white p-6 rounded-lg shadow-md w-96">
         <div className="flex justify-center">
-          <Check className="rounded-full bg-[#334746] text-[white] h-10 w-10 p-2" />
+          <Check className="rounded-full bg-brand-500 text-white h-10 w-10 p-2" />
         </div>
         <p className="text-lg font-bold text-center mb-4">{message}</p>
         <p className="text-center">
@@ -27,7 +27,7 @@ const SuccessModal: FC<SuccessModalProps> = ({
         <div className="flex justify-center mt-3">
           <button
             onClick={onClose}
-            className="bg-[#334746] hover:bg-[#334746] text-white font-bold py-2 px-4 rounded w-full"
+            className="bg-brand-500 hover:bg-brand-600 text-white font-bold py-2 px-4 rounded w-full"
           >
             {actionLabel}
           </button>

@@ -874,16 +874,6 @@ export function WeddingFormStep({
           </div>
         </CardContent>
       </Card>
-
-      {/* Action Buttons */}
-      <div className="flex justify-between pt-6">
-        <Button variant="outline" onClick={() => window.history.back()}>
-          Back
-        </Button>
-        <Button onClick={handleNext} disabled={loading}>
-          {loading ? "Saving..." : "Save & Continue"}
-        </Button>
-      </div>
     </div>
   );
 }

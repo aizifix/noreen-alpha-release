@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Calendar, Clock, AlertTriangle } from "lucide-react";
+import { Calendar, Clock, AlertTriangle, CheckCircle } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import {
@@ -25,7 +25,8 @@ import { cn } from "@/lib/utils";
 import { EventDetails } from "@/app/types";
 import type { EventDetailsStepProps } from "@/app/types/event-builder";
 import axios from "axios";
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "@/hooks/use-toast";
+import { CircularTimePicker } from "./circular-time-picker";
 
 // Interface for conflicting events
 interface ConflictingEvent {
@@ -43,9 +44,18 @@ export function EventDetailsStep({
   onUpdate,
   onNext,
 }: EventDetailsStepProps) {
-  const [date, setDate] = useState<Date | undefined>(
-    initialData.date ? new Date(initialData.date) : undefined
-  );
+  const [date, setDate] = useState<Date | undefined>(() => {
+    if (initialData.date) {
+      try {
+        const parsedDate = new Date(initialData.date);
+        return !isNaN(parsedDate.getTime()) ? parsedDate : undefined;
+      } catch (error) {
+        console.error("Error parsing initial date:", initialData.date, error);
+        return undefined;
+      }
+    }
+    return undefined;
+  });
   const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
   const [conflictingEvents, setConflictingEvents] = useState<
     ConflictingEvent[]
@@ -54,13 +64,33 @@ export function EventDetailsStep({
 
   // Update date when data changes (e.g., from booking lookup)
   useEffect(() => {
-    if (
-      initialData.date &&
-      (!date || format(date, "yyyy-MM-dd") !== initialData.date)
-    ) {
-      setDate(new Date(initialData.date));
+    if (initialData.date) {
+      try {
+        const parsedDate = new Date(initialData.date);
+        if (
+          !isNaN(parsedDate.getTime()) &&
+          (!date || format(date, "yyyy-MM-dd") !== initialData.date)
+        ) {
+          setDate(parsedDate);
+        }
+      } catch (error) {
+        console.error("Error parsing date:", initialData.date, error);
+      }
     }
-  }, [initialData.date, date]);
+  }, [initialData.date]);
+
+  // Set default times if not already set
+  useEffect(() => {
+    if (!initialData.startTime || !initialData.endTime) {
+      const defaultData = {
+        ...initialData,
+        startTime: initialData.startTime || "10:00",
+        endTime: initialData.endTime || "18:00",
+      };
+      console.log("Setting default times:", defaultData);
+      onUpdate(defaultData);
+    }
+  }, []);
 
   // Check for conflicts when date or time changes
   useEffect(() => {
@@ -71,15 +101,29 @@ export function EventDetailsStep({
 
   // Notify parent component about conflicts
   useEffect(() => {
-    onUpdate({ ...initialData, hasConflicts });
+    const updatedData = { ...initialData, hasConflicts };
+    console.log("Updating parent with conflict status:", updatedData);
+    onUpdate(updatedData);
   }, [hasConflicts]);
 
   const handleDateSelect = (selectedDate: Date | undefined) => {
     setDate(selectedDate);
-    onUpdate({
+
+    const formattedDate = selectedDate
+      ? format(selectedDate, "yyyy-MM-dd")
+      : "";
+
+    const updatedData = {
       ...initialData,
-      date: selectedDate ? format(selectedDate, "yyyy-MM-dd") : "",
-    });
+      date: formattedDate,
+    };
+
+    onUpdate(updatedData);
+
+    // Check for conflicts when date changes
+    if (selectedDate) {
+      setTimeout(checkForConflicts, 100);
+    }
   };
 
   const handleTimeChange = (field: "startTime" | "endTime", value: string) => {
@@ -116,32 +160,70 @@ export function EventDetailsStep({
     }
 
     onUpdate(updatedData);
+
+    // Check for conflicts when time changes
+    setTimeout(checkForConflicts, 100);
   };
 
   const checkForConflicts = async () => {
-    if (!initialData.date || !initialData.startTime || !initialData.endTime) {
+    console.log(
+      "Checking conflicts - date:",
+      date,
+      "startTime:",
+      initialData.startTime,
+      "endTime:",
+      initialData.endTime
+    );
+
+    if (!date || !initialData.startTime || !initialData.endTime) {
+      console.log("Skipping conflict check - missing required data");
+      setHasConflicts(false);
+      setConflictingEvents([]);
+      onUpdate({ ...initialData, hasConflicts: false });
       return;
     }
 
     setIsCheckingConflicts(true);
-    try {
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "checkEventConflicts",
-          event_date: initialData.date,
-          start_time: initialData.startTime,
-          end_time: initialData.endTime,
-        }
-      );
 
-      if (response.data.status === "success") {
-        const conflicts = response.data.conflicts || [];
-        setConflictingEvents(conflicts);
-        setHasConflicts(conflicts.length > 0);
+    try {
+      const eventDate = format(date, "yyyy-MM-dd");
+      console.log("Checking conflicts for date:", eventDate);
+
+      const requestBody = new URLSearchParams({
+        operation: "checkEventConflicts",
+        event_date: eventDate,
+        start_time: initialData.startTime,
+        end_time: initialData.endTime,
+        exclude_event_id: "", // New event
+      });
+
+      const response = await fetch("http://localhost/events-api/admin.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: requestBody,
+      });
+
+      const data = await response.json();
+      console.log("Conflict check response:", data);
+
+      if (data.status === "success") {
+        const hasConflictsFound = data.hasConflicts || false;
+        setHasConflicts(hasConflictsFound);
+        setConflictingEvents(data.conflicts || []);
+
+        // Update parent component with conflict status
+        onUpdate({ ...initialData, hasConflicts: hasConflictsFound });
+      } else {
+        console.error("Error checking conflicts:", data.message);
+        setHasConflicts(false);
+        setConflictingEvents([]);
+        onUpdate({ ...initialData, hasConflicts: false });
       }
     } catch (error) {
       console.error("Error checking conflicts:", error);
+      setHasConflicts(false);
+      setConflictingEvents([]);
+      onUpdate({ ...initialData, hasConflicts: false });
     } finally {
       setIsCheckingConflicts(false);
     }
@@ -237,84 +319,150 @@ export function EventDetailsStep({
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2">
-            <Label htmlFor="event-date">
-              Event Date <span className="text-red-500">*</span>
-            </Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  id="event-date"
-                  variant={"outline"}
-                  className={cn(
-                    "w-full justify-start text-left font-normal",
-                    !date && "text-muted-foreground"
-                  )}
-                >
-                  <Calendar className="mr-2 h-4 w-4" />
-                  {date ? format(date, "PPP") : <span>Select date</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
-                <CalendarComponent
-                  mode="single"
-                  selected={date}
-                  onSelect={handleDateSelect}
-                  disabled={(date) => date < new Date()}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
+        {/* Event Theme Dropdown */}
+        <div className="space-y-2">
+          <Label htmlFor="event-theme">
+            Event Theme <span className="text-red-500">*</span>
+          </Label>
+          <Select
+            value={initialData.theme || ""}
+            onValueChange={(value) =>
+              onUpdate({ ...initialData, theme: value })
+            }
+          >
+            <SelectTrigger id="event-theme">
+              <SelectValue placeholder="Select event theme" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="classic-elegance">Classic Elegance</SelectItem>
+              <SelectItem value="modern-minimalist">
+                Modern Minimalist
+              </SelectItem>
+              <SelectItem value="rustic-garden">Rustic Garden</SelectItem>
+              <SelectItem value="vintage-romance">Vintage Romance</SelectItem>
+              <SelectItem value="boho-chic">Boho Chic</SelectItem>
+              <SelectItem value="tropical-paradise">
+                Tropical Paradise
+              </SelectItem>
+              <SelectItem value="winter-wonderland">
+                Winter Wonderland
+              </SelectItem>
+              <SelectItem value="fairy-tale">Fairy Tale</SelectItem>
+              <SelectItem value="art-deco">Art Deco</SelectItem>
+              <SelectItem value="beach-themed">Beach Themed</SelectItem>
+              <SelectItem value="cultural-traditional">
+                Cultural Traditional
+              </SelectItem>
+              <SelectItem value="color-coordinated">
+                Color Coordinated
+              </SelectItem>
+              <SelectItem value="custom">Custom Theme</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Enhanced Date and Time Selection Section */}
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-blue-600" />
+            Date & Time Selection
+          </h3>
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Date Selection */}
+            <div className="space-y-2">
+              <Label htmlFor="event-date">
+                Event Date <span className="text-red-500">*</span>
+                {hasConflicts && (
+                  <span className="text-red-500 ml-2">
+                    ⚠️ Conflict detected!
+                  </span>
+                )}
+              </Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="event-date"
+                    variant={"outline"}
+                    className={cn(
+                      "w-full justify-start text-left font-normal bg-white hover:bg-gray-50",
+                      !date && "text-muted-foreground",
+                      hasConflicts && "border-red-500 border-2 shadow-red-100"
+                    )}
+                  >
+                    <Calendar className="mr-2 h-4 w-4" />
+                    {date ? format(date, "PPP") : <span>Select date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <CalendarComponent
+                    mode="single"
+                    selected={date}
+                    onSelect={handleDateSelect}
+                    disabled={(checkDate) => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const dateToCheck = new Date(checkDate);
+                      dateToCheck.setHours(0, 0, 0, 0);
+                      return dateToCheck < today;
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Start Time with Circular Picker */}
+            <div className="space-y-2">
+              <CircularTimePicker
+                value={initialData.startTime || "10:00"}
+                onChange={(value) => handleTimeChange("startTime", value)}
+                label={
+                  <span>
+                    Start Time <span className="text-red-500">*</span>
+                  </span>
+                }
+                hasConflict={hasConflicts}
+              />
+            </div>
+
+            {/* End Time with Circular Picker */}
+            <div className="space-y-2">
+              <CircularTimePicker
+                value={initialData.endTime || "18:00"}
+                onChange={(value) => handleTimeChange("endTime", value)}
+                label={
+                  <span>
+                    End Time <span className="text-red-500">*</span>
+                  </span>
+                }
+                hasConflict={hasConflicts}
+              />
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="start-time">
-              Start Time <span className="text-red-500">*</span>
-            </Label>
-            <Select
-              value={initialData.startTime || ""}
-              onValueChange={(value) => handleTimeChange("startTime", value)}
-            >
-              <SelectTrigger id="start-time">
-                <SelectValue placeholder="Select start time" />
-              </SelectTrigger>
-              <SelectContent>
-                {timeOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      {option.label}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="end-time">
-              End Time <span className="text-red-500">*</span>
-            </Label>
-            <Select
-              value={initialData.endTime || ""}
-              onValueChange={(value) => handleTimeChange("endTime", value)}
-            >
-              <SelectTrigger id="end-time">
-                <SelectValue placeholder="Select end time" />
-              </SelectTrigger>
-              <SelectContent>
-                {timeOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      {option.label}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Time Duration Display */}
+          {initialData.startTime && initialData.endTime && (
+            <div className="mt-4 p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Event Duration:</span>
+                <span className="font-medium text-gray-900">
+                  {(() => {
+                    const start = new Date(
+                      `2000-01-01T${initialData.startTime}`
+                    );
+                    const end = new Date(`2000-01-01T${initialData.endTime}`);
+                    const diffMs = end.getTime() - start.getTime();
+                    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                    const diffMinutes = Math.floor(
+                      (diffMs % (1000 * 60 * 60)) / (1000 * 60)
+                    );
+                    return `${diffHours}h ${diffMinutes}m`;
+                  })()}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -345,64 +493,119 @@ export function EventDetailsStep({
           </div>
         )}
 
-        {/* Conflict warning */}
+        {/* Enhanced Conflict warning */}
         {hasConflicts && conflictingEvents.length > 0 && (
-          <Alert className="border-red-200 bg-red-50">
-            <AlertTriangle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">
-              <div className="space-y-2">
-                <p className="font-medium">
-                  ⚠️ Scheduling conflicts detected! The following events overlap
-                  with your selected time:
+          <div className="bg-gradient-to-r from-red-50 to-pink-50 border-2 border-red-300 rounded-lg p-6 shadow-lg">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+                  <AlertTriangle className="h-6 w-6 text-white" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-3">
+                  <h4 className="text-xl font-bold text-red-800">
+                    🚨 Scheduling Conflicts Detected!
+                  </h4>
+                </div>
+                <p className="text-red-700 font-medium mb-4">
+                  ⚠️ The following events overlap with your selected time slot:
                 </p>
-                <div className="space-y-1">
+
+                <div className="space-y-3 mb-4">
                   {conflictingEvents.map((event) => (
                     <div
                       key={event.event_id}
-                      className="text-sm bg-white p-2 rounded border"
+                      className="bg-white p-4 rounded-lg border-2 border-red-200 shadow-sm hover:shadow-md transition-shadow"
                     >
-                      <div className="font-medium">{event.event_title}</div>
-                      <div className="text-gray-600">
-                        Client: {event.client_name} • Venue:{" "}
-                        {event.venue_name || "TBD"}
-                      </div>
-                      <div className="text-gray-600">
-                        Time:{" "}
-                        {format(
-                          new Date(`2000-01-01T${event.start_time}`),
-                          "h:mm a"
-                        )}{" "}
-                        -{" "}
-                        {format(
-                          new Date(`2000-01-01T${event.end_time}`),
-                          "h:mm a"
-                        )}
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="font-bold text-red-800 text-lg mb-1">
+                            {event.event_title}
+                          </div>
+                          <div className="text-red-700 text-sm space-y-1">
+                            <div className="flex items-center gap-4">
+                              <span>
+                                <strong>Client:</strong> {event.client_name}
+                              </span>
+                              <span>
+                                <strong>Venue:</strong>{" "}
+                                {event.venue_name || "TBD"}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Clock className="h-4 w-4" />
+                              <strong>Time:</strong>{" "}
+                              {format(
+                                new Date(`2000-01-01T${event.start_time}`),
+                                "h:mm a"
+                              )}{" "}
+                              -{" "}
+                              {format(
+                                new Date(`2000-01-01T${event.end_time}`),
+                                "h:mm a"
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <p className="text-sm">
-                  Please choose a different date or time to avoid conflicts.
-                </p>
+
+                <div className="bg-red-100 border-l-4 border-red-500 p-4 rounded-r-lg">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0" />
+                    <div>
+                      <p className="font-bold text-red-900 text-lg">
+                        Action Required
+                      </p>
+                      <p className="text-red-800 text-sm mt-1">
+                        Please select a different date or time to avoid
+                        scheduling conflicts. You cannot proceed to the next
+                        step until this is resolved.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </AlertDescription>
-          </Alert>
+            </div>
+          </div>
         )}
 
-        {/* Success message when no conflicts */}
+        {/* Enhanced Success message when no conflicts */}
         {!hasConflicts &&
           !isCheckingConflicts &&
           initialData.date &&
           initialData.startTime &&
           initialData.endTime && (
-            <Alert className="border-green-200 bg-green-50">
-              <div className="flex items-center gap-2">
-                <div className="h-4 w-4 rounded-full bg-green-500"></div>
-                <span className="text-green-800 font-medium">
-                  ✓ No scheduling conflicts found
-                </span>
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg p-6 shadow-lg">
+              <div className="flex items-center gap-4">
+                <div className="flex-shrink-0">
+                  <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center">
+                    <CheckCircle className="h-6 w-6 text-white" />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h4 className="text-xl font-bold text-green-800">
+                      ✅ Perfect! No Conflicts Found
+                    </h4>
+                  </div>
+                  <p className="text-green-700 font-medium mb-3">
+                    Your selected date and time slot is completely available.
+                  </p>
+                  <div className="bg-green-100 border-l-4 border-green-500 p-3 rounded-r-lg">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-green-800 text-sm font-medium">
+                        You can proceed to the next step with confidence!
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </Alert>
+            </div>
           )}
 
         <div className="space-y-2">

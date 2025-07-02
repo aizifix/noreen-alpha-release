@@ -41,25 +41,25 @@ export default function LandingPage() {
               <div className="ml-10 flex items-baseline space-x-8">
                 <Link
                   href="#features"
-                  className="text-gray-700 hover:text-[#334746] transition-colors"
+                  className="text-gray-700 hover:text-brand-500 transition-colors"
                 >
                   Features
                 </Link>
                 <Link
                   href="#services"
-                  className="text-gray-700 hover:text-[#334746] transition-colors"
+                  className="text-gray-700 hover:text-brand-500 transition-colors"
                 >
                   Services
                 </Link>
                 <Link
                   href="#about"
-                  className="text-gray-700 hover:text-[#334746] transition-colors"
+                  className="text-gray-700 hover:text-brand-500 transition-colors"
                 >
                   About
                 </Link>
                 <Link
                   href="#contact"
-                  className="text-gray-700 hover:text-[#334746] transition-colors"
+                  className="text-gray-700 hover:text-brand-500 transition-colors"
                 >
                   Contact
                 </Link>
@@ -71,13 +71,13 @@ export default function LandingPage() {
               <Link href="/auth/login">
                 <Button
                   variant="ghost"
-                  className="text-gray-700 hover:text-[#334746]"
+                  className="text-gray-700 hover:text-brand-500"
                 >
                   Login
                 </Button>
               </Link>
               <Link href="/auth/signup">
-                <Button className="bg-[#334746] hover:bg-gray-800">
+                <Button className="bg-brand-500 hover:bg-brand-600">
                   Get Started
                 </Button>
               </Link>
@@ -151,7 +151,7 @@ export default function LandingPage() {
           <div className="text-center">
             <h1 className="text-4xl md:text-6xl font-bold text-gray-900 mb-6">
               Plan Your Perfect
-              <span className="text-[#334746]"> Event</span>
+              <span className="text-brand-500"> Event</span>
             </h1>
             <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
               From intimate gatherings to grand celebrations, our comprehensive
@@ -160,7 +160,7 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/auth/signup">
-                <Button size="lg" className="bg-[#334746] hover:bg-gray-800">
+                <Button size="lg" className="bg-brand-500 hover:bg-brand-600">
                   Start Planning <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
@@ -205,8 +205,8 @@ export default function LandingPage() {
 
             <Card className="border-none shadow-lg hover:shadow-xl transition-shadow">
               <CardHeader className="text-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <MapPin className="h-8 w-8 text-[#334746]" />
+                <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <MapPin className="h-8 w-8 text-brand-500" />
                 </div>
                 <CardTitle className="text-xl">Venue Management</CardTitle>
               </CardHeader>
@@ -220,8 +220,8 @@ export default function LandingPage() {
 
             <Card className="border-none shadow-lg hover:shadow-xl transition-shadow">
               <CardHeader className="text-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Users className="h-8 w-8 text-[#334746]" />
+                <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Users className="h-8 w-8 text-brand-500" />
                 </div>
                 <CardTitle className="text-xl">Guest Management</CardTitle>
               </CardHeader>
@@ -235,8 +235,8 @@ export default function LandingPage() {
 
             <Card className="border-none shadow-lg hover:shadow-xl transition-shadow">
               <CardHeader className="text-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Star className="h-8 w-8 text-[#334746]" />
+                <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Star className="h-8 w-8 text-brand-500" />
                 </div>
                 <CardTitle className="text-xl">Premium Packages</CardTitle>
               </CardHeader>
@@ -326,12 +326,12 @@ export default function LandingPage() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-24 bg-[#334746]">
+      <section className="py-24 bg-brand-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
             Ready to Plan Your Next Event?
           </h2>
-          <p className="text-xl text-green-100 mb-8 max-w-2xl mx-auto">
+          <p className="text-xl text-brand-100 mb-8 max-w-2xl mx-auto">
             Join thousands of satisfied clients who trust us with their most
             important celebrations
           </p>
@@ -339,7 +339,7 @@ export default function LandingPage() {
             <Link href="/auth/signup">
               <Button
                 size="lg"
-                className="bg-white text-[#334746] hover:bg-gray-100"
+                className="bg-white text-brand-700 hover:bg-gray-100"
               >
                 Get Started Today
               </Button>
@@ -348,7 +348,7 @@ export default function LandingPage() {
               <Button
                 size="lg"
                 variant="outline"
-                className="border-white text-white hover:bg-white hover:text-[#334746]"
+                className="border-white text-white hover:bg-white hover:text-brand-700"
               >
                 Login to Your Account
               </Button>
@@ -362,7 +362,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
-              <h3 className="text-2xl font-bold text-green-400 mb-4">Noreen</h3>
+              <h3 className="text-2xl font-bold text-brand-400 mb-4">Noreen</h3>
               <p className="text-gray-400">
                 Your trusted partner in creating unforgettable events and
                 celebrations.

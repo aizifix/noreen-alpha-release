@@ -21,10 +21,11 @@ export function VenueCard({
   venueType,
   venueStatus,
 }: VenueCardProps) {
-  // Normalize Image Paths
+  // Normalize Image Paths using image serving script
   const normalizePath = (path: string | null) => {
     if (!path || path.startsWith("http")) return path;
-    return `http://localhost/events-api/${path}`;
+    // Use the image serving script for proper image delivery
+    return `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(path)}`;
   };
 
   const coverPhotoUrl =

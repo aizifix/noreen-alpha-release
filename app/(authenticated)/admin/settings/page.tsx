@@ -513,7 +513,7 @@ export default function SettingsPage() {
                     src={
                       userProfile?.user_pfp &&
                       userProfile.user_pfp.trim() !== ""
-                        ? `http://localhost/events-api/${userProfile.user_pfp}`
+                        ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(userProfile.user_pfp)}`
                         : "/default_pfp.png"
                     }
                     alt="Profile"

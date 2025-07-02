@@ -58,7 +58,7 @@ export default function VendorLayout({
         const existingData = secureStorage.getItem("user");
         if (!existingData) {
           console.log("No valid user data found, redirecting to login");
-          router.push("/auth/login");
+          router.replace("/auth/login");
           return;
         }
 
@@ -66,11 +66,20 @@ export default function VendorLayout({
         if (
           !existingData.user_id ||
           !existingData.user_role ||
-          existingData.user_role.toLowerCase() !== "vendor"
+          (existingData.user_role.toLowerCase() !== "vendor" &&
+            existingData.user_role.toLowerCase() !== "organizer")
         ) {
           console.log("Invalid or incomplete user data");
-          secureStorage.removeItem("user");
-          router.push("/auth/login");
+          // Redirect to correct dashboard based on role
+          const role = existingData.user_role?.toLowerCase();
+          if (role === "admin") {
+            router.replace("/admin/dashboard");
+          } else if (role === "client") {
+            router.replace("/client/dashboard");
+          } else {
+            secureStorage.removeItem("user");
+            router.replace("/auth/login");
+          }
           return;
         }
 
@@ -112,12 +121,12 @@ export default function VendorLayout({
         console.error("Critical error in fetchUserData:", error);
         // Clean up and redirect
         secureStorage.removeItem("user");
-        router.push("/auth/login");
+        router.replace("/auth/login");
       }
     };
 
     fetchUserData();
-  }, [router]);
+  }, []); // Remove router dependency to prevent repeated calls
 
   const handleLogout = () => {
     try {
@@ -133,12 +142,12 @@ export default function VendorLayout({
       // Set user to null immediately to prevent loading state
       setUser(null);
 
-      // Use window.location for a hard redirect
-      window.location.href = "/auth/login";
+      // Clear browser history and redirect
+      window.location.replace("/auth/login");
     } catch (error) {
       console.error("Error during logout:", error);
       // Force redirect even if there's an error
-      window.location.href = "/auth/login";
+      window.location.replace("/auth/login");
     }
   };
 
@@ -186,8 +195,8 @@ export default function VendorLayout({
                       href={item.href}
                       className={`flex w-full items-center gap-3 px-3 py-2 rounded-md transition ${
                         isActive
-                          ? "bg-[#486968] text-white"
-                          : "text-[#797979] hover:bg-[#486968] hover:text-white"
+                          ? "bg-brand-500 text-white"
+                          : "text-[#797979] hover:bg-brand-500 hover:text-white"
                       }`}
                     >
                       <item.icon className="h-5 w-5" />
@@ -203,7 +212,7 @@ export default function VendorLayout({
             <SidebarMenuButton>
               <button
                 onClick={handleLogout}
-                className="flex w-full items-center gap-3 px-3 py-2 text-[#797979] hover:bg-[#486968] hover:text-white rounded-md"
+                className="flex w-full items-center gap-3 px-3 py-2 text-[#797979] hover:bg-brand-500 hover:text-white rounded-md"
               >
                 <LogOut className="h-5 w-5" />
                 <span>Log out</span>
@@ -225,7 +234,7 @@ export default function VendorLayout({
           <div className="flex items-center gap-3">
             <div className="relative cursor-pointer">
               <Bell className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
-              <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-[#486968] text-white text-xs flex items-center justify-center">
+              <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
                 29
               </span>
             </div>

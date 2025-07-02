@@ -59,7 +59,7 @@ export default function ClientLayout({
       let userData = secureStorage.getItem("user");
       if (!userData) {
         console.log("No user data found in secure storage");
-        router.push("/auth/login");
+        router.replace("/auth/login");
         return;
       }
       if (typeof userData === "string") {
@@ -67,22 +67,30 @@ export default function ClientLayout({
           userData = JSON.parse(userData);
         } catch {
           secureStorage.removeItem("user");
-          router.push("/auth/login");
+          router.replace("/auth/login");
           return;
         }
       }
       if (!userData.user_role || userData.user_role !== "Client") {
         console.log("Invalid user role:", userData.user_role);
-        router.push("/auth/login");
+        // Redirect to correct dashboard based on role
+        const role = userData.user_role.toLowerCase();
+        if (role === "admin") {
+          router.replace("/admin/dashboard");
+        } else if (role === "vendor" || role === "organizer") {
+          router.replace("/organizer/dashboard");
+        } else {
+          router.replace("/auth/login");
+        }
         return;
       }
       setUser(userData);
     } catch (error) {
       console.error("Error in client layout:", error);
       secureStorage.removeItem("user");
-      router.push("/auth/login");
+      router.replace("/auth/login");
     }
-  }, [router]);
+  }, []); // Remove router dependency to prevent repeated calls
 
   const handleLogout = () => {
     try {
@@ -92,11 +100,12 @@ export default function ClientLayout({
         "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
       document.cookie =
         "pending_otp_email=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
-      router.push("/auth/login");
+      // Clear browser history and redirect
+      window.location.replace("/auth/login");
     } catch (error) {
       console.error("Error during logout:", error);
       // Force redirect even if there's an error
-      router.push("/auth/login");
+      window.location.replace("/auth/login");
     }
   };
 
@@ -137,8 +146,8 @@ export default function ClientLayout({
                         href={item.href}
                         className={`flex w-full items-center gap-3 px-3 py-2 rounded-md transition ${
                           isActive
-                            ? "bg-[#486968] text-white"
-                            : "text-[#797979] hover:bg-[#486968] hover:text-white"
+                            ? "bg-brand-500 text-white"
+                            : "text-[#797979] hover:bg-brand-500 hover:text-white"
                         }`}
                       >
                         <item.icon className="h-5 w-5" />

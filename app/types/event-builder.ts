@@ -85,6 +85,38 @@ export interface EventDetails {
   venueId?: string;
 }
 
+// Add payment attachment types
+export interface PaymentAttachment {
+  original_name: string;
+  file_name: string;
+  file_path: string;
+  file_size: number;
+  file_type: string;
+  description: string;
+  proof_type: string;
+  uploaded_at: string;
+}
+
+export interface PaymentScheduleItem {
+  id?: string;
+  amount: number;
+  due_date: string;
+  status: "pending" | "paid" | "overdue";
+  description?: string;
+  proof_files?: PaymentAttachment[];
+}
+
+export interface EventAttachment {
+  original_name: string;
+  file_name: string;
+  file_path: string;
+  file_size: number;
+  file_type: string;
+  description: string;
+  attachment_type: string;
+  uploaded_at: string;
+}
+
 export interface PaymentData {
   total: number;
   paymentType: "full" | "half" | "custom";
@@ -102,6 +134,9 @@ export interface PaymentData {
     amount: number;
     date: string;
   };
+  // Add missing properties
+  paymentAttachments?: PaymentAttachment[];
+  paymentSchedule?: PaymentScheduleItem[];
 }
 
 export interface ClientDetailsStepProps {

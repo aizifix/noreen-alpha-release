@@ -163,8 +163,8 @@ export function VenueSelection({
       return imagePath;
     }
 
-    // Otherwise, construct the full URL (fallback)
-    return `http://localhost/events-api/${imagePath}`;
+    // Use the image serving script for proper image delivery
+    return `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(imagePath)}`;
   };
 
   return (
@@ -203,8 +203,8 @@ export function VenueSelection({
                 onClick={() => setViewMode("grid")}
                 className={`h-8 w-8 ${
                   viewMode === "grid"
-                    ? "bg-green-500 hover:bg-green-600 text-white"
-                    : "border-green-500 text-green-500 hover:bg-green-50"
+                    ? "bg-brand-500 hover:bg-brand-600 text-white"
+                    : "border-brand-500 text-brand-500 hover:bg-brand-50"
                 }`}
               >
                 <Grid3X3 className="h-4 w-4" />
@@ -215,8 +215,8 @@ export function VenueSelection({
                 onClick={() => setViewMode("list")}
                 className={`h-8 w-8 ${
                   viewMode === "list"
-                    ? "bg-green-500 hover:bg-green-600 text-white"
-                    : "border-green-500 text-green-500 hover:bg-green-50"
+                    ? "bg-brand-500 hover:bg-brand-600 text-white"
+                    : "border-brand-500 text-brand-500 hover:bg-brand-50"
                 }`}
               >
                 <List className="h-4 w-4" />
@@ -242,19 +242,17 @@ export function VenueSelection({
                   }`}
                   onClick={() => handleVenueSelect(String(venue.venue_id))}
                 >
-                  <div className="relative h-48">
-                    <Image
-                      src={getImageUrl(venue.venue_profile_picture)}
-                      alt={venue.venue_title || "Venue"}
-                      fill
-                      className="object-cover"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = "/placeholder.svg";
-                      }}
-                    />
+                  <div className="relative h-24 bg-gradient-to-r from-brand-50 to-brand-100 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-brand-600 mb-1">
+                        {filteredVenues.indexOf(venue) + 1}
+                      </div>
+                      <div className="text-sm text-brand-500 font-medium">
+                        Venue Option
+                      </div>
+                    </div>
                     {selectedVenueId === String(venue.venue_id) && (
-                      <div className="absolute top-2 right-2 h-6 w-6 flex items-center justify-center rounded-full bg-green-500 text-white">
+                      <div className="absolute top-2 right-2 h-6 w-6 flex items-center justify-center rounded-full bg-brand-500 text-white">
                         <Check className="h-4 w-4" />
                       </div>
                     )}
@@ -579,7 +577,7 @@ export function VenueSelection({
             </CardContent>
             <CardFooter>
               <Button
-                className="w-full bg-green-500 hover:bg-green-600 text-white"
+                className="w-full bg-brand-500 hover:bg-brand-600 text-white"
                 disabled={!selectedVenueId}
                 onClick={() =>
                   onSelect(selectedVenueId, selectedPackageId, guestCount)

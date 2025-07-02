@@ -1,15 +1,15 @@
-"use client"
-import Image from "next/image"
+"use client";
+import Image from "next/image";
 
 interface StoreCardProps {
-  id: number
-  vendorName: string
-  storeName: string
-  storeType: string
-  storeCategory: string
-  coverPhoto: string | null
-  profilePicture: string | null
-  isAdminView?: boolean
+  id: number;
+  vendorName: string;
+  storeName: string;
+  storeType: string;
+  storeCategory: string;
+  coverPhoto: string | null;
+  profilePicture: string | null;
+  isAdminView?: boolean;
 }
 
 export function StoreCard({
@@ -22,17 +22,15 @@ export function StoreCard({
   profilePicture,
   isAdminView = false, // Default to vendor view
 }: StoreCardProps) {
-  // Normalize Image Paths
+  // Normalize Image Paths using image serving script
   const normalizePath = (path: string | null) => {
-    if (!path || path.startsWith("http")) return path
-    return `http://localhost/events-api/${path}`
-  }
+    if (!path || path.startsWith("http")) return path;
+    // Use the image serving script for proper image delivery
+    return `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(path)}`;
+  };
 
-  const coverPhotoUrl = normalizePath(coverPhoto) || "/placeholder.svg"
-  const profilePictureUrl = normalizePath(profilePicture) || "/placeholder.svg"
-
-  console.log(`${isAdminView ? "Admin" : "Vendor"} Cover Photo URL:`, coverPhotoUrl)
-  console.log(`${isAdminView ? "Admin" : "Vendor"} Profile Picture URL:`, profilePictureUrl)
+  const coverPhotoUrl = normalizePath(coverPhoto) || "/placeholder.svg";
+  const profilePictureUrl = normalizePath(profilePicture) || "/placeholder.svg";
 
   return (
     <div className="relative overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md">
@@ -63,7 +61,9 @@ export function StoreCard({
       {/* Content */}
       <div className="p-4 pt-12">
         <h3 className="text-lg font-semibold text-gray-900">{storeName}</h3>
-        <span className="inline-block rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-600">{storeCategory}</span>
+        <span className="inline-block rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-600">
+          {storeCategory}
+        </span>
 
         {/* Show "Manage" button for Admin */}
         {isAdminView ? (
@@ -71,11 +71,11 @@ export function StoreCard({
             Manage Vendor
           </button>
         ) : (
-          <button className="mt-4 w-full rounded-md bg-[#486968] px-4 py-2 text-white hover:bg-[#3a5453]">
+          <button className="mt-4 w-full rounded-md bg-brand-500 px-4 py-2 text-white hover:bg-brand-600">
             View Details
           </button>
         )}
       </div>
     </div>
-  )
+  );
 }

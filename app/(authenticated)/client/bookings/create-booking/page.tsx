@@ -604,7 +604,7 @@ export default function CreateBookingPage() {
             <div className="flex justify-end pt-4 border-t">
               <button
                 type="submit"
-                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors"
+                className="bg-brand-500 hover:bg-brand-600 text-white px-6 py-2 rounded-lg transition-colors"
               >
                 Next →
               </button>
@@ -647,7 +647,7 @@ export default function CreateBookingPage() {
                   key={pkg.package_id}
                   className={`border rounded-lg p-4 cursor-pointer transition-all ${
                     packageId === pkg.package_id
-                      ? "bg-green-50 border-green-400 ring-2 ring-green-200"
+                      ? "bg-brand-50 border-brand-400 ring-2 ring-brand-200"
                       : "hover:bg-gray-50 hover:border-gray-300"
                   }`}
                   onClick={() => handleSelectPackage(pkg.package_id)}
@@ -655,7 +655,7 @@ export default function CreateBookingPage() {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <Package className="h-5 w-5 text-green-600" />
+                        <Package className="h-5 w-5 text-brand-500" />
                         <h3 className="font-semibold text-lg">
                           {pkg.package_title}
                         </h3>

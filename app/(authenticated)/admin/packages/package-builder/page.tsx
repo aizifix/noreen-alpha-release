@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { MultiStepWizard } from "@/app/components/admin/event-builder/multi-step-wizard";
+import { secureStorage } from "@/app/utils/encryption";
 import { FreebiesStep } from "./freebies-step";
 import { BudgetBreakdown } from "./budget-breakdown";
 import { VenueSelection } from "./venue-selection";
@@ -59,9 +61,16 @@ interface FreebiesStepProps {
   onNext: () => void;
 }
 
+// Step interface to match event builder
+interface Step {
+  id: string;
+  title: string;
+  description: string;
+  component: React.ReactNode;
+}
+
 export default function PackageBuilderPage() {
   const router = useRouter();
-  const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
 
   // Package details state
@@ -88,6 +97,8 @@ export default function PackageBuilderPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        console.log("Fetching event types and venues...");
+
         // Fetch event types
         const eventTypesResponse = await axios.get(
           "http://localhost/events-api/admin.php",
@@ -96,8 +107,12 @@ export default function PackageBuilderPage() {
           }
         );
 
+        console.log("Event types response:", eventTypesResponse.data);
         if (eventTypesResponse.data.status === "success") {
           setEventTypes(eventTypesResponse.data.event_types);
+          console.log("Event types set:", eventTypesResponse.data.event_types);
+        } else {
+          console.error("Event types error:", eventTypesResponse.data.message);
         }
 
         // Fetch venues
@@ -108,11 +123,16 @@ export default function PackageBuilderPage() {
           }
         );
 
+        console.log("Venues response:", venuesResponse.data);
         if (venuesResponse.data.status === "success") {
           setVenues(venuesResponse.data.venues);
+          console.log("Venues set:", venuesResponse.data.venues);
+        } else {
+          console.error("Venues error:", venuesResponse.data.message);
         }
       } catch (error) {
         console.error("API error:", error);
+        toast.error("Failed to load data. Please check your connection.");
       }
     };
 
@@ -190,7 +210,7 @@ export default function PackageBuilderPage() {
     const newInclusions = [...inclusions];
     newInclusions[inclusionIndex].components = newInclusions[
       inclusionIndex
-    ].components.filter((_: any, index: number) => index !== componentIndex);
+    ].components.filter((_, index) => index !== componentIndex);
     setInclusions(newInclusions);
   };
 
@@ -204,7 +224,6 @@ export default function PackageBuilderPage() {
     setInclusions(newInclusions);
   };
 
-  // Handle freebies
   const handleAddFreebie = () => {
     setFreebies([...freebies, { freebie_name: "" }]);
   };
@@ -216,114 +235,114 @@ export default function PackageBuilderPage() {
   };
 
   const handleRemoveFreebie = (index: number) => {
-    const newFreebies = freebies.filter((_, i) => i !== index);
-    setFreebies(newFreebies);
+    setFreebies(freebies.filter((_, i) => i !== index));
   };
 
-  // Add venue selection handler
   const handleVenueToggle = (venueId: number) => {
-    setSelectedVenues((prev) =>
-      prev.includes(venueId)
-        ? prev.filter((id) => id !== venueId)
-        : [...prev, venueId]
-    );
+    if (selectedVenues.includes(venueId)) {
+      setSelectedVenues(selectedVenues.filter((id) => id !== venueId));
+    } else {
+      setSelectedVenues([...selectedVenues, venueId]);
+    }
   };
 
-  // Add function to calculate remaining budget
   const calculateRemainingBudget = () => {
-    const venueCost = selectedVenues.reduce((sum, venueId) => {
+    const packagePriceNum = Number(packagePrice) || 0;
+    const inclusionsTotal = inclusions.reduce(
+      (sum, inclusion) => sum + (Number(inclusion.price) || 0),
+      0
+    );
+    const totalVenueCost = selectedVenues.reduce((sum, venueId) => {
       const venue = venues.find((v) => v.venue_id === venueId);
       return sum + (venue?.total_price || 0);
     }, 0);
-    const componentCost = inclusions.reduce(
-      (sum, inc) => sum + Number(inc.price) || 0,
-      0
-    );
-    return Number(packagePrice) - venueCost - componentCost;
+
+    return packagePriceNum - inclusionsTotal - totalVenueCost;
   };
 
-  // Add validation for budget
   const isBudgetValid = () => {
-    const totalInclusionCost = inclusions.reduce(
-      (sum, inc) => sum + (Number(inc.price) || 0),
-      0
-    );
-    return Number(packagePrice) >= totalInclusionCost;
+    return calculateRemainingBudget() >= 0;
   };
 
-  // Package creation
   const createPackage = async () => {
     setLoading(true);
 
     try {
-      const validInclusions = inclusions
-        .filter((inc) => inc.name.trim() !== "")
-        .map((inc) => ({
-          component_name: inc.name,
-          component_description: "",
-          component_price:
-            typeof inc.price === "string"
-              ? parseFloat(inc.price) || 0
-              : inc.price,
-          subcomponents: inc.components
-            .filter((comp: Component) => comp.name.trim() !== "")
-            .map((comp: Component) => ({
-              subcomponent_name: comp.name,
-            })),
-        }));
+      const userData = JSON.parse(secureStorage.getItem("userData") || "{}");
+      const adminId = userData.user_id;
 
-      const validFreebies = freebies
-        .filter((f) => f.freebie_name.trim() !== "")
-        .map((freebie) => ({
-          freebie_name: freebie.freebie_name,
-          freebie_description: "",
-          freebie_value: 0,
-        }));
+      if (!adminId) {
+        toast.error("Admin ID not found. Please log in again.");
+        return;
+      }
 
       const packageData = {
-        operation: "createPackageWithVenues",
         package_data: {
           package_title: packageTitle,
           package_description: packageDescription,
           package_price: Number(packagePrice),
           guest_capacity: guestCount,
-          created_by: 7, // Admin ID from existing users in database
+          created_by: adminId,
         },
-        components: validInclusions,
-        freebies: validFreebies,
+        components: inclusions
+          .filter((inc) => inc.name.trim() !== "")
+          .map((inc) => ({
+            component_name: inc.name,
+            component_description: inc.components
+              .filter((comp) => comp.name.trim() !== "")
+              .map((comp) => comp.name)
+              .join(", "),
+            component_price: Number(inc.price) || 0,
+          })),
+        freebies: freebies
+          .filter((f) => f.freebie_name.trim() !== "")
+          .map((f) => ({
+            freebie_name: f.freebie_name,
+            freebie_description: f.freebie_description || "",
+            freebie_value: f.freebie_value || 0,
+          })),
         event_types: selectedEventTypes,
         venue_ids: selectedVenues,
       };
 
+      console.log("Creating package with data:", packageData);
+
       const response = await axios.post(
         "http://localhost/events-api/admin.php",
-        packageData
+        {
+          operation: "createPackageWithVenues",
+          ...packageData,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
       );
+
+      console.log("Package creation response:", response.data);
 
       if (response.data.status === "success") {
         toast.success("Package created successfully!");
         router.push("/admin/packages");
       } else {
-        console.error("Error creating package:", response.data.message);
-        setLoading(false);
+        toast.error(response.data.message || "Failed to create package");
       }
     } catch (error) {
-      console.error("API error:", error);
+      console.error("Create package error:", error);
+      toast.error("An error occurred while creating the package");
+    } finally {
       setLoading(false);
     }
   };
 
-  // Validation functions
   const isPackageDetailsValid = () => {
-    const hasValidPrice = packagePrice !== "" && Number(packagePrice) > 0;
-    const hasValidTitle = packageTitle.trim() !== "";
-    const hasValidDescription = packageDescription.trim() !== "";
-    const hasSelectedEventTypes = selectedEventTypes.length > 0;
     return (
-      hasValidPrice &&
-      hasValidTitle &&
-      hasValidDescription &&
-      hasSelectedEventTypes
+      packageTitle.trim() !== "" &&
+      packagePrice !== "" &&
+      Number(packagePrice) > 0 &&
+      guestCount > 0 &&
+      selectedEventTypes.length > 0
     );
   };
 
@@ -333,9 +352,8 @@ export default function PackageBuilderPage() {
 
   const areInclusionsValid = () => {
     return inclusions.some(
-      (inc) =>
-        inc.name.trim() !== "" &&
-        inc.components.some((comp) => comp.name.trim() !== "")
+      (inclusion) =>
+        inclusion.name.trim() !== "" && Number(inclusion.price) >= 0
     );
   };
 
@@ -343,525 +361,434 @@ export default function PackageBuilderPage() {
     return freebies.some((f) => f.freebie_name.trim() !== "");
   };
 
-  // Calculate total price based on all inclusions, components, and subcomponents
   const calculateTotalPrice = (): number => {
-    let total = Number(packagePrice) || 0;
+    const packagePriceNum = Number(packagePrice) || 0;
+    const inclusionsTotal = inclusions.reduce(
+      (sum, inclusion) => sum + (Number(inclusion.price) || 0),
+      0
+    );
+    const totalVenueCost = selectedVenues.reduce((sum, venueId) => {
+      const venue = venues.find((v) => v.venue_id === venueId);
+      return sum + (venue?.total_price || 0);
+    }, 0);
 
-    // Optionally add the prices of all inclusions, components and subcomponents
-    // Comment this section if the package price already includes all inclusions
-    /*
-    inclusions.forEach(inc => {
-      if (inc.name.trim() !== "") {
-        total += Number(inc.price) || 0;
-
-        inc.components.forEach(comp => {
-          if (comp.name.trim() !== "") {
-            total += Number(comp.price) || 0;
-
-            comp.subComponents.forEach(sub => {
-              if (sub.name.trim() !== "") {
-                total += Number(sub.price) || 0;
-              }
-            });
-          }
-        });
-      }
-    });
-    */
-
-    return total;
+    return packagePriceNum + inclusionsTotal + totalVenueCost;
   };
 
-  // Update renderStep function
-  const renderStep = () => {
-    switch (step) {
-      case 1:
-        return (
-          <div className="bg-white rounded-xl shadow p-8 space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold mb-1">Package Details</h2>
-              <p className="text-gray-500 text-sm mb-4">
-                Basic information about the package
-              </p>
+  // Package Details Step Component
+  const PackageDetailsStep = () => (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <div>
+          <label className="block mb-2 font-medium">Package Title</label>
+          <input
+            type="text"
+            value={packageTitle}
+            onChange={(e) => setPackageTitle(e.target.value)}
+            placeholder="E.g., Premium Wedding Package"
+            className="w-full border rounded px-3 py-2"
+          />
+        </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block mb-2 font-medium">
-                    Package Title
-                  </label>
+        <div>
+          <label className="block mb-2 font-medium">Package Description</label>
+          <textarea
+            value={packageDescription}
+            onChange={(e) => setPackageDescription(e.target.value)}
+            placeholder="Describe what this package offers"
+            className="w-full border rounded px-3 py-2 h-24"
+          />
+        </div>
+
+        <div>
+          <label className="block mb-2 font-medium">Package Price (₱)</label>
+          <input
+            type="number"
+            value={packagePrice}
+            onChange={(e) => setPackagePrice(e.target.value)}
+            placeholder="0.00"
+            min="0"
+            step="0.01"
+            className="w-full border rounded px-3 py-2"
+          />
+        </div>
+
+        <div>
+          <label className="block mb-2 font-medium">Guest Capacity</label>
+          <input
+            type="number"
+            value={guestCount}
+            onChange={(e) => setGuestCount(Number(e.target.value))}
+            placeholder="100"
+            min="1"
+            className="w-full border rounded px-3 py-2"
+          />
+        </div>
+
+        <div>
+          <label className="block mb-2 font-medium">Event Types</label>
+          <p className="text-gray-500 text-sm mb-2">
+            Select which event types this package is suitable for
+          </p>
+          <div className="space-y-2 grid grid-cols-2">
+            {eventTypes.map((type) => (
+              <div key={type.event_type_id} className="flex items-center">
+                <input
+                  type="checkbox"
+                  id={`event-type-${type.event_type_id}`}
+                  checked={selectedEventTypes.includes(type.event_type_id)}
+                  onChange={() => handleEventTypeChange(type.event_type_id)}
+                  className="mr-2 h-4 w-4 text-green-600 focus:ring-green-500"
+                />
+                <label
+                  htmlFor={`event-type-${type.event_type_id}`}
+                  className="text-gray-700"
+                >
+                  {type.event_name}
+                </label>
+              </div>
+            ))}
+          </div>
+          {selectedEventTypes.length === 0 && (
+            <p className="text-red-500 text-sm mt-1">
+              Please select at least one event type
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Venue Selection Step Component
+  const VenueSelectionStep = () => (
+    <VenueSelection
+      venues={venues}
+      selectedVenueIds={selectedVenues}
+      onVenueToggle={handleVenueToggle}
+    />
+  );
+
+  // Package Inclusions Step Component
+  const PackageInclusionsStep = () => (
+    <div className="space-y-6">
+      {/* Show selected venues as fixed inclusions */}
+      {selectedVenues.length > 0 && (
+        <div className="mb-6">
+          <h3 className="font-medium text-gray-700 mb-2">Selected Venues:</h3>
+          <div className="space-y-2">
+            {selectedVenues.map((venueId) => {
+              const venue = venues.find((v) => v.venue_id === venueId);
+              return venue ? (
+                <div key={venue.venue_id} className="bg-gray-50 rounded p-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-medium">{venue.venue_title}</p>
+                      <p className="text-sm text-gray-600">
+                        {venue.venue_location}
+                      </p>
+                    </div>
+                    <p className="font-medium text-green-600">
+                      ₱{(venue.total_price || 0).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ) : null;
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Existing inclusions form */}
+      {inclusions.map((inclusion, inclusionIndex) => (
+        <div key={inclusionIndex} className="border rounded-lg p-4 bg-gray-50">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex-1">
+              <label className="block mb-2 font-medium">Inclusion Name</label>
+              <div className="flex gap-4">
+                <div className="flex-1">
                   <input
                     type="text"
-                    value={packageTitle}
-                    onChange={(e) => setPackageTitle(e.target.value)}
-                    placeholder="E.g., Premium Wedding Package"
+                    value={inclusion.name}
+                    onChange={(e) =>
+                      updateInclusionName(inclusionIndex, e.target.value)
+                    }
+                    placeholder="E.g., Venue Decoration"
                     className="w-full border rounded px-3 py-2"
                   />
                 </div>
-
-                <div>
-                  <label className="block mb-2 font-medium">
-                    Package Description
-                  </label>
-                  <textarea
-                    value={packageDescription}
-                    onChange={(e) => setPackageDescription(e.target.value)}
-                    placeholder="Describe what this package offers"
-                    className="w-full border rounded px-3 py-2 h-24"
-                  ></textarea>
-                </div>
-
-                <div>
-                  <label className="block mb-2 font-medium">
-                    Package Price (₱)
+                <div className="w-1/3">
+                  <label className="block mb-1 text-sm font-medium">
+                    Price (₱)
                   </label>
                   <input
                     type="number"
-                    value={packagePrice}
-                    onChange={(e) => setPackagePrice(e.target.value)}
+                    value={inclusion.price}
+                    onChange={(e) =>
+                      updateInclusionPrice(inclusionIndex, e.target.value)
+                    }
                     placeholder="0.00"
                     min="0"
                     step="0.01"
                     className="w-full border rounded px-3 py-2"
                   />
                 </div>
-
-                <div>
-                  <label className="block mb-2 font-medium">
-                    Guest Capacity
-                  </label>
-                  <input
-                    type="number"
-                    value={guestCount}
-                    onChange={(e) => setGuestCount(Number(e.target.value))}
-                    placeholder="100"
-                    min="1"
-                    className="w-full border rounded px-3 py-2"
-                  />
-                </div>
-
-                <div>
-                  <label className="block mb-2 font-medium">Event Types</label>
-                  <p className="text-gray-500 text-sm mb-2">
-                    Select which event types this package is suitable for
-                  </p>
-                  <div className="space-y-2 grid grid-cols-2">
-                    {eventTypes.map((type) => (
-                      <div
-                        key={type.event_type_id}
-                        className="flex items-center"
-                      >
-                        <input
-                          type="checkbox"
-                          id={`event-type-${type.event_type_id}`}
-                          checked={selectedEventTypes.includes(
-                            type.event_type_id
-                          )}
-                          onChange={() =>
-                            handleEventTypeChange(type.event_type_id)
-                          }
-                          className="mr-2 h-4 w-4 text-green-600 focus:ring-green-500"
-                        />
-                        <label
-                          htmlFor={`event-type-${type.event_type_id}`}
-                          className="text-gray-700"
-                        >
-                          {type.event_name}
-                        </label>
-                      </div>
-                    ))}
-                  </div>
-                  {selectedEventTypes.length === 0 && (
-                    <p className="text-red-500 text-sm mt-1">
-                      Please select at least one event type
-                    </p>
-                  )}
-                </div>
               </div>
             </div>
-
-            <div className="flex justify-end">
-              <button
-                disabled={!isPackageDetailsValid()}
-                onClick={() => setStep(2)}
-                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
+            <button
+              onClick={() => removeInclusion(inclusionIndex)}
+              className="ml-2 p-1 text-gray-500 hover:text-red-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-        );
 
-      case 2:
-        return (
-          <>
-            <VenueSelection
-              venues={venues}
-              selectedVenueIds={selectedVenues}
-              onVenueToggle={handleVenueToggle}
-            />
-            <div className="flex justify-between mt-8">
-              <button
-                onClick={() => setStep(1)}
-                className="border border-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-50"
-              >
-                Back
-              </button>
-              <button
-                disabled={selectedVenues.length === 0}
-                onClick={() => setStep(3)}
-                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          </>
-        );
-
-      case 3:
-        return (
-          <div className="bg-white rounded-xl shadow p-8 space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold mb-1">Package Inclusions</h2>
-              <p className="text-gray-500 text-sm mb-4">
-                Add components and subcomponents included in this package
-              </p>
-
-              {/* Show selected venues as fixed inclusions */}
-              {selectedVenues.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="font-medium text-gray-700 mb-2">
-                    Selected Venues:
-                  </h3>
-                  <div className="space-y-2">
-                    {selectedVenues.map((venueId) => {
-                      const venue = venues.find((v) => v.venue_id === venueId);
-                      return venue ? (
-                        <div
-                          key={venue.venue_id}
-                          className="bg-gray-50 rounded p-3"
-                        >
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-medium">{venue.venue_title}</p>
-                              <p className="text-sm text-gray-600">
-                                {venue.venue_location}
-                              </p>
-                            </div>
-                            <p className="font-medium text-green-600">
-                              ₱{(venue.total_price || 0).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                      ) : null;
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Existing inclusions form */}
-              {inclusions.map((inclusion, inclusionIndex) => (
+          <div className="pl-4 border-l-2 border-gray-300 space-y-4">
+            {inclusion.components.map(
+              (component: Component, componentIndex: number) => (
                 <div
-                  key={inclusionIndex}
-                  className="border rounded-lg p-4 bg-gray-50"
+                  key={componentIndex}
+                  className="border rounded-lg p-3 bg-white"
                 >
-                  <div className="flex justify-between items-center mb-4">
+                  <div className="flex justify-between items-center mb-3">
                     <div className="flex-1">
-                      <label className="block mb-2 font-medium">
-                        Inclusion Name
+                      <label className="block mb-1 text-sm font-medium">
+                        Component
                       </label>
                       <div className="flex gap-4">
                         <div className="flex-1">
                           <input
                             type="text"
-                            value={inclusion.name}
+                            value={component.name}
                             onChange={(e) =>
-                              updateInclusionName(
+                              updateComponentName(
                                 inclusionIndex,
+                                componentIndex,
                                 e.target.value
                               )
                             }
-                            placeholder="E.g., Venue Decoration"
-                            className="w-full border rounded px-3 py-2"
-                          />
-                        </div>
-                        <div className="w-1/3">
-                          <label className="block mb-1 text-sm font-medium">
-                            Price (₱)
-                          </label>
-                          <input
-                            type="number"
-                            value={inclusion.price}
-                            onChange={(e) =>
-                              updateInclusionPrice(
-                                inclusionIndex,
-                                e.target.value
-                              )
-                            }
-                            placeholder="0.00"
-                            min="0"
-                            step="0.01"
-                            className="w-full border rounded px-3 py-2"
+                            placeholder="E.g., Flowers"
+                            className="w-full border rounded px-3 py-1 text-sm"
                           />
                         </div>
                       </div>
                     </div>
                     <button
-                      onClick={() => removeInclusion(inclusionIndex)}
+                      onClick={() =>
+                        removeComponent(inclusionIndex, componentIndex)
+                      }
                       className="ml-2 p-1 text-gray-500 hover:text-red-600"
                     >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-
-                  <div className="pl-4 border-l-2 border-gray-300 space-y-4">
-                    {inclusion.components.map(
-                      (component: Component, componentIndex: number) => (
-                        <div
-                          key={componentIndex}
-                          className="border rounded-lg p-3 bg-white"
-                        >
-                          <div className="flex justify-between items-center mb-3">
-                            <div className="flex-1">
-                              <label className="block mb-1 text-sm font-medium">
-                                Component
-                              </label>
-                              <div className="flex gap-4">
-                                <div className="flex-1">
-                                  <input
-                                    type="text"
-                                    value={component.name}
-                                    onChange={(e) =>
-                                      updateComponentName(
-                                        inclusionIndex,
-                                        componentIndex,
-                                        e.target.value
-                                      )
-                                    }
-                                    placeholder="E.g., Flowers"
-                                    className="w-full border rounded px-3 py-1 text-sm"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() =>
-                                removeComponent(inclusionIndex, componentIndex)
-                              }
-                              className="ml-2 p-1 text-gray-500 hover:text-red-600"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    )}
-                    <button
-                      onClick={() => addComponent(inclusionIndex)}
-                      className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
-                    >
-                      <Plus className="h-4 w-4 mr-1" /> Add Component
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
-              ))}
-              <button
-                onClick={addInclusion}
-                className="w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-gray-500 hover:bg-gray-50 flex items-center justify-center"
-              >
-                <Plus className="h-5 w-5 mr-2" /> Add Inclusion
-              </button>
-            </div>
+              )
+            )}
+            <button
+              onClick={() => addComponent(inclusionIndex)}
+              className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+            >
+              <Plus className="h-4 w-4 mr-1" /> Add Component
+            </button>
+          </div>
+        </div>
+      ))}
+      <button
+        onClick={addInclusion}
+        className="w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-gray-500 hover:bg-gray-50 flex items-center justify-center"
+      >
+        <Plus className="h-5 w-5 mr-2" /> Add Inclusion
+      </button>
+    </div>
+  );
 
-            <div className="flex justify-between">
-              <button
-                onClick={() => setStep(2)}
-                className="border border-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-50"
-              >
-                Back
-              </button>
-              <button
-                disabled={!areInclusionsValid()}
-                onClick={() => setStep(4)}
-                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg disabled:opacity-50"
-              >
-                Next
-              </button>
+  // Enhanced Freebies Step Component
+  const FreebiesStepWrapper = () => (
+    <FreebiesStep
+      freebies={freebies}
+      setFreebies={setFreebies}
+      onNext={() => {}} // Will be handled by MultiStepWizard
+    />
+  );
+
+  // Review Step Component
+  const ReviewStep = () => (
+    <div className="space-y-6">
+      <div className="bg-white rounded-lg border p-6">
+        <h3 className="text-lg font-semibold mb-4">Review Package Details</h3>
+
+        {/* Package Details */}
+        <div className="mb-6">
+          <h4 className="font-medium mb-2">Package Information</h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-gray-600">Title</p>
+              <p className="font-medium">{packageTitle}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Price</p>
+              <p className="font-medium">
+                ₱{Number(packagePrice).toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Guest Capacity</p>
+              <p className="font-medium">{guestCount} guests</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Event Types</p>
+              <p className="font-medium">
+                {selectedEventTypes
+                  .map(
+                    (id) =>
+                      eventTypes.find((et) => et.event_type_id === id)
+                        ?.event_name
+                  )
+                  .filter(Boolean)
+                  .join(", ")}
+              </p>
             </div>
           </div>
-        );
+        </div>
 
-      case 4:
-        return (
-          <FreebiesStep
-            freebies={freebies}
-            setFreebies={setFreebies}
-            onNext={() => setStep(5)}
-          />
-        );
+        {/* Venue Selection */}
+        {selectedVenues.length > 0 && (
+          <div className="mb-6">
+            <h4 className="font-medium mb-2">Selected Venues</h4>
+            <div className="space-y-2">
+              {selectedVenues.map((venueId) => {
+                const venue = venues.find((v) => v.venue_id === venueId);
+                return venue ? (
+                  <div
+                    key={venue.venue_id}
+                    className="flex items-center space-x-4"
+                  >
+                    <div className="relative h-16 w-16 rounded-lg overflow-hidden">
+                      <img
+                        src={
+                          venue.venue_profile_picture
+                            ? `http://localhost/events-api/${venue.venue_profile_picture}`
+                            : "/placeholder-venue.jpg"
+                        }
+                        alt={venue.venue_title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div>
+                      <p className="font-medium">{venue.venue_title}</p>
+                      <p className="text-sm text-gray-600">
+                        ₱{(venue.total_price || 0).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                ) : null;
+              })}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              * Venue cost is for illustration only. Venue price is not enforced
+              at this stage and will be validated during event creation.
+            </p>
+          </div>
+        )}
 
-      case 5:
-        return (
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold mb-4">
-                Review Package Details
-              </h3>
-
-              {/* Package Details */}
-              <div className="mb-6">
-                <h4 className="font-medium mb-2">Package Information</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-600">Title</p>
-                    <p className="font-medium">{packageTitle}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Price</p>
-                    <p className="font-medium">
-                      ₱{Number(packagePrice).toLocaleString()}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Guest Capacity</p>
-                    <p className="font-medium">{guestCount} guests</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Event Types</p>
-                    <p className="font-medium">
-                      {selectedEventTypes
-                        .map(
-                          (id) =>
-                            eventTypes.find((et) => et.event_type_id === id)
-                              ?.event_name
-                        )
-                        .filter(Boolean)
-                        .join(", ")}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Venue Selection */}
-              {selectedVenues.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="font-medium mb-2">Selected Venues</h4>
-                  <div className="space-y-2">
-                    {selectedVenues.map((venueId) => {
-                      const venue = venues.find((v) => v.venue_id === venueId);
-                      return venue ? (
-                        <div
-                          key={venue.venue_id}
-                          className="flex items-center space-x-4"
-                        >
-                          <div className="relative h-16 w-16 rounded-lg overflow-hidden">
-                            <Image
-                              src={
-                                venue.venue_profile_picture ||
-                                "/placeholder-venue.jpg"
-                              }
-                              alt={venue.venue_title}
-                              fill
-                              className="object-cover"
-                            />
-                          </div>
-                          <div>
-                            <p className="font-medium">{venue.venue_title}</p>
-                            <p className="text-sm text-gray-600">
-                              ₱{(venue.total_price || 0).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                      ) : null;
-                    })}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    * Venue cost is for illustration only. Venue price is not
-                    enforced at this stage and will be validated during event
-                    creation.
+        {/* Components */}
+        <div className="mb-6">
+          <h4 className="font-medium mb-2">Components</h4>
+          <div className="space-y-2">
+            {inclusions.map((inclusion, index) => (
+              <div key={index} className="flex flex-col items-start">
+                <div className="flex justify-between items-center w-full">
+                  <p className="font-medium">{inclusion.name}</p>
+                  <p className="font-medium">
+                    ₱{Number(inclusion.price).toLocaleString()}
                   </p>
                 </div>
-              )}
-
-              {/* Components */}
-              <div className="mb-6">
-                <h4 className="font-medium mb-2">Components</h4>
-                <div className="space-y-2">
-                  {inclusions.map((inclusion, index) => (
-                    <div key={index} className="flex flex-col items-start">
-                      <div className="flex justify-between items-center w-full">
-                        <p className="font-medium">{inclusion.name}</p>
-                        <p className="font-medium">
-                          ₱{Number(inclusion.price).toLocaleString()}
-                        </p>
-                      </div>
-                      {inclusion.components.some(
-                        (comp: Component) => comp.name.trim() !== ""
-                      ) && (
-                        <ul className="text-sm text-gray-600 list-disc list-inside ml-4">
-                          {inclusion.components
-                            .filter(
-                              (comp: Component) => comp.name.trim() !== ""
-                            )
-                            .map((comp, i) => (
-                              <li key={i}>{comp.name}</li>
-                            ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Freebies */}
-              {freebies.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="font-medium mb-2">Freebies</h4>
-                  <ul className="list-disc list-inside space-y-1">
-                    {freebies.map((f, index) => (
-                      <li key={index} className="text-gray-600">
-                        {f.freebie_name}
-                      </li>
-                    ))}
+                {inclusion.components.some(
+                  (comp: Component) => comp.name.trim() !== ""
+                ) && (
+                  <ul className="text-sm text-gray-600 list-disc list-inside ml-4">
+                    {inclusion.components
+                      .filter((comp: Component) => comp.name.trim() !== "")
+                      .map((comp, i) => (
+                        <li key={i}>{comp.name}</li>
+                      ))}
                   </ul>
-                </div>
-              )}
-
-              {/* Budget Breakdown */}
-              <BudgetBreakdown
-                packagePrice={Number(packagePrice)}
-                selectedVenue={null}
-                components={inclusions
-                  .filter((inc) => inc.name.trim() !== "")
-                  .map((inc) => ({
-                    name: inc.name,
-                    price: Number(inc.price) || 0,
-                  }))}
-                freebies={freebies.map((f) => f.freebie_name)}
-              />
-            </div>
-
-            <div className="flex justify-between">
-              <button
-                onClick={() => setStep(4)}
-                className="border border-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-50"
-              >
-                Back
-              </button>
-              <button
-                disabled={!isBudgetValid()}
-                onClick={createPackage}
-                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg disabled:opacity-50"
-              >
-                Create Package
-              </button>
-            </div>
+                )}
+              </div>
+            ))}
           </div>
-        );
-    }
+        </div>
+
+        {/* Freebies */}
+        {freebies.length > 0 && (
+          <div className="mb-6">
+            <h4 className="font-medium mb-2">Freebies</h4>
+            <ul className="list-disc list-inside space-y-1">
+              {freebies.map((f, index) => (
+                <li key={index} className="text-gray-600">
+                  {f.freebie_name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Budget Breakdown */}
+        <BudgetBreakdown
+          packagePrice={Number(packagePrice)}
+          selectedVenue={null}
+          components={inclusions
+            .filter((inc) => inc.name.trim() !== "")
+            .map((inc) => ({
+              name: inc.name,
+              price: Number(inc.price) || 0,
+            }))}
+          freebies={freebies.map((f) => f.freebie_name)}
+        />
+      </div>
+    </div>
+  );
+
+  // Define steps array for MultiStepWizard
+  const steps: Step[] = [
+    {
+      id: "package-details",
+      title: "Package Details",
+      description: "Basic information about the package",
+      component: <PackageDetailsStep />,
+    },
+    {
+      id: "venue-selection",
+      title: "Venue Selection",
+      description: "Choose venues for this package",
+      component: <VenueSelectionStep />,
+    },
+    {
+      id: "package-inclusions",
+      title: "Package Inclusions",
+      description: "Add components and subcomponents",
+      component: <PackageInclusionsStep />,
+    },
+    {
+      id: "freebies",
+      title: "Freebies",
+      description: "Add package freebies",
+      component: <FreebiesStepWrapper />,
+    },
+    {
+      id: "review",
+      title: "Review & Create",
+      description: "Review and finalize package",
+      component: <ReviewStep />,
+    },
+  ];
+
+  const handleComplete = () => {
+    createPackage();
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-10">
+    <div className="max-w-6xl mx-auto py-10">
       <button
         onClick={() => router.push("/admin/packages")}
         className="mb-6 flex items-center text-sm text-gray-600 hover:text-gray-900 hover:underline"
@@ -871,69 +798,95 @@ export default function PackageBuilderPage() {
 
       <h1 className="text-3xl font-bold mb-6">Package Builder</h1>
 
-      {/* Progress steps */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div
-              key={i}
-              className="flex items-center"
-              onClick={() => {
-                if (i < step) setStep(i);
-              }}
-            >
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center border-2
-                  ${
-                    i === step
-                      ? "border-green-600 bg-green-50 text-green-700"
-                      : i < step
-                        ? "border-green-600 bg-green-600 text-white cursor-pointer"
-                        : "border-gray-300 text-gray-400"
-                  }`}
-              >
-                {i < step ? <Check className="h-5 w-5" /> : i}
-              </div>
-              <div
-                className={`ml-2 ${
-                  i === step
-                    ? "font-medium text-green-700"
-                    : i < step
-                      ? "text-gray-700 cursor-pointer"
-                      : "text-gray-400"
-                }`}
-              >
-                {i === 1
-                  ? "Details"
-                  : i === 2
-                    ? "Venues"
-                    : i === 3
-                      ? "Inclusions"
-                      : i === 4
-                        ? "Freebies"
-                        : "Review"}
-              </div>
-            </div>
-          ))}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2">
+          <MultiStepWizard steps={steps} onComplete={handleComplete} />
         </div>
-        <div className="flex mt-2">
-          <div
-            className={`h-1 flex-1 ${step > 1 ? "bg-green-600" : "bg-gray-200"}`}
-          ></div>
-          <div
-            className={`h-1 flex-1 ${step > 2 ? "bg-green-600" : "bg-gray-200"}`}
-          ></div>
-          <div
-            className={`h-1 flex-1 ${step > 3 ? "bg-green-600" : "bg-gray-200"}`}
-          ></div>
-          <div
-            className={`h-1 flex-1 ${step > 4 ? "bg-green-600" : "bg-gray-200"}`}
-          ></div>
+
+        <div className="lg:col-span-1">
+          <div className="space-y-6 sticky top-4">
+            <Card className="p-4">
+              <h3 className="text-lg font-medium mb-4">Package Summary</h3>
+              <div className="space-y-3">
+                {packageTitle && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      Package Title
+                    </p>
+                    <p className="font-medium">{packageTitle}</p>
+                  </div>
+                )}
+                {packagePrice && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Base Price</p>
+                    <p className="font-medium">
+                      ₱{Number(packagePrice).toLocaleString()}
+                    </p>
+                  </div>
+                )}
+                {guestCount > 0 && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      Guest Capacity
+                    </p>
+                    <p className="font-medium">{guestCount} guests</p>
+                  </div>
+                )}
+                {selectedEventTypes.length > 0 && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Event Types</p>
+                    <p className="font-medium">
+                      {selectedEventTypes.length} type
+                      {selectedEventTypes.length !== 1 ? "s" : ""} selected
+                    </p>
+                  </div>
+                )}
+                {selectedVenues.length > 0 && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Venues</p>
+                    <p className="font-medium">
+                      {selectedVenues.length} venue
+                      {selectedVenues.length !== 1 ? "s" : ""} selected
+                    </p>
+                  </div>
+                )}
+                {inclusions.some((inc) => inc.name.trim() !== "") && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Inclusions</p>
+                    <p className="font-medium">
+                      {
+                        inclusions.filter((inc) => inc.name.trim() !== "")
+                          .length
+                      }{" "}
+                      inclusion
+                      {inclusions.filter((inc) => inc.name.trim() !== "")
+                        .length !== 1
+                        ? "s"
+                        : ""}
+                    </p>
+                  </div>
+                )}
+                {freebies.some((f) => f.freebie_name.trim() !== "") && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Freebies</p>
+                    <p className="font-medium">
+                      {
+                        freebies.filter((f) => f.freebie_name.trim() !== "")
+                          .length
+                      }{" "}
+                      freebie
+                      {freebies.filter((f) => f.freebie_name.trim() !== "")
+                        .length !== 1
+                        ? "s"
+                        : ""}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </Card>
+          </div>
         </div>
       </div>
-
-      {/* Step content */}
-      {renderStep()}
 
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50">

@@ -545,17 +545,6 @@ export function TimelineStep({
             ))}
         </div>
       </div>
-
-      <div className="flex justify-end">
-        {onNext && (
-          <Button
-            onClick={onNext}
-            className="bg-primary text-white hover:bg-primary/90"
-          >
-            Next Step
-          </Button>
-        )}
-      </div>
     </div>
   );
 }

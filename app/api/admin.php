@@ -21,9 +21,11 @@ ini_set('log_errors', 1);
 
 class Admin {
     private $conn;
+    private $pdo;
 
     public function __construct($pdo) {
         $this->conn = $pdo;
+        $this->pdo = $pdo;  // For compatibility with new methods
     }
 
     public function createEvent($data) {
@@ -85,14 +87,16 @@ class Admin {
             // Insert the main event
             $sql = "INSERT INTO tbl_events (
                         original_booking_reference, user_id, admin_id, organizer_id, event_title,
-                        event_type_id, guest_count, event_date, start_time, end_time,
+                        event_theme, event_description, event_type_id, guest_count, event_date, start_time, end_time,
                         package_id, venue_id, total_budget, down_payment, payment_method,
-                        reference_number, additional_notes, event_status, payment_schedule_type_id
+                        reference_number, additional_notes, event_status, payment_schedule_type_id,
+                        is_recurring, recurrence_rule, client_signature, finalized_at, event_attachments
                     ) VALUES (
                         :original_booking_reference, :user_id, :admin_id, :organizer_id, :event_title,
-                        :event_type_id, :guest_count, :event_date, :start_time, :end_time,
+                        :event_theme, :event_description, :event_type_id, :guest_count, :event_date, :start_time, :end_time,
                         :package_id, :venue_id, :total_budget, :down_payment, :payment_method,
-                        :reference_number, :additional_notes, :event_status, :payment_schedule_type_id
+                        :reference_number, :additional_notes, :event_status, :payment_schedule_type_id,
+                        :is_recurring, :recurrence_rule, :client_signature, :finalized_at, :event_attachments
                     )";
 
             $stmt = $this->conn->prepare($sql);
@@ -103,6 +107,8 @@ class Admin {
                 ':admin_id' => $data['admin_id'],
                 ':organizer_id' => $data['organizer_id'] ?? null,
                 ':event_title' => $data['event_title'],
+                ':event_theme' => $data['event_theme'] ?? null,
+                ':event_description' => $data['event_description'] ?? null,
                 ':event_type_id' => $data['event_type_id'],
                 ':guest_count' => $data['guest_count'],
                 ':event_date' => $data['event_date'],
@@ -116,7 +122,12 @@ class Admin {
                 ':reference_number' => $data['reference_number'] ?? null,
                 ':additional_notes' => $data['additional_notes'] ?? null,
                 ':event_status' => $data['event_status'] ?? 'draft',
-                ':payment_schedule_type_id' => $data['payment_schedule_type_id'] ?? 2
+                ':payment_schedule_type_id' => $data['payment_schedule_type_id'] ?? 2,
+                ':is_recurring' => $data['is_recurring'] ?? false,
+                ':recurrence_rule' => $data['recurrence_rule'] ?? null,
+                ':client_signature' => $data['client_signature'] ?? null,
+                ':finalized_at' => $data['finalized_at'] ?? null,
+                ':event_attachments' => $data['event_attachments'] ?? null
             ];
 
             error_log("createEvent SQL params: " . json_encode($eventParams));
@@ -195,7 +206,11 @@ class Admin {
             }
 
             // Create initial payment record if down payment is specified
+            error_log("createEvent: Checking payment data - down_payment: " . ($data['down_payment'] ?? 'null') . ", payment_method: " . ($data['payment_method'] ?? 'null'));
+
             if (!empty($data['down_payment']) && $data['down_payment'] > 0) {
+                error_log("createEvent: Creating payment record with amount: " . $data['down_payment']);
+
                 $paymentSql = "INSERT INTO tbl_payments (
                     event_id, client_id, payment_method, payment_amount,
                     payment_notes, payment_status, payment_date, payment_reference
@@ -205,16 +220,53 @@ class Admin {
                 )";
 
                 $paymentStmt = $this->conn->prepare($paymentSql);
-                $paymentStmt->execute([
+                $paymentParams = [
                     ':event_id' => $eventId,
                     ':client_id' => $data['user_id'],
                     ':payment_method' => $data['payment_method'] ?? 'cash',
-                    ':payment_amount' => $data['down_payment'],
+                    ':payment_amount' => floatval($data['down_payment']), // Ensure it's a number
                     ':payment_notes' => 'Initial down payment for event creation',
-                    ':payment_status' => $data['reference_number'] ? 'completed' : 'pending',
+                    ':payment_status' => 'completed', // Always mark down payments as completed since they're being processed during event creation
                     ':payment_date' => date('Y-m-d'),
                     ':payment_reference' => $data['reference_number'] ?? null
-                ]);
+                ];
+
+                error_log("createEvent: Payment params: " . json_encode($paymentParams));
+                $paymentStmt->execute($paymentParams);
+
+                $paymentId = $this->conn->lastInsertId();
+                error_log("createEvent: Payment created with ID: " . $paymentId);
+
+                // Handle payment attachments if any were uploaded
+                if (!empty($data['payment_attachments']) && is_array($data['payment_attachments'])) {
+                    error_log("createEvent: Processing " . count($data['payment_attachments']) . " payment attachments");
+                    $attachments = [];
+                    foreach ($data['payment_attachments'] as $attachment) {
+                        if (isset($attachment['file_path']) && isset($attachment['original_name'])) {
+                            $attachments[] = [
+                                'file_name' => basename($attachment['file_path']),
+                                'original_name' => $attachment['original_name'],
+                                'file_path' => $attachment['file_path'],
+                                'file_size' => $attachment['file_size'] ?? 0,
+                                'file_type' => $attachment['file_type'] ?? 'application/octet-stream',
+                                'description' => $attachment['description'] ?? 'Payment proof for down payment',
+                                'proof_type' => $attachment['proof_type'] ?? 'receipt',
+                                'uploaded_at' => date('Y-m-d H:i:s'),
+                            ];
+                        }
+                    }
+
+                    if (!empty($attachments)) {
+                        $updateAttachmentsSql = "UPDATE tbl_payments SET payment_attachments = ? WHERE payment_id = ?";
+                        $updateAttachmentsStmt = $this->conn->prepare($updateAttachmentsSql);
+                        $updateAttachmentsStmt->execute([json_encode($attachments), $paymentId]);
+                        error_log("createEvent: Payment attachments saved: " . count($attachments) . " files");
+                    }
+                } else {
+                    error_log("createEvent: No payment attachments provided");
+                }
+            } else {
+                error_log("createEvent: No payment record created - down_payment is empty or zero");
             }
 
             // If this event was created from a booking, mark the booking as converted
@@ -246,12 +298,27 @@ class Admin {
     // Add other essential methods that might be needed
     public function getClients() {
         try {
-            $sql = "SELECT user_id, user_firstName, user_lastName, user_email, user_contact, user_pfp
-                    FROM tbl_users
-                    WHERE user_role = 'Client'
-                    ORDER BY user_firstName, user_lastName";
+            $sql = "SELECT
+                        u.user_id,
+                        u.user_firstName,
+                        u.user_lastName,
+                        u.user_email,
+                        u.user_contact,
+                        u.user_pfp,
+                        u.created_at as registration_date,
+                        COUNT(DISTINCT e.event_id) as total_events,
+                        COUNT(DISTINCT b.booking_id) as total_bookings,
+                        COALESCE(SUM(p.payment_amount), 0) as total_payments,
+                        MAX(e.event_date) as last_event_date
+                    FROM tbl_users u
+                    LEFT JOIN tbl_events e ON u.user_id = e.user_id
+                    LEFT JOIN tbl_bookings b ON u.user_id = b.user_id
+                    LEFT JOIN tbl_payments p ON e.event_id = p.event_id AND p.payment_status = 'completed'
+                    WHERE u.user_role = 'client'
+                    GROUP BY u.user_id
+                    ORDER BY u.user_firstName, u.user_lastName";
 
-            $stmt = $this->conn->prepare($sql);
+            $stmt = $this->pdo->prepare($sql);
             $stmt->execute();
 
             $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -960,7 +1027,14 @@ class Admin {
             $sql = "SELECT
                         e.*,
                         CONCAT(c.user_firstName, ' ', c.user_lastName) as client_name,
+                        c.user_firstName as client_first_name,
+                        c.user_lastName as client_last_name,
+                        c.user_suffix as client_suffix,
                         c.user_email as client_email,
+                        c.user_contact as client_contact,
+                        c.user_pfp as client_pfp,
+                        c.user_birthdate as client_birthdate,
+                        c.created_at as client_joined_date,
                         CONCAT(a.user_firstName, ' ', a.user_lastName) as admin_name,
                         CONCAT(o.user_firstName, ' ', o.user_lastName) as organizer_name,
                         et.event_name as event_type_name,
@@ -996,67 +1070,168 @@ class Admin {
         try {
             $sql = "
                 SELECT
-                    event_id,
-                    event_title,
-                    start_time,
-                    end_time
-                FROM tbl_events
-                WHERE event_date = ?
-                AND event_status != 'cancelled'
+                    e.event_id,
+                    e.event_title,
+                    e.event_date,
+                    e.start_time,
+                    e.end_time,
+                    CONCAT(c.user_firstName, ' ', c.user_lastName) as client_name,
+                    COALESCE(v.venue_title, 'TBD') as venue_name
+                FROM tbl_events e
+                LEFT JOIN tbl_users c ON e.user_id = c.user_id
+                LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
+                WHERE e.event_date = ?
+                AND e.event_status NOT IN ('cancelled', 'completed')
                 AND (
-                    (start_time <= ? AND end_time > ?) OR
-                    (start_time < ? AND end_time >= ?) OR
-                    (start_time >= ? AND end_time <= ?)
+                    (e.start_time < ? AND e.end_time > ?) OR
+                    (e.start_time < ? AND e.end_time > ?) OR
+                    (e.start_time >= ? AND e.end_time <= ?)
                 )
             ";
 
-            $params = [$eventDate, $startTime, $startTime, $endTime, $endTime, $startTime, $endTime];
+            $params = [$eventDate, $endTime, $startTime, $endTime, $startTime, $startTime, $endTime];
 
             if ($excludeEventId) {
-                $sql .= " AND event_id != ?";
+                $sql .= " AND e.event_id != ?";
                 $params[] = $excludeEventId;
             }
+
+            $sql .= " ORDER BY e.start_time";
 
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute($params);
             $conflicts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Format conflicts for frontend
+            $formattedConflicts = [];
+            foreach ($conflicts as $conflict) {
+                $formattedConflicts[] = [
+                    'event_id' => (int)$conflict['event_id'],
+                    'event_title' => $conflict['event_title'],
+                    'event_date' => $conflict['event_date'],
+                    'start_time' => $conflict['start_time'],
+                    'end_time' => $conflict['end_time'],
+                    'client_name' => $conflict['client_name'] ?: 'Unknown Client',
+                    'venue_name' => $conflict['venue_name'] ?: 'TBD'
+                ];
+            }
+
+            $response = [
+                'hasConflicts' => count($formattedConflicts) > 0,
+                'conflicts' => $formattedConflicts,
+                'totalConflicts' => count($formattedConflicts),
+                'checkDate' => $eventDate,
+                'checkStartTime' => $startTime,
+                'checkEndTime' => $endTime
+            ];
+
             return json_encode([
                 "status" => "success",
-                "hasConflicts" => count($conflicts) > 0,
-                "conflicts" => $conflicts
+                "hasConflicts" => $response['hasConflicts'],
+                "conflicts" => $response['conflicts']
             ]);
         } catch (Exception $e) {
+            error_log("checkEventConflicts error: " . $e->getMessage());
             return json_encode([
                 "status" => "error",
-                "message" => "Failed to check event conflicts: " . $e->getMessage()
+                "message" => "Failed to check event conflicts: " . $e->getMessage(),
+                "hasConflicts" => false,
+                "conflicts" => []
             ]);
         }
     }
-    public function getEventById($eventId) {
+        public function getEventById($eventId) {
         try {
             $stmt = $this->pdo->prepare("
                 SELECT
                     e.*,
-                    u.user_firstName,
-                    u.user_lastName,
-                    u.user_email,
-                    u.user_contact,
+                    CONCAT(c.user_firstName, ' ', c.user_lastName) as client_name,
+                    c.user_firstName as client_first_name,
+                    c.user_lastName as client_last_name,
+                    c.user_suffix as client_suffix,
+                    c.user_email as client_email,
+                    c.user_contact as client_contact,
+                    c.user_pfp as client_pfp,
+                    c.user_birthdate as client_birthdate,
+                    c.created_at as client_joined_date,
+                    c.user_username as client_username,
+                    CONCAT(a.user_firstName, ' ', a.user_lastName) as admin_name,
+                    CONCAT(org.user_firstName, ' ', org.user_lastName) as organizer_name,
                     et.event_name as event_type_name,
+                    et.event_description as event_type_description,
                     p.package_title,
+                    p.package_description,
                     v.venue_title,
-                    v.venue_location
+                    v.venue_location,
+                    v.venue_contact,
+                    v.venue_capacity,
+                    v.venue_price,
+                    pst.schedule_name as payment_schedule_name,
+                    pst.schedule_description as payment_schedule_description,
+                    pst.installment_count
                 FROM tbl_events e
-                LEFT JOIN tbl_users u ON e.user_id = u.user_id
+                LEFT JOIN tbl_users c ON e.user_id = c.user_id
+                LEFT JOIN tbl_users a ON e.admin_id = a.user_id
+                LEFT JOIN tbl_users org ON e.organizer_id = org.user_id
                 LEFT JOIN tbl_event_type et ON e.event_type_id = et.event_type_id
                 LEFT JOIN tbl_packages p ON e.package_id = p.package_id
                 LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
+                LEFT JOIN tbl_payment_schedule_types pst ON e.payment_schedule_type_id = pst.schedule_type_id
                 WHERE e.event_id = ?
             ");
-            $stmt->execute([$eventId]);
+                        $stmt->execute([$eventId]);
             $event = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($event) {
+                // Parse event_attachments JSON field
+                if (!empty($event['event_attachments'])) {
+                    $event['attachments'] = json_decode($event['event_attachments'], true);
+                    if (json_last_error() !== JSON_ERROR_NONE) {
+                        $event['attachments'] = [];
+                        error_log("JSON decode error for event attachments: " . json_last_error_msg());
+                    }
+                } else {
+                    $event['attachments'] = [];
+                }
+
+                // For testing: Add sample attachments if event has none (only for event 28)
+                if ($eventId == 28 && empty($event['attachments'])) {
+                    $event['attachments'] = [
+                        [
+                            'file_name' => 'wedding_contract_2025.pdf',
+                            'original_name' => 'Wedding Contract - Laurenz & Partner.pdf',
+                            'file_path' => 'uploads/event_attachments/sample_contract.pdf',
+                            'file_size' => 245760,
+                            'file_type' => 'application/pdf',
+                            'upload_date' => '2025-06-25 10:30:00',
+                            'description' => 'Signed wedding contract and terms'
+                        ],
+                        [
+                            'file_name' => 'venue_layout_plan.jpg',
+                            'original_name' => 'Pearlmont Hotel Layout Plan.jpg',
+                            'file_path' => 'uploads/event_attachments/venue_layout.jpg',
+                            'file_size' => 512000,
+                            'file_type' => 'image/jpeg',
+                            'upload_date' => '2025-06-25 11:15:00',
+                            'description' => 'Venue seating arrangement and layout'
+                        ],
+                        [
+                            'file_name' => 'menu_preferences.docx',
+                            'original_name' => 'Catering Menu Selections.docx',
+                            'file_path' => 'uploads/event_attachments/menu_selections.docx',
+                            'file_size' => 87040,
+                            'file_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            'upload_date' => '2025-06-25 14:45:00',
+                            'description' => 'Detailed menu preferences and dietary requirements'
+                        ]
+                    ];
+
+                    error_log("Added sample attachments for event 28");
+                }
+
+                // Debug client profile picture
+                error_log("Event ID: $eventId, Client PFP: " . ($event['client_pfp'] ?? 'NULL'));
+
                 // Get event components
                 $stmt = $this->pdo->prepare("
                     SELECT * FROM tbl_event_components
@@ -1075,6 +1250,47 @@ class Admin {
                 $stmt->execute([$eventId]);
                 $event['timeline'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+                // Get payment history
+                $stmt = $this->pdo->prepare("
+                    SELECT * FROM tbl_payments
+                    WHERE event_id = ?
+                    ORDER BY payment_date DESC, created_at DESC
+                ");
+                $stmt->execute([$eventId]);
+                $event['payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Get payment proofs/attachments
+                $stmt = $this->pdo->prepare("
+                    SELECT
+                        payment_id,
+                        payment_amount,
+                        payment_date,
+                        payment_method,
+                        payment_status,
+                        payment_reference,
+                        payment_notes as description,
+                        created_at
+                    FROM tbl_payments
+                    WHERE event_id = ? AND payment_reference IS NOT NULL
+                    ORDER BY payment_date DESC
+                ");
+                $stmt->execute([$eventId]);
+                $paymentProofs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Add payment proofs to attachments if they exist
+                foreach ($paymentProofs as $proof) {
+                    if (!empty($proof['payment_reference'])) {
+                        $event['attachments'][] = [
+                            'file_name' => "Payment Proof - " . $proof['payment_reference'],
+                            'file_path' => $proof['payment_reference'],
+                            'file_type' => 'payment_proof',
+                            'upload_date' => $proof['payment_date'],
+                            'file_size' => null,
+                            'description' => $proof['description'] ?? 'Payment proof document'
+                        ];
+                    }
+                }
+
                 return json_encode([
                     "status" => "success",
                     "event" => $event
@@ -1092,6 +1308,216 @@ class Admin {
             ]);
         }
     }
+
+    public function uploadEventAttachment($eventId, $file, $description = '') {
+        try {
+            $uploadDir = 'uploads/event_attachments/';
+
+            // Create directory if it doesn't exist
+            if (!file_exists($uploadDir)) {
+                mkdir($uploadDir, 0755, true);
+            }
+
+            $fileName = time() . '_' . $file['name'];
+            $filePath = $uploadDir . $fileName;
+
+            if (move_uploaded_file($file['tmp_name'], $filePath)) {
+                // Get current attachments
+                $stmt = $this->pdo->prepare("SELECT event_attachments FROM tbl_events WHERE event_id = ?");
+                $stmt->execute([$eventId]);
+                $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                $attachments = [];
+                if (!empty($result['event_attachments'])) {
+                    $attachments = json_decode($result['event_attachments'], true) ?: [];
+                }
+
+                // Add new attachment
+                $newAttachment = [
+                    'file_name' => $fileName,
+                    'original_name' => $file['name'],
+                    'file_path' => $filePath,
+                    'file_size' => $file['size'],
+                    'file_type' => $file['type'],
+                    'upload_date' => date('Y-m-d H:i:s'),
+                    'description' => $description
+                ];
+
+                $attachments[] = $newAttachment;
+
+                // Update event with new attachments
+                $stmt = $this->pdo->prepare("UPDATE tbl_events SET event_attachments = ? WHERE event_id = ?");
+                $stmt->execute([json_encode($attachments), $eventId]);
+
+                return json_encode([
+                    "status" => "success",
+                    "message" => "File uploaded successfully",
+                    "attachment" => $newAttachment
+                ]);
+            } else {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Failed to upload file"
+                ]);
+            }
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Upload error: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function getEnhancedEventDetails($eventId) {
+        try {
+            // Get comprehensive event details using the enhanced view
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    e.*,
+                    CONCAT(u.user_firstName, ' ', u.user_lastName) as client_name,
+                    u.user_firstName as client_first_name,
+                    u.user_lastName as client_last_name,
+                    u.user_suffix as client_suffix,
+                    u.user_email as client_email,
+                    u.user_contact as client_contact,
+                    u.user_pfp as client_pfp,
+                    u.user_birthdate as client_birthdate,
+                    u.created_at as client_joined_date,
+                    u.user_username as client_username,
+                    CONCAT(a.user_firstName, ' ', a.user_lastName) as admin_name,
+                    CONCAT(org.user_firstName, ' ', org.user_lastName) as organizer_name,
+                    CONCAT(cb.user_firstName, ' ', cb.user_lastName) as created_by_name,
+                    CONCAT(ub.user_firstName, ' ', ub.user_lastName) as updated_by_name,
+                    et.event_name as event_type_name,
+                    et.event_description as event_type_description,
+                    p.package_title,
+                    p.package_description,
+                    v.venue_title,
+                    v.venue_location,
+                    v.venue_contact,
+                    v.venue_capacity,
+                    v.venue_price,
+                    pst.schedule_name as payment_schedule_name,
+                    pst.schedule_description as payment_schedule_description,
+                    pst.installment_count,
+                    wd.id as wedding_details_id
+                FROM tbl_events e
+                LEFT JOIN tbl_users u ON e.user_id = u.user_id
+                LEFT JOIN tbl_users a ON e.admin_id = a.user_id
+                LEFT JOIN tbl_users org ON e.organizer_id = org.user_id
+                LEFT JOIN tbl_users cb ON e.created_by = cb.user_id
+                LEFT JOIN tbl_users ub ON e.updated_by = ub.user_id
+                LEFT JOIN tbl_event_type et ON e.event_type_id = et.event_type_id
+                LEFT JOIN tbl_packages p ON e.package_id = p.package_id
+                LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
+                LEFT JOIN tbl_payment_schedule_types pst ON e.payment_schedule_type_id = pst.schedule_type_id
+                LEFT JOIN tbl_wedding_details wd ON e.event_wedding_form_id = wd.id
+                WHERE e.event_id = ?
+            ");
+            $stmt->execute([$eventId]);
+            $event = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$event) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Event not found"
+                ]);
+            }
+
+            // Get event components
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    ec.*,
+                    pc.component_name as original_component_name,
+                    pc.component_description as original_component_description
+                FROM tbl_event_components ec
+                LEFT JOIN tbl_package_components pc ON ec.original_package_component_id = pc.component_id
+                WHERE ec.event_id = ?
+                ORDER BY ec.display_order
+            ");
+            $stmt->execute([$eventId]);
+            $event['components'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get event timeline
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    et.*,
+                    CONCAT(u.user_firstName, ' ', u.user_lastName) as assigned_to_name
+                FROM tbl_event_timeline et
+                LEFT JOIN tbl_users u ON et.assigned_to = u.user_id
+                WHERE et.event_id = ?
+                ORDER BY et.display_order
+            ");
+            $stmt->execute([$eventId]);
+            $event['timeline'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get payment schedule
+            $stmt = $this->pdo->prepare("
+                SELECT * FROM tbl_event_payment_schedules
+                WHERE event_id = ?
+                ORDER BY installment_number
+            ");
+            $stmt->execute([$eventId]);
+            $event['payment_schedule'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get payments
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    p.*,
+                    eps.installment_number,
+                    eps.due_date as schedule_due_date
+                FROM tbl_payments p
+                LEFT JOIN tbl_event_payment_schedules eps ON p.schedule_id = eps.schedule_id
+                WHERE p.event_id = ?
+                ORDER BY p.payment_date DESC
+            ");
+            $stmt->execute([$eventId]);
+            $event['payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get wedding details if this is a wedding event and has wedding form
+            if ($event['event_type_id'] == 1 && $event['event_wedding_form_id']) {
+                $weddingDetails = $this->getWeddingDetails($eventId);
+                $weddingResponse = json_decode($weddingDetails, true);
+                if ($weddingResponse['status'] === 'success') {
+                    $event['wedding_details'] = $weddingResponse['wedding_details'];
+                }
+            }
+
+            // Get feedback if available
+            if ($event['event_feedback_id']) {
+                $stmt = $this->pdo->prepare("
+                    SELECT
+                        f.*,
+                        CONCAT(u.user_firstName, ' ', u.user_lastName) as feedback_by_name
+                    FROM tbl_feedback f
+                    LEFT JOIN tbl_users u ON f.user_id = u.user_id
+                    WHERE f.feedback_id = ?
+                ");
+                $stmt->execute([$event['event_feedback_id']]);
+                $event['feedback'] = $stmt->fetch(PDO::FETCH_ASSOC);
+            }
+
+            // Parse JSON fields if they exist
+            if ($event['event_attachments']) {
+                $event['event_attachments'] = json_decode($event['event_attachments'], true);
+            }
+            if ($event['recurrence_rule']) {
+                $event['recurrence_rule'] = json_decode($event['recurrence_rule'], true);
+            }
+
+            return json_encode([
+                "status" => "success",
+                "event" => $event
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to fetch event details: " . $e->getMessage()
+            ]);
+        }
+    }
+
     public function updateBookingStatus($bookingId, $status) {
         try {
             // Validate booking status
@@ -1432,8 +1858,184 @@ class Admin {
             ]);
         }
     }
-    public function getVenuesForPackage() { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
-    public function createPackageWithVenues($data) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
+    public function getVenuesForPackage() {
+        try {
+            $sql = "SELECT
+                        v.venue_id,
+                        v.venue_title,
+                        v.venue_owner,
+                        v.venue_location,
+                        v.venue_contact,
+                        v.venue_details,
+                        v.venue_capacity,
+                        v.venue_price,
+                        v.venue_type,
+                        v.venue_profile_picture,
+                        v.venue_cover_photo,
+                        v.venue_status
+                    FROM tbl_venue v
+                    WHERE v.venue_status = 'available'
+                    ORDER BY v.venue_title";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute();
+            $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // For each venue, get its inclusions and calculate total price
+            foreach ($venues as &$venue) {
+                // Get venue inclusions
+                $inclusionsSql = "SELECT
+                                    inclusion_id,
+                                    inclusion_name,
+                                    inclusion_description,
+                                    inclusion_price,
+                                    is_active
+                                FROM tbl_venue_inclusions
+                                WHERE venue_id = :venue_id AND is_active = 1
+                                ORDER BY inclusion_name";
+                $inclusionsStmt = $this->conn->prepare($inclusionsSql);
+                $inclusionsStmt->execute([':venue_id' => $venue['venue_id']]);
+                $inclusions = $inclusionsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Calculate total inclusions price
+                $inclusionsTotal = 0;
+                foreach ($inclusions as &$inclusion) {
+                    $inclusionsTotal += floatval($inclusion['inclusion_price']);
+
+                    // Get components for this inclusion
+                    $componentsSql = "SELECT
+                                        component_id,
+                                        component_name,
+                                        component_description,
+                                        component_quantity,
+                                        is_active
+                                    FROM tbl_venue_components
+                                    WHERE inclusion_id = :inclusion_id AND is_active = 1
+                                    ORDER BY component_name";
+                    $componentsStmt = $this->conn->prepare($componentsSql);
+                    $componentsStmt->execute([':inclusion_id' => $inclusion['inclusion_id']]);
+                    $inclusion['components'] = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+                }
+
+                $venue['inclusions'] = $inclusions;
+
+                // Calculate total price (venue base price + inclusions)
+                $venue['total_price'] = floatval($venue['venue_price']) + $inclusionsTotal;
+
+                // Ensure numeric values are properly formatted
+                $venue['venue_price'] = floatval($venue['venue_price']);
+                $venue['venue_capacity'] = intval($venue['venue_capacity']);
+            }
+
+            return json_encode([
+                "status" => "success",
+                "venues" => $venues,
+                "count" => count($venues)
+            ]);
+        } catch (Exception $e) {
+            error_log("getVenuesForPackage error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+    public function createPackageWithVenues($data) {
+        try {
+            $this->conn->beginTransaction();
+
+            // Validate required fields
+            $packageData = $data['package_data'];
+            if (empty($packageData['package_title']) || empty($packageData['package_price']) ||
+                empty($packageData['guest_capacity']) || empty($packageData['created_by'])) {
+                return json_encode(["status" => "error", "message" => "Package title, price, guest capacity, and creator are required"]);
+            }
+
+            // Insert main package
+            $sql = "INSERT INTO tbl_packages (package_title, package_description, package_price, guest_capacity, created_by, is_active)
+                    VALUES (:title, :description, :price, :capacity, :created_by, 1)";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([
+                ':title' => $packageData['package_title'],
+                ':description' => $packageData['package_description'] ?? '',
+                ':price' => $packageData['package_price'],
+                ':capacity' => $packageData['guest_capacity'],
+                ':created_by' => $packageData['created_by']
+            ]);
+
+            $packageId = $this->conn->lastInsertId();
+
+            // Insert components if provided
+            if (!empty($data['components']) && is_array($data['components'])) {
+                foreach ($data['components'] as $index => $component) {
+                    if (!empty($component['component_name'])) {
+                        $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
+                                        VALUES (:package_id, :name, :description, :price, :order)";
+                        $componentStmt = $this->conn->prepare($componentSql);
+                        $componentStmt->execute([
+                            ':package_id' => $packageId,
+                            ':name' => $component['component_name'],
+                            ':description' => $component['component_description'] ?? '',
+                            ':price' => $component['component_price'] ?? 0,
+                            ':order' => $index
+                        ]);
+                    }
+                }
+            }
+
+            // Insert freebies if provided
+            if (!empty($data['freebies']) && is_array($data['freebies'])) {
+                foreach ($data['freebies'] as $index => $freebie) {
+                    if (!empty($freebie['freebie_name'])) {
+                        $freebieSql = "INSERT INTO tbl_package_freebies (package_id, freebie_name, freebie_description, freebie_value, display_order)
+                                      VALUES (:package_id, :name, :description, :value, :order)";
+                        $freebieStmt = $this->conn->prepare($freebieSql);
+                        $freebieStmt->execute([
+                            ':package_id' => $packageId,
+                            ':name' => $freebie['freebie_name'],
+                            ':description' => $freebie['freebie_description'] ?? '',
+                            ':value' => $freebie['freebie_value'] ?? 0,
+                            ':order' => $index
+                        ]);
+                    }
+                }
+            }
+
+            // Insert event types if provided
+            if (!empty($data['event_types']) && is_array($data['event_types'])) {
+                foreach ($data['event_types'] as $eventTypeId) {
+                    $eventTypeSql = "INSERT INTO tbl_package_event_types (package_id, event_type_id) VALUES (:package_id, :event_type_id)";
+                    $eventTypeStmt = $this->conn->prepare($eventTypeSql);
+                    $eventTypeStmt->execute([
+                        ':package_id' => $packageId,
+                        ':event_type_id' => $eventTypeId
+                    ]);
+                }
+            }
+
+            // Insert venues if provided
+            if (!empty($data['venue_ids']) && is_array($data['venue_ids'])) {
+                foreach ($data['venue_ids'] as $venueId) {
+                    $venueSql = "INSERT INTO tbl_package_venues (package_id, venue_id) VALUES (:package_id, :venue_id)";
+                    $venueStmt = $this->conn->prepare($venueSql);
+                    $venueStmt->execute([
+                        ':package_id' => $packageId,
+                        ':venue_id' => $venueId
+                    ]);
+                }
+            }
+
+            $this->conn->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Package created successfully",
+                "package_id" => $packageId
+            ]);
+        } catch (Exception $e) {
+            $this->conn->rollback();
+            error_log("createPackageWithVenues error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
     public function getDashboardMetrics($adminId) {
         try {
             $metrics = [];
@@ -1607,13 +2209,19 @@ class Admin {
         try {
             $this->pdo->beginTransaction();
 
+            // Handle payment attachments if provided
+            $attachments = null;
+            if (isset($data['payment_attachments']) && !empty($data['payment_attachments'])) {
+                $attachments = json_encode($data['payment_attachments']);
+            }
+
             // Insert payment record
             $stmt = $this->pdo->prepare("
                 INSERT INTO tbl_payments (
                     event_id, schedule_id, client_id, payment_method,
                     payment_amount, payment_notes, payment_status,
-                    payment_date, payment_reference
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    payment_date, payment_reference, payment_attachments
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmt->execute([
@@ -1625,7 +2233,8 @@ class Admin {
                 $data['payment_notes'] ?? '',
                 $data['payment_status'] ?? 'completed',
                 $data['payment_date'] ?? date('Y-m-d'),
-                $data['payment_reference'] ?? ''
+                $data['payment_reference'] ?? '',
+                $attachments
             ]);
 
             $paymentId = $this->pdo->lastInsertId();
@@ -1676,11 +2285,191 @@ class Admin {
         }
     }
     public function getClientPayments($clientId) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
-    public function getAdminPayments($adminId) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
-    public function updatePaymentStatus($paymentId, $status, $notes = null) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
+    public function getAdminPayments($adminId) {
+        try {
+            $query = "
+                SELECT
+                    p.payment_id,
+                    p.payment_amount,
+                    p.payment_method,
+                    p.payment_status,
+                    p.payment_date,
+                    p.payment_reference,
+                    p.payment_notes,
+                    e.event_title,
+                    e.event_date,
+                    CONCAT(u.user_firstName, ' ', u.user_lastName) as client_name
+                FROM tbl_payments p
+                INNER JOIN tbl_events e ON p.event_id = e.event_id
+                INNER JOIN tbl_users u ON p.client_id = u.user_id
+                WHERE e.admin_id = :admin_id
+                ORDER BY p.payment_date DESC, p.created_at DESC
+            ";
+
+            $stmt = $this->pdo->prepare($query);
+            $stmt->bindParam(':admin_id', $adminId, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "payments" => $payments
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to fetch admin payments: " . $e->getMessage()
+            ]);
+        }
+    }
+    public function updatePaymentStatus($paymentId, $status, $notes = null) {
+        try {
+            $this->pdo->beginTransaction();
+
+            // Get payment details first
+            $query = "SELECT * FROM tbl_payments WHERE payment_id = :payment_id";
+            $stmt = $this->pdo->prepare($query);
+            $stmt->bindParam(':payment_id', $paymentId, PDO::PARAM_INT);
+            $stmt->execute();
+            $payment = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$payment) {
+                throw new Exception("Payment not found");
+            }
+
+            // Update payment status
+            $updateQuery = "UPDATE tbl_payments SET payment_status = :status, updated_at = CURRENT_TIMESTAMP WHERE payment_id = :payment_id";
+            $updateStmt = $this->pdo->prepare($updateQuery);
+            $updateStmt->bindParam(':status', $status);
+            $updateStmt->bindParam(':payment_id', $paymentId, PDO::PARAM_INT);
+            $updateStmt->execute();
+
+            // Log the status change
+            $logQuery = "
+                INSERT INTO tbl_payment_logs
+                (event_id, payment_id, client_id, action_type, amount, reference_number, notes)
+                VALUES (:event_id, :payment_id, :client_id, 'payment_confirmed', :amount, :reference_number, :notes)
+            ";
+            $logStmt = $this->pdo->prepare($logQuery);
+            $logStmt->bindParam(':event_id', $payment['event_id'], PDO::PARAM_INT);
+            $logStmt->bindParam(':payment_id', $paymentId, PDO::PARAM_INT);
+            $logStmt->bindParam(':client_id', $payment['client_id'], PDO::PARAM_INT);
+            $logStmt->bindParam(':amount', $payment['payment_amount']);
+            $logStmt->bindParam(':reference_number', $payment['payment_reference']);
+            $logStmt->bindParam(':notes', $notes);
+            $logStmt->execute();
+
+            $this->pdo->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Payment status updated successfully"
+            ]);
+
+        } catch (Exception $e) {
+            $this->pdo->rollBack();
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to update payment status: " . $e->getMessage()
+            ]);
+        }
+    }
     public function getPaymentSchedule($eventId) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
-    public function getEventsWithPaymentStatus($adminId) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
-    public function getPaymentAnalytics($adminId, $startDate = null, $endDate = null) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
+    public function getEventsWithPaymentStatus($adminId) {
+        try {
+            $query = "
+                SELECT
+                    e.event_id,
+                    e.event_title,
+                    e.event_date,
+                    e.total_budget,
+                    e.payment_status as event_payment_status,
+                    COALESCE(SUM(p.payment_amount), 0) as total_paid,
+                    (e.total_budget - COALESCE(SUM(p.payment_amount), 0)) as remaining_balance,
+                    CASE
+                        WHEN e.total_budget > 0 THEN ROUND((COALESCE(SUM(p.payment_amount), 0) / e.total_budget) * 100, 2)
+                        ELSE 0
+                    END as payment_percentage,
+                    CONCAT(u.user_firstName, ' ', u.user_lastName) as client_name,
+                    COUNT(p.payment_id) as payment_count
+                FROM tbl_events e
+                LEFT JOIN tbl_users u ON e.user_id = u.user_id
+                LEFT JOIN tbl_payments p ON e.event_id = p.event_id AND p.payment_status = 'completed'
+                WHERE e.admin_id = :admin_id
+                GROUP BY e.event_id
+                ORDER BY e.event_date DESC
+            ";
+
+            $stmt = $this->pdo->prepare($query);
+            $stmt->bindParam(':admin_id', $adminId, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "events" => $events
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to fetch events with payment status: " . $e->getMessage()
+            ]);
+        }
+    }
+    public function getPaymentAnalytics($adminId, $startDate = null, $endDate = null) {
+        try {
+            // Base date filter
+            $dateFilter = "";
+            if ($startDate && $endDate) {
+                $dateFilter = "AND p.payment_date BETWEEN :start_date AND :end_date";
+            }
+
+            $query = "
+                SELECT
+                    COUNT(DISTINCT e.event_id) as total_events,
+                    COUNT(p.payment_id) as total_payments,
+                    COALESCE(SUM(CASE WHEN p.payment_status = 'completed' THEN p.payment_amount ELSE 0 END), 0) as total_revenue,
+                    COALESCE(SUM(CASE WHEN p.payment_status = 'pending' THEN p.payment_amount ELSE 0 END), 0) as pending_payments,
+                    CASE
+                        WHEN COUNT(CASE WHEN p.payment_status = 'completed' THEN 1 END) > 0
+                        THEN COALESCE(SUM(CASE WHEN p.payment_status = 'completed' THEN p.payment_amount ELSE 0 END), 0) / COUNT(CASE WHEN p.payment_status = 'completed' THEN 1 END)
+                        ELSE 0
+                    END as average_payment,
+                    COUNT(CASE WHEN p.payment_method = 'gcash' AND p.payment_status = 'completed' THEN 1 END) as gcash_payments,
+                    COUNT(CASE WHEN p.payment_method = 'bank-transfer' AND p.payment_status = 'completed' THEN 1 END) as bank_payments,
+                    COUNT(CASE WHEN p.payment_method = 'cash' AND p.payment_status = 'completed' THEN 1 END) as cash_payments
+                FROM tbl_events e
+                LEFT JOIN tbl_payments p ON e.event_id = p.event_id
+                WHERE e.admin_id = :admin_id $dateFilter
+            ";
+
+            $stmt = $this->pdo->prepare($query);
+            $stmt->bindParam(':admin_id', $adminId, PDO::PARAM_INT);
+
+            if ($startDate && $endDate) {
+                $stmt->bindParam(':start_date', $startDate);
+                $stmt->bindParam(':end_date', $endDate);
+            }
+
+            $stmt->execute();
+            $analytics = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "analytics" => $analytics
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to fetch payment analytics: " . $e->getMessage()
+            ]);
+        }
+    }
     public function createPaymentSchedule($data) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
     public function getEventPaymentSchedule($eventId) {
         try {
@@ -1732,7 +2521,97 @@ class Admin {
         }
     }
     public function recordScheduledPayment($data) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
-    public function getPaymentLogs($eventId) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
+    public function getPaymentLogs($eventId) {
+        try {
+            $query = "
+                SELECT
+                    pl.log_id,
+                    pl.event_id,
+                    pl.payment_id,
+                    pl.action_type,
+                    pl.amount,
+                    pl.reference_number,
+                    pl.notes,
+                    pl.created_at,
+                    CONCAT(c.user_firstName, ' ', c.user_lastName) as client_name,
+                    CONCAT(a.user_firstName, ' ', a.user_lastName) as admin_name,
+                    p.payment_method,
+                    p.payment_status,
+                    e.event_title
+                FROM tbl_payment_logs pl
+                LEFT JOIN tbl_users c ON pl.client_id = c.user_id
+                LEFT JOIN tbl_users a ON pl.admin_id = a.user_id
+                LEFT JOIN tbl_payments p ON pl.payment_id = p.payment_id
+                LEFT JOIN tbl_events e ON pl.event_id = e.event_id
+                WHERE pl.event_id = :event_id
+                ORDER BY pl.created_at DESC
+            ";
+
+            $stmt = $this->pdo->prepare($query);
+            $stmt->bindParam(':event_id', $eventId, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "logs" => $logs
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to fetch payment logs: " . $e->getMessage()
+            ]);
+        }
+    }
+    public function getAdminPaymentLogs($adminId, $limit = 50) {
+        try {
+            $query = "
+                SELECT
+                    pl.log_id,
+                    pl.event_id,
+                    pl.payment_id,
+                    pl.action_type,
+                    pl.amount,
+                    pl.reference_number,
+                    pl.notes,
+                    pl.created_at,
+                    CONCAT(c.user_firstName, ' ', c.user_lastName) as client_name,
+                    CONCAT(a.user_firstName, ' ', a.user_lastName) as admin_name,
+                    p.payment_method,
+                    p.payment_status,
+                    e.event_title
+                FROM tbl_payment_logs pl
+                LEFT JOIN tbl_users c ON pl.client_id = c.user_id
+                LEFT JOIN tbl_users a ON pl.admin_id = a.user_id
+                LEFT JOIN tbl_payments p ON pl.payment_id = p.payment_id
+                LEFT JOIN tbl_events e ON pl.event_id = e.event_id
+                WHERE e.admin_id = :admin_id
+                ORDER BY pl.created_at DESC
+                LIMIT :limit
+            ";
+
+            $stmt = $this->pdo->prepare($query);
+            $stmt->bindParam(':admin_id', $adminId, PDO::PARAM_INT);
+            $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "logs" => $logs
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to fetch admin payment logs: " . $e->getMessage()
+            ]);
+        }
+    }
+
     public function getEnhancedPaymentDashboard($adminId) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
 
     // Settings Methods
@@ -2029,6 +2908,12 @@ class Admin {
                 case 'hero_image':
                     $uploadDir .= "website/hero/";
                     break;
+                case 'event_attachment':
+                    $uploadDir .= "event_attachments/";
+                    break;
+                case 'payment_proof':
+                    $uploadDir .= "payment_proofs/";
+                    break;
                 default:
                     $uploadDir .= "misc/";
             }
@@ -2061,6 +2946,175 @@ class Admin {
                 "status" => "error",
                 "message" => "Error uploading file: " . $e->getMessage()
             ]);
+        }
+    }
+
+    public function uploadPaymentProof($eventId, $file, $description, $proofType) {
+        try {
+            if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
+                return json_encode(["status" => "error", "message" => "File upload error"]);
+            }
+
+            // Validate file size (max 10MB)
+            if ($file['size'] > 10 * 1024 * 1024) {
+                return json_encode(["status" => "error", "message" => "File too large. Maximum 10MB allowed."]);
+            }
+
+            // Validate file type (expanded to support more document types)
+            $allowedTypes = [
+                // Images
+                'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+                // Documents
+                'application/pdf',
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-powerpoint',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                // Text files
+                'text/plain', 'text/csv',
+                // Other common formats
+                'application/zip', 'application/x-zip-compressed'
+            ];
+            if (!in_array($file['type'], $allowedTypes)) {
+                return json_encode(["status" => "error", "message" => "Invalid file type. Allowed: Images, PDF, Word, Excel, PowerPoint, Text, and ZIP files."]);
+            }
+
+            // Create payment proofs directory
+            $uploadDir = "uploads/payment_proofs/";
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0755, true);
+            }
+
+            // Generate unique filename
+            $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+            $filename = "payment_proof_{$eventId}_" . time() . '_' . uniqid() . '.' . $extension;
+            $targetPath = $uploadDir . $filename;
+
+            // Move the uploaded file
+            if (move_uploaded_file($file['tmp_name'], $targetPath)) {
+                // Create new attachment object
+                $newAttachment = [
+                    'file_name' => $filename,
+                    'original_name' => $file['name'],
+                    'file_path' => $targetPath,
+                    'file_size' => $file['size'],
+                    'file_type' => $file['type'],
+                    'description' => $description,
+                    'proof_type' => $proofType, // receipt, screenshot, bank_slip, other
+                    'uploaded_at' => date('Y-m-d H:i:s'),
+                ];
+
+                return json_encode([
+                    "status" => "success",
+                    "message" => "Payment proof uploaded successfully",
+                    "attachment" => $newAttachment
+                ]);
+            } else {
+                return json_encode(["status" => "error", "message" => "Failed to move uploaded file"]);
+            }
+
+        } catch (Exception $e) {
+            error_log("uploadPaymentProof error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Upload error: " . $e->getMessage()]);
+        }
+    }
+
+    public function getPaymentProofs($eventId) {
+        try {
+            // Get payment proofs from individual payments
+            $sql = "SELECT
+                        p.payment_id,
+                        p.payment_amount,
+                        p.payment_method,
+                        p.payment_date,
+                        p.payment_reference,
+                        p.payment_attachments,
+                        p.payment_status
+                    FROM tbl_payments p
+                    WHERE p.event_id = ? AND p.payment_attachments IS NOT NULL
+                    ORDER BY p.payment_date DESC";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$eventId]);
+            $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $allProofs = [];
+            foreach ($payments as $payment) {
+                if ($payment['payment_attachments']) {
+                    $attachments = json_decode($payment['payment_attachments'], true) ?: [];
+                    foreach ($attachments as $attachment) {
+                        $attachment['payment_id'] = $payment['payment_id'];
+                        $attachment['payment_amount'] = $payment['payment_amount'];
+                        $attachment['payment_method'] = $payment['payment_method'];
+                        $attachment['payment_date'] = $payment['payment_date'];
+                        $attachment['payment_reference'] = $payment['payment_reference'];
+                        $attachment['payment_status'] = $payment['payment_status'];
+                        $allProofs[] = $attachment;
+                    }
+                }
+            }
+
+            return json_encode([
+                "status" => "success",
+                "payment_proofs" => $allProofs
+            ]);
+
+        } catch (Exception $e) {
+            error_log("getPaymentProofs error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Error retrieving payment proofs: " . $e->getMessage()]);
+        }
+    }
+
+    public function deletePaymentProof($paymentId, $fileName) {
+        try {
+            // Get current payment attachments
+            $sql = "SELECT payment_attachments FROM tbl_payments WHERE payment_id = ?";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$paymentId]);
+            $payment = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$payment || !$payment['payment_attachments']) {
+                return json_encode(["status" => "error", "message" => "No attachments found"]);
+            }
+
+            $attachments = json_decode($payment['payment_attachments'], true) ?: [];
+
+            // Find and remove the payment proof
+            $fileFound = false;
+            $filePath = "";
+            $attachments = array_filter($attachments, function($attachment) use ($fileName, &$fileFound, &$filePath) {
+                if ($attachment['file_name'] === $fileName) {
+                    $fileFound = true;
+                    $filePath = $attachment['file_path'];
+                    return false; // Remove this attachment
+                }
+                return true; // Keep this attachment
+            });
+
+            if (!$fileFound) {
+                return json_encode(["status" => "error", "message" => "Payment proof not found"]);
+            }
+
+            // Delete physical file
+            if (file_exists($filePath)) {
+                unlink($filePath);
+            }
+
+            // Update payment with remaining attachments
+            $updateSql = "UPDATE tbl_payments SET payment_attachments = ? WHERE payment_id = ?";
+            $updateStmt = $this->conn->prepare($updateSql);
+            $updateStmt->execute([json_encode(array_values($attachments)), $paymentId]);
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Payment proof deleted successfully"
+            ]);
+
+        } catch (Exception $e) {
+            error_log("deletePaymentProof error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Error deleting payment proof: " . $e->getMessage()]);
         }
     }
 
@@ -2726,6 +3780,341 @@ class Admin {
         } catch (Exception $e) {
             error_log("getReportsData error: " . $e->getMessage());
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+                  }
+      }
+
+    // New method to associate payment proof with a specific payment
+    public function attachPaymentProof($paymentId, $file, $description, $proofType) {
+        try {
+            if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
+                return json_encode(["status" => "error", "message" => "File upload error"]);
+            }
+
+            // Validate file size (max 10MB)
+            if ($file['size'] > 10 * 1024 * 1024) {
+                return json_encode(["status" => "error", "message" => "File too large. Maximum 10MB allowed."]);
+            }
+
+            // Validate file type (expanded to support more document types)
+            $allowedTypes = [
+                // Images
+                'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+                // Documents
+                'application/pdf',
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-powerpoint',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                // Text files
+                'text/plain', 'text/csv',
+                // Other common formats
+                'application/zip', 'application/x-zip-compressed'
+            ];
+            if (!in_array($file['type'], $allowedTypes)) {
+                return json_encode(["status" => "error", "message" => "Invalid file type. Allowed: Images, PDF, Word, Excel, PowerPoint, Text, and ZIP files."]);
+            }
+
+            // Check if payment exists
+            $checkSql = "SELECT payment_id, event_id, payment_attachments FROM tbl_payments WHERE payment_id = ?";
+            $checkStmt = $this->conn->prepare($checkSql);
+            $checkStmt->execute([$paymentId]);
+            $payment = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$payment) {
+                return json_encode(["status" => "error", "message" => "Payment not found"]);
+            }
+
+            // Create payment proofs directory
+            $uploadDir = "uploads/payment_proofs/";
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0755, true);
+            }
+
+            // Generate unique filename
+            $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+            $filename = "payment_proof_p{$paymentId}_" . time() . '_' . uniqid() . '.' . $extension;
+            $targetPath = $uploadDir . $filename;
+
+            // Move the uploaded file
+            if (move_uploaded_file($file['tmp_name'], $targetPath)) {
+                // Get current payment attachments
+                $attachments = [];
+                if ($payment['payment_attachments']) {
+                    $attachments = json_decode($payment['payment_attachments'], true) ?: [];
+                }
+
+                // Add new attachment
+                $newAttachment = [
+                    'file_name' => $filename,
+                    'original_name' => $file['name'],
+                    'file_path' => $targetPath,
+                    'file_size' => $file['size'],
+                    'file_type' => $file['type'],
+                    'description' => $description,
+                    'proof_type' => $proofType,
+                    'uploaded_at' => date('Y-m-d H:i:s'),
+                ];
+
+                $attachments[] = $newAttachment;
+
+                // Update payment with new attachments
+                $updateSql = "UPDATE tbl_payments SET payment_attachments = ? WHERE payment_id = ?";
+                $updateStmt = $this->conn->prepare($updateSql);
+                $updateStmt->execute([json_encode($attachments), $paymentId]);
+
+                return json_encode([
+                    "status" => "success",
+                    "message" => "Payment proof attached successfully",
+                    "attachment" => $newAttachment
+                ]);
+            } else {
+                return json_encode(["status" => "error", "message" => "Failed to move uploaded file"]);
+            }
+
+        } catch (Exception $e) {
+            error_log("attachPaymentProof error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Attachment error: " . $e->getMessage()]);
+        }
+    }
+
+        public function getEventsForPayments($adminId, $searchTerm = '') {
+        try {
+            $sql = "
+                SELECT
+                    e.event_id,
+                    e.event_title,
+                    e.event_date,
+                    e.user_id as client_id,
+                    e.total_budget,
+                    e.payment_status as event_payment_status,
+                    CONCAT(u.user_firstName, ' ', u.user_lastName) as client_name,
+                    u.user_email as client_email,
+                    u.user_contact as client_contact,
+                    COALESCE(SUM(CASE WHEN p.payment_status = 'completed' THEN p.payment_amount ELSE 0 END), 0) as total_paid,
+                    (e.total_budget - COALESCE(SUM(CASE WHEN p.payment_status = 'completed' THEN p.payment_amount ELSE 0 END), 0)) as remaining_balance,
+                    CASE
+                        WHEN e.total_budget > 0 THEN ROUND((COALESCE(SUM(CASE WHEN p.payment_status = 'completed' THEN p.payment_amount ELSE 0 END), 0) / e.total_budget) * 100, 2)
+                        ELSE 0
+                    END as payment_percentage,
+                    COUNT(p.payment_id) as payment_count
+                FROM tbl_events e
+                LEFT JOIN tbl_users u ON e.user_id = u.user_id
+                LEFT JOIN tbl_payments p ON e.event_id = p.event_id
+                WHERE e.admin_id = ?
+            ";
+
+            $params = [$adminId];
+
+            if (!empty($searchTerm)) {
+                $sql .= " AND (
+                    e.event_title LIKE ? OR
+                    e.event_id LIKE ? OR
+                    CONCAT(u.user_firstName, ' ', u.user_lastName) LIKE ? OR
+                    u.user_email LIKE ?
+                )";
+                $searchParam = '%' . $searchTerm . '%';
+                $params = array_merge($params, [$searchParam, $searchParam, $searchParam, $searchParam]);
+            }
+
+            $sql .= " GROUP BY e.event_id ORDER BY e.event_date DESC, e.event_title ASC";
+
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
+            $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "events" => $events
+            ]);
+
+        } catch (Exception $e) {
+            error_log("getEventsForPayments error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to fetch events: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function getEventPaymentDetails($eventId) {
+        try {
+            // Get event details with payment summary
+            $eventQuery = "
+                SELECT
+                    e.event_id,
+                    e.event_title,
+                    e.event_date,
+                    e.event_time,
+                    e.user_id as client_id,
+                    e.total_budget,
+                    e.payment_status as event_payment_status,
+                    CONCAT(u.user_firstName, ' ', u.user_lastName) as client_name,
+                    u.user_email as client_email,
+                    u.user_contact as client_contact,
+                    COALESCE(SUM(CASE WHEN p.payment_status = 'completed' THEN p.payment_amount ELSE 0 END), 0) as total_paid,
+                    (e.total_budget - COALESCE(SUM(CASE WHEN p.payment_status = 'completed' THEN p.payment_amount ELSE 0 END), 0)) as remaining_balance,
+                    CASE
+                        WHEN e.total_budget > 0 THEN ROUND((COALESCE(SUM(CASE WHEN p.payment_status = 'completed' THEN p.payment_amount ELSE 0 END), 0) / e.total_budget) * 100, 2)
+                        ELSE 0
+                    END as payment_percentage,
+                    COUNT(p.payment_id) as total_payments,
+                    COUNT(CASE WHEN p.payment_status = 'completed' THEN 1 END) as completed_payments,
+                    COUNT(CASE WHEN p.payment_status = 'pending' THEN 1 END) as pending_payments
+                FROM tbl_events e
+                LEFT JOIN tbl_users u ON e.user_id = u.user_id
+                LEFT JOIN tbl_payments p ON e.event_id = p.event_id
+                WHERE e.event_id = ?
+                GROUP BY e.event_id
+            ";
+
+            $stmt = $this->pdo->prepare($eventQuery);
+            $stmt->execute([$eventId]);
+            $eventDetails = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$eventDetails) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Event not found"
+                ]);
+            }
+
+                        // Get payment history for this event
+            $paymentsQuery = "
+                SELECT
+                    p.payment_id,
+                    p.payment_amount,
+                    p.payment_method,
+                    p.payment_status,
+                    p.payment_date,
+                    p.payment_reference,
+                    p.payment_notes,
+                    p.payment_attachments,
+                    p.created_at,
+                    p.updated_at,
+                    CONCAT(u.user_firstName, ' ', u.user_lastName) as client_name,
+                    DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') as formatted_created_at,
+                    DATE_FORMAT(p.updated_at, '%Y-%m-%d %H:%i:%s') as formatted_updated_at
+                FROM tbl_payments p
+                LEFT JOIN tbl_users u ON p.client_id = u.user_id
+                WHERE p.event_id = ?
+                ORDER BY p.created_at DESC, p.payment_date DESC
+            ";
+
+            $stmt = $this->pdo->prepare($paymentsQuery);
+            $stmt->execute([$eventId]);
+            $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Parse payment attachments for each payment
+            foreach ($payments as &$payment) {
+                if (!empty($payment['payment_attachments'])) {
+                    $payment['attachments'] = json_decode($payment['payment_attachments'], true);
+                } else {
+                    $payment['attachments'] = [];
+                }
+            }
+
+            // Get payment summary by method
+            $paymentSummaryQuery = "
+                SELECT
+                    p.payment_method,
+                    COUNT(*) as payment_count,
+                    SUM(CASE WHEN p.payment_status = 'completed' THEN p.payment_amount ELSE 0 END) as total_amount
+                FROM tbl_payments p
+                WHERE p.event_id = ?
+                GROUP BY p.payment_method
+                ORDER BY total_amount DESC
+            ";
+
+            $stmt = $this->pdo->prepare($paymentSummaryQuery);
+            $stmt->execute([$eventId]);
+            $paymentSummary = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "event" => $eventDetails,
+                "payments" => $payments,
+                "payment_summary" => $paymentSummary
+            ]);
+
+        } catch (Exception $e) {
+            error_log("getEventPaymentDetails error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to fetch event payment details: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function uploadPaymentAttachment($eventId, $paymentId, $file, $description = '') {
+        try {
+            $uploadDir = $_SERVER['DOCUMENT_ROOT'] . '/events-api/uploads/payment_proof/';
+
+            // Create directory if it doesn't exist
+            if (!file_exists($uploadDir)) {
+                mkdir($uploadDir, 0755, true);
+            }
+
+            // Generate unique filename
+            $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx'];
+
+            if (!in_array($fileExtension, $allowedExtensions)) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Invalid file type. Allowed: " . implode(', ', $allowedExtensions)
+                ]);
+            }
+
+            $fileName = time() . '_' . uniqid() . '.' . $fileExtension;
+            $filePath = $uploadDir . $fileName;
+
+            if (move_uploaded_file($file['tmp_name'], $filePath)) {
+                // Get current payment attachments
+                $stmt = $this->pdo->prepare("SELECT payment_attachments FROM tbl_payments WHERE payment_id = ?");
+                $stmt->execute([$paymentId]);
+                $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                $attachments = [];
+                if (!empty($result['payment_attachments'])) {
+                    $attachments = json_decode($result['payment_attachments'], true) ?: [];
+                }
+
+                // Add new attachment
+                $attachments[] = [
+                    'filename' => $fileName,
+                    'original_name' => $file['name'],
+                    'description' => $description,
+                    'file_size' => $file['size'],
+                    'file_type' => $fileExtension,
+                    'uploaded_at' => date('Y-m-d H:i:s')
+                ];
+
+                // Update payment with new attachments
+                $updateStmt = $this->pdo->prepare("
+                    UPDATE tbl_payments
+                    SET payment_attachments = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE payment_id = ?
+                ");
+                $updateStmt->execute([json_encode($attachments), $paymentId]);
+
+                return json_encode([
+                    "status" => "success",
+                    "filename" => $fileName,
+                    "message" => "Payment attachment uploaded successfully"
+                ]);
+            } else {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Failed to upload file"
+                ]);
+            }
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to upload payment attachment: " . $e->getMessage()
+            ]);
         }
     }
 }
@@ -2809,6 +4198,10 @@ switch ($operation) {
     case "getEventById":
         $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
         echo $admin->getEventById($eventId);
+        break;
+    case "getEnhancedEventDetails":
+        $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
+        echo $admin->getEnhancedEventDetails($eventId);
         break;
     case "getBookingByReference":
         $reference = $_GET['reference'] ?? ($data['reference'] ?? '');
@@ -2924,6 +4317,11 @@ switch ($operation) {
         $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
         echo $admin->getPaymentLogs($eventId);
         break;
+    case "getAdminPaymentLogs":
+        $adminId = $_GET['admin_id'] ?? ($data['admin_id'] ?? 0);
+        $limit = $_GET['limit'] ?? ($data['limit'] ?? 50);
+        echo $admin->getAdminPaymentLogs($adminId, $limit);
+        break;
     case "getEnhancedPaymentDashboard":
         $adminId = $_GET['admin_id'] ?? ($data['admin_id'] ?? 0);
         echo $admin->getEnhancedPaymentDashboard($adminId);
@@ -2981,6 +4379,54 @@ switch ($operation) {
         break;
     case "runWeddingMigration":
         echo $admin->runWeddingMigration();
+        break;
+    case "uploadPaymentProof":
+        if (isset($_FILES['file'])) {
+            $eventId = $_POST['event_id'] ?? ($data['event_id'] ?? 0);
+            $description = $_POST['description'] ?? ($data['description'] ?? '');
+            $proofType = $_POST['proof_type'] ?? ($data['proof_type'] ?? 'receipt');
+            echo $admin->uploadPaymentProof($eventId, $_FILES['file'], $description, $proofType);
+        } else {
+            echo json_encode(["status" => "error", "message" => "No file uploaded"]);
+        }
+        break;
+    case "getPaymentProofs":
+        $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
+        echo $admin->getPaymentProofs($eventId);
+        break;
+    case "attachPaymentProof":
+        if (isset($_FILES['file'])) {
+            $paymentId = $_POST['payment_id'] ?? ($data['payment_id'] ?? 0);
+            $description = $_POST['description'] ?? ($data['description'] ?? '');
+            $proofType = $_POST['proof_type'] ?? ($data['proof_type'] ?? 'receipt');
+            echo $admin->attachPaymentProof($paymentId, $_FILES['file'], $description, $proofType);
+        } else {
+            echo json_encode(["status" => "error", "message" => "No file uploaded"]);
+        }
+        break;
+    case "deletePaymentProof":
+        $paymentId = $_POST['payment_id'] ?? ($data['payment_id'] ?? 0);
+        $fileName = $_POST['file_name'] ?? ($data['file_name'] ?? '');
+        echo $admin->deletePaymentProof($paymentId, $fileName);
+        break;
+    case "getEventsForPayments":
+        $adminId = $_GET['admin_id'] ?? ($data['admin_id'] ?? 0);
+        $searchTerm = $_GET['search_term'] ?? ($data['search_term'] ?? '');
+        echo $admin->getEventsForPayments($adminId, $searchTerm);
+        break;
+    case "getEventPaymentDetails":
+        $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
+        echo $admin->getEventPaymentDetails($eventId);
+        break;
+    case "uploadPaymentAttachment":
+        if (isset($_FILES['file'])) {
+            $eventId = $_POST['event_id'] ?? ($data['event_id'] ?? 0);
+            $paymentId = $_POST['payment_id'] ?? ($data['payment_id'] ?? 0);
+            $description = $_POST['description'] ?? ($data['description'] ?? '');
+            echo $admin->uploadPaymentAttachment($eventId, $paymentId, $_FILES['file'], $description);
+        } else {
+            echo json_encode(["status" => "error", "message" => "No file uploaded"]);
+        }
         break;
     default:
         echo json_encode(["status" => "error", "message" => "Invalid action."]);

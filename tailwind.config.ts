@@ -10,6 +10,19 @@ export default {
   theme: {
   	extend: {
   		colors: {
+  			// Custom Brand Green Color Palette - #028A75
+  			brand: {
+  				50: '#f0fdfa',   // Very light teal-green
+  				100: '#ccfbf1',  // Light teal-green
+  				200: '#99f6e4',  // Light teal-green
+  				300: '#5eead4',  // Medium light teal-green
+  				400: '#2dd4bf',  // Medium teal-green
+  				500: '#028A75',  // Primary brand color
+  				600: '#0d9488',  // Darker teal-green
+  				700: '#0f766e',  // Dark teal-green
+  				800: '#115e59',  // Very dark teal-green
+  				900: '#134e4a',  // Darkest teal-green
+  			},
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
   			card: {

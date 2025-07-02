@@ -534,7 +534,7 @@ export function PackageSelection({
                               key={i}
                               className="flex items-center gap-2 text-sm text-muted-foreground"
                             >
-                              <Check className="h-4 w-4 text-green-500" />
+                              <Check className="h-4 w-4 text-brand-500" />
                               {item}
                             </div>
                           ))}
@@ -653,8 +653,8 @@ export function PackageSelection({
                 <Button
                   className={`w-full transition-all ${
                     isSelected
-                      ? "bg-green-500 hover:bg-green-600 text-white"
-                      : "border-green-500 text-green-500 hover:bg-green-50"
+                      ? "bg-brand-500 hover:bg-brand-600 text-white"
+                      : "border-brand-500 text-brand-500 hover:bg-brand-50"
                   }`}
                   variant={isSelected ? "default" : "outline"}
                   onClick={() => handleSelect(getPackageId(pkg))}

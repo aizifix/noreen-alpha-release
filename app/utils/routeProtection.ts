@@ -11,13 +11,15 @@ export const protectRoute = () => {
         window.history.pushState(null, "", window.location.href);
       };
 
-      // Redirect based on role if on auth pages
+      // Only redirect if on auth pages to avoid loops
       if (window.location.pathname.startsWith("/auth")) {
         const role = userData.user_role.toLowerCase();
         if (role === "admin") {
-          window.location.href = "/admin/dashboard";
-        } else if (role === "vendor") {
-          window.location.href = "/vendor/dashboard";
+          window.location.replace("/admin/dashboard");
+        } else if (role === "vendor" || role === "organizer") {
+          window.location.replace("/organizer/dashboard");
+        } else if (role === "client") {
+          window.location.replace("/client/dashboard");
         }
       }
     }
@@ -30,9 +32,11 @@ export const redirectIfAuthenticated = () => {
     if (userData?.user_role) {
       const role = userData.user_role.toLowerCase();
       if (role === "admin") {
-        window.location.href = "/admin/dashboard";
-      } else if (role === "vendor") {
-        window.location.href = "/vendor/dashboard";
+        window.location.replace("/admin/dashboard");
+      } else if (role === "vendor" || role === "organizer") {
+        window.location.replace("/organizer/dashboard");
+      } else if (role === "client") {
+        window.location.replace("/client/dashboard");
       }
     }
   }

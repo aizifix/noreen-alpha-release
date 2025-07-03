@@ -430,7 +430,7 @@ export default function EventsPage() {
               };
 
               const getProfileImageUrl = (pfpPath?: string) => {
-                if (!pfpPath) return null;
+                if (!pfpPath) return undefined;
                 if (pfpPath.startsWith("http")) {
                   return pfpPath;
                 }
@@ -737,7 +737,7 @@ export default function EventsPage() {
                                 ? pfpPath
                                 : pfpPath
                                   ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(pfpPath)}`
-                                  : null;
+                                  : undefined;
                             return (
                               <img
                                 src={imageUrl}

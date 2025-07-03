@@ -5,25 +5,48 @@ import { useRouter } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 import { Calendar } from "@/components/ui/calendar";
-import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Search,
+  CalendarDays,
+  Clock,
+  Users,
+  MapPin,
+  Package,
+  CreditCard,
+  Calendar as CalendarIcon,
+} from "lucide-react";
 import axios from "axios";
 import { toast } from "@/components/ui/use-toast";
+import { format } from "date-fns";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-// Interface for event data
+// Enhanced interface to match tbl_events structure
 interface Event {
   event_id: number;
   event_title: string;
+  event_theme?: string;
+  event_description?: string;
+  event_type_id: number;
+  guest_count: number;
   event_date: string;
   start_time?: string;
   end_time?: string;
-  user_id: number;
-  admin_id: number;
-  guest_count: number;
-  event_status: string;
+  payment_status: "unpaid" | "partial" | "paid" | "refunded";
+  package_id?: number;
+  venue_id?: number;
   total_budget: number;
+  down_payment: number;
+  event_status: "draft" | "confirmed" | "on_going" | "done" | "cancelled";
   venue_name?: string;
-  client_name?: string;
+  venue_location?: string;
   event_type_name?: string;
+  package_title?: string;
+  admin_name?: string;
   organizer_name?: string;
 }
 
@@ -36,12 +59,10 @@ export default function ClientEventsPage() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     new Date()
   );
-  const [userRole, setUserRole] = useState<string>("");
-  const [userId, setUserId] = useState<number>(0);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
 
   useEffect(() => {
     try {
-      // Protect route from unauthorized access and back navigation
       protectRoute();
       const userData = secureStorage.getItem("user");
       if (
@@ -52,25 +73,17 @@ export default function ClientEventsPage() {
         router.push("/auth/login");
         return;
       }
-      setUserRole(userData.user_role);
-      setUserId(userData.user_id);
-      fetchClientEvents();
+      fetchClientEvents(userData.user_id);
     } catch (error) {
       router.push("/auth/login");
     }
   }, [router]);
 
-  const fetchClientEvents = async () => {
+  const fetchClientEvents = async (userId: number) => {
     try {
       setIsLoading(true);
-      const userData = secureStorage.getItem("user");
-
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "getClientEvents",
-          user_id: userData.user_id,
-        }
+      const response = await axios.get(
+        `http://localhost/events-api/client.php?operation=getClientEvents&user_id=${userId}`
       );
 
       if (response.data.status === "success") {
@@ -94,9 +107,7 @@ export default function ClientEventsPage() {
     }
   };
 
-  // Get events for a specific date
   const getEventsForDate = (date: Date) => {
-    // Format date as YYYY-MM-DD without timezone conversion
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
@@ -104,20 +115,17 @@ export default function ClientEventsPage() {
     return events.filter((event) => event.event_date === dateString);
   };
 
-  // Get events for the selected month
   const getEventsForMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
     return events.filter((event) => {
-      // Parse the date string directly to avoid timezone issues
       const eventDateParts = event.event_date.split("-");
       const eventYear = parseInt(eventDateParts[0]);
-      const eventMonth = parseInt(eventDateParts[1]) - 1; // Month is 0-indexed
+      const eventMonth = parseInt(eventDateParts[1]) - 1;
       return eventYear === year && eventMonth === month;
     });
   };
 
-  // Calendar navigation
   const navigateMonth = (direction: "prev" | "next") => {
     setCurrentDate((prevDate) => {
       const newDate = new Date(prevDate);
@@ -130,7 +138,6 @@ export default function ClientEventsPage() {
     });
   };
 
-  // Status color helper
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case "confirmed":
@@ -140,19 +147,18 @@ export default function ClientEventsPage() {
           text: "text-green-700",
         };
       case "draft":
-      case "planning":
         return {
           border: "border-yellow-500",
           bg: "bg-yellow-100",
           text: "text-yellow-700",
         };
-      case "in-progress":
+      case "on_going":
         return {
           border: "border-blue-500",
           bg: "bg-blue-100",
           text: "text-blue-700",
         };
-      case "completed":
+      case "done":
         return {
           border: "border-purple-500",
           bg: "bg-purple-100",
@@ -173,13 +179,28 @@ export default function ClientEventsPage() {
     }
   };
 
+  // Add this function for payment status colors
+  const getPaymentStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case "paid":
+        return { bg: "bg-green-100", text: "text-green-700" };
+      case "partial":
+        return { bg: "bg-yellow-100", text: "text-yellow-700" };
+      case "unpaid":
+        return { bg: "bg-red-100", text: "text-red-700" };
+      case "refunded":
+        return { bg: "bg-gray-100", text: "text-gray-700" };
+      default:
+        return { bg: "bg-gray-100", text: "text-gray-700" };
+    }
+  };
+
   // Calendar Component
   const EventCalendar = () => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const today = new Date();
 
-    // Get first day of month and number of days
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
@@ -224,12 +245,14 @@ export default function ClientEventsPage() {
           onClick={() => setSelectedDate(date)}
         >
           <div
-            className={`text-sm font-medium mb-1 ${isToday ? "text-blue-600" : "text-gray-900"}`}
+            className={`text-sm font-medium mb-1 ${
+              isToday ? "text-blue-600" : "text-gray-900"
+            }`}
           >
             {day}
           </div>
           <div className="space-y-1">
-            {dayEvents.slice(0, 3).map((event, index) => {
+            {dayEvents.slice(0, 3).map((event) => {
               const colors = getStatusColor(event.event_status);
               return (
                 <div
@@ -238,7 +261,6 @@ export default function ClientEventsPage() {
                   title={`${event.event_title} - ${event.organizer_name || "Assigned Organizer"}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Navigate to event details (client view)
                     router.push(`/client/events/${event.event_id}`);
                   }}
                 >
@@ -256,7 +278,7 @@ export default function ClientEventsPage() {
       );
     }
 
-    // Next month days to fill the grid
+    // Next month days
     const remainingDays = 42 - calendarDays.length;
     for (let day = 1; day <= remainingDays; day++) {
       calendarDays.push(
@@ -319,7 +341,7 @@ export default function ClientEventsPage() {
     );
   };
 
-  // Event details sidebar for selected date
+  // Event details sidebar
   const EventDetailsSidebar = () => {
     if (!selectedDate) return null;
 
@@ -328,7 +350,7 @@ export default function ClientEventsPage() {
     return (
       <div className="bg-white rounded-lg shadow p-4">
         <h3 className="font-semibold mb-3">
-          My Events for{" "}
+          Events for{" "}
           {selectedDate.toLocaleDateString("en-US", {
             weekday: "long",
             month: "long",
@@ -383,8 +405,8 @@ export default function ClientEventsPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
-          <p className="mt-2 text-gray-500">Loading your events...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
+          <p className="mt-2 text-gray-500">Loading events...</p>
         </div>
       </div>
     );
@@ -396,23 +418,23 @@ export default function ClientEventsPage() {
         <h1 className="text-2xl font-bold">My Events</h1>
         <div className="flex gap-2">
           <button
-            className={`px-4 py-2 rounded font-semibold border ${view === "calendar" ? "bg-green-600 text-white border-green-600" : "bg-white text-green-700 border-green-600"}`}
+            className={`px-4 py-2 rounded font-semibold border ${view === "calendar" ? "bg-brand-500 text-white border-brand-500" : "bg-white text-brand-600 border-brand-500"}`}
             onClick={() => setView("calendar")}
           >
             Calendar
           </button>
           <button
-            className={`px-4 py-2 rounded font-semibold border ${view === "list" ? "bg-green-600 text-white border-green-600" : "bg-white text-green-700 border-green-600"}`}
+            className={`px-4 py-2 rounded font-semibold border ${view === "list" ? "bg-brand-500 text-white border-brand-500" : "bg-white text-brand-600 border-brand-500"}`}
             onClick={() => setView("list")}
           >
             List
           </button>
           <button
-            className="ml-2 px-4 py-2 rounded bg-green-500 text-white font-semibold hover:bg-green-600 flex items-center gap-2"
-            onClick={() => router.push("/client/events/new")}
+            className="ml-2 px-4 py-2 rounded bg-brand-500 text-white font-semibold hover:bg-brand-600 flex items-center gap-2"
+            onClick={() => router.push("/client/bookings/create-booking")}
           >
             <Plus className="h-4 w-4" />
-            Book New Event
+            Create Booking
           </button>
         </div>
       </div>
@@ -423,23 +445,38 @@ export default function ClientEventsPage() {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
           <input
             className="border rounded px-10 py-2 w-full"
-            placeholder="Search my events..."
+            placeholder="Search events..."
           />
         </div>
         <select className="border rounded px-3 py-2">
-          <option>All Types</option>
-          <option>Wedding</option>
-          <option>Corporate</option>
-          <option>Birthday</option>
-          <option>Social</option>
+          <option value="">All Types</option>
+          <option value="1">Wedding</option>
+          <option value="2">Anniversary</option>
+          <option value="3">Birthday</option>
+          <option value="4">Corporate Event</option>
+          <option value="5">Others</option>
+          <option value="10">Baptism</option>
+          <option value="11">Baby Shower</option>
+          <option value="12">Reunion</option>
+          <option value="13">Festival</option>
+          <option value="14">Engagement Party</option>
+          <option value="15">Christmas Party</option>
+          <option value="16">New Year's Party</option>
         </select>
         <select className="border rounded px-3 py-2">
-          <option>All Statuses</option>
-          <option>Draft</option>
-          <option>Confirmed</option>
-          <option>In Progress</option>
-          <option>Completed</option>
-          <option>Cancelled</option>
+          <option value="">All Statuses</option>
+          <option value="draft">Draft</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="on_going">On Going</option>
+          <option value="done">Done</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <select className="border rounded px-3 py-2">
+          <option value="">All Payment Status</option>
+          <option value="unpaid">Unpaid</option>
+          <option value="partial">Partial</option>
+          <option value="paid">Paid</option>
+          <option value="refunded">Refunded</option>
         </select>
       </div>
 
@@ -465,47 +502,15 @@ export default function ClientEventsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-blue-100 border-l-4 border-blue-500"></div>
-                  <span>In Progress</span>
+                  <span>On Going</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-purple-100 border-l-4 border-purple-500"></div>
-                  <span>Completed</span>
+                  <span>Done</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-red-100 border-l-4 border-red-500"></div>
                   <span>Cancelled</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Stats */}
-            <div className="bg-white rounded-lg shadow p-4 mt-4">
-              <h4 className="font-semibold mb-3">Quick Stats</h4>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Total Events:</span>
-                  <span className="font-medium">{events.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Upcoming:</span>
-                  <span className="font-medium">
-                    {
-                      events.filter(
-                        (e) =>
-                          new Date(e.event_date) > new Date() &&
-                          e.event_status !== "cancelled"
-                      ).length
-                    }
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Completed:</span>
-                  <span className="font-medium">
-                    {
-                      events.filter((e) => e.event_status === "completed")
-                        .length
-                    }
-                  </span>
                 </div>
               </div>
             </div>
@@ -515,7 +520,7 @@ export default function ClientEventsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {events.map((event) => {
             const colors = getStatusColor(event.event_status);
-            const isUpcoming = new Date(event.event_date) > new Date();
+            const paymentColors = getPaymentStatusColor(event.payment_status);
             return (
               <div
                 key={event.event_id}
@@ -524,13 +529,22 @@ export default function ClientEventsPage() {
               >
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <h2 className="font-bold text-lg">{event.event_title}</h2>
+                    <h2 className="font-bold text-lg truncate">
+                      {event.event_title}
+                    </h2>
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-semibold ${colors.bg} ${colors.text}`}
                     >
                       {event.event_status}
                     </span>
                   </div>
+
+                  {event.event_theme && (
+                    <div className="text-sm text-gray-500 mb-1 italic">
+                      Theme: {event.event_theme}
+                    </div>
+                  )}
+
                   <div className="text-sm text-gray-600 mb-1">
                     {new Date(event.event_date).toLocaleDateString("en-US", {
                       weekday: "long",
@@ -538,47 +552,104 @@ export default function ClientEventsPage() {
                       month: "long",
                       day: "numeric",
                     })}
-                    {isUpcoming && (
-                      <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                        Upcoming
-                      </span>
-                    )}
                   </div>
-                  <div className="text-sm mb-2 space-y-1">
-                    <div>
-                      <span className="font-semibold">Organizer:</span>{" "}
-                      {event.organizer_name || "To be assigned"}
+
+                  {event.start_time && event.end_time && (
+                    <div className="text-sm text-gray-600 mb-2">
+                      {format(
+                        new Date(`2000-01-01T${event.start_time}`),
+                        "h:mm a"
+                      )}{" "}
+                      -{" "}
+                      {format(
+                        new Date(`2000-01-01T${event.end_time}`),
+                        "h:mm a"
+                      )}
                     </div>
+                  )}
+
+                  {/* Event Details Section */}
+                  <div className="mb-3 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm text-gray-900">
+                          Coordinator: {event.admin_name || "Not Assigned"}
+                        </div>
+                        {event.organizer_name && (
+                          <div className="text-xs text-gray-600">
+                            Organizer: {event.organizer_name}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-sm mb-2 space-y-1">
                     <div>
                       <span className="font-semibold">Venue:</span>{" "}
                       {event.venue_name || "TBD"}
                     </div>
                     <div>
-                      <span className="font-semibold">Budget:</span> ₱
-                      {event.total_budget?.toLocaleString() || "0"}
+                      <span className="font-semibold">Type:</span>{" "}
+                      {event.event_type_name || "Unknown"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Package:</span>{" "}
+                      {event.package_title || "Custom"}
                     </div>
                     <div>
                       <span className="font-semibold">Guests:</span>{" "}
                       {event.guest_count}
                     </div>
                     <div>
-                      <span className="font-semibold">Type:</span>{" "}
-                      {event.event_type_name || "Unknown"}
+                      <span className="font-semibold">Budget:</span> ₱
+                      {event.total_budget?.toLocaleString() || "0"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Down Payment:</span> ₱
+                      {event.down_payment?.toLocaleString() || "0"}
                     </div>
                   </div>
+
+                  {/* Payment Status */}
+                  <div className="mb-3">
+                    <span
+                      className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
+                    >
+                      Payment: {event.payment_status}
+                    </span>
+                  </div>
                 </div>
+
                 <div className="flex justify-between items-center mt-4">
                   <button
-                    className="flex items-center gap-1 px-4 py-2 rounded border border-gray-300 bg-gray-50 text-gray-700 font-medium hover:bg-gray-100"
+                    className="flex items-center gap-1 px-3 py-1 rounded border border-gray-300 bg-gray-50 text-gray-700 text-sm font-medium hover:bg-gray-100"
                     onClick={(e) => {
                       e.stopPropagation();
-                      // Navigate to timeline
                       router.push(`/client/events/${event.event_id}/timeline`);
                     }}
                   >
                     <span>⏱️</span> Timeline
                   </button>
-                  <button className="px-4 py-2 rounded bg-green-600 text-white font-semibold hover:bg-green-700">
+                  <button
+                    className="flex items-center gap-1 px-3 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      router.push(
+                        `/client/payments?event_id=${event.event_id}`
+                      );
+                    }}
+                  >
+                    <span>💳</span> Payments
+                  </button>
+                  <button
+                    className="px-3 py-1 rounded bg-green-600 text-white text-sm font-semibold hover:bg-green-700"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      router.push(`/client/events/${event.event_id}`);
+                    }}
+                  >
                     View Details
                   </button>
                 </div>
@@ -595,14 +666,14 @@ export default function ClientEventsPage() {
                 No events found
               </h3>
               <p className="text-gray-500 mb-4">
-                Get started by booking your first event.
+                Get started by creating your first booking.
               </p>
               <button
                 className="px-4 py-2 rounded bg-green-500 text-white font-semibold hover:bg-green-600 flex items-center gap-2 mx-auto"
-                onClick={() => router.push("/client/events/new")}
+                onClick={() => router.push("/client/bookings/create-booking")}
               >
                 <Plus className="h-4 w-4" />
-                Book New Event
+                Create Booking
               </button>
             </div>
           )}

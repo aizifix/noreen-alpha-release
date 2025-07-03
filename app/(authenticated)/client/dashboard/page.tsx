@@ -2,427 +2,329 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from "lucide-react";
+import axios from "axios";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Bell,
-  Calendar,
-  CreditCard,
-  FileText,
-  List,
-  Users,
-  LogOut,
-  Plus,
-} from "lucide-react";
-import Link from "next/link";
+import { Calendar, Clock, DollarSign, Package, Users } from "lucide-react";
+import { format } from "date-fns";
 
-function ProgressBar({ value }: { value: number }) {
-  return (
-    <div className="w-full h-2 bg-gray-200 rounded-full mt-2">
-      <div
-        className="h-2 rounded-full bg-green-600 transition-all"
-        style={{ width: `${value}%` }}
-      />
-    </div>
-  );
+interface Event {
+  event_id: number;
+  event_title: string;
+  event_date: string;
+  event_type_name: string;
+  venue_name: string;
+  package_name: string;
+  total_budget: number;
+  total_paid: number;
+  remaining_balance: number;
+  payment_percentage: number;
+  payment_status: string;
+  event_status: string;
+}
+
+interface PaymentSchedule {
+  schedule_id: number;
+  event_title: string;
+  due_date: string;
+  amount_due: number;
+  urgency_status: "overdue" | "due_today" | "due_soon" | "upcoming";
+  days_until_due: number;
 }
 
 export default function ClientDashboard() {
   const router = useRouter();
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [events, setEvents] = useState<Event[]>([]);
+  const [upcomingPayments, setUpcomingPayments] = useState<PaymentSchedule[]>(
+    []
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      // Protect route from unauthorized access and back navigation
-      // Use secureStorage and check for 'Client' role
-      const userDataRaw = secureStorage.getItem("user");
-      let userData = userDataRaw;
-      if (!userData) {
-        router.push("/auth/login");
-        return;
-      }
-      if (typeof userData === "string") {
-        try {
-          userData = JSON.parse(userData);
-        } catch {
-          secureStorage.removeItem("user");
+    const fetchDashboardData = async () => {
+      try {
+        protectRoute();
+        const userData = secureStorage.getItem("user");
+
+        // Log user data for debugging
+        console.log("Dashboard: User data from storage:", userData);
+
+        if (
+          !userData ||
+          !userData.user_role ||
+          userData.user_role.toLowerCase() !== "client"
+        ) {
+          console.warn("Dashboard: Invalid user role or missing data");
           router.push("/auth/login");
           return;
         }
+
+        setIsLoading(true);
+
+        // Log API requests
+        console.log("Dashboard: Fetching events for user:", userData.user_id);
+
+        const eventsResponse = await axios.get(
+          `http://localhost/events-api/client.php?operation=getClientEvents&user_id=${userData.user_id}`
+        );
+
+        console.log("Dashboard: Events response:", eventsResponse.data);
+
+        const paymentsResponse = await axios.get(
+          `http://localhost/events-api/client.php?operation=getClientNextPayments&user_id=${userData.user_id}`
+        );
+
+        console.log("Dashboard: Payments response:", paymentsResponse.data);
+
+        if (eventsResponse.data.status === "success") {
+          setEvents(eventsResponse.data.events);
+        } else {
+          console.error(
+            "Dashboard: Failed to fetch events:",
+            eventsResponse.data.message
+          );
+          setError(eventsResponse.data.message || "Failed to fetch events");
+        }
+
+        if (paymentsResponse.data.status === "success") {
+          setUpcomingPayments(paymentsResponse.data.next_payments);
+        } else {
+          console.error(
+            "Dashboard: Failed to fetch payments:",
+            paymentsResponse.data.message
+          );
+          setError(paymentsResponse.data.message || "Failed to fetch payments");
+        }
+      } catch (error: any) {
+        console.error("Dashboard: Error fetching data:", error);
+        const errorMessage =
+          error.response?.data?.message ||
+          error.message ||
+          "Failed to load dashboard data";
+        setError(errorMessage);
+      } finally {
+        setIsLoading(false);
       }
-      if (!userData.user_role || userData.user_role !== "Client") {
-        router.push("/auth/login");
-        return;
-      }
-    } catch (error) {
-      router.push("/auth/login");
-    }
+    };
+
+    fetchDashboardData();
   }, [router]);
 
-  // Client-related metrics
-  const metrics = [
-    { title: "Events Booked", value: "8", change: "+10%", trend: "up" },
-    { title: "Payments Made", value: "$2,400", change: "+5%", trend: "up" },
-    { title: "Upcoming Events", value: "3", change: "0%", trend: "up" },
-    { title: "Total Spent", value: "$5,800", change: "+12%", trend: "up" },
-  ];
-
-  const reviews = {
-    positive: 92,
-    neutral: 6,
-    negative: 2,
-    total: "24",
-  };
-
-  const events = [
-    {
-      title: "Wedding Reception at Grand Ballroom",
-      time: "22 DEC 7:20 PM",
-      color: "bg-green-500",
-    },
-    {
-      title: "Corporate Seminar at Conference Center",
-      time: "21 DEC 11:21 PM",
-      color: "bg-blue-500",
-    },
-    {
-      title: "Birthday Party at Garden Pavilion",
-      time: "21 DEC 9:28 PM",
-      color: "bg-[#486968]",
-    },
-  ];
-
-  // Calendar functions
-  const daysInMonth = new Date(
-    currentDate.getFullYear(),
-    currentDate.getMonth() + 1,
-    0
-  ).getDate();
-
-  const firstDayOfMonth = new Date(
-    currentDate.getFullYear(),
-    currentDate.getMonth(),
-    1
-  ).getDay();
-
-  const lastDayOfPrevMonth = new Date(
-    currentDate.getFullYear(),
-    currentDate.getMonth(),
-    0
-  ).getDate();
-
-  const months = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
-
-  const days = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
-
-  const prevMonth = () => {
-    setCurrentDate(
-      new Date(currentDate.getFullYear(), currentDate.getMonth() - 1)
-    );
-  };
-
-  const nextMonth = () => {
-    setCurrentDate(
-      new Date(currentDate.getFullYear(), currentDate.getMonth() + 1)
-    );
-  };
-
-  const isToday = (date: number) => {
-    const today = new Date();
-    return (
-      date === today.getDate() &&
-      currentDate.getMonth() === today.getMonth() &&
-      currentDate.getFullYear() === today.getFullYear()
-    );
-  };
-
-  const isSelected = (date: number) => {
-    return (
-      date === selectedDate.getDate() &&
-      currentDate.getMonth() === selectedDate.getMonth() &&
-      currentDate.getFullYear() === selectedDate.getFullYear()
-    );
-  };
-
-  const getDayElement = (dayIndex: number, isCurrentMonth = true) => {
-    const className = `h-8 w-8 rounded-full flex items-center justify-center text-sm transition-colors ${
-      !isCurrentMonth
-        ? "text-gray-400"
-        : isSelected(dayIndex)
-          ? "bg-[#486968] text-white"
-          : isToday(dayIndex)
-            ? "font-semibold"
-            : "hover:bg-[#486968]/10"
-    }`;
-
-    return (
-      <button
-        key={`${isCurrentMonth ? "current" : "other"}-${dayIndex}`}
-        className={className}
-        onClick={() =>
-          isCurrentMonth &&
-          setSelectedDate(
-            new Date(
-              currentDate.getFullYear(),
-              currentDate.getMonth(),
-              dayIndex
-            )
-          )
-        }
-        disabled={!isCurrentMonth}
-      >
-        {dayIndex}
-      </button>
-    );
-  };
-
-  const renderCalendarDays = () => {
-    const days = [];
-
-    // Previous month days
-    for (let i = firstDayOfMonth - 1; i >= 0; i--) {
-      days.push(getDayElement(lastDayOfPrevMonth - i, false));
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case "confirmed":
+        return "bg-green-100 text-green-800";
+      case "draft":
+      case "planning":
+        return "bg-yellow-100 text-yellow-800";
+      case "on_going":
+        return "bg-blue-100 text-blue-800";
+      case "done":
+        return "bg-purple-100 text-purple-800";
+      case "cancelled":
+        return "bg-red-100 text-red-800";
+      default:
+        return "bg-gray-100 text-gray-800";
     }
-
-    // Current month days
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(getDayElement(i));
-    }
-
-    // Next month days
-    const remainingDays = 42 - days.length; // 6 rows × 7 days = 42
-    for (let i = 1; i <= remainingDays; i++) {
-      days.push(getDayElement(i, false));
-    }
-
-    return days;
   };
 
-  // Dummy data
-  const summary = {
-    totalEvents: 2,
-    upcomingEvent: {
-      name: "Wedding Anniversary",
-      date: "June 15, 2025",
-    },
-    totalPayments: 200000,
-    paymentsCount: 2,
-    notifications: 3,
-    unreadNotifications: 2,
+  const getPaymentStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case "paid":
+        return "bg-green-100 text-green-800";
+      case "partial":
+        return "bg-blue-100 text-blue-800";
+      case "unpaid":
+        return "bg-yellow-100 text-yellow-800";
+      case "refunded":
+        return "bg-red-100 text-red-800";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
   };
 
-  const eventProgress = [
-    {
-      name: "Wedding Anniversary",
-      date: "June 15, 2025",
-      progress: 75,
-      venue: "The Grand Pavilion",
-    },
-    {
-      name: "Birthday Party",
-      date: "July 22, 2025",
-      progress: 40,
-      venue: "Garden Terrace",
-    },
-  ];
+  const getUrgencyColor = (status: string) => {
+    switch (status) {
+      case "overdue":
+        return "bg-red-100 text-red-800";
+      case "due_today":
+        return "bg-yellow-100 text-yellow-800";
+      case "due_soon":
+        return "bg-orange-100 text-orange-800";
+      default:
+        return "bg-blue-100 text-blue-800";
+    }
+  };
 
-  const notifications = [
-    {
-      title: "Payment Received",
-      status: "New",
-      description:
-        "Your payment of ₱125,000 for Wedding Anniversary has been received.",
-      timeAgo: "-40 days ago",
-    },
-    {
-      title: "Event Update",
-      status: "New",
-      description: "The venue for your Birthday Party has been confirmed.",
-      timeAgo: "-38 days ago",
-    },
-    {
-      title: "New Document",
-      status: "",
-      description: "A new contract document has been uploaded for your review.",
-      timeAgo: "-35 days ago",
-    },
-  ];
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500"></div>
+      </div>
+    );
+  }
 
-  // Tabs state
-  const [activeTab, setActiveTab] = useState("Overview");
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-red-500 mb-4">⚠️</div>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Error</h3>
+        <p className="text-gray-500">{error}</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header row: Dashboard title left, Book New Event button right */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <Link href="/client/events/new">
-          <button className="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2 rounded-lg flex items-center gap-2">
-            <Plus className="h-5 w-5" /> Book New Event
-          </button>
-        </Link>
-      </div>
-      {/* Top summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-lg p-4 flex flex-col gap-1 border">
-          <span className="text-xs text-gray-500 flex items-center gap-1">
-            <Calendar className="h-4 w-4" /> Total Events
-          </span>
-          <span className="text-2xl font-bold">{summary.totalEvents}</span>
-          <span className="text-xs text-gray-400">2 active events</span>
-        </div>
-        <div className="bg-white rounded-lg p-4 flex flex-col gap-1 border">
-          <span className="text-xs text-gray-500 flex items-center gap-1">
-            <List className="h-4 w-4" /> Upcoming Event
-          </span>
-          <span className="text-lg font-semibold truncate">
-            {summary.upcomingEvent.name}
-          </span>
-          <span className="text-xs text-gray-400">
-            {summary.upcomingEvent.date}
-          </span>
-        </div>
-        <div className="bg-white rounded-lg p-4 flex flex-col gap-1 border">
-          <span className="text-xs text-gray-500 flex items-center gap-1">
-            <CreditCard className="h-4 w-4" /> Total Payments
-          </span>
-          <span className="text-2xl font-bold">
-            ₱{summary.totalPayments.toLocaleString()}
-          </span>
-          <span className="text-xs text-gray-400">
-            {summary.paymentsCount} payments made
-          </span>
-        </div>
-        <div className="bg-white rounded-lg p-4 flex flex-col gap-1 border">
-          <span className="text-xs text-gray-500 flex items-center gap-1">
-            <Bell className="h-4 w-4" /> Notifications
-          </span>
-          <span className="text-2xl font-bold">{summary.notifications}</span>
-          <span className="text-xs text-gray-400">
-            {summary.unreadNotifications} unread
-          </span>
-        </div>
-      </div>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
 
-      {/* Tabs */}
-      <div className="bg-white rounded-lg p-4 border">
-        <div className="flex gap-4 border-b mb-4">
-          {["Overview", "Events", "Payments", "Notifications"].map((tab) => (
-            <button
-              key={tab}
-              className={`pb-2 px-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? "border-brand-500 text-brand-600" : "border-transparent text-gray-500 hover:text-brand-600"}`}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab}
-              {tab === "Events" && (
-                <span className="ml-1 bg-brand-100 text-brand-600 rounded-full px-2 text-xs">
-                  2
-                </span>
-              )}
-              {tab === "Payments" && (
-                <span className="ml-1 bg-brand-100 text-brand-600 rounded-full px-2 text-xs">
-                  2
-                </span>
-              )}
-              {tab === "Notifications" && (
-                <span className="ml-1 bg-brand-100 text-brand-600 rounded-full px-2 text-xs">
-                  2
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === "Overview" && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Event Planning Progress */}
-            <div className="md:col-span-2">
-              <h2 className="text-lg font-semibold mb-2">
-                Event Planning Progress
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Track the progress of your upcoming events
-              </p>
-              <div className="space-y-4">
-                {eventProgress.map((event) => (
-                  <div key={event.name} className="mb-2">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <span className="font-medium">{event.name}</span>
-                        <span className="block text-xs text-gray-500">
-                          {event.date}
-                        </span>
-                      </div>
-                      <span className="font-semibold">{event.progress}%</span>
-                    </div>
-                    <ProgressBar value={event.progress} />
-                    <div className="text-xs text-gray-400 mt-1">
-                      {event.venue}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <Link
-                href="/client/events"
-                className="text-green-700 text-sm mt-4 inline-block"
-              >
-                View all events &rarr;
-              </Link>
-            </div>
-            {/* Recent Notifications */}
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold mb-2">
-                Recent Notifications
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">Your latest updates</p>
-              <div className="space-y-4">
-                {notifications.map((notif, idx) => (
-                  <div
-                    key={idx}
-                    className="border-b pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{notif.title}</span>
-                      {notif.status && (
-                        <span className="ml-1 bg-brand-100 text-brand-600 rounded-full px-2 text-xs">
-                          {notif.status}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {notif.description}
-                    </div>
-                    <div className="text-xs text-gray-400">{notif.timeAgo}</div>
-                  </div>
-                ))}
-              </div>
-              <Link
-                href="/client/notifications"
-                className="text-green-700 text-sm mt-4 inline-block"
-              >
-                View all notifications &rarr;
-              </Link>
+              <p className="text-gray-500 text-sm">Total Events</p>
+              <h3 className="text-2xl font-bold">{events.length}</h3>
             </div>
+            <Calendar className="h-8 w-8 text-brand-500" />
           </div>
-        )}
-        {/* You can add content for Events, Payments, Notifications tabs here as needed */}
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-500 text-sm">Upcoming Events</p>
+              <h3 className="text-2xl font-bold">
+                {
+                  events.filter((e) => new Date(e.event_date) > new Date())
+                    .length
+                }
+              </h3>
+            </div>
+            <Clock className="h-8 w-8 text-brand-500" />
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-500 text-sm">Total Budget</p>
+              <h3 className="text-2xl font-bold">
+                ₱
+                {events
+                  .reduce((sum, e) => sum + e.total_budget, 0)
+                  .toLocaleString()}
+              </h3>
+            </div>
+            <DollarSign className="h-8 w-8 text-brand-500" />
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-500 text-sm">Pending Payments</p>
+              <h3 className="text-2xl font-bold">{upcomingPayments.length}</h3>
+            </div>
+            <Package className="h-8 w-8 text-brand-500" />
+          </div>
+        </div>
+      </div>
+
+      {/* Upcoming Events */}
+      <div className="mb-8">
+        <h2 className="text-xl font-semibold mb-4">Upcoming Events</h2>
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          {events
+            .filter((event) => new Date(event.event_date) > new Date())
+            .sort(
+              (a, b) =>
+                new Date(a.event_date).getTime() -
+                new Date(b.event_date).getTime()
+            )
+            .slice(0, 5)
+            .map((event) => (
+              <div
+                key={event.event_id}
+                className="p-4 border-b last:border-b-0 hover:bg-gray-50 cursor-pointer"
+                onClick={() => router.push(`/client/events/${event.event_id}`)}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold">{event.event_title}</h3>
+                  <span
+                    className={`px-2 py-1 rounded-full text-xs ${getStatusColor(event.event_status)}`}
+                  >
+                    {event.event_status}
+                  </span>
+                </div>
+                <div className="text-sm text-gray-600">
+                  <p>{format(new Date(event.event_date), "MMMM d, yyyy")}</p>
+                  <p>{event.venue_name || "Venue TBD"}</p>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span
+                    className={`px-2 py-1 rounded-full text-xs ${getPaymentStatusColor(event.payment_status)}`}
+                  >
+                    {event.payment_percentage}% Paid
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    ₱{event.remaining_balance.toLocaleString()} remaining
+                  </span>
+                </div>
+              </div>
+            ))}
+          {events.filter((event) => new Date(event.event_date) > new Date())
+            .length === 0 && (
+            <div className="p-8 text-center text-gray-500">
+              No upcoming events
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Upcoming Payments */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4">Upcoming Payments</h2>
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          {upcomingPayments.slice(0, 5).map((payment) => (
+            <div
+              key={payment.schedule_id}
+              className="p-4 border-b last:border-b-0 hover:bg-gray-50"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">{payment.event_title}</h3>
+                <span
+                  className={`px-2 py-1 rounded-full text-xs ${getUrgencyColor(payment.urgency_status)}`}
+                >
+                  {payment.urgency_status === "overdue"
+                    ? "Overdue"
+                    : payment.urgency_status === "due_today"
+                      ? "Due Today"
+                      : payment.urgency_status === "due_soon"
+                        ? "Due Soon"
+                        : "Upcoming"}
+                </span>
+              </div>
+              <div className="text-sm text-gray-600">
+                <p>Due: {format(new Date(payment.due_date), "MMMM d, yyyy")}</p>
+                <p className="font-medium">
+                  Amount: ₱{payment.amount_due.toLocaleString()}
+                </p>
+              </div>
+              {payment.days_until_due > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {payment.days_until_due} days until due
+                </p>
+              )}
+            </div>
+          ))}
+          {upcomingPayments.length === 0 && (
+            <div className="p-8 text-center text-gray-500">
+              No upcoming payments
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

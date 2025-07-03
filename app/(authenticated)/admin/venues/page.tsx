@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/accordion";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 
 interface VenueInclusion {
   inclusion_id: number;
@@ -62,6 +63,7 @@ interface Venue {
   venue_cover_photo: string | null;
   venue_status: string;
   inclusions?: VenueInclusion[];
+  is_active?: boolean;
 }
 
 export default function VenuesPage() {
@@ -72,9 +74,54 @@ export default function VenuesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
 
+  // Search and filter states
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedType, setSelectedType] = useState<string>("all");
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("name");
+
   useEffect(() => {
     fetchVenues();
   }, []);
+
+  // Filter venues based on search and filters
+  const filteredVenues = venues
+    .filter((venue) => {
+      const matchesSearch =
+        venue.venue_title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        venue.venue_location.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesType =
+        selectedType === "all" || venue.venue_type === selectedType;
+      const matchesStatus =
+        selectedStatus === "all" || venue.venue_status === selectedStatus;
+
+      return matchesSearch && matchesType && matchesStatus;
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case "name":
+          return a.venue_title.localeCompare(b.venue_title);
+        case "price":
+          return a.venue_price - b.venue_price;
+        case "capacity":
+          return a.venue_capacity - b.venue_capacity;
+        default:
+          return 0;
+      }
+    });
+
+  // Calculate statistics
+  const stats = {
+    totalVenues: venues.length,
+    activeVenues: venues.filter((v) => v.is_active).length,
+    avgPrice: venues.length
+      ? Math.round(
+          venues.reduce((sum, v) => sum + v.venue_price, 0) / venues.length
+        )
+      : 0,
+    totalCapacity: venues.reduce((sum, v) => sum + v.venue_capacity, 0),
+  };
 
   const fetchVenues = async () => {
     try {
@@ -143,6 +190,127 @@ export default function VenuesPage() {
         </Button>
       </div>
 
+      {/* Statistics Dashboard */}
+      {!loading && venues.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <Card className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-100 p-2 rounded-lg">
+                <svg
+                  className="h-5 w-5 text-blue-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                  />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Total Venues</p>
+                <p className="text-xl font-bold">{stats.totalVenues}</p>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-green-100 p-2 rounded-lg">
+                <svg
+                  className="h-5 w-5 text-green-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Active Venues</p>
+                <p className="text-xl font-bold">{stats.activeVenues}</p>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-yellow-100 p-2 rounded-lg">
+                <PhilippinePeso className="h-5 w-5 text-yellow-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Average Price</p>
+                <p className="text-xl font-bold">
+                  ₱{stats.avgPrice.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-purple-100 p-2 rounded-lg">
+                <Users className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Total Capacity</p>
+                <p className="text-xl font-bold">
+                  {stats.totalCapacity.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Search and Filters */}
+      <div className="mb-6 space-y-4">
+        <div className="flex gap-4">
+          <Input
+            placeholder="Search venues..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="max-w-sm"
+          />
+          <select
+            className="border rounded-md px-3 py-2"
+            value={selectedType}
+            onChange={(e) => setSelectedType(e.target.value)}
+          >
+            <option value="all">All Types</option>
+            <option value="indoor">Indoor</option>
+            <option value="outdoor">Outdoor</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
+          <select
+            className="border rounded-md px-3 py-2"
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+          >
+            <option value="all">All Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <select
+            className="border rounded-md px-3 py-2"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+          >
+            <option value="name">Sort by Name</option>
+            <option value="price">Sort by Price</option>
+            <option value="capacity">Sort by Capacity</option>
+          </select>
+        </div>
+      </div>
+
       {loading ? (
         <div className="text-center py-8">Loading venues...</div>
       ) : venues.length === 0 ? (
@@ -155,7 +323,7 @@ export default function VenuesPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {venues.map((venue) => (
+          {filteredVenues.map((venue) => (
             <Card
               key={venue.venue_id}
               className="overflow-hidden group hover:shadow-lg transition-shadow"
@@ -226,9 +394,20 @@ export default function VenuesPage() {
               {/* Card Content */}
               <div className="pt-8 pb-4 px-4">
                 <div className="mb-3">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                    {venue.venue_title}
-                  </h3>
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {venue.venue_title}
+                    </h3>
+                    <span
+                      className={`px-2 py-1 text-xs rounded-full ${
+                        venue.is_active
+                          ? "bg-green-100 text-green-800"
+                          : "bg-gray-100 text-gray-800"
+                      }`}
+                    >
+                      {venue.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </div>
                   <p className="text-sm text-gray-600 line-clamp-2">
                     {venue.venue_details || "No description available."}
                   </p>
@@ -243,33 +422,52 @@ export default function VenuesPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center text-sm text-gray-600">
                       <Users className="h-4 w-4 mr-2 text-gray-400" />
-                      <span>{venue.venue_capacity} guests</span>
+                      <span>
+                        {venue.venue_capacity.toLocaleString()} guests
+                      </span>
                     </div>
                     <div className="flex items-center text-lg font-semibold text-green-600">
                       <PhilippinePeso className="h-4 w-4 mr-1" />
                       <span>{venue.venue_price?.toLocaleString() || "0"}</span>
                     </div>
                   </div>
+                  <div className="flex items-center text-sm text-gray-600">
+                    <svg
+                      className="h-4 w-4 mr-2 text-gray-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                      />
+                    </svg>
+                    <span>{venue.venue_type || "Not specified"}</span>
+                  </div>
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-2">
+                <div className="flex justify-end space-x-2 mt-4 pt-4 border-t">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex-1"
                     onClick={() => handleView(venue)}
-                    disabled={isLoadingDetails}
+                    className="text-blue-600 hover:text-blue-700"
                   >
-                    {isLoadingDetails ? "Loading..." : "VIEW"}
+                    <Eye className="h-4 w-4 mr-1" />
+                    View
                   </Button>
                   <Button
-                    variant="default"
+                    variant="outline"
                     size="sm"
-                    className="flex-1"
                     onClick={() => handleEdit(venue)}
+                    className="text-green-600 hover:text-green-700"
                   >
-                    EDIT
+                    <Edit className="h-4 w-4 mr-1" />
+                    Edit
                   </Button>
                 </div>
               </div>
@@ -280,151 +478,135 @@ export default function VenuesPage() {
 
       {/* Venue Details Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle className="text-2xl">
-              {selectedVenue?.venue_title}
+            <DialogTitle className="flex items-center justify-between">
+              <span>{selectedVenue?.venue_title}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsModalOpen(false)}
+                className="h-8 w-8 p-0"
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </DialogTitle>
           </DialogHeader>
 
-          {selectedVenue && (
+          {isLoadingDetails ? (
+            <div className="py-8 text-center">Loading venue details...</div>
+          ) : (
             <div className="space-y-6">
-              {/* Cover Photo */}
-              {selectedVenue.venue_cover_photo && (
-                <div className="relative h-64 rounded-lg overflow-hidden">
-                  <img
-                    src={`http://localhost/events-api/${selectedVenue.venue_cover_photo}`}
-                    alt={selectedVenue.venue_title}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute bottom-4 left-4">
-                    <Avatar className="h-16 w-16 border-4 border-white">
-                      <AvatarImage
-                        src={
-                          selectedVenue.venue_profile_picture
-                            ? `http://localhost/events-api/${selectedVenue.venue_profile_picture}`
-                            : ""
-                        }
-                        alt={selectedVenue.venue_title}
-                      />
-                      <AvatarFallback className="bg-blue-500 text-white text-lg">
-                        {selectedVenue.venue_title.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                  </div>
-                </div>
-              )}
+              {/* Venue Images */}
+              <div className="relative h-48 rounded-lg overflow-hidden">
+                <img
+                  src={
+                    selectedVenue?.venue_cover_photo
+                      ? `http://localhost/events-api/${selectedVenue.venue_cover_photo}`
+                      : "https://via.placeholder.com/800x400"
+                  }
+                  alt={selectedVenue?.venue_title}
+                  className="w-full h-full object-cover"
+                />
+              </div>
 
               {/* Venue Details */}
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h3 className="text-lg font-semibold mb-3">
-                    Venue Information
-                  </h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">
-                        Location
-                      </label>
-                      <p className="text-gray-900">
-                        {selectedVenue.venue_location}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">
-                        Contact
-                      </label>
-                      <p className="text-gray-900">
-                        {selectedVenue.venue_contact}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">
-                        Type
-                      </label>
-                      <p className="text-gray-900 capitalize">
-                        {selectedVenue.venue_type}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">
-                        Capacity
-                      </label>
-                      <p className="text-gray-900">
-                        {selectedVenue.venue_capacity} guests
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">
-                        Base Price
-                      </label>
-                      <p className="text-gray-900 text-lg font-semibold">
-                        ₱{selectedVenue.venue_price?.toLocaleString() || "0"}
-                      </p>
-                    </div>
-                  </div>
+                  <h4 className="font-semibold mb-2">Details</h4>
+                  <p className="text-sm text-gray-600">
+                    {selectedVenue?.venue_details}
+                  </p>
                 </div>
-
                 <div>
-                  <h3 className="text-lg font-semibold mb-3">Description</h3>
-                  <p className="text-gray-700 leading-relaxed">
-                    {selectedVenue.venue_details || "No description available."}
+                  <h4 className="font-semibold mb-2">Contact Information</h4>
+                  <p className="text-sm text-gray-600">
+                    {selectedVenue?.venue_contact}
                   </p>
                 </div>
               </div>
 
-              {/* Inclusions Accordion */}
-              {selectedVenue.inclusions &&
+              {/* Venue Specifications */}
+              <div>
+                <h4 className="font-semibold mb-2">Specifications</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex items-center">
+                    <Users className="h-4 w-4 mr-2 text-gray-400" />
+                    <span className="text-sm">
+                      Capacity: {selectedVenue?.venue_capacity.toLocaleString()}{" "}
+                      guests
+                    </span>
+                  </div>
+                  <div className="flex items-center">
+                    <svg
+                      className="h-4 w-4 mr-2 text-gray-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                      />
+                    </svg>
+                    <span className="text-sm">
+                      Type: {selectedVenue?.venue_type}
+                    </span>
+                  </div>
+                  <div className="flex items-center">
+                    <MapPin className="h-4 w-4 mr-2 text-gray-400" />
+                    <span className="text-sm">
+                      Location: {selectedVenue?.venue_location}
+                    </span>
+                  </div>
+                  <div className="flex items-center">
+                    <PhilippinePeso className="h-4 w-4 mr-2 text-gray-400" />
+                    <span className="text-sm">
+                      Price: ₱{selectedVenue?.venue_price.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Venue Inclusions */}
+              {selectedVenue?.inclusions &&
                 selectedVenue.inclusions.length > 0 && (
                   <div>
-                    <h3 className="text-lg font-semibold mb-3">
-                      Venue Inclusions
-                    </h3>
-                    <Accordion type="multiple" className="w-full">
-                      {selectedVenue.inclusions.map((inclusion, index) => (
+                    <h4 className="font-semibold mb-2">Inclusions</h4>
+                    <Accordion type="single" collapsible className="w-full">
+                      {selectedVenue.inclusions.map((inclusion) => (
                         <AccordionItem
                           key={inclusion.inclusion_id}
-                          value={`item-${index}`}
+                          value={inclusion.inclusion_id.toString()}
                         >
-                          <AccordionTrigger className="text-left">
-                            <div className="flex justify-between items-center w-full mr-4">
-                              <span>{inclusion.inclusion_name}</span>
-                              <span className="text-green-600 font-semibold">
-                                ₱
-                                {inclusion.inclusion_price?.toLocaleString() ||
-                                  "0"}
-                              </span>
-                            </div>
+                          <AccordionTrigger className="text-sm">
+                            {inclusion.inclusion_name} - ₱
+                            {inclusion.inclusion_price.toLocaleString()}
                           </AccordionTrigger>
                           <AccordionContent>
-                            {inclusion.inclusion_description && (
-                              <p className="text-gray-600 mb-3">
-                                {inclusion.inclusion_description}
-                              </p>
-                            )}
+                            <p className="text-sm text-gray-600 mb-2">
+                              {inclusion.inclusion_description}
+                            </p>
                             {inclusion.components &&
                               inclusion.components.length > 0 && (
-                                <div>
-                                  <h4 className="font-medium mb-2">
-                                    Components:
-                                  </h4>
-                                  <ul className="space-y-1">
-                                    {inclusion.components.map((component) => (
-                                      <li
-                                        key={component.component_id}
-                                        className="text-sm text-gray-600"
-                                      >
-                                        • {component.component_name}
-                                        {component.component_description && (
-                                          <span className="text-gray-500">
-                                            {" "}
-                                            - {component.component_description}
-                                          </span>
-                                        )}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
+                                <ul className="list-disc list-inside space-y-1">
+                                  {inclusion.components.map((component) => (
+                                    <li
+                                      key={component.component_id}
+                                      className="text-sm text-gray-600"
+                                    >
+                                      {component.component_name}
+                                      {component.component_description && (
+                                        <span className="text-gray-500">
+                                          {" "}
+                                          - {component.component_description}
+                                        </span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
                               )}
                           </AccordionContent>
                         </AccordionItem>

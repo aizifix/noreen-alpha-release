@@ -383,7 +383,7 @@ function ClientProfile({ event }: { event: Event }) {
                   }
                 }}
               />
-              <div className="hidden w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                 <span className="text-white font-semibold text-lg">
                   {getClientInitials(getClientFullName())}
                 </span>

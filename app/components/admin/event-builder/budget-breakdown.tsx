@@ -13,6 +13,7 @@ interface BudgetBreakdownProps {
   calculatedTotal?: number;
   selectedVenue?: any;
   venueCost?: number;
+  className?: string;
 }
 
 export function BudgetBreakdown({

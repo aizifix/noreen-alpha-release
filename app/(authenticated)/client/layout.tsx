@@ -18,6 +18,10 @@ import {
   BarChart3,
   Sun,
   Moon,
+  Clock,
+  FileText,
+  BellRing,
+  CalendarCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -113,11 +117,11 @@ export default function ClientLayout({
   const menuItems = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/client/dashboard" },
     { icon: Calendar, label: "My Events", href: "/client/events" },
-    { icon: CreditCard, label: "Bookings", href: "/client/bookings" },
-    { icon: Settings, label: "Timeline", href: "/client/settings" },
-    { icon: Settings, label: "Documents", href: "/client/settings" },
-    { icon: Settings, label: "Payments", href: "/client/settings" },
-    { icon: Settings, label: "Notifications", href: "/client/settings" },
+    { icon: CalendarCheck, label: "Bookings", href: "/client/bookings" },
+    { icon: Clock, label: "Timeline", href: "/client/settings" },
+    { icon: FileText, label: "Documents", href: "/client/settings" },
+    { icon: CreditCard, label: "Payments", href: "/client/payments" },
+    { icon: BellRing, label: "Notifications", href: "/client/settings" },
     { icon: Settings, label: "Settings", href: "/client/settings" },
   ];
 

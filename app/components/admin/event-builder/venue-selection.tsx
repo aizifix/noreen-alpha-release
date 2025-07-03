@@ -156,15 +156,15 @@ export function VenueSelection({
 
   // Function to get proper image URL
   const getImageUrl = (imagePath: string | null) => {
-    if (!imagePath) return "/placeholder.svg";
+    if (!imagePath) return "/default_pfp.png";
 
     // If the image path already contains a full URL, use it as is
     if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
       return imagePath;
     }
 
-    // Use the image serving script for proper image delivery
-    return `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(imagePath)}`;
+    // Use direct URL path to the image
+    return `http://localhost/events-api/${imagePath}`;
   };
 
   return (
@@ -458,7 +458,7 @@ export function VenueSelection({
                         className="object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
-                          target.src = "/placeholder.svg";
+                          target.src = "/default_pfp.png";
                         }}
                       />
                     </div>

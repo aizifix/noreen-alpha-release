@@ -655,6 +655,130 @@ class Admin {
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
         }
     }
+
+    public function getPackageDetails($packageId) {
+        try {
+            // Get package basic info with creator information
+            $sql = "SELECT p.*,
+                           u.user_firstName, u.user_lastName,
+                           CONCAT(u.user_firstName, ' ', u.user_lastName) as created_by_name
+                    FROM tbl_packages p
+                    LEFT JOIN tbl_users u ON p.created_by = u.user_id
+                    WHERE p.package_id = :package_id AND p.is_active = 1";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([':package_id' => $packageId]);
+            $package = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$package) {
+                return json_encode(["status" => "error", "message" => "Package not found"]);
+            }
+
+            // Get package components/inclusions
+            $componentsSql = "SELECT * FROM tbl_package_components WHERE package_id = :package_id ORDER BY display_order";
+            $componentsStmt = $this->conn->prepare($componentsSql);
+            $componentsStmt->execute([':package_id' => $packageId]);
+            $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Transform components into the expected structure for detailed view
+            $inclusions = [];
+            foreach ($components as $component) {
+                $inclusions[] = [
+                    'name' => $component['component_name'],
+                    'price' => (float)$component['component_price'],
+                    'components' => [], // For now, components don't have sub-components in this structure
+                ];
+            }
+
+            // Get package freebies
+            $freebiesSql = "SELECT * FROM tbl_package_freebies WHERE package_id = :package_id ORDER BY display_order";
+            $freebiesStmt = $this->conn->prepare($freebiesSql);
+            $freebiesStmt->execute([':package_id' => $packageId]);
+            $freebiesData = $freebiesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $freebies = [];
+            foreach ($freebiesData as $freebie) {
+                $freebies[] = $freebie['freebie_name'];
+            }
+
+            // Get package venues with their inclusions
+            $venuesSql = "SELECT
+                            v.venue_id,
+                            v.venue_title,
+                            v.venue_owner,
+                            v.venue_location,
+                            v.venue_contact,
+                            v.venue_details,
+                            v.venue_capacity,
+                            v.venue_price as total_price,
+                            v.venue_type,
+                            v.venue_profile_picture,
+                            v.venue_cover_photo
+                        FROM tbl_package_venues pv
+                        JOIN tbl_venue v ON pv.venue_id = v.venue_id
+                        WHERE pv.package_id = :package_id AND v.venue_status = 'available'
+                        ORDER BY v.venue_title";
+
+            $venuesStmt = $this->conn->prepare($venuesSql);
+            $venuesStmt->execute([':package_id' => $packageId]);
+            $venues = $venuesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // For each venue, get its inclusions and components
+            foreach ($venues as &$venue) {
+                // Get venue inclusions
+                $inclusionsSql = "SELECT * FROM tbl_venue_inclusions WHERE venue_id = :venue_id AND is_active = 1";
+                $inclusionsStmt = $this->conn->prepare($inclusionsSql);
+                $inclusionsStmt->execute([':venue_id' => $venue['venue_id']]);
+                $venueInclusions = $inclusionsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // For each inclusion, get its components
+                foreach ($venueInclusions as &$inclusion) {
+                    $componentsSql = "SELECT * FROM tbl_venue_components WHERE inclusion_id = :inclusion_id AND is_active = 1";
+                    $componentsStmt = $this->conn->prepare($componentsSql);
+                    $componentsStmt->execute([':inclusion_id' => $inclusion['inclusion_id']]);
+                    $inclusion['components'] = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+                }
+
+                $venue['inclusions'] = $venueInclusions;
+                $venue['total_price'] = (float)$venue['total_price'];
+            }
+
+            // Get event types associated with this package
+            $eventTypesSql = "SELECT et.*
+                             FROM tbl_package_event_types pet
+                             JOIN tbl_event_type et ON pet.event_type_id = et.event_type_id
+                             WHERE pet.package_id = :package_id";
+            $eventTypesStmt = $this->conn->prepare($eventTypesSql);
+            $eventTypesStmt->execute([':package_id' => $packageId]);
+            $eventTypes = $eventTypesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Combine all data
+            $packageData = [
+                'package_id' => (int)$package['package_id'],
+                'package_title' => $package['package_title'],
+                'package_description' => $package['package_description'],
+                'package_price' => (float)$package['package_price'],
+                'guest_capacity' => (int)$package['guest_capacity'],
+                'created_at' => $package['created_at'],
+                'user_firstName' => $package['user_firstName'],
+                'user_lastName' => $package['user_lastName'],
+                'created_by_name' => $package['created_by_name'],
+                'is_active' => (int)$package['is_active'],
+                'inclusions' => $inclusions,
+                'freebies' => $freebies,
+                'venues' => $venues,
+                'event_types' => $eventTypes
+            ];
+
+            return json_encode([
+                "status" => "success",
+                "package" => $packageData
+            ]);
+        } catch (Exception $e) {
+            error_log("getPackageDetails error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
     public function updatePackage($data) {
         try {
             $this->conn->beginTransaction();
@@ -4159,6 +4283,10 @@ switch ($operation) {
     case "getPackageById":
         $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
         echo $admin->getPackageById($packageId);
+        break;
+    case "getPackageDetails":
+        $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
+        echo $admin->getPackageDetails($packageId);
         break;
     case "updatePackage":
         echo $admin->updatePackage($data);

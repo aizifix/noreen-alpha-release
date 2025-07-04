@@ -1846,56 +1846,151 @@ class Admin {
     }
     public function getEventByBookingReference($bookingReference) { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
     public function testBookingsTable() { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
-    public function createVenue() { return json_encode(["status" => "error", "message" => "Method not implemented"]); }
+    public function createVenue() {
+        try {
+            // Validate required fields
+            $requiredFields = ['venue_title', 'venue_location', 'venue_contact', 'venue_capacity', 'venue_price'];
+            foreach ($requiredFields as $field) {
+                if (!isset($_POST[$field]) || empty($_POST[$field])) {
+                    return json_encode([
+                        "status" => "error",
+                        "message" => "Missing required field: " . $field
+                    ]);
+                }
+            }
+
+            // Start transaction
+            $this->pdo->beginTransaction();
+
+            // Insert venue
+            $sql = "INSERT INTO tbl_venue (
+                venue_title, venue_details, venue_location, venue_contact,
+                venue_type, venue_capacity, venue_price, is_active,
+                venue_profile_picture, venue_cover_photo
+            ) VALUES (
+                :venue_title, :venue_details, :venue_location, :venue_contact,
+                :venue_type, :venue_capacity, :venue_price, :is_active,
+                :venue_profile_picture, :venue_cover_photo
+            )";
+
+            $stmt = $this->pdo->prepare($sql);
+
+            // Handle file uploads
+            $profilePicture = null;
+            $coverPhoto = null;
+
+            if (isset($_FILES['venue_profile_picture']) && $_FILES['venue_profile_picture']['error'] === 0) {
+                $profilePicture = $this->uploadFile($_FILES['venue_profile_picture'], 'venue_profile_pictures');
+            }
+
+            if (isset($_FILES['venue_cover_photo']) && $_FILES['venue_cover_photo']['error'] === 0) {
+                $coverPhoto = $this->uploadFile($_FILES['venue_cover_photo'], 'venue_cover_photos');
+            }
+
+            $stmt->execute([
+                'venue_title' => $_POST['venue_title'],
+                'venue_details' => $_POST['venue_details'] ?? '',
+                'venue_location' => $_POST['venue_location'],
+                'venue_contact' => $_POST['venue_contact'],
+                'venue_type' => $_POST['venue_type'] ?? 'internal',
+                'venue_capacity' => $_POST['venue_capacity'],
+                'venue_price' => $_POST['venue_price'],
+                'is_active' => isset($_POST['is_active']) ? $_POST['is_active'] : 1,
+                'venue_profile_picture' => $profilePicture,
+                'venue_cover_photo' => $coverPhoto
+            ]);
+
+            $venueId = $this->pdo->lastInsertId();
+
+            // Handle inclusions if provided
+            if (isset($_POST['inclusions_data'])) {
+                $inclusions = json_decode($_POST['inclusions_data'], true);
+
+                if (is_array($inclusions)) {
+                    foreach ($inclusions as $inclusion) {
+                        // Insert inclusion
+                        $sql = "INSERT INTO tbl_venue_inclusions (
+                            venue_id, inclusion_name, inclusion_description, inclusion_price
+                        ) VALUES (
+                            :venue_id, :inclusion_name, :inclusion_description, :inclusion_price
+                        )";
+
+                        $stmt = $this->pdo->prepare($sql);
+                        $stmt->execute([
+                            'venue_id' => $venueId,
+                            'inclusion_name' => $inclusion['inclusion_name'],
+                            'inclusion_description' => $inclusion['inclusion_description'] ?? '',
+                            'inclusion_price' => $inclusion['inclusion_price'] ?? 0
+                        ]);
+
+                        $inclusionId = $this->pdo->lastInsertId();
+
+                        // Handle components if provided
+                        if (isset($inclusion['components']) && is_array($inclusion['components'])) {
+                            foreach ($inclusion['components'] as $component) {
+                                $sql = "INSERT INTO tbl_venue_components (
+                                    inclusion_id, component_name, component_description
+                                ) VALUES (
+                                    :inclusion_id, :component_name, :component_description
+                                )";
+
+                                $stmt = $this->pdo->prepare($sql);
+                                $stmt->execute([
+                                    'inclusion_id' => $inclusionId,
+                                    'component_name' => $component['component_name'],
+                                    'component_description' => $component['component_description'] ?? ''
+                                ]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            $this->pdo->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Venue created successfully",
+                "venue_id" => $venueId
+            ]);
+
+        } catch (Exception $e) {
+            $this->pdo->rollBack();
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to create venue: " . $e->getMessage()
+            ]);
+        }
+    }
     public function getAllVenues() {
         try {
-            $sql = "SELECT
-                        v.venue_id,
-                        v.venue_title,
-                        v.venue_owner,
-                        v.venue_location,
-                        v.venue_contact,
-                        v.venue_details,
-                        v.venue_capacity,
-                        v.venue_price,
-                        v.venue_type,
-                        v.venue_profile_picture,
-                        v.venue_cover_photo,
-                        v.venue_status
+            $sql = "SELECT v.*,
+                    GROUP_CONCAT(DISTINCT vc.component_name) as components,
+                    GROUP_CONCAT(DISTINCT vi.inclusion_name) as inclusions
                     FROM tbl_venue v
-                    WHERE v.venue_status = 'available'
-                    ORDER BY v.venue_title";
+                    LEFT JOIN tbl_venue_inclusions vi ON v.venue_id = vi.venue_id
+                    LEFT JOIN tbl_venue_components vc ON vi.inclusion_id = vc.inclusion_id
+                    GROUP BY v.venue_id
+                    ORDER BY v.created_at DESC";
 
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute();
+            $stmt = $this->pdo->query($sql);
             $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // For each venue, get its inclusions and components
             foreach ($venues as &$venue) {
-                // Get venue inclusions
-                $inclusionsSql = "SELECT * FROM tbl_venue_inclusions WHERE venue_id = :venue_id AND is_active = 1";
-                $inclusionsStmt = $this->conn->prepare($inclusionsSql);
-                $inclusionsStmt->execute([':venue_id' => $venue['venue_id']]);
-                $inclusions = $inclusionsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-                // For each inclusion, get its components
-                foreach ($inclusions as &$inclusion) {
-                    $componentsSql = "SELECT * FROM tbl_venue_components WHERE inclusion_id = :inclusion_id AND is_active = 1";
-                    $componentsStmt = $this->conn->prepare($componentsSql);
-                    $componentsStmt->execute([':inclusion_id' => $inclusion['inclusion_id']]);
-                    $inclusion['components'] = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
-                }
-
-                $venue['inclusions'] = $inclusions;
+                $venue['components'] = $venue['components'] ? explode(',', $venue['components']) : [];
+                $venue['inclusions'] = $venue['inclusions'] ? explode(',', $venue['inclusions']) : [];
+                $venue['is_active'] = (bool)$venue['is_active'];
             }
 
             return json_encode([
                 "status" => "success",
-                "venues" => $venues
+                "data" => $venues
             ]);
-        } catch (Exception $e) {
-            error_log("getAllVenues error: " . $e->getMessage());
-            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
         }
     }
     public function getVenueById($venueId) {
@@ -1984,81 +2079,33 @@ class Admin {
     }
     public function getVenuesForPackage() {
         try {
-            $sql = "SELECT
-                        v.venue_id,
-                        v.venue_title,
-                        v.venue_owner,
-                        v.venue_location,
-                        v.venue_contact,
-                        v.venue_details,
-                        v.venue_capacity,
-                        v.venue_price,
-                        v.venue_type,
-                        v.venue_profile_picture,
-                        v.venue_cover_photo,
-                        v.venue_status
+            $sql = "SELECT v.*,
+                    GROUP_CONCAT(DISTINCT vc.component_name) as components,
+                    GROUP_CONCAT(DISTINCT vi.inclusion_name) as inclusions
                     FROM tbl_venue v
-                    WHERE v.venue_status = 'available'
-                    ORDER BY v.venue_title";
+                    LEFT JOIN tbl_venue_inclusions vi ON v.venue_id = vi.venue_id
+                    LEFT JOIN tbl_venue_components vc ON vi.inclusion_id = vc.inclusion_id
+                    WHERE v.is_active = 1
+                    GROUP BY v.venue_id
+                    ORDER BY v.created_at DESC";
 
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute();
+            $stmt = $this->pdo->query($sql);
             $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // For each venue, get its inclusions and calculate total price
             foreach ($venues as &$venue) {
-                // Get venue inclusions
-                $inclusionsSql = "SELECT
-                                    inclusion_id,
-                                    inclusion_name,
-                                    inclusion_description,
-                                    inclusion_price,
-                                    is_active
-                                FROM tbl_venue_inclusions
-                                WHERE venue_id = :venue_id AND is_active = 1
-                                ORDER BY inclusion_name";
-                $inclusionsStmt = $this->conn->prepare($inclusionsSql);
-                $inclusionsStmt->execute([':venue_id' => $venue['venue_id']]);
-                $inclusions = $inclusionsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-                // Calculate total inclusions price
-                $inclusionsTotal = 0;
-                foreach ($inclusions as &$inclusion) {
-                    $inclusionsTotal += floatval($inclusion['inclusion_price']);
-
-                    // Get components for this inclusion
-                    $componentsSql = "SELECT
-                                        component_id,
-                                        component_name,
-                                        component_description,
-                                        component_quantity,
-                                        is_active
-                                    FROM tbl_venue_components
-                                    WHERE inclusion_id = :inclusion_id AND is_active = 1
-                                    ORDER BY component_name";
-                    $componentsStmt = $this->conn->prepare($componentsSql);
-                    $componentsStmt->execute([':inclusion_id' => $inclusion['inclusion_id']]);
-                    $inclusion['components'] = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
-                }
-
-                $venue['inclusions'] = $inclusions;
-
-                // Calculate total price (venue base price + inclusions)
-                $venue['total_price'] = floatval($venue['venue_price']) + $inclusionsTotal;
-
-                // Ensure numeric values are properly formatted
-                $venue['venue_price'] = floatval($venue['venue_price']);
-                $venue['venue_capacity'] = intval($venue['venue_capacity']);
+                $venue['components'] = $venue['components'] ? explode(',', $venue['components']) : [];
+                $venue['inclusions'] = $venue['inclusions'] ? explode(',', $venue['inclusions']) : [];
             }
 
             return json_encode([
                 "status" => "success",
-                "venues" => $venues,
-                "count" => count($venues)
+                "data" => $venues
             ]);
-        } catch (Exception $e) {
-            error_log("getVenuesForPackage error: " . $e->getMessage());
-            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
         }
     }
     public function createPackageWithVenues($data) {
@@ -4238,6 +4285,132 @@ class Admin {
             return json_encode([
                 "status" => "error",
                 "message" => "Failed to upload payment attachment: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function updateVenueStatus($venueId, $isActive) {
+        try {
+            $sql = "UPDATE tbl_venue SET is_active = :is_active WHERE venue_id = :venue_id";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([
+                'is_active' => $isActive ? 1 : 0,
+                'venue_id' => $venueId
+            ]);
+
+            if ($stmt->rowCount() > 0) {
+                return json_encode([
+                    "status" => "success",
+                    "message" => "Venue status updated successfully"
+                ]);
+            } else {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "No venue found with the given ID"
+                ]);
+            }
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
+
+    public function updateVenueWithPriceHistory() {
+        try {
+            $this->pdo->beginTransaction();
+
+            // Get current venue data
+            $stmt = $this->pdo->prepare("SELECT venue_price FROM tbl_venue WHERE venue_id = ?");
+            $stmt->execute([$_POST['venue_id']]);
+            $currentVenue = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$currentVenue) {
+                throw new Exception("Venue not found");
+            }
+
+            // If price is changing, record it in price history
+            if (floatval($currentVenue['venue_price']) != floatval($_POST['venue_price'])) {
+                $sql = "INSERT INTO tbl_venue_price_history (
+                    venue_id, old_price, new_price
+                ) VALUES (
+                    :venue_id, :old_price, :new_price
+                )";
+
+                $stmt = $this->pdo->prepare($sql);
+                $stmt->execute([
+                    ':venue_id' => $_POST['venue_id'],
+                    ':old_price' => $currentVenue['venue_price'],
+                    ':new_price' => $_POST['venue_price']
+                ]);
+            }
+
+            // Handle file uploads
+            $profilePicture = null;
+            $coverPhoto = null;
+
+            if (isset($_FILES['venue_profile_picture']) && $_FILES['venue_profile_picture']['error'] === 0) {
+                $profilePicture = $this->uploadFile($_FILES['venue_profile_picture'], 'venue_profile_pictures');
+            }
+
+            if (isset($_FILES['venue_cover_photo']) && $_FILES['venue_cover_photo']['error'] === 0) {
+                $coverPhoto = $this->uploadFile($_FILES['venue_cover_photo'], 'venue_cover_photos');
+            }
+
+            // Update venue basic info
+            $sql = "UPDATE tbl_venue SET
+                venue_title = :venue_title,
+                venue_details = :venue_details,
+                venue_location = :venue_location,
+                venue_contact = :venue_contact,
+                venue_capacity = :venue_capacity,
+                venue_price = :venue_price";
+
+            // Only include files in update if they were uploaded
+            if ($profilePicture) {
+                $sql .= ", venue_profile_picture = :venue_profile_picture";
+            }
+            if ($coverPhoto) {
+                $sql .= ", venue_cover_photo = :venue_cover_photo";
+            }
+
+            $sql .= " WHERE venue_id = :venue_id";
+
+            $stmt = $this->pdo->prepare($sql);
+
+            $params = [
+                ':venue_title' => $_POST['venue_title'],
+                ':venue_details' => $_POST['venue_details'],
+                ':venue_location' => $_POST['venue_location'],
+                ':venue_contact' => $_POST['venue_contact'],
+                ':venue_capacity' => $_POST['venue_capacity'],
+                ':venue_price' => $_POST['venue_price'],
+                ':venue_id' => $_POST['venue_id']
+            ];
+
+            if ($profilePicture) {
+                $params[':venue_profile_picture'] = $profilePicture;
+            }
+            if ($coverPhoto) {
+                $params[':venue_cover_photo'] = $coverPhoto;
+            }
+
+            $stmt->execute($params);
+
+            $this->pdo->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Venue updated successfully"
+            ]);
+
+        } catch (Exception $e) {
+            $this->pdo->rollBack();
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to update venue: " . $e->getMessage()
             ]);
         }
     }

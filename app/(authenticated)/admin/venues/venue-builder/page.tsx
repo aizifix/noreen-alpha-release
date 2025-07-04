@@ -22,6 +22,7 @@ export interface VenueFormData {
   venue_price: number;
   venue_profile_picture?: File;
   venue_cover_photo?: File;
+  is_active: boolean;
 
   // Step 2: Inclusions
   inclusions: VenueInclusion[];
@@ -57,6 +58,7 @@ export default function VenueBuilderPage() {
     venue_type: "internal",
     venue_capacity: 0,
     venue_price: 0,
+    is_active: true,
     inclusions: [],
   });
 
@@ -77,6 +79,7 @@ export default function VenueBuilderPage() {
         formData.venue_capacity.toString()
       );
       formDataPayload.append("venue_price", formData.venue_price.toString());
+      formDataPayload.append("is_active", formData.is_active ? "1" : "0");
 
       // Append files if they exist
       if (formData.venue_profile_picture) {

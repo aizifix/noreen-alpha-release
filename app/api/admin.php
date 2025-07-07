@@ -5095,6 +5095,34 @@ switch ($operation) {
         $action = $_GET['action'] ?? ($data['action'] ?? 'lock');
         echo $admin->updateEventFinalization($eventId, $action);
         break;
+    case "createPackageWithVenues":
+        echo $admin->createPackageWithVenues($data);
+        break;
+    case "createPackage":
+        echo $admin->createPackage($data);
+        break;
+    case "getAllPackages":
+        echo $admin->getAllPackages();
+        break;
+    case "getPackageById":
+        $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
+        echo $admin->getPackageById($packageId);
+        break;
+    case "getPackageDetails":
+        $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
+        echo $admin->getPackageDetails($packageId);
+        break;
+    case "updatePackage":
+        echo $admin->updatePackage($data);
+        break;
+    case "deletePackage":
+        $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
+        echo $admin->deletePackage($packageId);
+        break;
+    case "getPackagesByEventType":
+        $eventTypeId = $_GET['event_type_id'] ?? ($data['event_type_id'] ?? 0);
+        echo $admin->getPackagesByEventType($eventTypeId);
+        break;
     default:
         echo json_encode(["status" => "error", "message" => "Invalid action."]);
         break;

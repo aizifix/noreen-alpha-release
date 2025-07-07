@@ -75,14 +75,11 @@ export default function PackageBuilderPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [redirectCountdown, setRedirectCountdown] = useState(3);
-  const [countdownInterval, setCountdownInterval] =
-    useState<NodeJS.Timeout | null>(null);
 
   // Package details state
   const [packageTitle, setPackageTitle] = useState("");
   const [packageDescription, setPackageDescription] = useState("");
-  const [packagePrice, setPackagePrice] = useState<number | string>("");
+  const [packagePrice, setPackagePrice] = useState("");
   const [guestCount, setGuestCount] = useState<number>(100);
 
   // Optimized handlers for package details to prevent unnecessary re-renders
@@ -95,7 +92,21 @@ export default function PackageBuilderPage() {
   }, []);
 
   const handlePackagePriceChange = useCallback((value: string) => {
-    setPackagePrice(value);
+    // Remove any non-numeric characters except decimal point
+    const sanitizedValue = value.replace(/[^0-9.]/g, "");
+
+    // Ensure only one decimal point
+    const parts = sanitizedValue.split(".");
+    if (parts.length > 2) {
+      return;
+    }
+
+    // Limit decimal places to 2
+    if (parts[1] && parts[1].length > 2) {
+      return;
+    }
+
+    setPackagePrice(sanitizedValue);
   }, []);
 
   const handleGuestCountChange = useCallback((value: number) => {
@@ -119,15 +130,6 @@ export default function PackageBuilderPage() {
       return sum + (venue?.total_price || 0);
     }, 0);
   }, [selectedVenues, venues]);
-
-  // Cleanup countdown interval on unmount
-  useEffect(() => {
-    return () => {
-      if (countdownInterval) {
-        clearInterval(countdownInterval);
-      }
-    };
-  }, [countdownInterval]);
 
   // Fetch event types when component mounts
   useEffect(() => {
@@ -341,8 +343,8 @@ export default function PackageBuilderPage() {
     setLoading(true);
 
     try {
-      const userData = JSON.parse(secureStorage.getItem("userData") || "{}");
-      const adminId = userData.user_id;
+      const userData = secureStorage.getItem("user");
+      const adminId = userData?.user_id;
 
       if (!adminId) {
         toast.error("Admin ID not found. Please log in again.");
@@ -376,6 +378,7 @@ export default function PackageBuilderPage() {
       }
 
       const packageData = {
+        operation: "createPackageWithVenues",
         package_data: {
           package_title: packageTitle.trim(),
           package_description: packageDescription.trim(),
@@ -408,10 +411,7 @@ export default function PackageBuilderPage() {
 
       const response = await axios.post(
         "http://localhost/events-api/admin.php",
-        {
-          operation: "createPackageWithVenues",
-          ...packageData,
-        },
+        packageData,
         {
           headers: {
             "Content-Type": "application/json",
@@ -433,20 +433,7 @@ export default function PackageBuilderPage() {
         }
 
         toast.success("Package created successfully!");
-
-        // Start countdown for auto-redirect
-        setRedirectCountdown(3);
-        const interval = setInterval(() => {
-          setRedirectCountdown((prev) => {
-            if (prev <= 1) {
-              clearInterval(interval);
-              router.push("/admin/packages");
-              return 0;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-        setCountdownInterval(interval);
+        router.push("/admin/packages");
       } else {
         console.error("API Error:", response.data);
         toast.error(response.data.message || "Failed to create package");
@@ -962,32 +949,21 @@ export default function PackageBuilderPage() {
                 <Check className="h-8 w-8 text-green-600" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Package Created Successfully! 🎉
+                Package Created Successfully!
               </h3>
-              <p className="text-gray-600 mb-2">
+              <p className="text-gray-600 mb-6">
                 Your package "{packageTitle}" has been created and is now
                 available for clients to book.
               </p>
-              <p className="text-sm text-gray-500 mb-6">
-                Redirecting to packages page in {redirectCountdown} seconds...
-              </p>
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
-                  onClick={() => {
-                    if (countdownInterval) {
-                      clearInterval(countdownInterval);
-                    }
-                    router.push("/admin/packages");
-                  }}
-                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors font-medium"
+                  onClick={() => router.push("/admin/packages")}
+                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors"
                 >
-                  View All Packages Now
+                  View All Packages
                 </button>
                 <button
                   onClick={() => {
-                    if (countdownInterval) {
-                      clearInterval(countdownInterval);
-                    }
                     setShowSuccessModal(false);
                     // Reset form for creating another package
                     setPackageTitle("");

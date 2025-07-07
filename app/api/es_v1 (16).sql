@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jul 04, 2025 at 07:05 AM
+-- Generation Time: Jul 07, 2025 at 09:52 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -90,26 +90,6 @@ CREATE TABLE `tbl_budget` (
 -- --------------------------------------------------------
 
 --
--- Table structure for table `tbl_event`
---
-
-CREATE TABLE `tbl_event` (
-  `event_id` int(11) NOT NULL,
-  `booking_id` int(11) NOT NULL,
-  `store_id` int(11) NOT NULL,
-  `venue_id` int(11) NOT NULL,
-  `event_package_id` int(11) NOT NULL,
-  `budget_id` int(11) NOT NULL,
-  `event_status` enum('planned','ongoing','completed','cancelled') NOT NULL DEFAULT 'planned',
-  `event_date` date NOT NULL,
-  `event_startTime` datetime NOT NULL,
-  `event_endTime` datetime NOT NULL,
-  `event_notes` text DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `tbl_events`
 --
 
@@ -136,7 +116,7 @@ CREATE TABLE `tbl_events` (
   `payment_schedule_type_id` int(11) DEFAULT NULL,
   `reference_number` varchar(100) DEFAULT NULL,
   `additional_notes` text DEFAULT NULL,
-  `event_status` enum('draft','confirmed','on_going','done','cancelled','finalized') DEFAULT 'draft',
+  `event_status` enum('draft','confirmed','on_going','done','cancelled') DEFAULT 'draft',
   `booking_date` date DEFAULT NULL,
   `booking_time` time DEFAULT NULL,
   `created_by` int(11) DEFAULT NULL,
@@ -158,7 +138,7 @@ CREATE TABLE `tbl_events` (
 --
 
 INSERT INTO `tbl_events` (`event_id`, `original_booking_reference`, `user_id`, `admin_id`, `organizer_id`, `event_title`, `event_theme`, `event_description`, `event_type_id`, `guest_count`, `event_date`, `start_time`, `end_time`, `payment_status`, `package_id`, `venue_id`, `total_budget`, `down_payment`, `payment_method`, `payment_schedule_type_id`, `reference_number`, `additional_notes`, `event_status`, `booking_date`, `booking_time`, `created_by`, `updated_by`, `created_at`, `updated_at`, `event_attachments`, `event_feedback_id`, `event_wedding_form_id`, `is_recurring`, `recurrence_rule`, `cancellation_reason`, `finalized_at`, `client_signature`) VALUES
-(28, 'BK-20250625-1100', 15, 7, NULL, 'ad', NULL, NULL, 5, 100, '2025-06-26', '10:00:00', '18:00:00', 'partial', 15, 30, 298000.00, 149000.00, 'gcash', 2, '12312312312', 'ad', 'draft', NULL, NULL, NULL, NULL, '2025-06-25 08:26:36', '2025-06-25 08:26:36', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(28, 'BK-20250625-1100', 15, 7, NULL, 'ad', NULL, NULL, 5, 100, '2025-06-26', '10:00:00', '18:00:00', 'partial', 15, 30, 260000.00, 149000.00, 'gcash', 2, '12312312312', 'ad', 'draft', NULL, NULL, NULL, NULL, '2025-06-25 08:26:36', '2025-07-07 13:56:00', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL),
 (29, 'BK-20250625-4040', 15, 7, NULL, 'Other Event ', NULL, NULL, 5, 100, '2025-06-26', '10:00:00', '18:00:00', 'partial', 15, 29, 294000.00, 147000.00, 'bank-transfer', 2, '123234', 'Other Event ', 'draft', NULL, NULL, NULL, NULL, '2025-06-25 09:10:39', '2025-06-25 09:10:39', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL),
 (30, NULL, 15, 7, NULL, 'Wedding with Wedding Form', NULL, NULL, 1, 100, '2025-06-28', '06:00:00', '08:00:00', 'partial', 15, NULL, 250000.00, 125000.00, 'gcash', 2, '13123123', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-06-26 07:17:02', '2025-06-26 07:17:02', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL),
 (31, NULL, 15, 7, NULL, 'Test', NULL, NULL, 1, 100, '2025-06-27', '11:30:00', '18:00:00', 'partial', 15, 29, 164000.00, 82000.00, 'gcash', 2, '12312', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-06-26 08:36:53', '2025-06-26 08:36:53', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL),
@@ -184,7 +164,7 @@ DELIMITER $$
 CREATE TRIGGER `tr_events_update_tracking` BEFORE UPDATE ON `tbl_events` FOR EACH ROW BEGIN
     -- Auto-update timestamp
     SET NEW.updated_at = CURRENT_TIMESTAMP;
-
+    
     -- If updated_by is not explicitly set, try to maintain it
     IF NEW.updated_by IS NULL AND OLD.updated_by IS NOT NULL THEN
         SET NEW.updated_by = OLD.updated_by;
@@ -275,15 +255,11 @@ CREATE TABLE `tbl_event_components` (
 --
 
 INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`, `component_price`, `component_description`, `is_custom`, `is_included`, `original_package_component_id`, `display_order`) VALUES
-(3, 28, 'Full Wedding Coordination', 15000.00, '', 0, 1, 189, 0),
-(4, 28, 'Attire ', 25000.00, '', 0, 1, 190, 1),
-(5, 28, 'Hair and Makeup', 8000.00, '', 0, 1, 191, 2),
-(6, 28, 'Wedding Cake', 5000.00, '', 0, 1, 192, 3),
 (7, 28, 'Transport & Floral Decor ', 7000.00, '', 0, 1, 193, 4),
 (8, 28, 'Emcee & Program Flow', 4000.00, '', 0, 1, 194, 5),
 (9, 28, 'Photography & Videography', 35000.00, '', 0, 1, 195, 6),
 (10, 28, 'Remaining Buffer ', 7000.00, '', 0, 1, 196, 7),
-(11, 28, 'Inclusions', 0.00, '', 0, 1, 205, 8),
+(11, 28, 'Inclusions', 0.00, NULL, 0, 0, 205, 8),
 (12, 29, 'Full Wedding Coordination', 15000.00, '', 0, 1, 189, 0),
 (13, 29, 'Attire ', 25000.00, '', 0, 1, 190, 1),
 (14, 29, 'Hair and Makeup', 8000.00, '', 0, 1, 191, 2),
@@ -670,16 +646,16 @@ CREATE TABLE `tbl_event_type` (
 INSERT INTO `tbl_event_type` (`event_type_id`, `event_name`, `event_description`) VALUES
 (1, 'Wedding', 'A wedding event with full venue and catering options.'),
 (2, 'Anniversary', 'Celebration of marriage or other yearly milestones.'),
-(3, 'Birthday', 'Annual celebration of a person's birth or special birthday occasion.'),
+(3, 'Birthday', 'Annual celebration of a person’s birth or special birthday occasion.'),
 (4, 'Corporate Event', 'Business meetings, seminars, or corporate gatherings.'),
 (5, 'Others', 'Any other type of special event.'),
 (10, 'Baptism', 'Religious ceremony symbolizing purification and admission to the church'),
 (11, 'Baby Shower', 'Celebration held before a baby is born to give gifts and support to the parents'),
 (12, 'Reunion', 'Gathering of family members, classmates, or other groups after a long time'),
 (13, 'Festival', 'Public celebration of culture, religion, or season'),
-(14, 'Engagement Party', 'Celebration of a couple's engagement before marriage'),
+(14, 'Engagement Party', 'Celebration of a couple’s engagement before marriage'),
 (15, 'Christmas Party', 'Seasonal celebration held during the Christmas holidays'),
-(16, 'New Year's Party', 'Celebration marking the beginning of the new year');
+(16, 'New Year’s Party', 'Celebration marking the beginning of the new year');
 
 -- --------------------------------------------------------
 
@@ -935,13 +911,13 @@ CREATE TRIGGER `update_payment_schedule_on_payment` AFTER INSERT ON `tbl_payment
   DECLARE schedule_amount_paid DECIMAL(12,2);
   DECLARE total_event_paid DECIMAL(12,2);
   DECLARE event_total DECIMAL(12,2);
-
+  
   -- If payment is linked to a schedule, update the schedule
   IF NEW.schedule_id IS NOT NULL AND NEW.payment_status = 'completed' THEN
     -- Update the payment schedule
-    UPDATE tbl_event_payment_schedules
+    UPDATE tbl_event_payment_schedules 
     SET amount_paid = amount_paid + NEW.payment_amount,
-        payment_status = CASE
+        payment_status = CASE 
           WHEN amount_paid + NEW.payment_amount >= amount_due THEN 'paid'
           WHEN amount_paid + NEW.payment_amount > 0 THEN 'partial'
           ELSE 'pending'
@@ -949,31 +925,31 @@ CREATE TRIGGER `update_payment_schedule_on_payment` AFTER INSERT ON `tbl_payment
         updated_at = CURRENT_TIMESTAMP
     WHERE schedule_id = NEW.schedule_id;
   END IF;
-
+  
   -- Update overall event payment status
-  SELECT COALESCE(SUM(payment_amount), 0)
-  INTO total_event_paid
-  FROM tbl_payments
+  SELECT COALESCE(SUM(payment_amount), 0) 
+  INTO total_event_paid 
+  FROM tbl_payments 
   WHERE event_id = NEW.event_id AND payment_status = 'completed';
-
-  SELECT total_budget
-  INTO event_total
-  FROM tbl_events
+  
+  SELECT total_budget 
+  INTO event_total 
+  FROM tbl_events 
   WHERE event_id = NEW.event_id;
-
+  
   -- Update event payment status
-  UPDATE tbl_events
-  SET payment_status = CASE
+  UPDATE tbl_events 
+  SET payment_status = CASE 
     WHEN total_event_paid >= event_total THEN 'paid'
     WHEN total_event_paid > 0 THEN 'partial'
     ELSE 'pending'
   END
   WHERE event_id = NEW.event_id;
-
+  
   -- Log the payment activity
   INSERT INTO tbl_payment_logs (event_id, schedule_id, payment_id, client_id, action_type, amount, reference_number, notes)
   VALUES (NEW.event_id, NEW.schedule_id, NEW.payment_id, NEW.client_id, 'payment_received', NEW.payment_amount, NEW.payment_reference, NEW.payment_notes);
-
+  
 END
 $$
 DELIMITER ;
@@ -981,7 +957,7 @@ DELIMITER $$
 CREATE TRIGGER `update_payment_schedule_on_payment_update` AFTER UPDATE ON `tbl_payments` FOR EACH ROW BEGIN
   DECLARE total_event_paid DECIMAL(12,2);
   DECLARE event_total DECIMAL(12,2);
-
+  
   -- If payment status changed and is linked to a schedule
   IF NEW.schedule_id IS NOT NULL AND (OLD.payment_status != NEW.payment_status OR OLD.payment_amount != NEW.payment_amount) THEN
     -- Recalculate schedule payment status
@@ -991,7 +967,7 @@ CREATE TRIGGER `update_payment_schedule_on_payment_update` AFTER UPDATE ON `tbl_
       FROM tbl_payments p
       WHERE p.schedule_id = eps.schedule_id AND p.payment_status = 'completed'
     ),
-    payment_status = CASE
+    payment_status = CASE 
       WHEN (SELECT COALESCE(SUM(p.payment_amount), 0) FROM tbl_payments p WHERE p.schedule_id = eps.schedule_id AND p.payment_status = 'completed') >= eps.amount_due THEN 'paid'
       WHEN (SELECT COALESCE(SUM(p.payment_amount), 0) FROM tbl_payments p WHERE p.schedule_id = eps.schedule_id AND p.payment_status = 'completed') > 0 THEN 'partial'
       ELSE 'pending'
@@ -999,32 +975,32 @@ CREATE TRIGGER `update_payment_schedule_on_payment_update` AFTER UPDATE ON `tbl_
     updated_at = CURRENT_TIMESTAMP
     WHERE schedule_id = NEW.schedule_id;
   END IF;
-
+  
   -- Update overall event payment status
-  SELECT COALESCE(SUM(payment_amount), 0)
-  INTO total_event_paid
-  FROM tbl_payments
+  SELECT COALESCE(SUM(payment_amount), 0) 
+  INTO total_event_paid 
+  FROM tbl_payments 
   WHERE event_id = NEW.event_id AND payment_status = 'completed';
-
-  SELECT total_budget
-  INTO event_total
-  FROM tbl_events
+  
+  SELECT total_budget 
+  INTO event_total 
+  FROM tbl_events 
   WHERE event_id = NEW.event_id;
-
-  UPDATE tbl_events
-  SET payment_status = CASE
+  
+  UPDATE tbl_events 
+  SET payment_status = CASE 
     WHEN total_event_paid >= event_total THEN 'paid'
     WHEN total_event_paid > 0 THEN 'partial'
     ELSE 'pending'
   END
   WHERE event_id = NEW.event_id;
-
+  
   -- Log the payment status change
   IF OLD.payment_status != NEW.payment_status THEN
     INSERT INTO tbl_payment_logs (event_id, schedule_id, payment_id, client_id, action_type, amount, reference_number, notes)
     VALUES (NEW.event_id, NEW.schedule_id, NEW.payment_id, NEW.client_id, 'payment_confirmed', NEW.payment_amount, NEW.payment_reference, CONCAT('Status changed from ', OLD.payment_status, ' to ', NEW.payment_status));
   END IF;
-
+  
 END
 $$
 DELIMITER ;
@@ -1620,17 +1596,6 @@ ALTER TABLE `tbl_budget`
   ADD KEY `user_id` (`user_id`);
 
 --
--- Indexes for table `tbl_event`
---
-ALTER TABLE `tbl_event`
-  ADD PRIMARY KEY (`event_id`),
-  ADD KEY `booking_id` (`booking_id`),
-  ADD KEY `store_id` (`store_id`),
-  ADD KEY `venue_id` (`venue_id`),
-  ADD KEY `event_package_id` (`event_package_id`),
-  ADD KEY `budget_id` (`budget_id`);
-
---
 -- Indexes for table `tbl_events`
 --
 ALTER TABLE `tbl_events`
@@ -1888,7 +1853,7 @@ ALTER TABLE `tbl_wedding_details`
 -- AUTO_INCREMENT for table `tbl_2fa`
 --
 ALTER TABLE `tbl_2fa`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=151;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=152;
 
 --
 -- AUTO_INCREMENT for table `tbl_bookings`
@@ -1903,12 +1868,6 @@ ALTER TABLE `tbl_budget`
   MODIFY `budget_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
--- AUTO_INCREMENT for table `tbl_event`
---
-ALTER TABLE `tbl_event`
-  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT;
-
---
 -- AUTO_INCREMENT for table `tbl_events`
 --
 ALTER TABLE `tbl_events`
@@ -1918,7 +1877,7 @@ ALTER TABLE `tbl_events`
 -- AUTO_INCREMENT for table `tbl_event_components`
 --
 ALTER TABLE `tbl_event_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=158;
+  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=160;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_package`
@@ -2038,7 +1997,7 @@ ALTER TABLE `tbl_users`
 -- AUTO_INCREMENT for table `tbl_venue`
 --
 ALTER TABLE `tbl_venue`
-  MODIFY `venue_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=31;
+  MODIFY `venue_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
 
 --
 -- AUTO_INCREMENT for table `tbl_venue_components`
@@ -2094,16 +2053,6 @@ ALTER TABLE `tbl_bookings`
 --
 ALTER TABLE `tbl_budget`
   ADD CONSTRAINT `tbl_budget_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_event`
---
-ALTER TABLE `tbl_event`
-  ADD CONSTRAINT `tbl_event_ibfk_1` FOREIGN KEY (`booking_id`) REFERENCES `tbl_bookings` (`booking_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_event_ibfk_2` FOREIGN KEY (`store_id`) REFERENCES `tbl_store` (`store_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_event_ibfk_3` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_event_ibfk_4` FOREIGN KEY (`event_package_id`) REFERENCES `tbl_event_package` (`event_package_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_event_ibfk_5` FOREIGN KEY (`budget_id`) REFERENCES `tbl_budget` (`budget_id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `tbl_events`

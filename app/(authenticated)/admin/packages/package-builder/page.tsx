@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { X, Plus, Check, ArrowLeft } from "lucide-react";
 import axios from "axios";
@@ -9,11 +9,13 @@ import { formatCurrency } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MultiStepWizard } from "@/app/components/admin/event-builder/multi-step-wizard";
 import { secureStorage } from "@/app/utils/encryption";
-import { FreebiesStep } from "./freebies-step";
 import { BudgetBreakdown } from "./budget-breakdown";
 import { VenueSelection } from "./venue-selection";
+import { PackageInclusionsStep } from "./package-inclusions-step";
+import { FreebiesStepFixed } from "./freebies-step-fixed";
 import { toast } from "react-hot-toast";
 import Image from "next/image";
+import { showConfetti } from "@/app/libs/confetti";
 
 // Update interfaces to match between components
 interface Component {
@@ -72,6 +74,10 @@ interface Step {
 export default function PackageBuilderPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [redirectCountdown, setRedirectCountdown] = useState(3);
+  const [countdownInterval, setCountdownInterval] =
+    useState<NodeJS.Timeout | null>(null);
 
   // Package details state
   const [packageTitle, setPackageTitle] = useState("");
@@ -79,19 +85,49 @@ export default function PackageBuilderPage() {
   const [packagePrice, setPackagePrice] = useState<number | string>("");
   const [guestCount, setGuestCount] = useState<number>(100);
 
-  // Event types state
+  // Optimized handlers for package details to prevent unnecessary re-renders
+  const handlePackageTitleChange = useCallback((value: string) => {
+    setPackageTitle(value);
+  }, []);
+
+  const handlePackageDescriptionChange = useCallback((value: string) => {
+    setPackageDescription(value);
+  }, []);
+
+  const handlePackagePriceChange = useCallback((value: string) => {
+    setPackagePrice(value);
+  }, []);
+
+  const handleGuestCountChange = useCallback((value: number) => {
+    setGuestCount(value);
+  }, []);
+
+  // Event types state - Initialize as empty array to prevent map errors
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [selectedEventTypes, setSelectedEventTypes] = useState<number[]>([]);
 
-  // Add venue state
+  // Add venue state - Initialize as empty array to prevent map errors
   const [venues, setVenues] = useState<Venue[]>([]);
   const [selectedVenues, setSelectedVenues] = useState<number[]>([]);
+  const [venuesLoading, setVenuesLoading] = useState(true);
+  const [venuesError, setVenuesError] = useState<string | null>(null);
 
-  // Calculate total venue cost
-  const totalVenueCost = selectedVenues.reduce((sum, venueId) => {
-    const venue = venues.find((v) => v.venue_id === venueId);
-    return sum + (venue?.total_price || 0);
-  }, 0);
+  // Calculate total venue cost - memoized to prevent unnecessary re-renders
+  const totalVenueCost = useMemo(() => {
+    return selectedVenues.reduce((sum, venueId) => {
+      const venue = venues.find((v) => v.venue_id === venueId);
+      return sum + (venue?.total_price || 0);
+    }, 0);
+  }, [selectedVenues, venues]);
+
+  // Cleanup countdown interval on unmount
+  useEffect(() => {
+    return () => {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+      }
+    };
+  }, [countdownInterval]);
 
   // Fetch event types when component mounts
   useEffect(() => {
@@ -116,6 +152,9 @@ export default function PackageBuilderPage() {
         }
 
         // Fetch venues
+        setVenuesLoading(true);
+        setVenuesError(null);
+
         const venuesResponse = await axios.get(
           "http://localhost/events-api/admin.php",
           {
@@ -129,28 +168,34 @@ export default function PackageBuilderPage() {
           console.log("Venues set:", venuesResponse.data.venues);
         } else {
           console.error("Venues error:", venuesResponse.data.message);
+          setVenuesError(
+            venuesResponse.data.message || "Failed to load venues"
+          );
         }
       } catch (error) {
         console.error("API error:", error);
+        setVenuesError("Failed to load venues. Please check your connection.");
         toast.error("Failed to load data. Please check your connection.");
+      } finally {
+        setVenuesLoading(false);
       }
     };
 
     fetchData();
   }, []);
 
-  // Handle event type selection
-  const handleEventTypeChange = (eventTypeId: number) => {
-    if (selectedEventTypes.includes(eventTypeId)) {
-      setSelectedEventTypes(
-        selectedEventTypes.filter((id) => id !== eventTypeId)
-      );
-    } else {
-      setSelectedEventTypes([...selectedEventTypes, eventTypeId]);
-    }
-  };
+  // Handle event type selection - Use useCallback to prevent re-renders
+  const handleEventTypeChange = useCallback((eventTypeId: number) => {
+    setSelectedEventTypes((prev) => {
+      if (prev.includes(eventTypeId)) {
+        return prev.filter((id) => id !== eventTypeId);
+      } else {
+        return [...prev, eventTypeId];
+      }
+    });
+  }, []);
 
-  // Inclusions state
+  // Inclusions state - Initialize with one empty inclusion
   const [inclusions, setInclusions] = useState<Inclusion[]>([
     {
       name: "",
@@ -163,13 +208,13 @@ export default function PackageBuilderPage() {
     },
   ]);
 
-  // Freebies state
+  // Freebies state - Initialize with one empty freebie
   const [freebies, setFreebies] = useState<Freebie[]>([{ freebie_name: "" }]);
 
-  // Handle inclusion components
-  const addInclusion = () => {
-    setInclusions([
-      ...inclusions,
+  // Handle inclusion components - Use useCallback to prevent re-renders
+  const addInclusion = useCallback(() => {
+    setInclusions((prev) => [
+      ...prev,
       {
         name: "",
         price: "",
@@ -180,71 +225,102 @@ export default function PackageBuilderPage() {
         ],
       },
     ]);
-  };
+  }, []);
 
-  const removeInclusion = (inclusionIndex: number) => {
-    setInclusions(inclusions.filter((_, index) => index !== inclusionIndex));
-  };
+  const removeInclusion = useCallback((inclusionIndex: number) => {
+    setInclusions((prev) =>
+      prev.filter((_, index) => index !== inclusionIndex)
+    );
+  }, []);
 
-  const updateInclusionName = (inclusionIndex: number, name: string) => {
-    const newInclusions = [...inclusions];
-    newInclusions[inclusionIndex].name = name;
-    setInclusions(newInclusions);
-  };
+  const updateInclusionName = useCallback(
+    (inclusionIndex: number, name: string) => {
+      setInclusions((prev) =>
+        prev.map((inc, idx) =>
+          idx === inclusionIndex ? { ...inc, name } : inc
+        )
+      );
+    },
+    []
+  );
 
-  const updateInclusionPrice = (index: number, value: string) => {
-    const newInclusions = [...inclusions];
-    newInclusions[index].price = value;
-    setInclusions(newInclusions);
-  };
+  const updateInclusionPrice = useCallback((index: number, value: string) => {
+    setInclusions((prev) =>
+      prev.map((inc, idx) => (idx === index ? { ...inc, price: value } : inc))
+    );
+  }, []);
 
-  const addComponent = (inclusionIndex: number) => {
-    const newInclusions = [...inclusions];
-    newInclusions[inclusionIndex].components.push({
-      name: "",
+  const addComponent = useCallback((inclusionIndex: number) => {
+    setInclusions((prev) =>
+      prev.map((inc, idx) =>
+        idx === inclusionIndex
+          ? { ...inc, components: [...inc.components, { name: "" }] }
+          : inc
+      )
+    );
+  }, []);
+
+  const removeComponent = useCallback(
+    (inclusionIndex: number, componentIndex: number) => {
+      setInclusions((prev) =>
+        prev.map((inc, idx) =>
+          idx === inclusionIndex
+            ? {
+                ...inc,
+                components: inc.components.filter(
+                  (_, i) => i !== componentIndex
+                ),
+              }
+            : inc
+        )
+      );
+    },
+    []
+  );
+
+  const updateComponentName = useCallback(
+    (inclusionIndex: number, componentIndex: number, name: string) => {
+      setInclusions((prev) =>
+        prev.map((inc, idx) =>
+          idx === inclusionIndex
+            ? {
+                ...inc,
+                components: inc.components.map((comp, cidx) =>
+                  cidx === componentIndex ? { ...comp, name } : comp
+                ),
+              }
+            : inc
+        )
+      );
+    },
+    []
+  );
+
+  const handleAddFreebie = useCallback(() => {
+    setFreebies((prev) => [...prev, { freebie_name: "" }]);
+  }, []);
+
+  const handleUpdateFreebie = useCallback((index: number, value: string) => {
+    setFreebies((prev) =>
+      prev.map((freebie, i) =>
+        i === index ? { ...freebie, freebie_name: value } : freebie
+      )
+    );
+  }, []);
+
+  const handleRemoveFreebie = useCallback((index: number) => {
+    setFreebies((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleVenueToggle = useCallback((venueId: number) => {
+    setSelectedVenues((prev) => {
+      if (prev.includes(venueId)) {
+        return prev.filter((id) => id !== venueId);
+      } else {
+        return [...prev, venueId];
+      }
     });
-    setInclusions(newInclusions);
-  };
-
-  const removeComponent = (inclusionIndex: number, componentIndex: number) => {
-    const newInclusions = [...inclusions];
-    newInclusions[inclusionIndex].components = newInclusions[
-      inclusionIndex
-    ].components.filter((_, index) => index !== componentIndex);
-    setInclusions(newInclusions);
-  };
-
-  const updateComponentName = (
-    inclusionIndex: number,
-    componentIndex: number,
-    name: string
-  ) => {
-    const newInclusions = [...inclusions];
-    newInclusions[inclusionIndex].components[componentIndex].name = name;
-    setInclusions(newInclusions);
-  };
-
-  const handleAddFreebie = () => {
-    setFreebies([...freebies, { freebie_name: "" }]);
-  };
-
-  const handleUpdateFreebie = (index: number, value: string) => {
-    const newFreebies = [...freebies];
-    newFreebies[index].freebie_name = value;
-    setFreebies(newFreebies);
-  };
-
-  const handleRemoveFreebie = (index: number) => {
-    setFreebies(freebies.filter((_, i) => i !== index));
-  };
-
-  const handleVenueToggle = (venueId: number) => {
-    if (selectedVenues.includes(venueId)) {
-      setSelectedVenues(selectedVenues.filter((id) => id !== venueId));
-    } else {
-      setSelectedVenues([...selectedVenues, venueId]);
-    }
-  };
+  }, []);
 
   const calculateRemainingBudget = () => {
     const packagePriceNum = Number(packagePrice) || 0;
@@ -252,16 +328,13 @@ export default function PackageBuilderPage() {
       (sum, inclusion) => sum + (Number(inclusion.price) || 0),
       0
     );
-    const totalVenueCost = selectedVenues.reduce((sum, venueId) => {
-      const venue = venues.find((v) => v.venue_id === venueId);
-      return sum + (venue?.total_price || 0);
-    }, 0);
-
-    return packagePriceNum - inclusionsTotal - totalVenueCost;
+    // Don't subtract venue cost from package budget - venues are separate
+    return packagePriceNum - inclusionsTotal;
   };
 
   const isBudgetValid = () => {
-    return calculateRemainingBudget() >= 0;
+    // Allow negative budget for packages - venues are separate costs
+    return true;
   };
 
   const createPackage = async () => {
@@ -273,13 +346,39 @@ export default function PackageBuilderPage() {
 
       if (!adminId) {
         toast.error("Admin ID not found. Please log in again.");
+        setLoading(false);
+        return;
+      }
+
+      // Validate required fields
+      if (!packageTitle.trim()) {
+        toast.error("Package title is required");
+        setLoading(false);
+        return;
+      }
+
+      if (!packagePrice || Number(packagePrice) <= 0) {
+        toast.error("Package price must be greater than 0");
+        setLoading(false);
+        return;
+      }
+
+      if (selectedEventTypes.length === 0) {
+        toast.error("Please select at least one event type");
+        setLoading(false);
+        return;
+      }
+
+      if (selectedVenues.length === 0) {
+        toast.error("Please select at least one venue");
+        setLoading(false);
         return;
       }
 
       const packageData = {
         package_data: {
-          package_title: packageTitle,
-          package_description: packageDescription,
+          package_title: packageTitle.trim(),
+          package_description: packageDescription.trim(),
           package_price: Number(packagePrice),
           guest_capacity: guestCount,
           created_by: adminId,
@@ -287,17 +386,17 @@ export default function PackageBuilderPage() {
         components: inclusions
           .filter((inc) => inc.name.trim() !== "")
           .map((inc) => ({
-            component_name: inc.name,
+            component_name: inc.name.trim(),
             component_description: inc.components
               .filter((comp) => comp.name.trim() !== "")
-              .map((comp) => comp.name)
+              .map((comp) => comp.name.trim())
               .join(", "),
             component_price: Number(inc.price) || 0,
           })),
         freebies: freebies
           .filter((f) => f.freebie_name.trim() !== "")
           .map((f) => ({
-            freebie_name: f.freebie_name,
+            freebie_name: f.freebie_name.trim(),
             freebie_description: f.freebie_description || "",
             freebie_value: f.freebie_value || 0,
           })),
@@ -323,14 +422,51 @@ export default function PackageBuilderPage() {
       console.log("Package creation response:", response.data);
 
       if (response.data.status === "success") {
+        console.log("Package created successfully, showing success modal");
+        setShowSuccessModal(true);
+
+        // Try to show confetti, but don't let it break the flow
+        try {
+          showConfetti();
+        } catch (confettiError) {
+          console.warn("Confetti failed to show:", confettiError);
+        }
+
         toast.success("Package created successfully!");
-        router.push("/admin/packages");
+
+        // Start countdown for auto-redirect
+        setRedirectCountdown(3);
+        const interval = setInterval(() => {
+          setRedirectCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(interval);
+              router.push("/admin/packages");
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+        setCountdownInterval(interval);
       } else {
+        console.error("API Error:", response.data);
         toast.error(response.data.message || "Failed to create package");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Create package error:", error);
-      toast.error("An error occurred while creating the package");
+
+      if (error.response) {
+        // Server responded with error status
+        console.error("Error response:", error.response.data);
+        toast.error(error.response.data?.message || "Server error occurred");
+      } else if (error.request) {
+        // Request was made but no response received
+        console.error("No response received:", error.request);
+        toast.error("No response from server. Please check your connection.");
+      } else {
+        // Something else happened
+        console.error("Error message:", error.message);
+        toast.error("An error occurred while creating the package");
+      }
     } finally {
       setLoading(false);
     }
@@ -351,24 +487,27 @@ export default function PackageBuilderPage() {
   };
 
   const areInclusionsValid = () => {
-    return inclusions.some(
-      (inclusion) =>
-        inclusion.name.trim() !== "" && Number(inclusion.price) >= 0
+    return (
+      inclusions &&
+      inclusions.some(
+        (inclusion) =>
+          inclusion.name.trim() !== "" && Number(inclusion.price) >= 0
+      )
     );
   };
 
   const areFreebiesValid = () => {
-    return freebies.some((f) => f.freebie_name.trim() !== "");
+    return freebies && freebies.some((f) => f.freebie_name.trim() !== "");
   };
 
   const calculateTotalPrice = (): number => {
     const packagePriceNum = Number(packagePrice) || 0;
-    const inclusionsTotal = inclusions.reduce(
+    const inclusionsTotal = (inclusions || []).reduce(
       (sum, inclusion) => sum + (Number(inclusion.price) || 0),
       0
     );
     const totalVenueCost = selectedVenues.reduce((sum, venueId) => {
-      const venue = venues.find((v) => v.venue_id === venueId);
+      const venue = venues?.find((v) => v.venue_id === venueId);
       return sum + (venue?.total_price || 0);
     }, 0);
 
@@ -384,7 +523,7 @@ export default function PackageBuilderPage() {
           <input
             type="text"
             value={packageTitle}
-            onChange={(e) => setPackageTitle(e.target.value)}
+            onChange={(e) => handlePackageTitleChange(e.target.value)}
             placeholder="E.g., Premium Wedding Package"
             className="w-full border rounded px-3 py-2"
           />
@@ -394,7 +533,7 @@ export default function PackageBuilderPage() {
           <label className="block mb-2 font-medium">Package Description</label>
           <textarea
             value={packageDescription}
-            onChange={(e) => setPackageDescription(e.target.value)}
+            onChange={(e) => handlePackageDescriptionChange(e.target.value)}
             placeholder="Describe what this package offers"
             className="w-full border rounded px-3 py-2 h-24"
           />
@@ -405,7 +544,7 @@ export default function PackageBuilderPage() {
           <input
             type="number"
             value={packagePrice}
-            onChange={(e) => setPackagePrice(e.target.value)}
+            onChange={(e) => handlePackagePriceChange(e.target.value)}
             placeholder="0.00"
             min="0"
             step="0.01"
@@ -418,7 +557,7 @@ export default function PackageBuilderPage() {
           <input
             type="number"
             value={guestCount}
-            onChange={(e) => setGuestCount(Number(e.target.value))}
+            onChange={(e) => handleGuestCountChange(Number(e.target.value))}
             placeholder="100"
             min="1"
             className="w-full border rounded px-3 py-2"
@@ -431,23 +570,24 @@ export default function PackageBuilderPage() {
             Select which event types this package is suitable for
           </p>
           <div className="space-y-2 grid grid-cols-2">
-            {eventTypes.map((type) => (
-              <div key={type.event_type_id} className="flex items-center">
-                <input
-                  type="checkbox"
-                  id={`event-type-${type.event_type_id}`}
-                  checked={selectedEventTypes.includes(type.event_type_id)}
-                  onChange={() => handleEventTypeChange(type.event_type_id)}
-                  className="mr-2 h-4 w-4 text-green-600 focus:ring-green-500"
-                />
-                <label
-                  htmlFor={`event-type-${type.event_type_id}`}
-                  className="text-gray-700"
-                >
-                  {type.event_name}
-                </label>
-              </div>
-            ))}
+            {eventTypes &&
+              eventTypes.map((type) => (
+                <div key={type.event_type_id} className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id={`event-type-${type.event_type_id}`}
+                    checked={selectedEventTypes.includes(type.event_type_id)}
+                    onChange={() => handleEventTypeChange(type.event_type_id)}
+                    className="mr-2 h-4 w-4 text-green-600 focus:ring-green-500"
+                  />
+                  <label
+                    htmlFor={`event-type-${type.event_type_id}`}
+                    className="text-gray-700"
+                  >
+                    {type.event_name}
+                  </label>
+                </div>
+              ))}
           </div>
           {selectedEventTypes.length === 0 && (
             <p className="text-red-500 text-sm mt-1">
@@ -465,151 +605,46 @@ export default function PackageBuilderPage() {
       venues={venues}
       selectedVenueIds={selectedVenues}
       onVenueToggle={handleVenueToggle}
+      loading={venuesLoading}
+      error={venuesError}
     />
   );
 
-  // Package Inclusions Step Component
-  const PackageInclusionsStep = () => (
-    <div className="space-y-6">
-      {/* Show selected venues as fixed inclusions */}
-      {selectedVenues.length > 0 && (
-        <div className="mb-6">
-          <h3 className="font-medium text-gray-700 mb-2">Selected Venues:</h3>
-          <div className="space-y-2">
-            {selectedVenues.map((venueId) => {
-              const venue = venues.find((v) => v.venue_id === venueId);
-              return venue ? (
-                <div key={venue.venue_id} className="bg-gray-50 rounded p-3">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-medium">{venue.venue_title}</p>
-                      <p className="text-sm text-gray-600">
-                        {venue.venue_location}
-                      </p>
-                    </div>
-                    <p className="font-medium text-green-600">
-                      ₱{(venue.total_price || 0).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              ) : null;
-            })}
-          </div>
-        </div>
-      )}
+  // Package Inclusions Step Component - Memoized wrapper to prevent re-renders
+  const PackageInclusionsStepWrapper = useMemo(() => {
+    return () => (
+      <PackageInclusionsStep
+        inclusions={inclusions}
+        selectedVenues={selectedVenues}
+        venues={venues}
+        updateInclusionName={updateInclusionName}
+        updateInclusionPrice={updateInclusionPrice}
+        updateComponentName={updateComponentName}
+        addComponent={addComponent}
+        removeComponent={removeComponent}
+        removeInclusion={removeInclusion}
+        addInclusion={addInclusion}
+      />
+    );
+  }, [
+    inclusions,
+    selectedVenues,
+    venues,
+    updateInclusionName,
+    updateInclusionPrice,
+    updateComponentName,
+    addComponent,
+    removeComponent,
+    removeInclusion,
+    addInclusion,
+  ]);
 
-      {/* Existing inclusions form */}
-      {inclusions.map((inclusion, inclusionIndex) => (
-        <div key={inclusionIndex} className="border rounded-lg p-4 bg-gray-50">
-          <div className="flex justify-between items-center mb-4">
-            <div className="flex-1">
-              <label className="block mb-2 font-medium">Inclusion Name</label>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <input
-                    type="text"
-                    value={inclusion.name}
-                    onChange={(e) =>
-                      updateInclusionName(inclusionIndex, e.target.value)
-                    }
-                    placeholder="E.g., Venue Decoration"
-                    className="w-full border rounded px-3 py-2"
-                  />
-                </div>
-                <div className="w-1/3">
-                  <label className="block mb-1 text-sm font-medium">
-                    Price (₱)
-                  </label>
-                  <input
-                    type="number"
-                    value={inclusion.price}
-                    onChange={(e) =>
-                      updateInclusionPrice(inclusionIndex, e.target.value)
-                    }
-                    placeholder="0.00"
-                    min="0"
-                    step="0.01"
-                    className="w-full border rounded px-3 py-2"
-                  />
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={() => removeInclusion(inclusionIndex)}
-              className="ml-2 p-1 text-gray-500 hover:text-red-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          <div className="pl-4 border-l-2 border-gray-300 space-y-4">
-            {inclusion.components.map(
-              (component: Component, componentIndex: number) => (
-                <div
-                  key={componentIndex}
-                  className="border rounded-lg p-3 bg-white"
-                >
-                  <div className="flex justify-between items-center mb-3">
-                    <div className="flex-1">
-                      <label className="block mb-1 text-sm font-medium">
-                        Component
-                      </label>
-                      <div className="flex gap-4">
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            value={component.name}
-                            onChange={(e) =>
-                              updateComponentName(
-                                inclusionIndex,
-                                componentIndex,
-                                e.target.value
-                              )
-                            }
-                            placeholder="E.g., Flowers"
-                            className="w-full border rounded px-3 py-1 text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() =>
-                        removeComponent(inclusionIndex, componentIndex)
-                      }
-                      className="ml-2 p-1 text-gray-500 hover:text-red-600"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              )
-            )}
-            <button
-              onClick={() => addComponent(inclusionIndex)}
-              className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
-            >
-              <Plus className="h-4 w-4 mr-1" /> Add Component
-            </button>
-          </div>
-        </div>
-      ))}
-      <button
-        onClick={addInclusion}
-        className="w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-gray-500 hover:bg-gray-50 flex items-center justify-center"
-      >
-        <Plus className="h-5 w-5 mr-2" /> Add Inclusion
-      </button>
-    </div>
-  );
-
-  // Enhanced Freebies Step Component
-  const FreebiesStepWrapper = () => (
-    <FreebiesStep
-      freebies={freebies}
-      setFreebies={setFreebies}
-      onNext={() => {}} // Will be handled by MultiStepWizard
-    />
-  );
+  // Enhanced Freebies Step Component - Using fixed component with memoization
+  const FreebiesStepWrapper = useMemo(() => {
+    return () => (
+      <FreebiesStepFixed freebies={freebies} setFreebies={setFreebies} />
+    );
+  }, [freebies, setFreebies]);
 
   // Review Step Component
   const ReviewStep = () => (
@@ -657,7 +692,7 @@ export default function PackageBuilderPage() {
             <h4 className="font-medium mb-2">Selected Venues</h4>
             <div className="space-y-2">
               {selectedVenues.map((venueId) => {
-                const venue = venues.find((v) => v.venue_id === venueId);
+                const venue = venues?.find((v) => v.venue_id === venueId);
                 return venue ? (
                   <div
                     key={venue.venue_id}
@@ -695,37 +730,43 @@ export default function PackageBuilderPage() {
         <div className="mb-6">
           <h4 className="font-medium mb-2">Components</h4>
           <div className="space-y-2">
-            {inclusions.map((inclusion, index) => (
-              <div key={index} className="flex flex-col items-start">
-                <div className="flex justify-between items-center w-full">
-                  <p className="font-medium">{inclusion.name}</p>
-                  <p className="font-medium">
-                    ₱{Number(inclusion.price).toLocaleString()}
-                  </p>
+            {inclusions &&
+              inclusions.map((inclusion, index) => (
+                <div
+                  key={`inclusion-review-${index}`}
+                  className="flex flex-col items-start"
+                >
+                  <div className="flex justify-between items-center w-full">
+                    <p className="font-medium">{inclusion.name}</p>
+                    <p className="font-medium">
+                      ₱{Number(inclusion.price).toLocaleString()}
+                    </p>
+                  </div>
+                  {inclusion.components.some(
+                    (comp: Component) => comp.name.trim() !== ""
+                  ) && (
+                    <ul className="text-sm text-gray-600 list-disc list-inside ml-4">
+                      {inclusion.components
+                        .filter((comp: Component) => comp.name.trim() !== "")
+                        .map((comp, i) => (
+                          <li key={`component-review-${index}-${i}`}>
+                            {comp.name}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
                 </div>
-                {inclusion.components.some(
-                  (comp: Component) => comp.name.trim() !== ""
-                ) && (
-                  <ul className="text-sm text-gray-600 list-disc list-inside ml-4">
-                    {inclusion.components
-                      .filter((comp: Component) => comp.name.trim() !== "")
-                      .map((comp, i) => (
-                        <li key={i}>{comp.name}</li>
-                      ))}
-                  </ul>
-                )}
-              </div>
-            ))}
+              ))}
           </div>
         </div>
 
         {/* Freebies */}
-        {freebies.length > 0 && (
+        {freebies && freebies.length > 0 && (
           <div className="mb-6">
             <h4 className="font-medium mb-2">Freebies</h4>
             <ul className="list-disc list-inside space-y-1">
               {freebies.map((f, index) => (
-                <li key={index} className="text-gray-600">
+                <li key={`freebie-review-${index}`} className="text-gray-600">
                   {f.freebie_name}
                 </li>
               ))}
@@ -737,13 +778,13 @@ export default function PackageBuilderPage() {
         <BudgetBreakdown
           packagePrice={Number(packagePrice)}
           selectedVenue={null}
-          components={inclusions
+          components={(inclusions || [])
             .filter((inc) => inc.name.trim() !== "")
             .map((inc) => ({
               name: inc.name,
               price: Number(inc.price) || 0,
             }))}
-          freebies={freebies.map((f) => f.freebie_name)}
+          freebies={(freebies || []).map((f) => f.freebie_name)}
         />
       </div>
     </div>
@@ -755,7 +796,7 @@ export default function PackageBuilderPage() {
       id: "package-details",
       title: "Package Details",
       description: "Basic information about the package",
-      component: <PackageDetailsStep />,
+      component: PackageDetailsStep(),
     },
     {
       id: "venue-selection",
@@ -767,13 +808,13 @@ export default function PackageBuilderPage() {
       id: "package-inclusions",
       title: "Package Inclusions",
       description: "Add components and subcomponents",
-      component: <PackageInclusionsStep />,
+      component: PackageInclusionsStepWrapper(),
     },
     {
       id: "freebies",
       title: "Freebies",
       description: "Add package freebies",
-      component: <FreebiesStepWrapper />,
+      component: FreebiesStepWrapper(),
     },
     {
       id: "review",
@@ -784,6 +825,17 @@ export default function PackageBuilderPage() {
   ];
 
   const handleComplete = () => {
+    console.log("handleComplete called - starting package creation");
+    console.log("Current form state:", {
+      packageTitle,
+      packageDescription,
+      packagePrice,
+      guestCount,
+      selectedEventTypes,
+      selectedVenues,
+      inclusions: inclusions.filter((inc) => inc.name.trim() !== ""),
+      freebies: freebies.filter((f) => f.freebie_name.trim() !== ""),
+    });
     createPackage();
   };
 
@@ -850,38 +902,42 @@ export default function PackageBuilderPage() {
                     </p>
                   </div>
                 )}
-                {inclusions.some((inc) => inc.name.trim() !== "") && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">Inclusions</p>
-                    <p className="font-medium">
-                      {
-                        inclusions.filter((inc) => inc.name.trim() !== "")
-                          .length
-                      }{" "}
-                      inclusion
-                      {inclusions.filter((inc) => inc.name.trim() !== "")
-                        .length !== 1
-                        ? "s"
-                        : ""}
-                    </p>
-                  </div>
-                )}
-                {freebies.some((f) => f.freebie_name.trim() !== "") && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">Freebies</p>
-                    <p className="font-medium">
-                      {
-                        freebies.filter((f) => f.freebie_name.trim() !== "")
-                          .length
-                      }{" "}
-                      freebie
-                      {freebies.filter((f) => f.freebie_name.trim() !== "")
-                        .length !== 1
-                        ? "s"
-                        : ""}
-                    </p>
-                  </div>
-                )}
+                {inclusions &&
+                  inclusions.some((inc) => inc.name.trim() !== "") && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">
+                        Inclusions
+                      </p>
+                      <p className="font-medium">
+                        {
+                          inclusions.filter((inc) => inc.name.trim() !== "")
+                            .length
+                        }{" "}
+                        inclusion
+                        {inclusions.filter((inc) => inc.name.trim() !== "")
+                          .length !== 1
+                          ? "s"
+                          : ""}
+                      </p>
+                    </div>
+                  )}
+                {freebies &&
+                  freebies.some((f) => f.freebie_name.trim() !== "") && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Freebies</p>
+                      <p className="font-medium">
+                        {
+                          freebies.filter((f) => f.freebie_name.trim() !== "")
+                            .length
+                        }{" "}
+                        freebie
+                        {freebies.filter((f) => f.freebie_name.trim() !== "")
+                          .length !== 1
+                          ? "s"
+                          : ""}
+                      </p>
+                    </div>
+                  )}
               </div>
             </Card>
           </div>
@@ -893,6 +949,68 @@ export default function PackageBuilderPage() {
           <div className="bg-white p-5 rounded-lg shadow-lg flex flex-col items-center">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-600 mb-3"></div>
             <p className="text-gray-700">Creating your package...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-4">
+                <Check className="h-8 w-8 text-green-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                Package Created Successfully! 🎉
+              </h3>
+              <p className="text-gray-600 mb-2">
+                Your package "{packageTitle}" has been created and is now
+                available for clients to book.
+              </p>
+              <p className="text-sm text-gray-500 mb-6">
+                Redirecting to packages page in {redirectCountdown} seconds...
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => {
+                    if (countdownInterval) {
+                      clearInterval(countdownInterval);
+                    }
+                    router.push("/admin/packages");
+                  }}
+                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors font-medium"
+                >
+                  View All Packages Now
+                </button>
+                <button
+                  onClick={() => {
+                    if (countdownInterval) {
+                      clearInterval(countdownInterval);
+                    }
+                    setShowSuccessModal(false);
+                    // Reset form for creating another package
+                    setPackageTitle("");
+                    setPackageDescription("");
+                    setPackagePrice("");
+                    setGuestCount(100);
+                    setSelectedEventTypes([]);
+                    setSelectedVenues([]);
+                    setInclusions([
+                      {
+                        name: "",
+                        price: "",
+                        components: [{ name: "" }],
+                      },
+                    ]);
+                    setFreebies([{ freebie_name: "" }]);
+                  }}
+                  className="flex-1 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors"
+                >
+                  Create Another Package
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

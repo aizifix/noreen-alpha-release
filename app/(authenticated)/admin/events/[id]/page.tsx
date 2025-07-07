@@ -33,9 +33,15 @@ import {
   Phone,
   Mail,
   Package,
+  AlertTriangle,
+  Plus,
+  Building,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import axios from "axios";
 import { toast } from "@/components/ui/use-toast";
+import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 
 // Enhanced interface to match updated tbl_events structure
@@ -62,13 +68,20 @@ interface Event {
   payment_schedule_type_id?: number;
   reference_number?: string;
   additional_notes?: string;
-  event_status: "draft" | "confirmed" | "on_going" | "done" | "cancelled";
+  event_status:
+    | "draft"
+    | "confirmed"
+    | "on_going"
+    | "done"
+    | "cancelled"
+    | "finalized";
   booking_date?: string;
   booking_time?: string;
   created_by?: number;
   updated_by?: number;
   created_at?: string;
   updated_at?: string;
+  finalized_at?: string;
   event_attachments?: any[];
   attachments?: any[];
   event_feedback_id?: number;
@@ -76,7 +89,6 @@ interface Event {
   is_recurring?: boolean;
   recurrence_rule?: any;
   cancellation_reason?: string;
-  finalized_at?: string;
   client_signature?: string;
   // Joined data from related tables
   venue_name?: string;
@@ -108,10 +120,24 @@ interface Event {
   installment_count?: number;
   wedding_details?: any;
   feedback?: any;
-  components?: any[];
+  components?: EventComponent[];
   timeline?: any[];
   payment_schedule?: any[];
   payments?: any[];
+}
+
+interface EventComponent {
+  component_id: number;
+  event_id: number;
+  component_name: string;
+  component_price: number;
+  component_description?: string;
+  is_custom: boolean;
+  is_included: boolean;
+  original_package_component_id?: number;
+  display_order: number;
+  original_component_name?: string;
+  original_component_description?: string;
 }
 
 interface PaymentHistoryItem {
@@ -125,18 +151,90 @@ interface PaymentHistoryItem {
   description?: string;
 }
 
-// Budget Progress Component
+// Confirmation Modal Component
+function ConfirmationModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  priceImpact,
+  loading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+  priceImpact?: number;
+  loading?: boolean;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <div className="flex items-center gap-3 mb-4">
+          <AlertTriangle className="h-6 w-6 text-orange-500" />
+          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        </div>
+
+        <p className="text-gray-600 mb-4">{message}</p>
+
+        {priceImpact !== undefined && priceImpact !== 0 && (
+          <div className="bg-orange-50 border border-orange-200 rounded-md p-3 mb-4">
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-orange-600" />
+              <span className="text-sm font-medium text-orange-800">
+                Budget Impact
+              </span>
+            </div>
+            <p className="text-sm text-orange-700 mt-1">
+              {priceImpact > 0
+                ? `This will increase the total budget by ₱${Math.abs(priceImpact).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : `This will decrease the total budget by ₱${Math.abs(priceImpact).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            </p>
+          </div>
+        )}
+
+        <div className="flex gap-3 justify-end">
+          <Button onClick={onClose} variant="outline" disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={loading}
+            className="bg-orange-600 hover:bg-orange-700"
+          >
+            {loading ? "Processing..." : "Confirm Changes"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Budget Progress Component with fixed formatting
 function BudgetProgress({ event }: { event: Event }) {
   const totalPaid =
     event.payments?.reduce(
       (sum, payment: any) =>
         payment.payment_status === "completed"
-          ? sum + payment.payment_amount
+          ? sum + Number(payment.payment_amount || 0)
           : sum,
       0
     ) || 0;
   const remaining = event.total_budget - totalPaid;
-  const progressPercentage = (totalPaid / event.total_budget) * 100;
+  const progressPercentage =
+    event.total_budget > 0 ? (totalPaid / event.total_budget) * 100 : 0;
+
+  // Format currency properly
+  const formatCurrency = (amount: number) => {
+    return amount.toLocaleString("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
 
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -149,7 +247,7 @@ function BudgetProgress({ event }: { event: Event }) {
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-600">Total Budget</span>
           <span className="font-semibold text-lg">
-            ₱{event.total_budget.toLocaleString()}
+            ₱{formatCurrency(event.total_budget)}
           </span>
         </div>
 
@@ -164,7 +262,7 @@ function BudgetProgress({ event }: { event: Event }) {
           <div className="bg-green-50 rounded-lg p-3">
             <div className="text-green-700 font-medium">Paid</div>
             <div className="text-green-900 font-semibold">
-              ₱{totalPaid.toLocaleString()}
+              ₱{formatCurrency(totalPaid)}
             </div>
             <div className="text-green-600 text-xs">
               {progressPercentage.toFixed(1)}%
@@ -173,12 +271,1473 @@ function BudgetProgress({ event }: { event: Event }) {
           <div className="bg-orange-50 rounded-lg p-3">
             <div className="text-orange-700 font-medium">Remaining</div>
             <div className="text-orange-900 font-semibold">
-              ₱{remaining.toLocaleString()}
+              ₱{formatCurrency(remaining)}
             </div>
             <div className="text-orange-600 text-xs">
               {(100 - progressPercentage).toFixed(1)}%
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Event Countdown Component
+function EventCountdown({ event }: { event: Event }) {
+  const [daysLeft, setDaysLeft] = useState<number>(0);
+  const [countdownText, setCountdownText] = useState<string>("");
+
+  useEffect(() => {
+    const calculateDaysLeft = () => {
+      const today = new Date();
+      const eventDate = new Date(event.event_date);
+
+      // Reset time to compare dates only
+      today.setHours(0, 0, 0, 0);
+      eventDate.setHours(0, 0, 0, 0);
+
+      const diffTime = eventDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      setDaysLeft(diffDays);
+
+      if (diffDays < 0) {
+        setCountdownText("Event has passed");
+      } else if (diffDays === 0) {
+        setCountdownText("Event is today!");
+      } else if (diffDays === 1) {
+        setCountdownText("Event is tomorrow!");
+      } else {
+        setCountdownText(`${diffDays} days until event`);
+      }
+    };
+
+    calculateDaysLeft();
+    // Update countdown every hour
+    const interval = setInterval(calculateDaysLeft, 60 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [event.event_date]);
+
+  const getCountdownColor = () => {
+    if (daysLeft < 0) return "text-gray-500";
+    if (daysLeft <= 7) return "text-red-600";
+    if (daysLeft <= 30) return "text-orange-600";
+    return "text-green-600";
+  };
+
+  const getCountdownBg = () => {
+    if (daysLeft < 0) return "bg-gray-50";
+    if (daysLeft <= 7) return "bg-red-50";
+    if (daysLeft <= 30) return "bg-orange-50";
+    return "bg-green-50";
+  };
+
+  return (
+    <div className={`rounded-xl shadow-sm border p-6 ${getCountdownBg()}`}>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900">Event Countdown</h3>
+        <Calendar className="h-5 w-5 text-gray-600" />
+      </div>
+
+      <div className="text-center">
+        <div className={`text-3xl font-bold mb-2 ${getCountdownColor()}`}>
+          {daysLeft < 0
+            ? "Event Passed"
+            : daysLeft === 0
+              ? "Today!"
+              : daysLeft === 1
+                ? "Tomorrow!"
+                : daysLeft}
+        </div>
+        <p className={`text-sm font-medium ${getCountdownColor()}`}>
+          {countdownText}
+        </p>
+        <p className="text-xs text-gray-500 mt-2">
+          {new Date(event.event_date).toLocaleDateString("en-US", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Event Finalization Component
+function EventFinalization({
+  event,
+  onEventUpdate,
+}: {
+  event: Event;
+  onEventUpdate: () => Promise<void>;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [finalizationAction, setFinalizationAction] = useState<
+    "lock" | "unlock"
+  >("lock");
+
+  const isEventFinalized =
+    event.event_status === "finalized" || !!event.finalized_at;
+
+  // Check if event is finalized and disable editing
+  const isEditingDisabled = isEventFinalized;
+
+  const handleFinalizationToggle = async () => {
+    try {
+      setLoading(true);
+      const action = isEventFinalized ? "unlock" : "lock";
+      setFinalizationAction(action);
+      setShowConfirmModal(true);
+    } catch (error) {
+      console.error("Error toggling finalization:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update event finalization status",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmFinalization = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "updateEventFinalization",
+          event_id: event.event_id,
+          action: finalizationAction,
+        }
+      );
+
+      if (response.data.status === "success") {
+        toast({
+          title: "Success",
+          description:
+            finalizationAction === "lock"
+              ? "Event has been finalized and locked for editing"
+              : "Event has been unlocked for editing",
+        });
+        await onEventUpdate();
+      } else {
+        toast({
+          title: "Error",
+          description:
+            response.data.message || "Failed to update event finalization",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error updating finalization:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update event finalization",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+      setShowConfirmModal(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <AlertTriangle className="h-6 w-6 text-orange-500" />
+              <h3 className="text-lg font-semibold text-gray-900">
+                {finalizationAction === "lock"
+                  ? "Finalize Event"
+                  : "Unlock Event"}
+              </h3>
+            </div>
+
+            <p className="text-gray-600 mb-4">
+              {finalizationAction === "lock"
+                ? "Are you sure you want to finalize this event? This will lock all editing capabilities and notify the organizer about upcoming payments."
+                : "Are you sure you want to unlock this event? This will allow editing again."}
+            </p>
+
+            <div className="flex gap-3 justify-end">
+              <Button
+                onClick={() => setShowConfirmModal(false)}
+                variant="outline"
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmFinalization}
+                disabled={loading}
+                className={
+                  finalizationAction === "lock"
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-green-600 hover:bg-green-700"
+                }
+              >
+                {loading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    {finalizationAction === "lock" ? (
+                      <>
+                        <Lock className="h-4 w-4 mr-2" />
+                        Finalize Event
+                      </>
+                    ) : (
+                      <>
+                        <Unlock className="h-4 w-4 mr-2" />
+                        Unlock Event
+                      </>
+                    )}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div
+        className={`rounded-xl shadow-sm border p-6 ${
+          isEventFinalized
+            ? "bg-red-50 border-red-200"
+            : "bg-green-50 border-green-200"
+        }`}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            {isEventFinalized ? (
+              <Lock className="h-6 w-6 text-red-600" />
+            ) : (
+              <Unlock className="h-6 w-6 text-green-600" />
+            )}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Event Finalization
+              </h3>
+              <p className="text-sm text-gray-500">
+                {isEventFinalized
+                  ? "Event is finalized and locked for editing"
+                  : "Event is unlocked and can be edited"}
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={handleFinalizationToggle}
+            disabled={loading}
+            variant={isEventFinalized ? "outline" : "default"}
+            size="sm"
+            className={
+              isEventFinalized
+                ? "border-red-300 text-red-700 hover:bg-red-100"
+                : "bg-green-600 hover:bg-green-700"
+            }
+          >
+            {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Processing...
+              </>
+            ) : isEventFinalized ? (
+              <>
+                <Unlock className="h-4 w-4 mr-2" />
+                Unlock Event
+              </>
+            ) : (
+              <>
+                <Lock className="h-4 w-4 mr-2" />
+                Finalize Event
+              </>
+            )}
+          </Button>
+        </div>
+
+        {isEventFinalized && (
+          <div className="bg-red-100 border border-red-200 rounded-md p-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              <span className="text-sm font-medium text-red-800">
+                Event Finalized
+              </span>
+            </div>
+            <p className="text-sm text-red-700 mt-1">
+              This event has been finalized. No further edits can be made. The
+              organizer will be notified about upcoming payments.
+            </p>
+            {event.finalized_at && (
+              <p className="text-xs text-red-600 mt-2">
+                Finalized on:{" "}
+                {new Date(event.finalized_at).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// Venue Selection Component
+function VenueSelection({
+  event,
+  onEventUpdate,
+}: {
+  event: Event;
+  onEventUpdate: () => Promise<void>;
+}) {
+  const [venues, setVenues] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const isEventFinalized =
+    event.event_status === "finalized" || !!event.finalized_at;
+
+  useEffect(() => {
+    if (event.package_id) {
+      fetchPackageVenues();
+    }
+  }, [event.package_id]);
+
+  const fetchPackageVenues = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "getPackageVenues",
+          package_id: event.package_id,
+        }
+      );
+
+      if (response.data.status === "success") {
+        setVenues(response.data.venues || []);
+      }
+    } catch (error) {
+      console.error("Error fetching package venues:", error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch available venues",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVenueChange = async (venueId: number) => {
+    try {
+      setLoading(true);
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "updateEventVenue",
+          event_id: event.event_id,
+          venue_id: venueId,
+        }
+      );
+
+      if (response.data.status === "success") {
+        toast({
+          title: "Success",
+          description: "Venue updated successfully",
+        });
+        await onEventUpdate();
+        setIsEditing(false);
+      } else {
+        toast({
+          title: "Error",
+          description: response.data.message || "Failed to update venue",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error updating venue:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update venue",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatCurrency = (amount: number) => {
+    return amount.toLocaleString("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  if (!event.package_id) {
+    return null;
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <Building className="h-6 w-6 text-purple-600" />
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">
+              Venue Selection
+            </h3>
+            <p className="text-sm text-gray-500">
+              Choose from available venues for this package
+            </p>
+          </div>
+        </div>
+        <Button
+          onClick={() => setIsEditing(!isEditing)}
+          variant={isEditing ? "outline" : "default"}
+          size="sm"
+          disabled={loading}
+        >
+          {isEditing ? (
+            <>
+              <X className="h-4 w-4 mr-2" />
+              Cancel
+            </>
+          ) : (
+            <>
+              <Edit className="h-4 w-4 mr-2" />
+              Change Venue
+            </>
+          )}
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {venues.length > 0 ? (
+            venues.map((venue) => (
+              <div
+                key={venue.venue_id}
+                className={`border rounded-lg p-4 transition-all ${
+                  event.venue_id === venue.venue_id
+                    ? "border-purple-200 bg-purple-50"
+                    : "border-gray-200 bg-gray-50"
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      {event.venue_id === venue.venue_id ? (
+                        <CheckCircle className="h-5 w-5 text-purple-600" />
+                      ) : (
+                        <Circle className="h-5 w-5 text-gray-400" />
+                      )}
+                      <h4 className="font-medium text-gray-900">
+                        {venue.venue_title}
+                      </h4>
+                      {event.venue_id === venue.venue_id && (
+                        <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                          Current
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-600 mb-2">
+                      {venue.venue_location}
+                    </p>
+                    <div className="flex items-center gap-4 text-sm">
+                      <span className="text-purple-600 font-semibold">
+                        ₱{formatCurrency(venue.venue_price || 0)}
+                      </span>
+                      <span className="text-gray-500">
+                        Capacity: {venue.venue_capacity || "N/A"}
+                      </span>
+                    </div>
+                  </div>
+                  {isEditing && event.venue_id !== venue.venue_id && (
+                    <Button
+                      onClick={() => handleVenueChange(venue.venue_id)}
+                      disabled={loading}
+                      variant="outline"
+                      size="sm"
+                    >
+                      Select
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <Building className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p>No venues available for this package</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Package Inclusions Management Component
+function PackageInclusionsManagement({
+  event,
+  onEventUpdate,
+}: {
+  event: Event;
+  onEventUpdate: () => Promise<void>;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const isEventFinalized =
+    event.event_status === "finalized" || !!event.finalized_at;
+  const [components, setComponents] = useState<EventComponent[]>(
+    event.components || []
+  );
+  const [originalComponents, setOriginalComponents] = useState<
+    EventComponent[]
+  >(event.components || []);
+  const [newComponent, setNewComponent] = useState({
+    component_name: "",
+    component_description: "",
+    component_price: 0,
+  });
+  const [loading, setLoading] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    action: "save_changes" | "cancel";
+    priceImpact?: number;
+    message?: string;
+  }>({
+    isOpen: false,
+    action: "save_changes",
+  });
+
+  // Calculate total price of inclusions
+  const totalInclusionsPrice = components
+    .filter((comp) => comp.is_included)
+    .reduce((sum, comp) => sum + Number(comp.component_price || 0), 0);
+
+  // Format currency properly
+  const formatCurrency = (amount: number) => {
+    return amount.toLocaleString("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  // Check if there are any changes
+  const hasChanges = () => {
+    if (components.length !== originalComponents.length) return true;
+
+    for (let i = 0; i < components.length; i++) {
+      const current = components[i];
+      const original = originalComponents[i];
+
+      if (!original) return true;
+
+      if (
+        current.component_name !== original.component_name ||
+        current.component_description !== original.component_description ||
+        current.component_price !== original.component_price ||
+        current.is_included !== original.is_included
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  // Calculate price impact for all changes
+  const calculateTotalPriceImpact = () => {
+    const originalTotal = originalComponents
+      .filter((comp) => comp.is_included)
+      .reduce((sum, comp) => sum + Number(comp.component_price || 0), 0);
+
+    const newTotal = components
+      .filter((comp) => comp.is_included)
+      .reduce((sum, comp) => sum + Number(comp.component_price || 0), 0);
+
+    return newTotal - originalTotal;
+  };
+
+  // Validation function
+  const validateComponent = (componentData: any) => {
+    const errors: string[] = [];
+
+    if (!componentData.component_name?.trim()) {
+      errors.push("Component name is required");
+    }
+
+    if (componentData.component_name?.trim().length > 100) {
+      errors.push("Component name must be less than 100 characters");
+    }
+
+    if (componentData.component_description?.length > 500) {
+      errors.push("Description must be less than 500 characters");
+    }
+
+    if (componentData.component_price < 0) {
+      errors.push("Price cannot be negative");
+    }
+
+    if (componentData.component_price > 10000000) {
+      errors.push("Price cannot exceed ₱10,000,000");
+    }
+
+    return errors;
+  };
+
+  const handleEditToggle = () => {
+    if (isEditing) {
+      // If currently editing and there are changes, show confirmation
+      if (hasChanges()) {
+        const priceImpact = calculateTotalPriceImpact();
+        setConfirmModal({
+          isOpen: true,
+          action: "save_changes",
+          priceImpact,
+          message:
+            "Do you want to save your changes? This will update the event budget.",
+        });
+      } else {
+        // No changes, just cancel editing
+        handleCancelChanges();
+      }
+    } else {
+      // Start editing
+      setIsEditing(true);
+    }
+  };
+
+  const handleSaveChanges = async () => {
+    setLoading(true);
+    try {
+      const priceImpact = calculateTotalPriceImpact();
+
+      // Save all component changes
+      for (const component of components) {
+        const originalComponent = originalComponents.find(
+          (c) => c.component_id === component.component_id
+        );
+
+        if (!originalComponent) {
+          // New component
+          await performSaveComponent(component, true);
+        } else if (
+          component.component_name !== originalComponent.component_name ||
+          component.component_description !==
+            originalComponent.component_description ||
+          component.component_price !== originalComponent.component_price ||
+          component.is_included !== originalComponent.is_included
+        ) {
+          // Updated component
+          await performSaveComponent(component, false);
+        }
+      }
+
+      // Delete removed components
+      for (const originalComponent of originalComponents) {
+        const stillExists = components.find(
+          (c) => c.component_id === originalComponent.component_id
+        );
+        if (!stillExists) {
+          await performDeleteComponent(originalComponent.component_id);
+        }
+      }
+
+      // Update budget if there's a price impact
+      if (priceImpact !== 0) {
+        await updateEventBudget(event.event_id, priceImpact);
+      }
+
+      // Update original components and exit edit mode
+      setOriginalComponents([...components]);
+      setIsEditing(false);
+      setShowAddForm(false);
+      setConfirmModal({ isOpen: false, action: "save_changes" });
+
+      // Refresh event data
+      await onEventUpdate();
+
+      toast({
+        title: "Success",
+        description: "Package inclusions updated successfully",
+      });
+    } catch (error) {
+      console.error("Error saving changes:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save changes. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelChanges = () => {
+    setComponents(originalComponents);
+    setIsEditing(false);
+    setShowAddForm(false);
+    setConfirmModal({ isOpen: false, action: "cancel" });
+  };
+
+  const updateEventBudget = async (eventId: number, budgetChange: number) => {
+    const response = await fetch("http://localhost/events-api/admin.php", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        operation: "updateEventBudget",
+        event_id: eventId,
+        budget_change: budgetChange,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.status !== "success") {
+      throw new Error(data.message || "Failed to update budget");
+    }
+  };
+
+  const performSaveComponent = async (componentData: any, isNew: boolean) => {
+    const response = await fetch("http://localhost/events-api/admin.php", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        operation: isNew ? "addEventComponent" : "updateEventComponent",
+        event_id: event.event_id,
+        component_id: isNew ? undefined : componentData.component_id,
+        component_name: componentData.component_name?.trim(),
+        component_description:
+          componentData.component_description?.trim() || null,
+        component_price: Number(componentData.component_price) || 0,
+        is_custom: isNew,
+        is_included: componentData.is_included,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.status !== "success") {
+      throw new Error(data.message || "Failed to save component");
+    }
+
+    if (isNew && data.component_id) {
+      // Update the component with the new ID
+      const updatedComponent = {
+        ...componentData,
+        component_id: data.component_id,
+      };
+      setComponents(
+        components.map((comp) =>
+          comp.component_id === componentData.component_id
+            ? updatedComponent
+            : comp
+        )
+      );
+    }
+  };
+
+  const performDeleteComponent = async (componentId: number) => {
+    const response = await fetch("http://localhost/events-api/admin.php", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        operation: "deleteEventComponent",
+        component_id: componentId,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.status !== "success") {
+      throw new Error(data.message || "Failed to delete component");
+    }
+  };
+
+  const handleAddComponent = () => {
+    // Validation
+    const validationErrors = validateComponent(newComponent);
+    if (validationErrors.length > 0) {
+      toast({
+        title: "Validation Error",
+        description: validationErrors.join(", "),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newComp: EventComponent = {
+      component_id: Date.now(), // Temporary ID
+      event_id: event.event_id,
+      component_name: newComponent.component_name.trim(),
+      component_description: newComponent.component_description?.trim() || "",
+      component_price: Number(newComponent.component_price) || 0,
+      is_custom: true,
+      is_included: true,
+      display_order: components.length,
+    };
+
+    setComponents([...components, newComp]);
+    setNewComponent({
+      component_name: "",
+      component_description: "",
+      component_price: 0,
+    });
+    setShowAddForm(false);
+  };
+
+  const handleEditComponent = (componentId: number) => {
+    // This will be handled by the ComponentDisplay component
+  };
+
+  const handleUpdateComponent = (updatedComponent: EventComponent) => {
+    setComponents(
+      components.map((comp) =>
+        comp.component_id === updatedComponent.component_id
+          ? updatedComponent
+          : comp
+      )
+    );
+  };
+
+  const handleDeleteComponent = (componentId: number) => {
+    setComponents(
+      components.filter((comp) => comp.component_id !== componentId)
+    );
+  };
+
+  const handleToggleInclusion = (componentId: number) => {
+    setComponents(
+      components.map((comp) =>
+        comp.component_id === componentId
+          ? { ...comp, is_included: !comp.is_included }
+          : comp
+      )
+    );
+  };
+
+  if (!event.package_id) {
+    return null; // No package selected
+  }
+
+  return (
+    <>
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        onClose={() =>
+          setConfirmModal({ isOpen: false, action: "save_changes" })
+        }
+        onConfirm={
+          confirmModal.action === "save_changes"
+            ? handleSaveChanges
+            : handleCancelChanges
+        }
+        title="Confirm Changes"
+        message={
+          confirmModal.message || "Are you sure you want to save your changes?"
+        }
+        priceImpact={confirmModal.priceImpact}
+        loading={loading}
+      />
+
+      <div className="bg-white rounded-xl shadow-sm border p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Package className="h-6 w-6 text-blue-600" />
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Package Inclusions
+              </h3>
+              <p className="text-sm text-gray-500">
+                Manage components and pricing for this event
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <div className="text-right min-w-[150px]">
+              <div className="text-sm text-gray-500">Total Inclusions</div>
+              <div className="text-sm font-semibold text-green-600">
+                {components.filter((comp) => comp.is_included).length} items
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {isEditing && hasChanges() && (
+                <>
+                  <Button
+                    onClick={handleSaveChanges}
+                    disabled={loading}
+                    className="bg-green-600 hover:bg-green-700"
+                    size="sm"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save Changes
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={handleEditToggle}
+                    variant="outline"
+                    size="sm"
+                    disabled={loading}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </Button>
+                </>
+              )}
+              {isEditing && !hasChanges() && (
+                <Button
+                  onClick={handleEditToggle}
+                  variant="outline"
+                  size="sm"
+                  disabled={loading}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Cancel
+                </Button>
+              )}
+              {!isEditing && (
+                <Button
+                  onClick={handleEditToggle}
+                  variant="default"
+                  size="sm"
+                  disabled={loading || isEventFinalized}
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  {isEventFinalized ? "Event Finalized" : "Edit"}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* --- SUMMARY SECTION --- */}
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="text-xs text-gray-500 mb-1">
+              Total Inclusion Cost
+            </div>
+            <div className="text-lg font-bold text-green-700">
+              ₱{formatCurrency(totalInclusionsPrice)}
+            </div>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="text-xs text-gray-500 mb-1">Base Package Price</div>
+            <div className="text-lg font-bold text-blue-700">
+              ₱{formatCurrency(event.total_budget)}
+            </div>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            {totalInclusionsPrice < event.total_budget ? (
+              <>
+                <div className="text-xs text-gray-500 mb-1">
+                  Organizer Fee / Margin
+                </div>
+                <div className="text-lg font-bold text-orange-600">
+                  ₱{formatCurrency(event.total_budget - totalInclusionsPrice)}
+                </div>
+              </>
+            ) : totalInclusionsPrice > event.total_budget ? (
+              <>
+                <div className="text-xs text-gray-500 mb-1">
+                  Add-on (Payable by Client)
+                </div>
+                <div className="text-lg font-bold text-red-600">
+                  ₱{formatCurrency(totalInclusionsPrice - event.total_budget)}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-xs text-gray-500 mb-1">
+                  No Margin / Add-on
+                </div>
+                <div className="text-lg font-bold text-gray-700">₱0.00</div>
+              </>
+            )}
+          </div>
+        </div>
+        {/* --- END SUMMARY SECTION --- */}
+
+        {/* Components List */}
+        <div className="space-y-4">
+          {components.length > 0 ? (
+            <>
+              {components.map((component) => (
+                <div
+                  key={component.component_id}
+                  className={`border rounded-lg p-4 transition-all ${
+                    component.is_included
+                      ? "border-green-200 bg-green-50"
+                      : "border-gray-200 bg-gray-50"
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3 flex-1">
+                      <div className="flex items-center gap-2">
+                        {component.is_included ? (
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                        ) : (
+                          <Circle className="h-5 w-5 text-gray-400" />
+                        )}
+                        {isEditing && (
+                          <input
+                            type="checkbox"
+                            checked={component.is_included}
+                            onChange={() =>
+                              handleToggleInclusion(component.component_id)
+                            }
+                            className="rounded border-gray-300"
+                          />
+                        )}
+                      </div>
+
+                      <div className="flex-1">
+                        <ComponentDisplay
+                          component={component}
+                          isEditing={isEditing}
+                          onEdit={() =>
+                            handleEditComponent(component.component_id)
+                          }
+                          onDelete={() =>
+                            handleDeleteComponent(component.component_id)
+                          }
+                          onToggleInclusion={() =>
+                            handleToggleInclusion(component.component_id)
+                          }
+                          loading={loading}
+                          onUpdateComponent={handleUpdateComponent}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p>No components found for this package</p>
+            </div>
+          )}
+
+          {/* Add New Component Button */}
+          {isEditing && !showAddForm && !isEventFinalized && (
+            <div className="text-center">
+              <Button
+                onClick={() => setShowAddForm(true)}
+                variant="outline"
+                className="border-dashed border-green-300 text-green-700 hover:bg-green-50"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Custom Component
+              </Button>
+            </div>
+          )}
+
+          {/* Add New Component Form */}
+          {isEditing && showAddForm && (
+            <div className="border-2 border-dashed border-green-300 rounded-lg p-4 bg-green-50">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-medium text-green-900">
+                  Add Custom Component
+                </h4>
+                <span className="text-xs text-green-700 bg-green-200 px-2 py-1 rounded">
+                  New Component
+                </span>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Component Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newComponent.component_name}
+                    onChange={(e) =>
+                      setNewComponent({
+                        ...newComponent,
+                        component_name: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Enter component name"
+                    maxLength={100}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {newComponent.component_name.length}/100 characters
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={newComponent.component_description}
+                    onChange={(e) =>
+                      setNewComponent({
+                        ...newComponent,
+                        component_description: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Enter component description (optional)"
+                    maxLength={500}
+                    rows={2}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {newComponent.component_description.length}/500 characters
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Price <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-gray-500">
+                      ₱
+                    </span>
+                    <input
+                      type="number"
+                      value={newComponent.component_price}
+                      onChange={(e) =>
+                        setNewComponent({
+                          ...newComponent,
+                          component_price: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="0.00"
+                      min="0"
+                      max="10000000"
+                      step="0.01"
+                    />
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-3 border-t border-green-200">
+                  <Button
+                    onClick={handleAddComponent}
+                    disabled={!newComponent.component_name.trim() || loading}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Adding...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        Add Component
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setNewComponent({
+                        component_name: "",
+                        component_description: "",
+                        component_price: 0,
+                      });
+                      setShowAddForm(false);
+                    }}
+                    variant="outline"
+                    disabled={loading}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// Component Display for read-only and edit modes
+function ComponentDisplay({
+  component,
+  isEditing,
+  onEdit,
+  onDelete,
+  onToggleInclusion,
+  loading,
+  onUpdateComponent,
+}: {
+  component: EventComponent;
+  isEditing: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggleInclusion: () => void;
+  loading: boolean;
+  onUpdateComponent?: (updatedComponent: EventComponent) => void;
+}) {
+  const [isInlineEditing, setIsInlineEditing] = useState(false);
+  const [editedComponent, setEditedComponent] = useState(component);
+
+  useEffect(() => {
+    setEditedComponent(component);
+  }, [component]);
+
+  const handleSave = () => {
+    // Update the component in the parent state
+    if (onUpdateComponent) {
+      onUpdateComponent(editedComponent);
+    }
+    setIsInlineEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditedComponent(component);
+    setIsInlineEditing(false);
+  };
+
+  const handleEdit = () => {
+    setIsInlineEditing(true);
+  };
+
+  if (!isEditing) {
+    // Read-only display mode
+    return (
+      <div>
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <h4 className="font-medium text-gray-900">
+              {component.component_name}
+              {component.is_custom && (
+                <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                  Custom
+                </span>
+              )}
+            </h4>
+            {component.component_description && (
+              <p className="text-sm text-gray-600 mt-1">
+                {component.component_description}
+              </p>
+            )}
+            <div className="flex items-center gap-4 mt-2">
+              <span className="text-lg font-semibold text-green-600">
+                ₱
+                {(Number(component.component_price) || 0).toLocaleString(
+                  "en-PH",
+                  {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }
+                )}
+              </span>
+              {!component.is_custom && component.original_component_name && (
+                <span className="text-xs text-gray-500">
+                  Original: {component.original_component_name}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isInlineEditing) {
+    // Inline edit mode
+    return (
+      <div className="space-y-4 border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
+        <div className="flex items-center justify-between mb-2">
+          <h5 className="font-medium text-blue-900">Editing Component</h5>
+          <span className="text-xs text-blue-700 bg-blue-200 px-2 py-1 rounded">
+            Edit Mode
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Component Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={editedComponent.component_name}
+              onChange={(e) =>
+                setEditedComponent({
+                  ...editedComponent,
+                  component_name: e.target.value,
+                })
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+              placeholder="Component name"
+              maxLength={100}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              {editedComponent.component_name.length}/100 characters
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Description
+            </label>
+            <textarea
+              value={editedComponent.component_description || ""}
+              onChange={(e) =>
+                setEditedComponent({
+                  ...editedComponent,
+                  component_description: e.target.value,
+                })
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Component description (optional)"
+              maxLength={500}
+              rows={2}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              {(editedComponent.component_description || "").length}/500
+              characters
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Price <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-2 text-gray-500">₱</span>
+              <input
+                type="number"
+                value={editedComponent.component_price}
+                onChange={(e) =>
+                  setEditedComponent({
+                    ...editedComponent,
+                    component_price: parseFloat(e.target.value) || 0,
+                  })
+                }
+                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="0.00"
+                min="0"
+                max="10000000"
+                step="0.01"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-3 pt-3 border-t border-blue-200">
+          <Button
+            onClick={handleSave}
+            disabled={loading || !editedComponent.component_name.trim()}
+            className="flex-1"
+            size="sm"
+          >
+            {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Save Changes
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleCancel}
+            variant="outline"
+            disabled={loading}
+            size="sm"
+          >
+            <X className="h-4 w-4 mr-2" />
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Edit mode (not inline editing)
+  return (
+    <div>
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <h4 className="font-medium text-gray-900">
+            {component.component_name}
+            {component.is_custom && (
+              <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                Custom
+              </span>
+            )}
+          </h4>
+          {component.component_description && (
+            <p className="text-sm text-gray-600 mt-1">
+              {component.component_description}
+            </p>
+          )}
+          <div className="flex items-center gap-4 mt-2">
+            <span className="text-lg font-semibold text-green-600">
+              ₱
+              {(Number(component.component_price) || 0).toLocaleString(
+                "en-PH",
+                {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }
+              )}
+            </span>
+            {!component.is_custom && component.original_component_name && (
+              <span className="text-xs text-gray-500">
+                Original: {component.original_component_name}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2 ml-4">
+          <Button
+            onClick={handleEdit}
+            variant="outline"
+            size="sm"
+            disabled={loading}
+          >
+            <Edit className="h-4 w-4 mr-1" />
+            Edit
+          </Button>
+          <Button
+            onClick={onDelete}
+            disabled={loading}
+            variant="destructive"
+            size="sm"
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete
+          </Button>
         </div>
       </div>
     </div>
@@ -821,6 +2380,11 @@ export default function EventDetailsPage() {
             <ClientProfile event={event} />
             <BudgetProgress event={event} />
             <EventTimeline event={event} />
+            <EventCountdown event={event} />
+            <EventFinalization
+              event={event}
+              onEventUpdate={fetchEventDetails}
+            />
           </div>
 
           {/* Main Content */}
@@ -1017,11 +2581,34 @@ export default function EventDetailsPage() {
                               {event.package_description}
                             </p>
                           )}
+                          {event.venue_title && (
+                            <div className="mt-3 flex items-center gap-2 text-sm text-blue-700">
+                              <MapPin className="h-4 w-4" />
+                              <span>Venue: {event.venue_title}</span>
+                              {event.venue_location && (
+                                <span className="text-blue-600">
+                                  • {event.venue_location}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <Package className="h-8 w-8 text-blue-600" />
                       </div>
                     </div>
                   )}
+
+                  {/* Package Inclusions Management */}
+                  <PackageInclusionsManagement
+                    event={event}
+                    onEventUpdate={fetchEventDetails}
+                  />
+
+                  {/* Venue Selection */}
+                  <VenueSelection
+                    event={event}
+                    onEventUpdate={fetchEventDetails}
+                  />
 
                   {/* Wedding Details */}
                   {event.event_type_id === 1 && event.wedding_details && (

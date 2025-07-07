@@ -136,7 +136,7 @@ CREATE TABLE `tbl_events` (
   `payment_schedule_type_id` int(11) DEFAULT NULL,
   `reference_number` varchar(100) DEFAULT NULL,
   `additional_notes` text DEFAULT NULL,
-  `event_status` enum('draft','confirmed','on_going','done','cancelled') DEFAULT 'draft',
+  `event_status` enum('draft','confirmed','on_going','done','cancelled','finalized') DEFAULT 'draft',
   `booking_date` date DEFAULT NULL,
   `booking_time` time DEFAULT NULL,
   `created_by` int(11) DEFAULT NULL,
@@ -184,7 +184,7 @@ DELIMITER $$
 CREATE TRIGGER `tr_events_update_tracking` BEFORE UPDATE ON `tbl_events` FOR EACH ROW BEGIN
     -- Auto-update timestamp
     SET NEW.updated_at = CURRENT_TIMESTAMP;
-    
+
     -- If updated_by is not explicitly set, try to maintain it
     IF NEW.updated_by IS NULL AND OLD.updated_by IS NOT NULL THEN
         SET NEW.updated_by = OLD.updated_by;
@@ -670,16 +670,16 @@ CREATE TABLE `tbl_event_type` (
 INSERT INTO `tbl_event_type` (`event_type_id`, `event_name`, `event_description`) VALUES
 (1, 'Wedding', 'A wedding event with full venue and catering options.'),
 (2, 'Anniversary', 'Celebration of marriage or other yearly milestones.'),
-(3, 'Birthday', 'Annual celebration of a person’s birth or special birthday occasion.'),
+(3, 'Birthday', 'Annual celebration of a person's birth or special birthday occasion.'),
 (4, 'Corporate Event', 'Business meetings, seminars, or corporate gatherings.'),
 (5, 'Others', 'Any other type of special event.'),
 (10, 'Baptism', 'Religious ceremony symbolizing purification and admission to the church'),
 (11, 'Baby Shower', 'Celebration held before a baby is born to give gifts and support to the parents'),
 (12, 'Reunion', 'Gathering of family members, classmates, or other groups after a long time'),
 (13, 'Festival', 'Public celebration of culture, religion, or season'),
-(14, 'Engagement Party', 'Celebration of a couple’s engagement before marriage'),
+(14, 'Engagement Party', 'Celebration of a couple's engagement before marriage'),
 (15, 'Christmas Party', 'Seasonal celebration held during the Christmas holidays'),
-(16, 'New Year’s Party', 'Celebration marking the beginning of the new year');
+(16, 'New Year's Party', 'Celebration marking the beginning of the new year');
 
 -- --------------------------------------------------------
 
@@ -935,13 +935,13 @@ CREATE TRIGGER `update_payment_schedule_on_payment` AFTER INSERT ON `tbl_payment
   DECLARE schedule_amount_paid DECIMAL(12,2);
   DECLARE total_event_paid DECIMAL(12,2);
   DECLARE event_total DECIMAL(12,2);
-  
+
   -- If payment is linked to a schedule, update the schedule
   IF NEW.schedule_id IS NOT NULL AND NEW.payment_status = 'completed' THEN
     -- Update the payment schedule
-    UPDATE tbl_event_payment_schedules 
+    UPDATE tbl_event_payment_schedules
     SET amount_paid = amount_paid + NEW.payment_amount,
-        payment_status = CASE 
+        payment_status = CASE
           WHEN amount_paid + NEW.payment_amount >= amount_due THEN 'paid'
           WHEN amount_paid + NEW.payment_amount > 0 THEN 'partial'
           ELSE 'pending'
@@ -949,31 +949,31 @@ CREATE TRIGGER `update_payment_schedule_on_payment` AFTER INSERT ON `tbl_payment
         updated_at = CURRENT_TIMESTAMP
     WHERE schedule_id = NEW.schedule_id;
   END IF;
-  
+
   -- Update overall event payment status
-  SELECT COALESCE(SUM(payment_amount), 0) 
-  INTO total_event_paid 
-  FROM tbl_payments 
+  SELECT COALESCE(SUM(payment_amount), 0)
+  INTO total_event_paid
+  FROM tbl_payments
   WHERE event_id = NEW.event_id AND payment_status = 'completed';
-  
-  SELECT total_budget 
-  INTO event_total 
-  FROM tbl_events 
+
+  SELECT total_budget
+  INTO event_total
+  FROM tbl_events
   WHERE event_id = NEW.event_id;
-  
+
   -- Update event payment status
-  UPDATE tbl_events 
-  SET payment_status = CASE 
+  UPDATE tbl_events
+  SET payment_status = CASE
     WHEN total_event_paid >= event_total THEN 'paid'
     WHEN total_event_paid > 0 THEN 'partial'
     ELSE 'pending'
   END
   WHERE event_id = NEW.event_id;
-  
+
   -- Log the payment activity
   INSERT INTO tbl_payment_logs (event_id, schedule_id, payment_id, client_id, action_type, amount, reference_number, notes)
   VALUES (NEW.event_id, NEW.schedule_id, NEW.payment_id, NEW.client_id, 'payment_received', NEW.payment_amount, NEW.payment_reference, NEW.payment_notes);
-  
+
 END
 $$
 DELIMITER ;
@@ -981,7 +981,7 @@ DELIMITER $$
 CREATE TRIGGER `update_payment_schedule_on_payment_update` AFTER UPDATE ON `tbl_payments` FOR EACH ROW BEGIN
   DECLARE total_event_paid DECIMAL(12,2);
   DECLARE event_total DECIMAL(12,2);
-  
+
   -- If payment status changed and is linked to a schedule
   IF NEW.schedule_id IS NOT NULL AND (OLD.payment_status != NEW.payment_status OR OLD.payment_amount != NEW.payment_amount) THEN
     -- Recalculate schedule payment status
@@ -991,7 +991,7 @@ CREATE TRIGGER `update_payment_schedule_on_payment_update` AFTER UPDATE ON `tbl_
       FROM tbl_payments p
       WHERE p.schedule_id = eps.schedule_id AND p.payment_status = 'completed'
     ),
-    payment_status = CASE 
+    payment_status = CASE
       WHEN (SELECT COALESCE(SUM(p.payment_amount), 0) FROM tbl_payments p WHERE p.schedule_id = eps.schedule_id AND p.payment_status = 'completed') >= eps.amount_due THEN 'paid'
       WHEN (SELECT COALESCE(SUM(p.payment_amount), 0) FROM tbl_payments p WHERE p.schedule_id = eps.schedule_id AND p.payment_status = 'completed') > 0 THEN 'partial'
       ELSE 'pending'
@@ -999,32 +999,32 @@ CREATE TRIGGER `update_payment_schedule_on_payment_update` AFTER UPDATE ON `tbl_
     updated_at = CURRENT_TIMESTAMP
     WHERE schedule_id = NEW.schedule_id;
   END IF;
-  
+
   -- Update overall event payment status
-  SELECT COALESCE(SUM(payment_amount), 0) 
-  INTO total_event_paid 
-  FROM tbl_payments 
+  SELECT COALESCE(SUM(payment_amount), 0)
+  INTO total_event_paid
+  FROM tbl_payments
   WHERE event_id = NEW.event_id AND payment_status = 'completed';
-  
-  SELECT total_budget 
-  INTO event_total 
-  FROM tbl_events 
+
+  SELECT total_budget
+  INTO event_total
+  FROM tbl_events
   WHERE event_id = NEW.event_id;
-  
-  UPDATE tbl_events 
-  SET payment_status = CASE 
+
+  UPDATE tbl_events
+  SET payment_status = CASE
     WHEN total_event_paid >= event_total THEN 'paid'
     WHEN total_event_paid > 0 THEN 'partial'
     ELSE 'pending'
   END
   WHERE event_id = NEW.event_id;
-  
+
   -- Log the payment status change
   IF OLD.payment_status != NEW.payment_status THEN
     INSERT INTO tbl_payment_logs (event_id, schedule_id, payment_id, client_id, action_type, amount, reference_number, notes)
     VALUES (NEW.event_id, NEW.schedule_id, NEW.payment_id, NEW.client_id, 'payment_confirmed', NEW.payment_amount, NEW.payment_reference, CONCAT('Status changed from ', OLD.payment_status, ' to ', NEW.payment_status));
   END IF;
-  
+
 END
 $$
 DELIMITER ;

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { Plus, X } from "lucide-react";
 
 interface Freebie {
@@ -7,35 +7,42 @@ interface Freebie {
   freebie_value?: number;
 }
 
-interface FreebiesStepProps {
+interface FreebiesStepFixedProps {
   freebies: Freebie[];
-  setFreebies: (freebies: Freebie[]) => void;
-  onNext: () => void;
+  setFreebies: React.Dispatch<React.SetStateAction<Freebie[]>>;
 }
 
-export const FreebiesStep: React.FC<FreebiesStepProps> = ({
+export const FreebiesStepFixed: React.FC<FreebiesStepFixedProps> = ({
   freebies,
   setFreebies,
-  onNext,
 }) => {
-  const addFreebie = () => {
-    setFreebies([...freebies, { freebie_name: "" }]);
-  };
+  const addFreebie = useCallback(() => {
+    setFreebies((prev: Freebie[]) => [...prev, { freebie_name: "" }]);
+  }, [setFreebies]);
 
-  const updateFreebie = (index: number, value: string) => {
-    const newFreebies = [...freebies];
-    newFreebies[index].freebie_name = value;
-    setFreebies(newFreebies);
-  };
+  const updateFreebie = useCallback(
+    (index: number, value: string) => {
+      setFreebies((prev: Freebie[]) =>
+        prev.map((freebie: Freebie, i: number) =>
+          i === index ? { ...freebie, freebie_name: value } : freebie
+        )
+      );
+    },
+    [setFreebies]
+  );
 
-  const removeFreebie = (index: number) => {
-    const newFreebies = freebies.filter((_, i) => i !== index);
-    setFreebies(newFreebies);
-  };
+  const removeFreebie = useCallback(
+    (index: number) => {
+      setFreebies((prev: Freebie[]) =>
+        prev.filter((_: Freebie, i: number) => i !== index)
+      );
+    },
+    [setFreebies]
+  );
 
-  const isStepValid = () => {
+  const isStepValid = useCallback(() => {
     return freebies.some((f) => f.freebie_name.trim() !== "");
-  };
+  }, [freebies]);
 
   return (
     <div className="space-y-6">
@@ -48,7 +55,7 @@ export const FreebiesStep: React.FC<FreebiesStepProps> = ({
         <div className="space-y-4">
           {freebies.map((freebie, index) => (
             <div
-              key={index}
+              key={`freebie-${index}`}
               className="flex items-start gap-4 p-4 border rounded-lg"
             >
               <div className="flex-1">

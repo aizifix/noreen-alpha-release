@@ -2081,7 +2081,8 @@ class Admin {
         try {
             $sql = "SELECT v.*,
                     GROUP_CONCAT(DISTINCT vc.component_name) as components,
-                    GROUP_CONCAT(DISTINCT vi.inclusion_name) as inclusions
+                    GROUP_CONCAT(DISTINCT vi.inclusion_name) as inclusions,
+                    COALESCE(v.venue_price, 0) as total_price
                     FROM tbl_venue v
                     LEFT JOIN tbl_venue_inclusions vi ON v.venue_id = vi.venue_id
                     LEFT JOIN tbl_venue_components vc ON vi.inclusion_id = vc.inclusion_id
@@ -2095,11 +2096,12 @@ class Admin {
             foreach ($venues as &$venue) {
                 $venue['components'] = $venue['components'] ? explode(',', $venue['components']) : [];
                 $venue['inclusions'] = $venue['inclusions'] ? explode(',', $venue['inclusions']) : [];
+                $venue['total_price'] = floatval($venue['total_price']);
             }
 
             return json_encode([
                 "status" => "success",
-                "data" => $venues
+                "venues" => $venues
             ]);
         } catch (PDOException $e) {
             return json_encode([
@@ -4414,6 +4416,336 @@ class Admin {
             ]);
         }
     }
+
+    // Event Component Management Methods
+    public function addEventComponent($data) {
+        try {
+            $required = ['event_id', 'component_name', 'component_price'];
+            foreach ($required as $field) {
+                if (!isset($data[$field])) {
+                    return json_encode(["status" => "error", "message" => "$field is required"]);
+                }
+            }
+
+            $sql = "INSERT INTO tbl_event_components (
+                        event_id, component_name, component_description,
+                        component_price, is_custom, is_included,
+                        original_package_component_id, display_order
+                    ) VALUES (
+                        :event_id, :name, :description,
+                        :price, :is_custom, :is_included,
+                        :original_package_component_id, :display_order
+                    )";
+
+            $stmt = $this->conn->prepare($sql);
+            $result = $stmt->execute([
+                ':event_id' => $data['event_id'],
+                ':name' => $data['component_name'],
+                ':description' => $data['component_description'] ?? null,
+                ':price' => $data['component_price'],
+                ':is_custom' => $data['is_custom'] ?? true,
+                ':is_included' => $data['is_included'] ?? true,
+                ':original_package_component_id' => $data['original_package_component_id'] ?? null,
+                ':display_order' => $data['display_order'] ?? 0
+            ]);
+
+            if ($result) {
+                $componentId = $this->conn->lastInsertId();
+                return json_encode([
+                    "status" => "success",
+                    "message" => "Component added successfully",
+                    "component_id" => $componentId
+                ]);
+            } else {
+                return json_encode(["status" => "error", "message" => "Failed to add component"]);
+            }
+        } catch (Exception $e) {
+            error_log("addEventComponent error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
+    public function updateEventComponent($data) {
+        try {
+            $required = ['component_id', 'component_name', 'component_price'];
+            foreach ($required as $field) {
+                if (!isset($data[$field])) {
+                    return json_encode(["status" => "error", "message" => "$field is required"]);
+                }
+            }
+
+            // Fetch the current event component
+            $sql = "SELECT * FROM tbl_event_components WHERE component_id = :component_id";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([':component_id' => $data['component_id']]);
+            $eventComponent = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$eventComponent) {
+                return json_encode(["status" => "error", "message" => "Component not found"]);
+            }
+
+            // If not custom, enforce no downgrade
+            if (!$eventComponent['is_custom'] && $eventComponent['original_package_component_id']) {
+                $sql = "SELECT component_price FROM tbl_package_components WHERE component_id = :original_id";
+                $stmt = $this->conn->prepare($sql);
+                $stmt->execute([':original_id' => $eventComponent['original_package_component_id']]);
+                $original = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($original && floatval($data['component_price']) < floatval($original['component_price'])) {
+                    return json_encode(["status" => "error", "message" => "Cannot downgrade inclusion price below original package value (₱" . number_format($original['component_price'],2) . ")"]);
+                }
+            }
+
+            $sql = "UPDATE tbl_event_components SET
+                        component_name = :name,
+                        component_description = :description,
+                        component_price = :price,
+                        is_included = :is_included
+                    WHERE component_id = :component_id";
+
+            $stmt = $this->conn->prepare($sql);
+            $result = $stmt->execute([
+                ':component_id' => $data['component_id'],
+                ':name' => $data['component_name'],
+                ':description' => $data['component_description'] ?? null,
+                ':price' => $data['component_price'],
+                ':is_included' => $data['is_included'] ?? true
+            ]);
+
+            if ($result) {
+                return json_encode([
+                    "status" => "success",
+                    "message" => "Component updated successfully"
+                ]);
+            } else {
+                return json_encode(["status" => "error", "message" => "Failed to update component"]);
+            }
+        } catch (Exception $e) {
+            error_log("updateEventComponent error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
+    public function deleteEventComponent($componentId) {
+        try {
+            if (empty($componentId)) {
+                return json_encode(["status" => "error", "message" => "Component ID is required"]);
+            }
+
+            $sql = "DELETE FROM tbl_event_components WHERE component_id = :component_id";
+            $stmt = $this->conn->prepare($sql);
+            $result = $stmt->execute([':component_id' => $componentId]);
+
+            if ($result) {
+                return json_encode([
+                    "status" => "success",
+                    "message" => "Component deleted successfully"
+                ]);
+            } else {
+                return json_encode(["status" => "error", "message" => "Failed to delete component"]);
+            }
+        } catch (Exception $e) {
+            error_log("deleteEventComponent error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
+    public function updateEventBudget($eventId, $budgetChange) {
+        try {
+            // Get current budget
+            $sql = "SELECT total_budget FROM tbl_events WHERE event_id = ?";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$eventId]);
+            $currentBudget = $stmt->fetch(PDO::FETCH_ASSOC)['total_budget'];
+
+            // Calculate new budget
+            $newBudget = $currentBudget + $budgetChange;
+
+            // Update event budget
+            $updateSql = "UPDATE tbl_events SET total_budget = ? WHERE event_id = ?";
+            $updateStmt = $this->pdo->prepare($updateSql);
+            $updateStmt->execute([$newBudget, $eventId]);
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Event budget updated successfully",
+                "old_budget" => $currentBudget,
+                "new_budget" => $newBudget,
+                "change" => $budgetChange
+            ]);
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function getPackageVenues($packageId) {
+        try {
+            $sql = "SELECT v.*, pv.package_id
+                    FROM tbl_venue v
+                    INNER JOIN tbl_package_venues pv ON v.venue_id = pv.venue_id
+                    WHERE pv.package_id = ? AND v.is_active = 1
+                    ORDER BY v.venue_title ASC";
+
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$packageId]);
+            $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "venues" => $venues
+            ]);
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function updateEventVenue($eventId, $venueId) {
+        try {
+            // First check if the venue is available for the event's package
+            $checkSql = "SELECT e.package_id, pv.venue_id
+                        FROM tbl_events e
+                        INNER JOIN tbl_package_venues pv ON e.package_id = pv.package_id
+                        WHERE e.event_id = ? AND pv.venue_id = ?";
+
+            $checkStmt = $this->pdo->prepare($checkSql);
+            $checkStmt->execute([$eventId, $venueId]);
+
+            if (!$checkStmt->fetch()) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Selected venue is not available for this package"
+                ]);
+            }
+
+            // Update the event venue
+            $updateSql = "UPDATE tbl_events SET venue_id = ? WHERE event_id = ?";
+            $updateStmt = $this->pdo->prepare($updateSql);
+            $updateStmt->execute([$venueId, $eventId]);
+
+            // Get venue details for response
+            $venueSql = "SELECT venue_id, venue_title, venue_location, venue_price FROM tbl_venue WHERE venue_id = ?";
+            $venueStmt = $this->pdo->prepare($venueSql);
+            $venueStmt->execute([$venueId]);
+            $venue = $venueStmt->fetch(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Event venue updated successfully",
+                "venue" => $venue
+            ]);
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function updateEventFinalization($eventId, $action) {
+        try {
+            // Get event details first
+            $eventSql = "SELECT e.*, u.email as client_email, u.first_name, u.last_name
+                        FROM tbl_events e
+                        LEFT JOIN tbl_users u ON e.user_id = u.user_id
+                        WHERE e.event_id = ?";
+            $eventStmt = $this->pdo->prepare($eventSql);
+            $eventStmt->execute([$eventId]);
+            $event = $eventStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$event) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Event not found"
+                ]);
+            }
+
+            if ($action === "lock") {
+                // Finalize and lock the event
+                $updateSql = "UPDATE tbl_events SET
+                             event_status = 'finalized',
+                             finalized_at = NOW(),
+                             updated_at = NOW()
+                             WHERE event_id = ?";
+                $updateStmt = $this->pdo->prepare($updateSql);
+                $updateStmt->execute([$eventId]);
+
+                // Send notification to organizer about upcoming payments
+                $this->sendFinalizationNotification($event);
+
+                return json_encode([
+                    "status" => "success",
+                    "message" => "Event has been finalized and locked for editing",
+                    "finalized_at" => date('Y-m-d H:i:s')
+                ]);
+            } else {
+                // Unlock the event
+                $updateSql = "UPDATE tbl_events SET
+                             event_status = 'confirmed',
+                             finalized_at = NULL,
+                             updated_at = NOW()
+                             WHERE event_id = ?";
+                $updateStmt = $this->pdo->prepare($updateSql);
+                $updateStmt->execute([$eventId]);
+
+                return json_encode([
+                    "status" => "success",
+                    "message" => "Event has been unlocked for editing"
+                ]);
+            }
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    private function sendFinalizationNotification($event) {
+        try {
+            // Create notification for the organizer
+            $notificationSql = "INSERT INTO tbl_notifications (
+                user_id,
+                notification_type,
+                title,
+                message,
+                related_id,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, NOW())";
+
+            $notificationStmt = $this->pdo->prepare($notificationSql);
+            $notificationStmt->execute([
+                $event['user_id'],
+                'event_finalized',
+                'Event Finalized',
+                "Your event '{$event['event_title']}' has been finalized. Please check your payment schedule for upcoming payments.",
+                $event['event_id']
+            ]);
+
+            // Log the finalization activity
+            $logSql = "INSERT INTO tbl_payment_logs (
+                event_id,
+                client_id,
+                action_type,
+                notes,
+                created_at
+            ) VALUES (?, ?, ?, ?, NOW())";
+
+            $logStmt = $this->pdo->prepare($logSql);
+            $logStmt->execute([
+                $event['event_id'],
+                $event['user_id'],
+                'event_finalized',
+                'Event finalized by admin. Organizer notified about payment schedule.'
+            ]);
+
+        } catch (Exception $e) {
+            error_log("Error sending finalization notification: " . $e->getMessage());
+        }
+    }
 }
 
 if (!$pdo) {
@@ -4435,6 +4767,9 @@ error_log("Admin.php - GET data: " . json_encode($_GET));
 $operation = $_POST['operation'] ?? ($_GET['operation'] ?? ($data['operation'] ?? ''));
 
 error_log("Admin.php - Operation: " . $operation);
+error_log("Admin.php - All data: " . json_encode($data));
+error_log("Admin.php - POST: " . json_encode($_POST));
+error_log("Admin.php - GET: " . json_encode($_GET));
 
 $admin = new Admin($pdo);
 
@@ -4728,6 +5063,37 @@ switch ($operation) {
         } else {
             echo json_encode(["status" => "error", "message" => "No file uploaded"]);
         }
+        break;
+    case "addEventComponent":
+        echo $admin->addEventComponent($data);
+        break;
+    case "updateEventComponent":
+        echo $admin->updateEventComponent($data);
+        break;
+    case "deleteEventComponent":
+        $componentId = $_GET['component_id'] ?? ($data['component_id'] ?? 0);
+        echo $admin->deleteEventComponent($componentId);
+        break;
+    case "updateEventBudget":
+        error_log("Admin.php - updateEventBudget case reached");
+        $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
+        $budgetChange = $_GET['budget_change'] ?? ($data['budget_change'] ?? 0);
+        error_log("Admin.php - updateEventBudget params: eventId=$eventId, budgetChange=$budgetChange");
+        echo $admin->updateEventBudget($eventId, $budgetChange);
+        break;
+    case "getPackageVenues":
+        $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
+        echo $admin->getPackageVenues($packageId);
+        break;
+    case "updateEventVenue":
+        $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
+        $venueId = $_GET['venue_id'] ?? ($data['venue_id'] ?? 0);
+        echo $admin->updateEventVenue($eventId, $venueId);
+        break;
+    case "updateEventFinalization":
+        $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
+        $action = $_GET['action'] ?? ($data['action'] ?? 'lock');
+        echo $admin->updateEventFinalization($eventId, $action);
         break;
     default:
         echo json_encode(["status" => "error", "message" => "Invalid action."]);

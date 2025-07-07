@@ -62,7 +62,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
       value: venueCost,
       color: COLORS[0],
     },
-    ...components.map((component, index) => ({
+    ...(components || []).map((component, index) => ({
       name: component.name,
       value: component.price,
       color: COLORS[(index + 1) % COLORS.length],
@@ -70,7 +70,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
     {
       name: "Remaining",
       value: remainingBudget,
-      color: COLORS[components.length + 1] || "#CCCCCC",
+      color: COLORS[(components?.length || 0) + 1] || "#CCCCCC",
     },
   ].filter((item) => item.value > 0); // Only show items with value > 0
 
@@ -186,7 +186,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
         </div>
 
         {/* Freebies Section */}
-        {freebies.length > 0 && (
+        {freebies && freebies.length > 0 && (
           <div className="mt-6 pt-6 border-t">
             <h4 className="font-semibold mb-3 text-gray-900 flex items-center">
               <span className="w-2 h-2 bg-yellow-400 rounded-full mr-2"></span>
@@ -195,7 +195,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
             <div className="grid grid-cols-1 gap-2">
               {freebies.map((freebie, index) => (
                 <div
-                  key={index}
+                  key={`freebie-display-${index}`}
                   className="flex items-center space-x-2 text-sm"
                 >
                   <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full flex-shrink-0"></div>

@@ -252,7 +252,7 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
             onClick={handleNext}
             className="px-6 bg-[#028A75] hover:bg-[#026B5C]"
           >
-            {isLastStep ? "Complete Event" : "Next Step"}
+            {isLastStep ? "Complete Package" : "Next Step"}
           </Button>
         </CardFooter>
       </Card>

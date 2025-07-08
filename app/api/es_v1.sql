@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jul 07, 2025 at 09:52 PM
+-- Generation Time: Jul 08, 2025 at 06:04 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -155,7 +155,8 @@ INSERT INTO `tbl_events` (`event_id`, `original_booking_reference`, `user_id`, `
 (42, NULL, 15, 7, NULL, 'Montreal Wedding', 'Theme', NULL, 5, 100, '2025-07-23', '11:00:00', '11:30:00', 'paid', 15, 30, 298000.00, 208600.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-02 00:10:56', '2025-07-03 01:00:36', '[{\"original_name\":\"Happy Dance GIF.gif\",\"file_name\":\"1751415019_686478eb8865c.gif\",\"file_path\":\"uploads/event_attachments/1751415019_686478eb8865c.gif\",\"file_size\":131101,\"file_type\":\"image/gif\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T00:10:19.561Z\"},{\"original_name\":\"Clap Applause GIF(1).gif\",\"file_name\":\"1751415019_686478eb8cc66.gif\",\"file_path\":\"uploads/event_attachments/1751415019_686478eb8cc66.gif\",\"file_size\":70666,\"file_type\":\"image/gif\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T00:10:19.578Z\"},{\"original_name\":\"Fight Mma GIF.gif\",\"file_name\":\"1751415019_686478eb92053.gif\",\"file_path\":\"uploads/event_attachments/1751415019_686478eb92053.gif\",\"file_size\":968206,\"file_type\":\"image/gif\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T00:10:19.599Z\"},{\"original_name\":\"Clap Applause GIF.gif\",\"file_name\":\"1751415019_686478eb9515b.gif\",\"file_path\":\"uploads/event_attachments/1751415019_686478eb9515b.gif\",\"file_size\":36254,\"file_type\":\"image/gif\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T00:10:19.612Z\"},{\"original_name\":\"Angry Hamster GIF(1).gif\",\"file_name\":\"1751415019_686478eb98fbf.gif\",\"file_path\":\"uploads/event_attachments/1751415019_686478eb98fbf.gif\",\"file_size\":284734,\"file_type\":\"image/gif\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T00:10:19.628Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-02 00:10:56', 'Approveev'),
 (43, NULL, 15, 7, NULL, 'Montreal Wedding', 'modern-minimalist', NULL, 1, 100, '2025-07-11', '12:00:00', '14:00:00', 'partial', 15, 30, 250000.00, 212500.00, 'gcash', 2, '123123123123', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-02 06:29:36', '2025-07-02 06:29:36', '[{\"original_name\":\"User_Involvement_Case_Study_Summary.pdf\",\"file_name\":\"1751436726_6864cdb6df266.pdf\",\"file_path\":\"uploads/event_attachments/1751436726_6864cdb6df266.pdf\",\"file_size\":2340,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T06:12:06.915Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-02 06:29:36', NULL),
 (44, NULL, 15, 7, NULL, 'Test Event', 'custom', NULL, 5, 100, '2025-07-18', '07:30:00', '13:00:00', 'partial', 15, 30, 250000.00, 62500.00, 'gcash', 2, '1231231231231231231231', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-02 06:55:23', '2025-07-02 06:55:23', '[{\"original_name\":\"User_Involvement_Case_Study_Summary.pdf\",\"file_name\":\"1751439219_6864d773cddca.pdf\",\"file_path\":\"uploads/event_attachments/1751439219_6864d773cddca.pdf\",\"file_size\":2340,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T06:53:39.845Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-02 06:55:23', NULL),
-(45, NULL, 15, 7, NULL, 'Proper Event V5', 'color-coordinated', NULL, 5, 100, '2025-07-03', '10:00:00', '18:00:00', 'partial', 15, 30, 250000.00, 212500.00, 'gcash', 2, '1231231231231231231231', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-02 13:20:50', '2025-07-02 13:20:50', '[{\"original_name\":\"image_2025-07-02_212037501.png\",\"file_name\":\"1751462437_68653225860a8.png\",\"file_path\":\"uploads/event_attachments/1751462437_68653225860a8.png\",\"file_size\":43446,\"file_type\":\"image/png\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T13:20:37.550Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-02 13:20:50', NULL);
+(45, NULL, 15, 7, NULL, 'Proper Event V5', 'color-coordinated', NULL, 5, 100, '2025-07-03', '10:00:00', '18:00:00', 'partial', 15, 30, 250000.00, 212500.00, 'gcash', 2, '1231231231231231231231', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-02 13:20:50', '2025-07-02 13:20:50', '[{\"original_name\":\"image_2025-07-02_212037501.png\",\"file_name\":\"1751462437_68653225860a8.png\",\"file_path\":\"uploads/event_attachments/1751462437_68653225860a8.png\",\"file_size\":43446,\"file_type\":\"image/png\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T13:20:37.550Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-02 13:20:50', NULL),
+(46, NULL, 15, 7, NULL, 'Annivesary', 'cultural-traditional', NULL, 2, 100, '2025-07-08', '10:00:00', '18:00:00', 'partial', 18, 30, 249999.99, 187499.99, 'gcash', 2, '31212131233123123', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-07 20:04:55', '2025-07-07 20:04:55', '[{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751918669_686c284d61bb7.jpg\",\"file_path\":\"uploads/event_attachments/1751918669_686c284d61bb7.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:29.402Z\"},{\"original_name\":\"User_Stories_Event_Planning_System.docx\",\"file_name\":\"1751918671_686c284f2c616.docx\",\"file_path\":\"uploads/event_attachments/1751918671_686c284f2c616.docx\",\"file_size\":42584,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:31.184Z\"},{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751918672_686c28505cb3f.jpg\",\"file_path\":\"uploads/event_attachments/1751918672_686c28505cb3f.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:32.381Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-07 20:04:55', 'Agree');
 
 --
 -- Triggers `tbl_events`
@@ -405,7 +406,17 @@ INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`
 (154, 45, 'Emcee & Program Flow', 4000.00, '', 0, 1, 194, 5),
 (155, 45, 'Photography & Videography', 35000.00, '', 0, 1, 195, 6),
 (156, 45, 'Remaining Buffer ', 7000.00, '', 0, 1, 196, 7),
-(157, 45, 'Inclusions', 0.00, '', 0, 1, 205, 8);
+(157, 45, 'Inclusions', 0.00, '', 0, 1, 205, 8),
+(160, 46, 'Venue Rental', 40000.00, '', 0, 1, 261, 0),
+(161, 46, 'Catering Service', 75000.00, '', 0, 1, 262, 1),
+(162, 46, 'Event Styling & Floral Design', 34999.98, '', 0, 1, 263, 2),
+(163, 46, 'Photo & Video Coverage', 20000.00, '', 0, 1, 264, 3),
+(164, 46, 'Host / Emcee', 10000.00, '', 0, 1, 265, 4),
+(165, 46, 'Acoustic Live Band', 15000.00, '', 0, 1, 266, 5),
+(166, 46, 'Led Wall', 12000.00, '', 0, 1, 267, 6),
+(167, 46, 'Customized Cake', 7000.00, '', 0, 1, 268, 7),
+(168, 46, 'Anniversary Tokens', 8000.00, '', 0, 1, 269, 8),
+(169, 46, 'Event Coordinator & Staff', 18000.00, '', 0, 1, 270, 9);
 
 -- --------------------------------------------------------
 
@@ -625,7 +636,17 @@ INSERT INTO `tbl_event_timeline` (`timeline_id`, `event_id`, `component_id`, `ac
 (380, 45, NULL, 'Transport & Floral Decor ', '2025-07-03', '16:00:00', '17:00:00', '', '', NULL, 'pending', 5),
 (381, 45, NULL, 'Emcee & Program Flow', '2025-07-03', '18:00:00', '19:00:00', '', '', NULL, 'pending', 6),
 (382, 45, NULL, 'Photography & Videography', '2025-07-03', '20:00:00', '21:00:00', '', '', NULL, 'pending', 7),
-(383, 45, NULL, 'Remaining Buffer ', '2025-07-03', '22:00:00', '23:00:00', '', '', NULL, 'pending', 8);
+(383, 45, NULL, 'Remaining Buffer ', '2025-07-03', '22:00:00', '23:00:00', '', '', NULL, 'pending', 8),
+(384, 46, NULL, 'Anniversary Tokens', '2025-07-08', '00:00:00', '01:00:00', '', '', NULL, 'pending', 0),
+(385, 46, NULL, 'Event Coordinator & Staff', '2025-07-08', '02:00:00', '03:00:00', '', '', NULL, 'pending', 1),
+(386, 46, NULL, 'Venue Rental', '2025-07-08', '08:00:00', '09:00:00', '', '', NULL, 'pending', 2),
+(387, 46, NULL, 'Catering Service', '2025-07-08', '10:00:00', '11:00:00', '', '', NULL, 'pending', 3),
+(388, 46, NULL, 'Event Styling & Floral Design', '2025-07-08', '12:00:00', '13:00:00', '', '', NULL, 'pending', 4),
+(389, 46, NULL, 'Photo & Video Coverage', '2025-07-08', '14:00:00', '15:00:00', '', '', NULL, 'pending', 5),
+(390, 46, NULL, 'Host / Emcee', '2025-07-08', '16:00:00', '17:00:00', '', '', NULL, 'pending', 6),
+(391, 46, NULL, 'Acoustic Live Band', '2025-07-08', '18:00:00', '19:00:00', '', '', NULL, 'pending', 7),
+(392, 46, NULL, 'Led Wall', '2025-07-08', '20:00:00', '21:00:00', '', '', NULL, 'pending', 8),
+(393, 46, NULL, 'Customized Cake', '2025-07-08', '22:00:00', '23:00:00', '', '', NULL, 'pending', 9);
 
 -- --------------------------------------------------------
 
@@ -720,16 +741,41 @@ CREATE TABLE `tbl_packages` (
   `created_by` int(11) NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `is_active` tinyint(1) NOT NULL DEFAULT 1
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `original_price` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT 'Original package price when first created - never changes',
+  `is_price_locked` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Whether the price is locked (1) or can still be modified (0)',
+  `price_lock_date` timestamp NULL DEFAULT NULL COMMENT 'When the price was locked',
+  `price_history` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'History of price changes for audit trail' CHECK (json_valid(`price_history`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `tbl_packages`
 --
 
-INSERT INTO `tbl_packages` (`package_id`, `package_title`, `package_description`, `package_price`, `guest_capacity`, `created_by`, `created_at`, `updated_at`, `is_active`) VALUES
-(14, 'Wedding Package 1', 'All in wedding package 1', 120000.00, 100, 7, '2025-06-14 12:04:28', '2025-06-14 12:04:28', 1),
-(15, 'Wedding Package 2', 'All in for wedding package 2', 250000.00, 100, 7, '2025-06-14 12:15:37', '2025-06-14 12:15:37', 1);
+INSERT INTO `tbl_packages` (`package_id`, `package_title`, `package_description`, `package_price`, `guest_capacity`, `created_by`, `created_at`, `updated_at`, `is_active`, `original_price`, `is_price_locked`, `price_lock_date`, `price_history`) VALUES
+(14, 'Wedding Package 1', 'All in wedding package 1', 120000.00, 100, 7, '2025-06-14 12:04:28', '2025-07-08 03:56:43', 1, 120000.00, 1, '2025-06-14 12:04:28', NULL),
+(15, 'Wedding Package 2', 'All in for wedding package 2', 250000.00, 100, 7, '2025-06-14 12:15:37', '2025-07-08 03:56:43', 1, 250000.00, 1, '2025-06-14 12:15:37', NULL),
+(18, 'Anniversary Package', 'All-in-package for anniversary', 249999.99, 100, 7, '2025-07-07 20:03:29', '2025-07-08 03:56:43', 1, 249999.99, 1, '2025-07-07 20:03:29', NULL);
+
+--
+-- Triggers `tbl_packages`
+--
+DELIMITER $$
+CREATE TRIGGER `prevent_package_price_reduction` BEFORE UPDATE ON `tbl_packages` FOR EACH ROW BEGIN
+    -- If price is locked and someone tries to reduce it, prevent the update
+    IF OLD.is_price_locked = 1 AND NEW.package_price < OLD.package_price THEN
+        SIGNAL SQLSTATE '45000' 
+        SET MESSAGE_TEXT = 'Cannot reduce package price once locked. Package prices can only increase or remain the same.';
+    END IF;
+    
+    -- If price is being increased, log it in price history
+    IF NEW.package_price > OLD.package_price THEN
+        INSERT INTO `tbl_package_price_history` (package_id, old_price, new_price, changed_by, change_reason)
+        VALUES (NEW.package_id, OLD.package_price, NEW.package_price, NEW.created_by, 'Price increase');
+    END IF;
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
@@ -774,7 +820,17 @@ INSERT INTO `tbl_package_components` (`component_id`, `package_id`, `component_n
 (194, 15, 'Emcee & Program Flow', '', 4000.00, 5),
 (195, 15, 'Photography & Videography', '', 35000.00, 6),
 (196, 15, 'Remaining Buffer ', '', 7000.00, 7),
-(205, 15, 'Inclusions', '', 0.00, 8);
+(205, 15, 'Inclusions', '', 0.00, 8),
+(261, 18, 'Venue Rental', '', 40000.00, 0),
+(262, 18, 'Catering Service', '', 75000.00, 1),
+(263, 18, 'Event Styling & Floral Design', '', 34999.98, 2),
+(264, 18, 'Photo & Video Coverage', '', 20000.00, 3),
+(265, 18, 'Host / Emcee', '', 10000.00, 4),
+(266, 18, 'Acoustic Live Band', '', 15000.00, 5),
+(267, 18, 'Led Wall', '', 12000.00, 6),
+(268, 18, 'Customized Cake', '', 7000.00, 7),
+(269, 18, 'Anniversary Tokens', '', 8000.00, 8),
+(270, 18, 'Event Coordinator & Staff', '', 18000.00, 9);
 
 -- --------------------------------------------------------
 
@@ -796,7 +852,9 @@ INSERT INTO `tbl_package_event_types` (`id`, `package_id`, `event_type_id`) VALU
 (21, 14, 1),
 (20, 14, 5),
 (22, 15, 1),
-(23, 15, 5);
+(23, 15, 5),
+(28, 18, 2),
+(29, 18, 5);
 
 -- --------------------------------------------------------
 
@@ -833,7 +891,27 @@ INSERT INTO `tbl_package_freebies` (`freebie_id`, `package_id`, `freebie_name`, 
 (34, 15, '2 Sets of Prenup Attire', '', 0.00, 6),
 (35, 15, 'Wine for Toasting', '', 0.00, 7),
 (36, 15, 'Kakanin Station', '', 0.00, 8),
-(37, 15, 'Party Poppers', '', 0.00, 9);
+(37, 15, 'Party Poppers', '', 0.00, 9),
+(41, 18, 'Anniversary Cake', '', 0.00, 0),
+(42, 18, 'Giveaways', '', 0.00, 1),
+(43, 18, 'Toys', '', 0.00, 2),
+(44, 18, 'Picture frames', '', 0.00, 3);
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_package_price_history`
+--
+
+CREATE TABLE `tbl_package_price_history` (
+  `history_id` int(11) NOT NULL,
+  `package_id` int(11) NOT NULL,
+  `old_price` decimal(10,2) NOT NULL,
+  `new_price` decimal(10,2) NOT NULL,
+  `changed_by` int(11) NOT NULL,
+  `change_reason` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -856,7 +934,9 @@ INSERT INTO `tbl_package_venues` (`id`, `package_id`, `venue_id`, `created_at`) 
 (13, 14, 29, '2025-06-14 12:04:28'),
 (14, 14, 30, '2025-06-14 12:04:28'),
 (15, 15, 29, '2025-06-14 12:15:37'),
-(16, 15, 30, '2025-06-14 12:15:37');
+(16, 15, 30, '2025-06-14 12:15:37'),
+(21, 18, 30, '2025-07-07 20:03:29'),
+(22, 18, 29, '2025-07-07 20:03:29');
 
 -- --------------------------------------------------------
 
@@ -900,7 +980,8 @@ INSERT INTO `tbl_payments` (`payment_id`, `event_id`, `schedule_id`, `client_id`
 (12, 44, NULL, 15, 'gcash', 62500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-02', '1231231231231231231231', '2025-07-02 06:55:23', '2025-07-02 06:55:23', '[{\"file_name\":\"1751439316_6864d7d4aad48.pdf\",\"original_name\":\"User_Involvement_Case_Study_Summary.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751439316_6864d7d4aad48.pdf\",\"file_size\":2340,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-02 08:55:23\"}]'),
 (13, 45, NULL, 15, 'gcash', 212500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-02', '1231231231231231231231', '2025-07-02 13:20:50', '2025-07-02 13:20:50', '[{\"file_name\":\"1751462449_686532316c7d1.png\",\"original_name\":\"image_2025-07-02_212049403.png\",\"file_path\":\"uploads\\/payment_proofs\\/1751462449_686532316c7d1.png\",\"file_size\":43446,\"file_type\":\"image\\/png\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-07-02 15:20:50\"}]'),
 (14, 41, NULL, 5, 'cash', 44700.00, '', NULL, 'completed', '2025-07-02', '', '2025-07-02 15:13:26', '2025-07-02 15:13:26', NULL),
-(15, 42, NULL, 15, 'cash', 89400.00, '', NULL, 'completed', '2025-07-02', '', '2025-07-02 15:19:54', '2025-07-03 01:00:36', NULL);
+(15, 42, NULL, 15, 'cash', 89400.00, '', NULL, 'completed', '2025-07-02', '', '2025-07-02 15:19:54', '2025-07-03 01:00:36', NULL),
+(16, 46, NULL, 15, 'gcash', 187499.99, 'Initial down payment for event creation', NULL, 'completed', '2025-07-07', '31212131233123123', '2025-07-07 20:04:55', '2025-07-07 20:04:55', '[{\"file_name\":\"1751918693_686c286577d9d.pdf\",\"original_name\":\"analysis gamon.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751918693_686c286577d9d.pdf\",\"file_size\":61531,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-07 22:04:55\"}]');
 
 --
 -- Triggers `tbl_payments`
@@ -1046,7 +1127,8 @@ INSERT INTO `tbl_payment_logs` (`log_id`, `event_id`, `schedule_id`, `payment_id
 (14, 41, NULL, 14, 5, NULL, 'payment_received', 44700.00, '', '', '2025-07-02 15:13:26'),
 (15, 42, NULL, 15, 15, NULL, 'payment_received', 89400.00, '', '', '2025-07-02 15:19:54'),
 (16, 42, NULL, 15, 15, NULL, 'payment_confirmed', 89400.00, '', 'Status changed from pending to completed', '2025-07-03 01:00:36'),
-(17, 42, NULL, 15, 15, NULL, 'payment_confirmed', 89400.00, '', 'Status updated to completed by admin', '2025-07-03 01:00:36');
+(17, 42, NULL, 15, 15, NULL, 'payment_confirmed', 89400.00, '', 'Status updated to completed by admin', '2025-07-03 01:00:36'),
+(18, 46, NULL, 16, 15, NULL, 'payment_received', 187499.99, '31212131233123123', 'Initial down payment for event creation', '2025-07-07 20:04:55');
 
 -- --------------------------------------------------------
 
@@ -1539,6 +1621,24 @@ CREATE TABLE `view_event_payments` (
 -- --------------------------------------------------------
 
 --
+-- Stand-in structure for view `v_package_budget_status`
+-- (See below for the actual view)
+--
+CREATE TABLE `v_package_budget_status` (
+`package_id` int(11)
+,`package_title` varchar(255)
+,`package_price` decimal(10,2)
+,`original_price` decimal(10,2)
+,`is_price_locked` tinyint(1)
+,`inclusions_total` decimal(32,2)
+,`difference` decimal(33,2)
+,`budget_status` varchar(7)
+,`margin_percentage` decimal(42,6)
+);
+
+-- --------------------------------------------------------
+
+--
 -- Structure for view `view_client_payment_summary`
 --
 DROP TABLE IF EXISTS `view_client_payment_summary`;
@@ -1562,6 +1662,15 @@ CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW 
 DROP TABLE IF EXISTS `view_event_payments`;
 
 CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `view_event_payments`  AS SELECT `e`.`event_id` AS `event_id`, `e`.`event_title` AS `event_title`, `e`.`event_date` AS `event_date`, `e`.`payment_status` AS `event_payment_status`, `e`.`total_budget` AS `total_budget`, `e`.`down_payment` AS `down_payment`, `e`.`payment_schedule_type_id` AS `payment_schedule_type_id`, `pst`.`schedule_name` AS `payment_schedule_name`, `c`.`user_firstName` AS `user_firstName`, `c`.`user_lastName` AS `user_lastName`, `c`.`user_email` AS `user_email`, `a`.`user_firstName` AS `admin_firstName`, `a`.`user_lastName` AS `admin_lastName`, `eps`.`schedule_id` AS `schedule_id`, `eps`.`installment_number` AS `installment_number`, `eps`.`due_date` AS `due_date`, `eps`.`amount_due` AS `schedule_amount_due`, `eps`.`amount_paid` AS `schedule_amount_paid`, `eps`.`payment_status` AS `schedule_payment_status`, `p`.`payment_id` AS `payment_id`, `p`.`payment_amount` AS `payment_amount`, `p`.`payment_method` AS `payment_method`, `p`.`payment_status` AS `payment_status`, `p`.`payment_date` AS `payment_date`, `p`.`payment_reference` AS `payment_reference`, `p`.`payment_percentage` AS `payment_percentage`, `e`.`total_budget`- coalesce((select sum(`tbl_payments`.`payment_amount`) from `tbl_payments` where `tbl_payments`.`event_id` = `e`.`event_id` and `tbl_payments`.`payment_status` = 'completed'),0) AS `remaining_balance`, coalesce((select sum(`tbl_payments`.`payment_amount`) from `tbl_payments` where `tbl_payments`.`event_id` = `e`.`event_id` and `tbl_payments`.`payment_status` = 'completed'),0) AS `total_paid`, CASE WHEN `eps`.`due_date` < curdate() AND `eps`.`payment_status` <> 'paid' THEN 'overdue' WHEN `eps`.`due_date` = curdate() AND `eps`.`payment_status` <> 'paid' THEN 'due_today' ELSE 'current' END AS `payment_urgency` FROM (((((`tbl_events` `e` left join `tbl_users` `c` on(`e`.`user_id` = `c`.`user_id`)) left join `tbl_users` `a` on(`e`.`admin_id` = `a`.`user_id`)) left join `tbl_payment_schedule_types` `pst` on(`e`.`payment_schedule_type_id` = `pst`.`schedule_type_id`)) left join `tbl_event_payment_schedules` `eps` on(`e`.`event_id` = `eps`.`event_id`)) left join `tbl_payments` `p` on(`eps`.`schedule_id` = `p`.`schedule_id` and `p`.`payment_status` = 'completed')) ORDER BY `e`.`event_id` ASC, `eps`.`installment_number` ASC, `p`.`payment_date` ASC ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `v_package_budget_status`
+--
+DROP TABLE IF EXISTS `v_package_budget_status`;
+
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_package_budget_status`  AS SELECT `p`.`package_id` AS `package_id`, `p`.`package_title` AS `package_title`, `p`.`package_price` AS `package_price`, `p`.`original_price` AS `original_price`, `p`.`is_price_locked` AS `is_price_locked`, coalesce(sum(`pc`.`component_price`),0) AS `inclusions_total`, `p`.`package_price`- coalesce(sum(`pc`.`component_price`),0) AS `difference`, CASE WHEN `p`.`package_price` - coalesce(sum(`pc`.`component_price`),0) > 0 THEN 'BUFFER' WHEN `p`.`package_price` - coalesce(sum(`pc`.`component_price`),0) < 0 THEN 'OVERAGE' ELSE 'EXACT' END AS `budget_status`, CASE WHEN `p`.`package_price` > 0 THEN (`p`.`package_price` - coalesce(sum(`pc`.`component_price`),0)) / `p`.`package_price` * 100 ELSE 0 END AS `margin_percentage` FROM (`tbl_packages` `p` left join `tbl_package_components` `pc` on(`p`.`package_id` = `pc`.`package_id`)) GROUP BY `p`.`package_id`, `p`.`package_title`, `p`.`package_price`, `p`.`original_price`, `p`.`is_price_locked` ;
 
 --
 -- Indexes for dumped tables
@@ -1723,6 +1832,14 @@ ALTER TABLE `tbl_package_freebies`
   ADD KEY `fk_freebie_package` (`package_id`);
 
 --
+-- Indexes for table `tbl_package_price_history`
+--
+ALTER TABLE `tbl_package_price_history`
+  ADD PRIMARY KEY (`history_id`),
+  ADD KEY `idx_package_id` (`package_id`),
+  ADD KEY `idx_changed_by` (`changed_by`);
+
+--
 -- Indexes for table `tbl_package_venues`
 --
 ALTER TABLE `tbl_package_venues`
@@ -1871,13 +1988,13 @@ ALTER TABLE `tbl_budget`
 -- AUTO_INCREMENT for table `tbl_events`
 --
 ALTER TABLE `tbl_events`
-  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=46;
+  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=47;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_components`
 --
 ALTER TABLE `tbl_event_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=160;
+  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=170;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_package`
@@ -1895,7 +2012,7 @@ ALTER TABLE `tbl_event_payment_schedules`
 -- AUTO_INCREMENT for table `tbl_event_timeline`
 --
 ALTER TABLE `tbl_event_timeline`
-  MODIFY `timeline_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=384;
+  MODIFY `timeline_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=394;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_type`
@@ -1919,7 +2036,7 @@ ALTER TABLE `tbl_notifications`
 -- AUTO_INCREMENT for table `tbl_packages`
 --
 ALTER TABLE `tbl_packages`
-  MODIFY `package_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
+  MODIFY `package_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
 
 --
 -- AUTO_INCREMENT for table `tbl_package_bookings`
@@ -1931,37 +2048,43 @@ ALTER TABLE `tbl_package_bookings`
 -- AUTO_INCREMENT for table `tbl_package_components`
 --
 ALTER TABLE `tbl_package_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=260;
+  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=271;
 
 --
 -- AUTO_INCREMENT for table `tbl_package_event_types`
 --
 ALTER TABLE `tbl_package_event_types`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=27;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
 
 --
 -- AUTO_INCREMENT for table `tbl_package_freebies`
 --
 ALTER TABLE `tbl_package_freebies`
-  MODIFY `freebie_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=39;
+  MODIFY `freebie_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=45;
+
+--
+-- AUTO_INCREMENT for table `tbl_package_price_history`
+--
+ALTER TABLE `tbl_package_price_history`
+  MODIFY `history_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `tbl_package_venues`
 --
 ALTER TABLE `tbl_package_venues`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
 
 --
 -- AUTO_INCREMENT for table `tbl_payments`
 --
 ALTER TABLE `tbl_payments`
-  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
 
 --
 -- AUTO_INCREMENT for table `tbl_payment_logs`
 --
 ALTER TABLE `tbl_payment_logs`
-  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
 
 --
 -- AUTO_INCREMENT for table `tbl_payment_schedule_types`
@@ -2153,6 +2276,13 @@ ALTER TABLE `tbl_package_event_types`
 --
 ALTER TABLE `tbl_package_freebies`
   ADD CONSTRAINT `fk_freebie_package` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `tbl_package_price_history`
+--
+ALTER TABLE `tbl_package_price_history`
+  ADD CONSTRAINT `fk_price_history_package` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_price_history_user` FOREIGN KEY (`changed_by`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `tbl_package_venues`

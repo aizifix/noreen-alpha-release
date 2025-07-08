@@ -1,10 +1,19 @@
 "use client";
 import Link from "next/link";
-import { Plus, Package, Edit, Trash } from "lucide-react";
+import {
+  Plus,
+  Package,
+  Edit,
+  Trash,
+  Save,
+  X,
+  Eye,
+  Settings,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
-import { X, Check, ArrowLeft } from "lucide-react";
+import { Check, ArrowLeft } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,6 +88,19 @@ export default function PackagesPage() {
   const router = useRouter();
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [editingPackage, setEditingPackage] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<{
+    package_title: string;
+    package_description: string;
+    package_price: string;
+    guest_capacity: number;
+  }>({
+    package_title: "",
+    package_description: "",
+    package_price: "",
+    guest_capacity: 0,
+  });
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     // Fetch packages when component mounts
@@ -134,6 +156,86 @@ export default function PackagesPage() {
         console.error("API error:", error);
         toast.error("Failed to connect to server");
       }
+    }
+  };
+
+  const handleEditClick = (pkg: PackageItem) => {
+    setEditingPackage(pkg.package_id);
+    setEditForm({
+      package_title: pkg.package_title,
+      package_description: pkg.package_description || "",
+      package_price: pkg.package_price.toString(),
+      guest_capacity: pkg.guest_capacity,
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingPackage(null);
+    setEditForm({
+      package_title: "",
+      package_description: "",
+      package_price: "",
+      guest_capacity: 0,
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingPackage) return;
+
+    setIsSaving(true);
+    try {
+      const updateData: any = {
+        operation: "updatePackage",
+        package_id: editingPackage,
+        package_title: editForm.package_title,
+        package_description: editForm.package_description,
+        package_price: parseFloat(editForm.package_price),
+        guest_capacity: editForm.guest_capacity,
+      };
+
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        updateData
+      );
+
+      if (response.data.status === "success") {
+        toast.success("Package updated successfully");
+        setEditingPackage(null);
+        fetchPackages(); // Refresh the list
+      } else if (
+        response.data.status === "warning" &&
+        response.data.requires_confirmation
+      ) {
+        // Handle budget overage warning
+        if (
+          confirm(
+            `Budget overage detected: ₱${response.data.overage_amount?.toLocaleString()} over budget. Continue anyway?`
+          )
+        ) {
+          updateData.confirm_overage = true;
+          const retryResponse = await axios.post(
+            "http://localhost/events-api/admin.php",
+            updateData
+          );
+
+          if (retryResponse.data.status === "success") {
+            toast.success("Package updated successfully");
+            setEditingPackage(null);
+            fetchPackages();
+          } else {
+            toast.error(
+              retryResponse.data.message || "Failed to update package"
+            );
+          }
+        }
+      } else {
+        toast.error(response.data.message || "Failed to update package");
+      }
+    } catch (error) {
+      console.error("Update error:", error);
+      toast.error("Failed to update package");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -264,21 +366,85 @@ export default function PackagesPage() {
               {/* Green header section */}
               <div className="bg-green-50 p-5 border-b border-green-100">
                 <div className="flex justify-between items-start mb-2">
-                  <h3 className="text-xl font-bold text-green-800">
-                    {pkg.package_title}
-                  </h3>
+                  {editingPackage === pkg.package_id ? (
+                    <div className="flex-1">
+                      <Input
+                        value={editForm.package_title}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            package_title: e.target.value,
+                          }))
+                        }
+                        className="text-xl font-bold text-green-800 bg-white border-green-300 mb-2"
+                        placeholder="Package title"
+                      />
+                    </div>
+                  ) : (
+                    <h3 className="text-xl font-bold text-green-800">
+                      {pkg.package_title}
+                    </h3>
+                  )}
                   <span
                     className={`px-2 py-1 rounded-full text-xs font-medium ${pkg.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}
                   >
                     {pkg.is_active ? "Active" : "Inactive"}
                   </span>
                 </div>
-                <div className="text-3xl font-bold text-green-600 my-2">
-                  ₱{parseFloat(pkg.package_price.toString()).toLocaleString()}
-                </div>
-                <p className="text-gray-600 text-sm">
-                  {pkg.package_description || "No description provided"}
-                </p>
+
+                {editingPackage === pkg.package_id ? (
+                  <div className="space-y-2">
+                    <Input
+                      type="number"
+                      value={editForm.package_price}
+                      onChange={(e) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          package_price: e.target.value,
+                        }))
+                      }
+                      className="text-2xl font-bold text-green-600 bg-white border-green-300"
+                      placeholder="Price"
+                    />
+                    <Input
+                      type="number"
+                      value={editForm.guest_capacity}
+                      onChange={(e) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          guest_capacity: parseInt(e.target.value) || 0,
+                        }))
+                      }
+                      className="bg-white border-green-300"
+                      placeholder="Guest capacity"
+                    />
+                    <Textarea
+                      value={editForm.package_description}
+                      onChange={(e) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          package_description: e.target.value,
+                        }))
+                      }
+                      className="bg-white border-green-300"
+                      placeholder="Package description"
+                      rows={3}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-3xl font-bold text-green-600 my-2">
+                      ₱
+                      {parseFloat(
+                        pkg.package_price.toString()
+                      ).toLocaleString()}
+                    </div>
+                    <p className="text-gray-600 text-sm">
+                      {pkg.package_description || "No description provided"}
+                    </p>
+                  </>
+                )}
+
                 <div className="mt-3 flex gap-4 text-sm text-gray-500">
                   <span>Created by {pkg.created_by_name || "Unknown"}</span>
                   <span>•</span>
@@ -403,31 +569,59 @@ export default function PackagesPage() {
 
                 {/* Action buttons */}
                 <div className="mt-6 space-y-2">
-                  <button
-                    onClick={() =>
-                      router.push(`/admin/packages/${pkg.package_id}`)
-                    }
-                    className="w-full border border-gray-300 rounded-lg py-2 px-3 bg-white text-gray-700 hover:bg-gray-50 font-medium flex items-center justify-center gap-2"
-                  >
-                    <Package className="h-4 w-4" /> View Details
-                  </button>
-                  <div className="flex gap-2">
-                    <Link
-                      href={`/admin/packages/package-builder/edit/${pkg.package_id}`}
-                      className="flex-1"
-                    >
-                      <button className="w-full border border-blue-600 rounded-lg py-2 px-3 bg-white text-blue-700 hover:bg-blue-50 font-medium flex items-center justify-center gap-1">
-                        <Edit className="h-4 w-4" /> Edit
+                  {editingPackage === pkg.package_id ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleSaveEdit}
+                        disabled={isSaving}
+                        className="flex-1 bg-green-600 text-white rounded-lg py-2 px-3 hover:bg-green-700 font-medium flex items-center justify-center gap-1 disabled:opacity-50"
+                      >
+                        <Save className="h-4 w-4" />
+                        {isSaving ? "Saving..." : "Save"}
                       </button>
-                    </Link>
-                    <button
-                      onClick={() => handleDeletePackage(pkg.package_id)}
-                      className="flex-1 border border-red-500 rounded-lg py-2 px-3 bg-white text-red-600 hover:bg-red-50 font-medium flex items-center justify-center gap-1"
-                      disabled={!pkg.is_active}
-                    >
-                      <Trash className="h-4 w-4" /> Delete
-                    </button>
-                  </div>
+                      <button
+                        onClick={handleCancelEdit}
+                        disabled={isSaving}
+                        className="flex-1 border border-gray-300 rounded-lg py-2 px-3 bg-white text-gray-700 hover:bg-gray-50 font-medium flex items-center justify-center gap-1"
+                      >
+                        <X className="h-4 w-4" /> Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() =>
+                          router.push(`/admin/packages/${pkg.package_id}`)
+                        }
+                        className="w-full border border-gray-300 rounded-lg py-2 px-3 bg-white text-gray-700 hover:bg-gray-50 font-medium flex items-center justify-center gap-2"
+                      >
+                        <Eye className="h-4 w-4" /> View Details
+                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEditClick(pkg)}
+                          className="flex-1 border border-blue-600 rounded-lg py-2 px-3 bg-white text-blue-700 hover:bg-blue-50 font-medium flex items-center justify-center gap-1"
+                        >
+                          <Edit className="h-4 w-4" /> Quick Edit
+                        </button>
+                        <Link
+                          href={`/admin/packages/package-builder/edit/${pkg.package_id}`}
+                          className="flex-1"
+                        >
+                          <button className="w-full border border-green-600 rounded-lg py-2 px-3 bg-white text-green-700 hover:bg-green-50 font-medium flex items-center justify-center gap-1">
+                            <Settings className="h-4 w-4" /> Full Edit
+                          </button>
+                        </Link>
+                        <button
+                          onClick={() => handleDeletePackage(pkg.package_id)}
+                          className="flex-1 border border-red-500 rounded-lg py-2 px-3 bg-white text-red-600 hover:bg-red-50 font-medium flex items-center justify-center gap-1"
+                          disabled={!pkg.is_active}
+                        >
+                          <Trash className="h-4 w-4" /> Delete
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

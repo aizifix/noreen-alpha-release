@@ -142,7 +142,7 @@ export default function VenueBuilderPage() {
       formData.venue_contact &&
       formData.venue_capacity > 0 &&
       formData.venue_price >= 0,
-    inclusions: () => formData.inclusions.length > 0,
+    inclusions: () => true, // Inclusions are optional for venues
     review: () => true,
   };
 

@@ -91,9 +91,21 @@ export default function PackageDetailsPage() {
   const [selectedImageModal, setSelectedImageModal] = useState<string | null>(
     null
   );
-  const [isEditingInclusions, setIsEditingInclusions] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [editedInclusions, setEditedInclusions] = useState<Inclusion[]>([]);
+  const [editedPackage, setEditedPackage] = useState<{
+    package_title: string;
+    package_description: string;
+    package_price: string;
+    guest_capacity: number;
+  }>({
+    package_title: "",
+    package_description: "",
+    package_price: "",
+    guest_capacity: 0,
+  });
   const [draggedItem, setDraggedItem] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (params.id) {
@@ -112,8 +124,15 @@ export default function PackageDetailsPage() {
       });
 
       if (response.data.status === "success") {
-        setPackageDetails(response.data.package);
-        setEditedInclusions(response.data.package.inclusions);
+        const pkg = response.data.package;
+        setPackageDetails(pkg);
+        setEditedInclusions(pkg.inclusions);
+        setEditedPackage({
+          package_title: pkg.package_title,
+          package_description: pkg.package_description || "",
+          package_price: pkg.package_price.toString(),
+          guest_capacity: pkg.guest_capacity,
+        });
       } else {
         toast.error("Failed to fetch package details");
         router.push("/admin/packages");
@@ -161,44 +180,101 @@ export default function PackageDetailsPage() {
     return `${eventsApiUrl}/${cleanPath}`;
   };
 
-  const handleEditInclusions = () => {
-    setIsEditingInclusions(true);
+  const handleEditPackage = () => {
+    setIsEditing(true);
     setEditedInclusions([...packageDetails!.inclusions]);
   };
 
   const handleCancelEdit = () => {
-    setIsEditingInclusions(false);
+    setIsEditing(false);
     setEditedInclusions([...packageDetails!.inclusions]);
+    setEditedPackage({
+      package_title: packageDetails!.package_title,
+      package_description: packageDetails!.package_description || "",
+      package_price: packageDetails!.package_price.toString(),
+      guest_capacity: packageDetails!.guest_capacity,
+    });
   };
 
-  const handleSaveInclusions = async () => {
+  const handleSavePackage = async () => {
+    setIsSaving(true);
     try {
-      const response = await axios.post(`${API_URL}/admin.php`, {
+      const updateData: any = {
         operation: "updatePackage",
         package_id: packageDetails!.package_id,
-        package_title: packageDetails!.package_title,
-        package_description: packageDetails!.package_description,
-        package_price: packageDetails!.package_price,
-        guest_capacity: packageDetails!.guest_capacity,
+        package_title: editedPackage.package_title,
+        package_description: editedPackage.package_description,
+        package_price: parseFloat(editedPackage.package_price),
+        guest_capacity: editedPackage.guest_capacity,
         components: editedInclusions.map((inc, index) => ({
           component_name: inc.name,
           component_price: inc.price,
           display_order: index,
         })),
-      });
+      };
+
+      const response = await axios.post(`${API_URL}/admin.php`, updateData);
 
       if (response.data.status === "success") {
         setPackageDetails((prev) =>
-          prev ? { ...prev, inclusions: editedInclusions } : null
+          prev
+            ? {
+                ...prev,
+                package_title: editedPackage.package_title,
+                package_description: editedPackage.package_description,
+                package_price: parseFloat(editedPackage.package_price),
+                guest_capacity: editedPackage.guest_capacity,
+                inclusions: editedInclusions,
+              }
+            : null
         );
-        setIsEditingInclusions(false);
-        toast.success("Inclusions updated successfully");
+        setIsEditing(false);
+        toast.success("Package updated successfully");
+      } else if (
+        response.data.status === "warning" &&
+        response.data.requires_confirmation
+      ) {
+        // Handle budget overage warning
+        if (
+          confirm(
+            `Budget overage detected: ₱${response.data.overage_amount?.toLocaleString()} over budget. Continue anyway?`
+          )
+        ) {
+          updateData.confirm_overage = true;
+          const retryResponse = await axios.post(
+            `${API_URL}/admin.php`,
+            updateData
+          );
+
+          if (retryResponse.data.status === "success") {
+            setPackageDetails((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    package_title: editedPackage.package_title,
+                    package_description: editedPackage.package_description,
+                    package_price: parseFloat(editedPackage.package_price),
+                    guest_capacity: editedPackage.guest_capacity,
+                    inclusions: editedInclusions,
+                  }
+                : null
+            );
+            setIsEditing(false);
+            toast.success("Package updated successfully");
+          } else {
+            toast.error(
+              retryResponse.data.message || "Failed to update package"
+            );
+          }
+        }
       } else {
-        toast.error("Failed to update inclusions");
+        toast.error(response.data.message || "Failed to update package");
       }
     } catch (error) {
-      console.error("Error updating inclusions:", error);
-      toast.error("Failed to update inclusions");
+      console.error("Error updating package:", error);
+      toast.error("Failed to update package");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -292,17 +368,34 @@ export default function PackageDetailsPage() {
               </button>
             </div>
             <div className="flex items-center space-x-4">
-              <button
-                onClick={() =>
-                  router.push(
-                    `/admin/packages/package-builder/edit/${packageDetails.package_id}`
-                  )
-                }
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Package
-              </button>
+              {!isEditing ? (
+                <button
+                  onClick={handleEditPackage}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Package
+                </button>
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleSavePackage}
+                    disabled={isSaving}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    {isSaving ? "Saving..." : "Save Changes"}
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    disabled={isSaving}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </button>
+                </div>
+              )}
               <button
                 onClick={handleDeletePackage}
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
@@ -320,20 +413,88 @@ export default function PackageDetailsPage() {
         {/* Package Header */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
           <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                {packageDetails.package_title}
-              </h1>
-              <p className="text-gray-600 mt-2">
-                {packageDetails.package_description}
-              </p>
+            <div className="flex-1">
+              {isEditing ? (
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    value={editedPackage.package_title}
+                    onChange={(e) =>
+                      setEditedPackage((prev) => ({
+                        ...prev,
+                        package_title: e.target.value,
+                      }))
+                    }
+                    className="text-3xl font-bold text-gray-900 bg-white border border-gray-300 rounded px-3 py-2 w-full"
+                    placeholder="Package Title"
+                  />
+                  <textarea
+                    value={editedPackage.package_description}
+                    onChange={(e) =>
+                      setEditedPackage((prev) => ({
+                        ...prev,
+                        package_description: e.target.value,
+                      }))
+                    }
+                    className="text-gray-600 bg-white border border-gray-300 rounded px-3 py-2 w-full resize-none"
+                    placeholder="Package Description"
+                    rows={3}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-900">
+                    {packageDetails.package_title}
+                  </h1>
+                  <p className="text-gray-600 mt-2">
+                    {packageDetails.package_description}
+                  </p>
+                </div>
+              )}
             </div>
-            <div className="text-right">
-              <div className="text-3xl font-bold text-green-600">
-                ₱{packageDetails.package_price.toLocaleString()}
-              </div>
+            <div className="text-right ml-6">
+              {isEditing ? (
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">₱</span>
+                    <input
+                      type="number"
+                      value={editedPackage.package_price}
+                      onChange={(e) =>
+                        setEditedPackage((prev) => ({
+                          ...prev,
+                          package_price: e.target.value,
+                        }))
+                      }
+                      className="text-3xl font-bold text-green-600 bg-white border border-gray-300 rounded px-3 py-2 w-32 text-right"
+                      placeholder="0"
+                    />
+                  </div>
+                  <input
+                    type="number"
+                    value={editedPackage.guest_capacity}
+                    onChange={(e) =>
+                      setEditedPackage((prev) => ({
+                        ...prev,
+                        guest_capacity: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                    className="text-sm bg-white border border-gray-300 rounded px-2 py-1 w-20 text-right"
+                    placeholder="Capacity"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <div className="text-3xl font-bold text-green-600">
+                    ₱{packageDetails.package_price.toLocaleString()}
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1">
+                    Capacity: {packageDetails.guest_capacity} guests
+                  </div>
+                </div>
+              )}
               <span
-                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mt-2 ${
                   packageDetails.is_active
                     ? "bg-green-100 text-green-800"
                     : "bg-red-100 text-red-800"
@@ -354,7 +515,9 @@ export default function PackageDetailsPage() {
                     Guest Capacity
                   </p>
                   <p className="text-2xl font-bold text-blue-900">
-                    {packageDetails.guest_capacity}
+                    {isEditing
+                      ? editedPackage.guest_capacity
+                      : packageDetails.guest_capacity}
                   </p>
                 </div>
               </div>
@@ -367,7 +530,9 @@ export default function PackageDetailsPage() {
                     Inclusions
                   </p>
                   <p className="text-2xl font-bold text-green-900">
-                    {packageDetails.inclusions.length}
+                    {isEditing
+                      ? editedInclusions.length
+                      : packageDetails.inclusions.length}
                   </p>
                 </div>
               </div>
@@ -406,135 +571,113 @@ export default function PackageDetailsPage() {
                 <h2 className="text-xl font-bold text-gray-900">
                   Package Inclusions
                 </h2>
-                {!isEditingInclusions ? (
-                  <button
-                    onClick={handleEditInclusions}
-                    className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
-                  >
-                    <Edit className="h-4 w-4 mr-1" />
-                    Edit
-                  </button>
-                ) : (
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={handleSaveInclusions}
-                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
-                    >
-                      <Save className="h-4 w-4 mr-1" />
-                      Save
-                    </button>
-                    <button
-                      onClick={handleCancelEdit}
-                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200"
-                    >
-                      <X className="h-4 w-4 mr-1" />
-                      Cancel
-                    </button>
-                  </div>
+                {isEditing && (
+                  <span className="text-sm text-gray-500">
+                    Edit mode - changes will be saved with the package
+                  </span>
                 )}
               </div>
 
               <div className="space-y-4">
-                {(isEditingInclusions
-                  ? editedInclusions
-                  : packageDetails.inclusions
-                ).map((inclusion, index) => (
-                  <div
-                    key={index}
-                    className={`border-l-4 border-green-500 pl-4 ${
-                      isEditingInclusions ? "bg-gray-50 p-4 rounded-r-lg" : ""
-                    }`}
-                    draggable={isEditingInclusions}
-                    onDragStart={(e) => handleDragStart(e, index)}
-                    onDragOver={handleDragOver}
-                    onDrop={(e) => handleDrop(e, index)}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center space-x-2 flex-1">
-                        {isEditingInclusions && (
-                          <GripVertical className="h-5 w-5 text-gray-400 cursor-grab" />
-                        )}
-                        {isEditingInclusions ? (
-                          <input
-                            type="text"
-                            value={inclusion.name}
-                            onChange={(e) =>
-                              handleInclusionNameChange(index, e.target.value)
-                            }
-                            className="font-semibold text-gray-900 bg-white border border-gray-300 rounded px-2 py-1 flex-1"
-                          />
-                        ) : (
-                          <h3 className="font-semibold text-gray-900">
-                            {inclusion.name}
-                          </h3>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {isEditingInclusions ? (
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm text-gray-500">₱</span>
+                {(isEditing ? editedInclusions : packageDetails.inclusions).map(
+                  (inclusion, index) => (
+                    <div
+                      key={index}
+                      className={`border-l-4 border-green-500 pl-4 ${
+                        isEditing ? "bg-gray-50 p-4 rounded-r-lg" : ""
+                      }`}
+                      draggable={isEditing}
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, index)}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center space-x-2 flex-1">
+                          {isEditing && (
+                            <GripVertical className="h-5 w-5 text-gray-400 cursor-grab" />
+                          )}
+                          {isEditing ? (
                             <input
-                              type="number"
-                              value={inclusion.price}
+                              type="text"
+                              value={inclusion.name}
                               onChange={(e) =>
-                                handleInclusionPriceChange(
-                                  index,
-                                  Number(e.target.value)
-                                )
+                                handleInclusionNameChange(index, e.target.value)
                               }
-                              className="text-lg font-bold text-green-600 bg-white border border-gray-300 rounded px-2 py-1 w-24 text-right"
+                              className="font-semibold text-gray-900 bg-white border border-gray-300 rounded px-2 py-1 flex-1"
                             />
-                            <button
-                              onClick={() => handleRemoveInclusion(index)}
-                              className="text-red-600 hover:text-red-800"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-lg font-bold text-green-600">
-                            ₱{inclusion.price.toLocaleString()}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {inclusion.components.length > 0 && (
-                      <div className="space-y-2">
-                        {inclusion.components.map((component, compIndex) => (
-                          <div key={compIndex} className="ml-4">
-                            <div className="flex items-center justify-between">
-                              <span className="text-gray-700">
-                                {component.name}
-                              </span>
-                              <span className="text-gray-600">
-                                ₱{component.price.toLocaleString()}
-                              </span>
-                            </div>
-                            {component.subComponents.length > 0 && (
-                              <div className="ml-4 mt-1 space-y-1">
-                                {component.subComponents.map(
-                                  (subComp, subIndex) => (
-                                    <div
-                                      key={subIndex}
-                                      className="flex items-center justify-between text-sm text-gray-600"
-                                    >
-                                      <span>• {subComp.name}</span>
-                                      <span>
-                                        ₱{subComp.price.toLocaleString()}
-                                      </span>
-                                    </div>
+                          ) : (
+                            <h3 className="font-semibold text-gray-900">
+                              {inclusion.name}
+                            </h3>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {isEditing ? (
+                            <div className="flex items-center space-x-2">
+                              <span className="text-sm text-gray-500">₱</span>
+                              <input
+                                type="number"
+                                value={inclusion.price}
+                                onChange={(e) =>
+                                  handleInclusionPriceChange(
+                                    index,
+                                    Number(e.target.value)
                                   )
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                                }
+                                className="text-lg font-bold text-green-600 bg-white border border-gray-300 rounded px-2 py-1 w-24 text-right"
+                              />
+                              <button
+                                onClick={() => handleRemoveInclusion(index)}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-lg font-bold text-green-600">
+                              ₱{inclusion.price.toLocaleString()}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {inclusion.components.length > 0 && (
+                        <div className="space-y-2">
+                          {inclusion.components.map((component, compIndex) => (
+                            <div key={compIndex} className="ml-4">
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-700">
+                                  {component.name}
+                                </span>
+                                <span className="text-gray-600">
+                                  ₱{component.price.toLocaleString()}
+                                </span>
+                              </div>
+                              {component.subComponents.length > 0 && (
+                                <div className="ml-4 mt-1 space-y-1">
+                                  {component.subComponents.map(
+                                    (subComp, subIndex) => (
+                                      <div
+                                        key={subIndex}
+                                        className="flex items-center justify-between text-sm text-gray-600"
+                                      >
+                                        <span>• {subComp.name}</span>
+                                        <span>
+                                          ₱{subComp.price.toLocaleString()}
+                                        </span>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                )}
 
-                {isEditingInclusions && (
+                {isEditing && (
                   <button
                     onClick={handleAddInclusion}
                     className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-gray-500 hover:border-gray-400 hover:text-gray-600 flex items-center justify-center"
@@ -642,9 +785,13 @@ export default function PackageDetailsPage() {
           {/* Right Column - Budget Breakdown */}
           <div className="lg:col-span-1">
             <BudgetBreakdown
-              packagePrice={packageDetails.package_price}
+              packagePrice={
+                isEditing
+                  ? parseFloat(editedPackage.package_price) || 0
+                  : packageDetails.package_price
+              }
               selectedVenue={packageDetails.venues[0] || null}
-              components={(isEditingInclusions
+              components={(isEditing
                 ? editedInclusions
                 : packageDetails.inclusions
               ).map((inc) => ({

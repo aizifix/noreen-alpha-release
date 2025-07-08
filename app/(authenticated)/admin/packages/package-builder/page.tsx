@@ -82,6 +82,12 @@ export default function PackageBuilderPage() {
   const [packagePrice, setPackagePrice] = useState("");
   const [guestCount, setGuestCount] = useState<number>(100);
 
+  // Package price lock state
+  const [isPackageLocked, setIsPackageLocked] = useState(false);
+  const [originalPrice, setOriginalPrice] = useState<number | null>(null);
+  const [showOverageWarning, setShowOverageWarning] = useState(false);
+  const [overageAmount, setOverageAmount] = useState(0);
+
   // Optimized handlers for package details to prevent unnecessary re-renders
   const handlePackageTitleChange = useCallback((value: string) => {
     setPackageTitle(value);
@@ -91,23 +97,36 @@ export default function PackageBuilderPage() {
     setPackageDescription(value);
   }, []);
 
-  const handlePackagePriceChange = useCallback((value: string) => {
-    // Remove any non-numeric characters except decimal point
-    const sanitizedValue = value.replace(/[^0-9.]/g, "");
+  const handlePackagePriceChange = useCallback(
+    (value: string) => {
+      // Remove any non-numeric characters except decimal point
+      const sanitizedValue = value.replace(/[^0-9.]/g, "");
 
-    // Ensure only one decimal point
-    const parts = sanitizedValue.split(".");
-    if (parts.length > 2) {
-      return;
-    }
+      // Ensure only one decimal point
+      const parts = sanitizedValue.split(".");
+      if (parts.length > 2) {
+        return;
+      }
 
-    // Limit decimal places to 2
-    if (parts[1] && parts[1].length > 2) {
-      return;
-    }
+      // Limit decimal places to 2
+      if (parts[1] && parts[1].length > 2) {
+        return;
+      }
 
-    setPackagePrice(sanitizedValue);
-  }, []);
+      const newPrice = Number(sanitizedValue) || 0;
+
+      // Enforce non-decreasing price rule if package is locked
+      if (isPackageLocked && originalPrice && newPrice < originalPrice) {
+        toast.error(
+          "Cannot reduce package price once locked. Price can only be increased or remain the same."
+        );
+        return;
+      }
+
+      setPackagePrice(sanitizedValue);
+    },
+    [isPackageLocked, originalPrice]
+  );
 
   const handleGuestCountChange = useCallback((value: number) => {
     setGuestCount(value);
@@ -330,13 +349,37 @@ export default function PackageBuilderPage() {
       (sum, inclusion) => sum + (Number(inclusion.price) || 0),
       0
     );
-    // Don't subtract venue cost from package budget - venues are separate
+    // Return the difference (positive = buffer, negative = overage)
     return packagePriceNum - inclusionsTotal;
   };
 
   const isBudgetValid = () => {
-    // Allow negative budget for packages - venues are separate costs
+    const remainingBudget = calculateRemainingBudget();
+    // Allow negative budget but warn about overage
     return true;
+  };
+
+  const handleOverageWarning = (overage: number) => {
+    setOverageAmount(overage);
+    setShowOverageWarning(overage > 0);
+  };
+
+  const validatePackagePricing = () => {
+    const packagePriceNum = Number(packagePrice) || 0;
+    const inclusionsTotal = inclusions.reduce(
+      (sum, inclusion) => sum + (Number(inclusion.price) || 0),
+      0
+    );
+
+    if (inclusionsTotal > packagePriceNum) {
+      return {
+        isValid: false,
+        overage: inclusionsTotal - packagePriceNum,
+        message: `Budget overage: ₱${(inclusionsTotal - packagePriceNum).toLocaleString()}`,
+      };
+    }
+
+    return { isValid: true, overage: 0, message: "" };
   };
 
   const createPackage = async () => {
@@ -375,6 +418,19 @@ export default function PackageBuilderPage() {
         toast.error("Please select at least one venue");
         setLoading(false);
         return;
+      }
+
+      // Check for budget overage and show warning
+      const pricingValidation = validatePackagePricing();
+      if (!pricingValidation.isValid && showOverageWarning) {
+        const userConfirmed = window.confirm(
+          `Warning: ${pricingValidation.message}\n\nDo you want to proceed anyway? This means you'll have a budget overage that needs to be managed.`
+        );
+
+        if (!userConfirmed) {
+          setLoading(false);
+          return;
+        }
       }
 
       const packageData = {
@@ -772,6 +828,9 @@ export default function PackageBuilderPage() {
               price: Number(inc.price) || 0,
             }))}
           freebies={(freebies || []).map((f) => f.freebie_name)}
+          isPackageLocked={isPackageLocked}
+          originalPrice={originalPrice || undefined}
+          onOverageWarning={handleOverageWarning}
         />
       </div>
     </div>

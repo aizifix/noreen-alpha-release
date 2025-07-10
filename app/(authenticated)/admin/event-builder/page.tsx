@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
 import { secureStorage } from "@/app/utils/encryption";
@@ -50,6 +50,8 @@ import type {
 } from "@/app/types/event-builder";
 import WeddingFormStep from "@/app/components/admin/event-builder/wedding-form-step";
 import AttachmentsStep from "@/app/components/admin/event-builder/attachments-step";
+import { DraftHandler } from "@/app/components/admin/event-builder/draft-handler";
+import { ClearFormModal } from "@/app/components/admin/event-builder/clear-form-modal";
 
 // Function to format currency
 const formatCurrency = (amount: number) => {
@@ -164,8 +166,76 @@ export default function EventBuilderPage() {
   const bookingId = searchParams.get("booking");
   const bookingRefFromUrl = searchParams.get("booking_ref");
 
+  // Local storage key for event builder data
+  const STORAGE_KEY = "event_builder_data";
+
+  // Function to save data to local storage
+  const saveToLocalStorage = (data: any) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (error) {
+      console.error("Error saving to local storage:", error);
+    }
+  };
+
+  // Function to load data from local storage
+  const loadFromLocalStorage = () => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch (error) {
+      console.error("Error loading from local storage:", error);
+      return null;
+    }
+  };
+
+  // Function to clear local storage
+  const clearLocalStorage = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+      console.error("Error clearing local storage:", error);
+    }
+  };
+
+  // Draft handling functions
+  const handleLoadDraft = (draft: any) => {
+    console.log("📂 Loading draft data:", draft);
+
+    if (draft.currentStep) setCurrentStep(draft.currentStep);
+    if (draft.clientData) setClientData(draft.clientData);
+    if (draft.eventDetails) setEventDetails(draft.eventDetails);
+    if (draft.selectedPackageId) setSelectedPackageId(draft.selectedPackageId);
+    if (draft.selectedVenueId) setSelectedVenueId(draft.selectedVenueId);
+    if (draft.selectedVenue) setSelectedVenue(draft.selectedVenue);
+    if (draft.components) setComponents(draft.components);
+    if (draft.originalPackagePrice)
+      setOriginalPackagePrice(draft.originalPackagePrice);
+    if (draft.selectedOrganizers)
+      setSelectedOrganizers(draft.selectedOrganizers);
+    if (draft.paymentData) setPaymentData(draft.paymentData);
+    if (draft.timelineData) setTimelineData(draft.timelineData);
+    if (draft.weddingFormData) setWeddingFormData(draft.weddingFormData);
+
+    setIsFormDirty(false);
+  };
+
+  const handleClearDraft = () => {
+    console.log("🗑️ Clearing draft data");
+    clearLocalStorage();
+    clearForm();
+    setIsFormDirty(false);
+  };
+
+  const handleClearForm = () => {
+    setShowClearFormModal(true);
+  };
+
   // Add current step state
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(() => {
+    const saved = loadFromLocalStorage();
+    return saved?.currentStep || 1;
+  });
 
   // Use refs to track initialization state
   const initializedRef = useRef(false);
@@ -180,16 +250,26 @@ export default function EventBuilderPage() {
   // State to track if wedding packages are available
   const [packagesAvailable, setPackagesAvailable] = useState(true);
 
-  const [clientData, setClientData] = useState<ClientData>({
-    id: "",
-    name: "",
-    email: "",
-    phone: "",
-    address: "",
+  const [clientData, setClientData] = useState<ClientData>(() => {
+    const saved = loadFromLocalStorage();
+    return (
+      saved?.clientData || {
+        id: "",
+        name: "",
+        email: "",
+        phone: "",
+        address: "",
+      }
+    );
   });
 
   // Enhanced event details with new fields
   const [eventDetails, setEventDetails] = useState<EnhancedEventDetails>(() => {
+    const saved = loadFromLocalStorage();
+    if (saved?.eventDetails) {
+      return saved.eventDetails;
+    }
+
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const defaultDate = tomorrow.toISOString().split("T")[0]; // YYYY-MM-DD format
@@ -218,104 +298,142 @@ export default function EventBuilderPage() {
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<boolean>(false);
 
+  // Event creation loading state
+  const [loading, setLoading] = useState<boolean>(false);
+
   // Client signature state
   const [clientSignature, setClientSignature] = useState<string>("");
 
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(
-    null
+    () => {
+      const saved = loadFromLocalStorage();
+      return saved?.selectedPackageId || null;
+    }
   );
-  const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
-  const [selectedVenue, setSelectedVenue] = useState<any | null>(null);
-  const [components, setComponents] = useState<DataPackageComponent[]>([]);
+  const [selectedVenueId, setSelectedVenueId] = useState<string | null>(() => {
+    const saved = loadFromLocalStorage();
+    return saved?.selectedVenueId || null;
+  });
+  const [selectedVenue, setSelectedVenue] = useState<any | null>(() => {
+    const saved = loadFromLocalStorage();
+    return saved?.selectedVenue || null;
+  });
+  const [components, setComponents] = useState<DataPackageComponent[]>(() => {
+    const saved = loadFromLocalStorage();
+    return saved?.components || [];
+  });
   const [originalPackagePrice, setOriginalPackagePrice] = useState<
     number | null
-  >(null);
-  const [selectedOrganizers, setSelectedOrganizers] = useState<string[]>([]);
-  const [paymentData, setPaymentData] = useState<PaymentData>({
-    total: 0,
-    paymentType: "half",
-    downPayment: 0,
-    balance: 0,
-    customPercentage: 50,
-    downPaymentMethod: "gcash",
-    referenceNumber: "",
-    notes: "",
-    cashBondRequired: false,
-    cashBondStatus: "pending",
-    scheduleTypeId: 2,
+  >(() => {
+    const saved = loadFromLocalStorage();
+    return saved?.originalPackagePrice || null;
   });
-  const [timelineData, setTimelineData] = useState<TimelineItem[]>([]);
+  const [selectedOrganizers, setSelectedOrganizers] = useState<string[]>(() => {
+    const saved = loadFromLocalStorage();
+    return saved?.selectedOrganizers || [];
+  });
+  const [paymentData, setPaymentData] = useState<PaymentData>(() => {
+    const saved = loadFromLocalStorage();
+    return (
+      saved?.paymentData || {
+        total: 0,
+        paymentType: "half",
+        downPayment: 0,
+        balance: 0,
+        customPercentage: 50,
+        downPaymentMethod: "gcash",
+        referenceNumber: "",
+        notes: "",
+        cashBondRequired: false,
+        cashBondStatus: "pending",
+        scheduleTypeId: 2,
+      }
+    );
+  });
+  const [timelineData, setTimelineData] = useState<TimelineItem[]>(() => {
+    const saved = loadFromLocalStorage();
+    return saved?.timelineData || [];
+  });
   const [showMissingRefDialog, setShowMissingRefDialog] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
-  const [weddingFormData, setWeddingFormData] = useState<WeddingFormData>({
-    // Basic Information
-    nuptial: "",
-    motif: "",
+  const [showClearFormModal, setShowClearFormModal] = useState(false);
+  const [isFormDirty, setIsFormDirty] = useState(false);
+  const [weddingFormData, setWeddingFormData] = useState<WeddingFormData>(
+    () => {
+      const saved = loadFromLocalStorage();
+      return (
+        saved?.weddingFormData || {
+          // Basic Information
+          nuptial: "",
+          motif: "",
 
-    // Bride & Groom
-    bride_name: "",
-    bride_size: "",
-    groom_name: "",
-    groom_size: "",
+          // Bride & Groom
+          bride_name: "",
+          bride_size: "",
+          groom_name: "",
+          groom_size: "",
 
-    // Parents
-    mother_bride_name: "",
-    mother_bride_size: "",
-    father_bride_name: "",
-    father_bride_size: "",
-    mother_groom_name: "",
-    mother_groom_size: "",
-    father_groom_name: "",
-    father_groom_size: "",
+          // Parents
+          mother_bride_name: "",
+          mother_bride_size: "",
+          father_bride_name: "",
+          father_bride_size: "",
+          mother_groom_name: "",
+          mother_groom_size: "",
+          father_groom_name: "",
+          father_groom_size: "",
 
-    // Principal Sponsors
-    maid_of_honor_name: "",
-    maid_of_honor_size: "",
-    best_man_name: "",
-    best_man_size: "",
+          // Principal Sponsors
+          maid_of_honor_name: "",
+          maid_of_honor_size: "",
+          best_man_name: "",
+          best_man_size: "",
 
-    // Little Bride & Groom
-    little_bride_name: "",
-    little_bride_size: "",
-    little_groom_name: "",
-    little_groom_size: "",
+          // Little Bride & Groom
+          little_bride_name: "",
+          little_bride_size: "",
+          little_groom_name: "",
+          little_groom_size: "",
 
-    // Wedding Party Quantities and Names
-    bridesmaids_qty: 0,
-    bridesmaids_names: [],
-    groomsmen_qty: 0,
-    groomsmen_names: [],
-    junior_groomsmen_qty: 0,
-    junior_groomsmen_names: [],
-    flower_girls_qty: 0,
-    flower_girls_names: [],
-    ring_bearer_qty: 0,
-    ring_bearer_names: [],
-    bible_bearer_qty: 0,
-    bible_bearer_names: [],
-    coin_bearer_qty: 0,
-    coin_bearer_names: [],
+          // Wedding Party Quantities and Names
+          bridesmaids_qty: 0,
+          bridesmaids_names: [],
+          groomsmen_qty: 0,
+          groomsmen_names: [],
+          junior_groomsmen_qty: 0,
+          junior_groomsmen_names: [],
+          flower_girls_qty: 0,
+          flower_girls_names: [],
+          ring_bearer_qty: 0,
+          ring_bearer_names: [],
+          bible_bearer_qty: 0,
+          bible_bearer_names: [],
+          coin_bearer_qty: 0,
+          coin_bearer_names: [],
 
-    // Wedding Items Quantities
-    cushions_qty: 0,
-    headdress_qty: 0,
-    shawls_qty: 0,
-    veil_cord_qty: 0,
-    basket_qty: 0,
-    petticoat_qty: 0,
-    neck_bowtie_qty: 0,
-    garter_leg_qty: 0,
-    fitting_form_qty: 0,
-    robe_qty: 0,
+          // Wedding Items Quantities
+          cushions_qty: 0,
+          headdress_qty: 0,
+          shawls_qty: 0,
+          veil_cord_qty: 0,
+          basket_qty: 0,
+          petticoat_qty: 0,
+          neck_bowtie_qty: 0,
+          garter_leg_qty: 0,
+          fitting_form_qty: 0,
+          robe_qty: 0,
 
-    // Processing Information
-    prepared_by: "",
-    received_by: "",
-    pickup_date: "",
-    return_date: "",
-    customer_signature: "",
-  });
+          // Processing Information
+          prepared_by: "",
+          received_by: "",
+          pickup_date: "",
+          return_date: "",
+          customer_signature: "",
+        }
+      );
+    }
+  );
   const [currentEventId, setCurrentEventId] = useState<number | null>(null);
   const [eventData, setEventData] = useState<EventData>({
     eventTitle: "",
@@ -453,6 +571,76 @@ export default function EventBuilderPage() {
     }
   }, [bookingRefFromUrl]);
 
+  // Save data to local storage whenever important state changes
+  useEffect(() => {
+    const dataToSave = {
+      currentStep,
+      clientData,
+      eventDetails,
+      selectedPackageId,
+      selectedVenueId,
+      selectedVenue,
+      components,
+      originalPackagePrice,
+      selectedOrganizers,
+      paymentData,
+      timelineData,
+      weddingFormData,
+    };
+    saveToLocalStorage(dataToSave);
+  }, [
+    currentStep,
+    clientData,
+    eventDetails,
+    selectedPackageId,
+    selectedVenueId,
+    selectedVenue,
+    components,
+    originalPackagePrice,
+    selectedOrganizers,
+    paymentData,
+    timelineData,
+    weddingFormData,
+  ]);
+
+  // Track form dirty state separately - simplified to avoid infinite loops
+  useEffect(() => {
+    // Check if any form data has meaningful values - simplified check
+    const hasData = Boolean(
+      clientData.name ||
+        clientData.email ||
+        eventDetails.title ||
+        eventDetails.theme ||
+        selectedPackageId ||
+        selectedVenueId ||
+        components.length > 0 ||
+        paymentData.downPayment > 0 ||
+        timelineData.length > 0 ||
+        weddingFormData.nuptial ||
+        weddingFormData.motif ||
+        weddingFormData.bride_name ||
+        weddingFormData.groom_name
+    );
+
+    setIsFormDirty(hasData);
+  }, [
+    clientData.name,
+    clientData.email,
+    eventDetails.title,
+    eventDetails.theme,
+    selectedPackageId,
+    selectedVenueId,
+    components.length,
+    paymentData.downPayment,
+    timelineData.length,
+    weddingFormData.nuptial,
+    weddingFormData.motif,
+    weddingFormData.bride_name,
+    weddingFormData.groom_name,
+  ]);
+
+  // Note: Draft restoration notifications are now handled by DraftHandler component
+
   // Calculate total budget based on package, venue, guest count, and extras
   const getTotalBudget = () => {
     // Fixed pricing based on selected package - venues are included in the bundle
@@ -495,188 +683,201 @@ export default function EventBuilderPage() {
   }, [selectedPackageId]);
 
   // Handle client data update
-  const handleClientDataUpdate = (data: ClientData) => {
+  const handleClientDataUpdate = useCallback((data: ClientData) => {
     setClientData(data);
-  };
+  }, []);
 
   // Handle event details update
-  const handleEventDetailsUpdate = (details: Partial<EnhancedEventDetails>) => {
-    console.log("Updating event details:", details);
-    setEventDetails((prev: EnhancedEventDetails) => ({
-      ...prev,
-      ...details,
-    }));
+  const handleEventDetailsUpdate = useCallback(
+    (details: Partial<EnhancedEventDetails>) => {
+      console.log("Updating event details:", details);
+      setEventDetails((prev: EnhancedEventDetails) => ({
+        ...prev,
+        ...details,
+      }));
 
-    // If a package is specified in the details (from booking selection), auto-select it
-    if (details.package && details.package !== selectedPackageId) {
-      console.log(
-        "Auto-selecting package from booking:",
-        details.package,
-        "current:",
-        selectedPackageId
-      );
-      setTimeout(() => {
-        handlePackageSelect(details.package!); // Non-null assertion since we checked above
-      }, 100); // Small delay to ensure state is updated
-    }
+      // If a package is specified in the details (from booking selection), auto-select it
+      if (details.package && details.package !== selectedPackageId) {
+        console.log(
+          "Auto-selecting package from booking:",
+          details.package,
+          "current:",
+          selectedPackageId
+        );
+        setTimeout(() => {
+          handlePackageSelect(details.package!); // Non-null assertion since we checked above
+        }, 100); // Small delay to ensure state is updated
+      }
 
-    // If venue ID is specified from booking, store it for later selection
-    if (details.venueId) {
-      console.log("Venue ID from booking:", details.venueId);
-      // Store the venue ID to be used when package venues are loaded
-      setSelectedVenueId(details.venueId);
-    }
+      // If venue ID is specified from booking, store it for later selection
+      if (details.venueId) {
+        console.log("Venue ID from booking:", details.venueId);
+        // Store the venue ID to be used when package venues are loaded
+        setSelectedVenueId(details.venueId);
+      }
 
-    // Store booking reference for event creation
-    if (details.bookingReference) {
-      console.log("Booking reference:", details.bookingReference);
-      setBookingReference(details.bookingReference);
-    }
-  };
+      // Store booking reference for event creation
+      if (details.bookingReference) {
+        console.log("Booking reference:", details.bookingReference);
+        setBookingReference(details.bookingReference);
+      }
+    },
+    [selectedPackageId]
+  );
 
   // Handle package selection
-  const handlePackageSelect = async (packageId: string) => {
-    setSelectedPackageId(packageId);
+  const handlePackageSelect = useCallback(
+    async (packageId: string) => {
+      setSelectedPackageId(packageId);
 
-    try {
-      // Fetch package details
-      const response = await axios.get(
-        `http://localhost/events-api/admin.php?operation=getPackageById&package_id=${packageId}`
-      );
+      try {
+        // Fetch package details
+        const response = await axios.get(
+          `http://localhost/events-api/admin.php?operation=getPackageById&package_id=${packageId}`
+        );
 
-      if (response.data.status === "success") {
-        const packageData = response.data.package;
+        if (response.data.status === "success") {
+          const packageData = response.data.package;
 
-        // Set venues from package
-        if (
-          packageData.venues &&
-          packageVenuesInitializedRef.current !== packageId
-        ) {
-          console.log("Loading venues from package:", packageData.venues);
-          setPackageVenues(packageData.venues);
-          packageVenuesInitializedRef.current = packageId;
+          // Set venues from package
+          if (
+            packageData.venues &&
+            packageVenuesInitializedRef.current !== packageId
+          ) {
+            console.log("Loading venues from package:", packageData.venues);
+            setPackageVenues(packageData.venues);
+            packageVenuesInitializedRef.current = packageId;
 
-          // If we have a venue ID from booking, try to auto-select it
-          if (selectedVenueId) {
-            console.log(
-              "Looking for venue with ID:",
-              selectedVenueId,
-              "in venues:",
-              packageData.venues
-            );
-            const matchingVenue = packageData.venues.find(
-              (venue: any) => String(venue.venue_id) === String(selectedVenueId)
-            );
-
-            console.log("Matching venue found:", matchingVenue);
-
-            if (matchingVenue) {
+            // If we have a venue ID from booking, try to auto-select it
+            if (selectedVenueId) {
               console.log(
-                "Auto-selecting venue from booking:",
-                matchingVenue.venue_title
+                "Looking for venue with ID:",
+                selectedVenueId,
+                "in venues:",
+                packageData.venues
               );
-              setSelectedVenue(matchingVenue);
+              const matchingVenue = packageData.venues.find(
+                (venue: any) =>
+                  String(venue.venue_id) === String(selectedVenueId)
+              );
 
-              // Add venue inclusions if they exist
-              if (matchingVenue.inclusions) {
-                const venueInclusions = (matchingVenue.inclusions || []).map(
-                  (inclusion: any, idx: number) => ({
-                    id: `venue-inclusion-${inclusion.inclusion_id || idx}`,
-                    name: inclusion.inclusion_name,
-                    price: parseFloat(inclusion.inclusion_price) || 0,
-                    category: "venue",
-                    included: true,
-                    isVenueInclusion: true,
-                    isRemovable: false,
-                    isExpanded: false,
-                  })
+              console.log("Matching venue found:", matchingVenue);
+
+              if (matchingVenue) {
+                console.log(
+                  "Auto-selecting venue from booking:",
+                  matchingVenue.venue_title
                 );
+                setSelectedVenue(matchingVenue);
 
-                // Add venue inclusions to existing package components
-                setComponents((prev) => [
-                  ...prev.filter(
-                    (comp) =>
-                      !(comp.category === "venue" && comp.isVenueInclusion)
-                  ),
-                  ...venueInclusions,
-                ]);
+                // Add venue inclusions if they exist
+                if (matchingVenue.inclusions) {
+                  const venueInclusions = (matchingVenue.inclusions || []).map(
+                    (inclusion: any, idx: number) => ({
+                      id: `venue-inclusion-${inclusion.inclusion_id || `${matchingVenue.venue_id}-${idx}-${Date.now()}`}`,
+                      name: inclusion.inclusion_name,
+                      price: parseFloat(inclusion.inclusion_price) || 0,
+                      category: "venue",
+                      included: true,
+                      isVenueInclusion: true,
+                      isRemovable: false,
+                      isExpanded: false,
+                    })
+                  );
+
+                  // Add venue inclusions to existing package components
+                  setComponents((prev) => [
+                    ...prev.filter(
+                      (comp) =>
+                        !(comp.category === "venue" && comp.isVenueInclusion)
+                    ),
+                    ...venueInclusions,
+                  ]);
+                }
+
+                // Update event details with venue name
+                setEventDetails((prev: EventDetails) => ({
+                  ...prev,
+                  venue: matchingVenue.venue_title || "",
+                }));
+
+                // Skip venue selection step and go to components
+                console.log("Auto-selected venue, skipping to components step");
+                setCurrentStep(5);
+                return;
+              } else {
+                console.log("No matching venue found in package venues");
               }
-
-              // Update event details with venue name
-              setEventDetails((prev: EventDetails) => ({
-                ...prev,
-                venue: matchingVenue.venue_title || "",
-              }));
-
-              // Skip venue selection step and go to components
-              console.log("Auto-selected venue, skipping to components step");
-              setCurrentStep(5);
-              return;
-            } else {
-              console.log("No matching venue found in package venues");
             }
+          } else {
+            console.log("No venues in package or already initialized");
           }
-        } else {
-          console.log("No venues in package or already initialized");
+
+          // Merge all inclusions (package and venue) as generic components
+          // Add deduplication logic to handle duplicate components from database
+          const rawComponents = packageData.components || [];
+          const uniqueComponentsMap = new Map();
+
+          rawComponents.forEach((comp: any) => {
+            const key = `${comp.component_name.toLowerCase().trim()}_${parseFloat(comp.component_price)}`;
+
+            // Only keep the first occurrence of each unique component
+            if (!uniqueComponentsMap.has(key)) {
+              uniqueComponentsMap.set(key, {
+                id: comp.component_id,
+                name: comp.component_name,
+                price: parseFloat(comp.component_price),
+                description: comp.component_description,
+                category: "package",
+                included: true,
+                isCustom: false,
+                originalId: comp.component_id,
+                subComponents:
+                  comp.subcomponents?.map((sub: any) => ({
+                    id: sub.subcomponent_id,
+                    name: sub.subcomponent_name,
+                    price: parseFloat(sub.subcomponent_price),
+                    description: sub.subcomponent_description,
+                  })) || [],
+              });
+            }
+          });
+
+          const packageComponents = Array.from(uniqueComponentsMap.values());
+
+          // Don't add venue inclusions yet - wait for venue selection
+          // Only set package components initially
+          setComponents(packageComponents);
+
+          // Set original package price
+          setOriginalPackagePrice(parseFloat(packageData.package_price));
+
+          // Update event details with package capacity
+          setEventDetails((prev: EventDetails) => ({
+            ...prev,
+            capacity: packageData.guest_capacity,
+          }));
+
+          // Move to venue selection step
+          setCurrentStep(4);
         }
-
-        // Merge all inclusions (package and venue) as generic components
-        // Add deduplication logic to handle duplicate components from database
-        const rawComponents = packageData.components || [];
-        const uniqueComponentsMap = new Map();
-
-        rawComponents.forEach((comp: any) => {
-          const key = `${comp.component_name.toLowerCase().trim()}_${parseFloat(comp.component_price)}`;
-
-          // Only keep the first occurrence of each unique component
-          if (!uniqueComponentsMap.has(key)) {
-            uniqueComponentsMap.set(key, {
-              id: comp.component_id,
-              name: comp.component_name,
-              price: parseFloat(comp.component_price),
-              description: comp.component_description,
-              category: "package",
-              included: true,
-              isCustom: false,
-              originalId: comp.component_id,
-              subComponents:
-                comp.subcomponents?.map((sub: any) => ({
-                  id: sub.subcomponent_id,
-                  name: sub.subcomponent_name,
-                  price: parseFloat(sub.subcomponent_price),
-                  description: sub.subcomponent_description,
-                })) || [],
-            });
-          }
+      } catch (error) {
+        console.error("Error fetching package details:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load package details. Please try again.",
+          variant: "destructive",
         });
-
-        const packageComponents = Array.from(uniqueComponentsMap.values());
-
-        // Don't add venue inclusions yet - wait for venue selection
-        // Only set package components initially
-        setComponents(packageComponents);
-
-        // Set original package price
-        setOriginalPackagePrice(parseFloat(packageData.package_price));
-
-        // Update event details with package capacity
-        setEventDetails((prev: EventDetails) => ({
-          ...prev,
-          capacity: packageData.guest_capacity,
-        }));
-
-        // Move to venue selection step
-        setCurrentStep(4);
       }
-    } catch (error) {
-      console.error("Error fetching package details:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load package details. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
+    },
+    [
+      selectedVenueId,
+      setSelectedVenue,
+      setComponents,
+      setEventDetails,
+      setCurrentStep,
+    ]
+  );
 
   // Helper function to load static package data
   const loadStaticPackageData = (packageId: string) => {
@@ -745,54 +946,55 @@ export default function EventBuilderPage() {
   };
 
   // Handle venue selection
-  const handleVenueSelect = (venueId: string) => {
+  const handleVenueSelect = useCallback((venueId: string) => {
     setSelectedVenueId(venueId);
-  };
+  }, []);
 
   // Handle component updates
-  const handleComponentsUpdate = (
-    updatedComponents: DataPackageComponent[]
-  ) => {
-    // Only update if the components have actually changed
-    if (JSON.stringify(updatedComponents) !== JSON.stringify(components)) {
-      setComponents(updatedComponents);
+  const handleComponentsUpdate = useCallback(
+    (updatedComponents: DataPackageComponent[]) => {
+      // Only update if the components have actually changed
+      if (JSON.stringify(updatedComponents) !== JSON.stringify(components)) {
+        setComponents(updatedComponents);
 
-      // If we're making manual changes to components, we'll recalculate the price
-      // based on the components rather than using the original package price
-      if (originalPackagePrice) {
-        // Check if any components have been modified
-        const hasModifiedComponents = updatedComponents.some(
-          (comp) =>
-            comp.isCustom ||
-            comp.included === false ||
-            (comp.subComponents && comp.subComponents.length > 0)
-        );
+        // If we're making manual changes to components, we'll recalculate the price
+        // based on the components rather than using the original package price
+        if (originalPackagePrice) {
+          // Check if any components have been modified
+          const hasModifiedComponents = updatedComponents.some(
+            (comp) =>
+              comp.isCustom ||
+              comp.included === false ||
+              (comp.subComponents && comp.subComponents.length > 0)
+          );
 
-        if (hasModifiedComponents) {
-          setOriginalPackagePrice(null);
+          if (hasModifiedComponents) {
+            setOriginalPackagePrice(null);
+          }
         }
       }
-    }
-  };
+    },
+    [components, originalPackagePrice]
+  );
 
   // Handle payment data update
-  const handlePaymentDataUpdate = (data: Partial<PaymentData>) => {
+  const handlePaymentDataUpdate = useCallback((data: Partial<PaymentData>) => {
     console.log("Updating payment data:", data);
     setPaymentData((prev) => {
       const updated = { ...prev, ...data };
       console.log("Updated payment data:", updated);
       return updated;
     });
-  };
+  }, []);
 
   // Handle timeline updates
-  const handleTimelineUpdate = (timeline: TimelineItem[]) => {
+  const handleTimelineUpdate = useCallback((timeline: TimelineItem[]) => {
     setTimelineData(timeline);
-  };
+  }, []);
 
-  const handleWeddingFormUpdate = (data: any) => {
+  const handleWeddingFormUpdate = useCallback((data: any) => {
     setWeddingFormData(data);
-  };
+  }, []);
 
   // Get organizer names from IDs
   const getOrganizerNames = () => {
@@ -823,7 +1025,7 @@ export default function EventBuilderPage() {
     if (!selectedVenueId) return "";
 
     // Check package venues first (if a package is selected)
-    if (packageVenues.length > 0) {
+    if (packageVenues && packageVenues.length > 0) {
       const packageVenue = packageVenues.find(
         (v: any) => String(v.venue_id) === String(selectedVenueId)
       );
@@ -831,14 +1033,21 @@ export default function EventBuilderPage() {
         return packageVenue.venue_title || packageVenue.venue_name;
     }
 
-    // Then check all venues
-    const venue = allVenues.find(
-      (v: any) => String(v.venue_id) === String(selectedVenueId)
-    );
-    return venue ? venue.venue_title || venue.venue_name : "Selected Venue";
+    // Then check all venues (with safety check)
+    if (allVenues && Array.isArray(allVenues)) {
+      const venue = allVenues.find(
+        (v: any) => String(v.venue_id) === String(selectedVenueId)
+      );
+      return venue ? venue.venue_title || venue.venue_name : "Selected Venue";
+    }
+
+    return "Selected Venue";
   };
 
   const handleComplete = async () => {
+    // Add loading state
+    setLoading(true);
+
     // Debug: Log payment data
     console.log("Payment data before validation:", paymentData);
     console.log("Down payment method:", paymentData.downPaymentMethod);
@@ -856,26 +1065,9 @@ export default function EventBuilderPage() {
         "Reference number required but missing for method:",
         paymentData.downPaymentMethod
       );
-      console.log(
-        "Reference number value:",
-        `"${paymentData.referenceNumber}"`
-      );
-      console.log(
-        "Reference number length:",
-        paymentData.referenceNumber?.length || 0
-      );
-      console.log("Full payment data:", paymentData);
       setShowMissingRefDialog(true);
+      setLoading(false);
       return;
-    }
-
-    // Debug: Log reference number validation success
-    if (
-      paymentData.downPaymentMethod === "gcash" ||
-      paymentData.downPaymentMethod === "bank-transfer"
-    ) {
-      console.log("✅ Reference number validation passed!");
-      console.log("Reference number:", `"${paymentData.referenceNumber}"`);
     }
 
     console.log("🔍 Starting additional validations...");
@@ -889,6 +1081,7 @@ export default function EventBuilderPage() {
         description: "Please select a client before creating an event.",
         variant: "destructive",
       });
+      setLoading(false);
       return;
     }
     console.log("✅ Client validation passed");
@@ -902,6 +1095,7 @@ export default function EventBuilderPage() {
         description: "Event title is required",
         variant: "destructive",
       });
+      setLoading(false);
       return;
     }
 
@@ -912,6 +1106,7 @@ export default function EventBuilderPage() {
         description: "Event date is required",
         variant: "destructive",
       });
+      setLoading(false);
       return;
     }
 
@@ -924,6 +1119,7 @@ export default function EventBuilderPage() {
         description: "Start time and end time are required",
         variant: "destructive",
       });
+      setLoading(false);
       return;
     }
 
@@ -934,6 +1130,7 @@ export default function EventBuilderPage() {
         description: "Guest count must be greater than 0",
         variant: "destructive",
       });
+      setLoading(false);
       return;
     }
 
@@ -944,18 +1141,31 @@ export default function EventBuilderPage() {
         description: "Event theme is required",
         variant: "destructive",
       });
+      setLoading(false);
       return;
     }
 
     // Check for scheduling conflicts
     if (eventDetails.hasConflicts) {
-      console.log("❌ Scheduling conflicts detected");
-      toast({
-        title: "Scheduling Conflict",
-        description:
-          "There are scheduling conflicts with your selected date and time. Please resolve them before proceeding.",
-        variant: "destructive",
-      });
+      console.log("Scheduling conflicts detected");
+
+      // Enhanced conflict messaging based on business rules
+      if (eventDetails.type === "wedding") {
+        toast({
+          title: "Wedding Scheduling Conflict",
+          description:
+            "Weddings have special scheduling rules. Only one wedding is allowed per day, and weddings cannot be scheduled alongside other events.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Scheduling Conflict",
+          description:
+            "There are scheduling conflicts with your selected date and time. Please resolve them before proceeding.",
+          variant: "destructive",
+        });
+      }
+      setLoading(false);
       return;
     }
 
@@ -970,6 +1180,7 @@ export default function EventBuilderPage() {
         description: "Please select a package for the event.",
         variant: "destructive",
       });
+      setLoading(false);
       return;
     }
     console.log("✅ Package selection validation passed");
@@ -984,6 +1195,7 @@ export default function EventBuilderPage() {
         description: "Admin user information not found. Please log in again.",
         variant: "destructive",
       });
+      setLoading(false);
       return;
     }
     console.log("✅ Admin user validation passed");
@@ -991,17 +1203,17 @@ export default function EventBuilderPage() {
     console.log("🚀 All validations passed! Starting event creation...");
 
     try {
-      // Prepare event data for API
+      // Prepare event data for API with proper field mapping to match backend expectations
       const eventData = {
         operation: "createEvent",
-        original_booking_reference: bookingReference || null, // Include booking reference if present
-        user_id: parseInt(clientData.id), // Client ID
-        admin_id: parseInt(userData.user_id), // Admin ID
+        original_booking_reference: bookingReference || null,
+        user_id: parseInt(clientData.id),
+        admin_id: parseInt(userData.user_id),
         organizer_id:
-          selectedOrganizers.length > 0 && selectedOrganizers[0]
-            ? isNaN(parseInt(selectedOrganizers[0]))
-              ? null
-              : parseInt(selectedOrganizers[0])
+          selectedOrganizers?.length > 0 && selectedOrganizers[0]
+            ? !isNaN(parseInt(selectedOrganizers[0]))
+              ? parseInt(selectedOrganizers[0])
+              : null
             : null,
         event_title: eventDetails.title || "New Event",
         event_theme: eventDetails.theme || null,
@@ -1009,8 +1221,12 @@ export default function EventBuilderPage() {
         event_type_id: getEventTypeIdFromName(eventDetails.type),
         guest_count: parseInt(eventDetails.capacity.toString()) || 100,
         event_date: eventDetails.date,
-        start_time: eventDetails.startTime || "10:00",
-        end_time: eventDetails.endTime || "18:00",
+        start_time: eventDetails.startTime
+          ? eventDetails.startTime + ":00"
+          : "10:00:00", // Ensure proper time format
+        end_time: eventDetails.endTime
+          ? eventDetails.endTime + ":00"
+          : "18:00:00", // Ensure proper time format
         package_id: selectedPackageId ? parseInt(selectedPackageId) : null,
         venue_id: selectedVenueId ? parseInt(selectedVenueId) : null,
         total_budget: parseFloat(getTotalBudget().toString()) || 0,
@@ -1028,115 +1244,59 @@ export default function EventBuilderPage() {
             : null,
         client_signature: clientSignature || null,
         finalized_at: new Date().toISOString(),
-        // Separate event attachments and payment attachments
-        event_attachments: (() => {
-          const eventAttachments: Array<{
-            original_name: string;
-            file_name: string;
-            file_path: string;
-            file_size: number;
-            file_type: string;
-            description: string;
-            attachment_type: string;
-            uploaded_at: string;
-          }> = [];
-
-          // Add event attachments only
-          if (attachments && attachments.length > 0) {
-            attachments.forEach((attachment) => {
-              eventAttachments.push({
-                original_name: attachment.fileName,
-                file_name:
-                  attachment.uploadedPath?.split("/").pop() ||
-                  attachment.fileName,
-                file_path: attachment.uploadedPath || "",
-                file_size: attachment.fileSize,
-                file_type: attachment.fileType,
-                description: "",
-                attachment_type: "event_attachment",
-                uploaded_at: attachment.uploadedAt || new Date().toISOString(),
-              });
-            });
-          }
-
-          return eventAttachments.length > 0
-            ? JSON.stringify(eventAttachments)
-            : null;
-        })(),
-        // Payment attachments for the down payment
-        payment_attachments: (() => {
-          const paymentAttachments: Array<{
-            original_name: string;
-            file_name: string;
-            file_path: string;
-            file_size: number;
-            file_type: string;
-            description: string;
-            proof_type: string;
-            uploaded_at: string;
-          }> = [];
-
-          // Add payment proof attachments
-          if (paymentData && paymentData.paymentAttachments) {
-            paymentData.paymentAttachments.forEach((proof: any) => {
-              paymentAttachments.push({
-                original_name: proof.original_name,
-                file_name: proof.file_name,
-                file_path: proof.file_path,
-                file_size: proof.file_size,
-                file_type: proof.file_type,
-                description: proof.description,
-                proof_type: proof.proof_type,
-                uploaded_at: proof.uploaded_at,
-              });
-            });
-          }
-
-          // Add payment schedule proof attachments if they're for down payment
-          if (paymentData && paymentData.paymentSchedule) {
-            paymentData.paymentSchedule.forEach((scheduleItem: any) => {
-              if (scheduleItem.proof_files) {
-                scheduleItem.proof_files.forEach((proof: any) => {
-                  paymentAttachments.push({
-                    original_name: proof.original_name,
-                    file_name: proof.file_name,
-                    file_path: proof.file_path,
-                    file_size: proof.file_size,
-                    file_type: proof.file_type,
-                    description: proof.description,
-                    proof_type: proof.proof_type,
-                    uploaded_at: proof.uploaded_at,
-                  });
-                });
-              }
-            });
-          }
-
-          return paymentAttachments.length > 0 ? paymentAttachments : null;
-        })(),
-        components: components.map((comp, index) => ({
-          component_name: comp.name || "",
-          component_price: parseFloat(comp.price?.toString() || "0") || 0,
-          component_description: (comp as any).description || "",
-          is_custom: comp.isCustom || false,
-          is_included: comp.included !== false,
-          original_package_component_id: (comp as any).originalId || null,
-          display_order: index,
-        })),
-        timeline: timelineData.map((item, index) => ({
-          activity_title: item.componentName || "",
-          activity_date:
-            item.date instanceof Date
-              ? item.date.toISOString().split("T")[0]
-              : item.date,
-          start_time: item.startTime || "10:00",
-          end_time: item.endTime || "18:00",
-          location: item.location || "",
-          notes: item.notes || "",
-          assigned_to: item.assignedTo || null,
-          status: item.status || "pending",
-          display_order: index,
-        })),
+        // Event attachments - simplified structure
+        event_attachments:
+          attachments?.length > 0
+            ? (() => {
+                const eventAttachments = attachments.map((attachment) => ({
+                  original_name: attachment.fileName,
+                  file_name:
+                    attachment.uploadedPath?.split("/").pop() ||
+                    attachment.fileName,
+                  file_path: attachment.uploadedPath || "",
+                  file_size: attachment.fileSize,
+                  file_type: attachment.fileType,
+                  description: "",
+                  attachment_type: "event_attachment",
+                  uploaded_at:
+                    attachment.uploadedAt || new Date().toISOString(),
+                }));
+                return JSON.stringify(eventAttachments);
+              })()
+            : null,
+        // Payment attachments - simplified structure
+        payment_attachments:
+          paymentData?.paymentAttachments?.length &&
+          paymentData.paymentAttachments.length > 0
+            ? paymentData.paymentAttachments
+            : null,
+        // Components data
+        components:
+          components?.map((comp, index) => ({
+            component_name: comp.name || "",
+            component_price: parseFloat(comp.price?.toString() || "0") || 0,
+            component_description: (comp as any).description || "",
+            is_custom: comp.isCustom || false,
+            is_included: comp.included !== false,
+            original_package_component_id: (comp as any).originalId || null,
+            display_order: index,
+          })) || [],
+        // Timeline data
+        timeline:
+          timelineData?.map((item, index) => ({
+            activity_title: item.componentName || "",
+            activity_date:
+              item.date instanceof Date
+                ? item.date.toISOString().split("T")[0]
+                : item.date,
+            start_time: item.startTime || "10:00",
+            end_time: item.endTime || "18:00",
+            location: item.location || "",
+            notes: item.notes || "",
+            assigned_to: item.assignedTo || null,
+            status: item.status || "pending",
+            display_order: index,
+          })) || [],
       };
 
       console.log("Creating event with data:", eventData);
@@ -1148,7 +1308,7 @@ export default function EventBuilderPage() {
         payment_attachments: eventData.payment_attachments,
       });
 
-      // Call API to create event
+      // Call API to create event - using the same approach as package-builder
       const response = await axios.post(
         "http://localhost/events-api/admin.php",
         eventData,
@@ -1160,12 +1320,34 @@ export default function EventBuilderPage() {
       );
 
       console.log("API Response:", response.data);
+      console.log("API Response type:", typeof response.data);
+      console.log("API Response keys:", Object.keys(response.data || {}));
+
+      // Enhanced response validation
+      if (!response.data) {
+        console.error("API returned no response");
+        throw new Error("No response from server");
+      }
+
+      if (
+        typeof response.data === "object" &&
+        Object.keys(response.data).length === 0
+      ) {
+        console.error("API returned empty response object");
+        throw new Error("Server returned empty response");
+      }
 
       if (response.data.status === "success") {
-        // Show success UI and confetti
-        showConfetti();
+        console.log("✅ Event created successfully!");
 
-        // If this was created from a booking, show additional success message
+        // Show success UI and confetti
+        try {
+          showConfetti();
+        } catch (confettiError) {
+          console.warn("Confetti failed to show:", confettiError);
+        }
+
+        // Show appropriate success message
         if (bookingReference) {
           toast({
             title: "Event Created & Booking Confirmed",
@@ -1178,7 +1360,7 @@ export default function EventBuilderPage() {
           });
         }
 
-        // Update event data with returned event ID or generated one
+        // Update event data with returned event ID
         const newEventId = response.data.event_id;
         setCurrentEventId(newEventId);
 
@@ -1220,7 +1402,11 @@ export default function EventBuilderPage() {
         // Show completion confirmation modal instead of success modal
         setShowCompletionModal(true);
 
-        // Log transaction
+        // Clear local storage and draft after successful event creation
+        clearLocalStorage();
+        handleClearDraft();
+
+        // Log successful transaction
         console.log("Event created successfully:", {
           eventId: response.data.event_id,
           clientName: clientData.name,
@@ -1232,47 +1418,72 @@ export default function EventBuilderPage() {
           organizers: getOrganizerNames(),
         });
       } else {
-        // Show error toast
+        // Handle API error response
         console.error("API Error Response:", response.data);
+        const errorMessage =
+          response.data.message || "Failed to create event. Please try again.";
+
         toast({
           title: "Error",
-          description:
-            response.data.message ||
-            "Failed to create event. Please try again.",
+          description: errorMessage,
           variant: "destructive",
         });
       }
     } catch (error: any) {
-      console.error("API error:", error);
-      // Log more details about the error
+      console.error("Event creation error:", error);
+
+      // Enhanced error handling similar to package-builder
       if (axios.isAxiosError(error)) {
-        console.error("Response data:", error.response?.data);
-        console.error("Response status:", error.response?.status);
-        console.error("Response headers:", error.response?.headers);
+        console.error("Axios error details:", {
+          status: error.response?.status,
+          data: error.response?.data,
+          message: error.message,
+        });
 
-        // Show more specific error message
-        const errorMessage =
-          error.response?.data?.message ||
-          (error.response?.status === 500
-            ? "Server error occurred. Please check server logs."
-            : error.response?.status === 404
-              ? "API endpoint not found."
-              : error.response?.status === 403
-                ? "Access forbidden."
-                : "Failed to connect to server.");
-
+        if (error.response?.data) {
+          // Server responded with error
+          const errorMessage =
+            error.response.data.message || "Server error occurred";
+          toast({
+            title: "Server Error",
+            description: errorMessage,
+            variant: "destructive",
+          });
+        } else if (error.request) {
+          // Request was made but no response received
+          toast({
+            title: "Connection Error",
+            description:
+              "No response from server. Please check your connection and ensure the backend server is running.",
+            variant: "destructive",
+          });
+        } else {
+          // Something else happened
+          toast({
+            title: "Request Error",
+            description: "Failed to send request to server. Please try again.",
+            variant: "destructive",
+          });
+        }
+      } else if (
+        error.code === "ECONNREFUSED" ||
+        error.message?.includes("Network Error")
+      ) {
         toast({
-          title: "API Error",
-          description: `${errorMessage} (Status: ${error.response?.status || "Unknown"})`,
+          title: "Connection Error",
+          description:
+            "Cannot connect to the backend server. Please ensure the PHP server is running on localhost.",
           variant: "destructive",
         });
       } else {
         toast({
-          title: "API Error",
-          description: "An unexpected error occurred. Please try again later.",
+          title: "Unexpected Error",
+          description: `An unexpected error occurred: ${error.message || error}`,
           variant: "destructive",
         });
       }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1532,13 +1743,24 @@ export default function EventBuilderPage() {
 
             // Check for scheduling conflicts
             if (eventDetails.hasConflicts) {
-              console.log("❌ Scheduling conflicts detected");
-              toast({
-                title: "Scheduling Conflict",
-                description:
-                  "There are scheduling conflicts with your selected date and time. Please resolve them before proceeding.",
-                variant: "destructive",
-              });
+              console.log("Scheduling conflicts detected");
+
+              // Enhanced conflict messaging based on business rules
+              if (eventDetails.type === "wedding") {
+                toast({
+                  title: "Wedding Scheduling Conflict",
+                  description:
+                    "Weddings have special scheduling rules. Only one wedding is allowed per day, and weddings cannot be scheduled alongside other events.",
+                  variant: "destructive",
+                });
+              } else {
+                toast({
+                  title: "Scheduling Conflict",
+                  description:
+                    "There are scheduling conflicts with your selected date and time. Please resolve them before proceeding.",
+                  variant: "destructive",
+                });
+              }
               return;
             }
 
@@ -1598,7 +1820,10 @@ export default function EventBuilderPage() {
           eventType={eventDetails.type}
           venues={packageVenues.length > 0 ? packageVenues : allVenues}
           initialVenueId={selectedVenueId || undefined}
-          onSelect={(venueId, packageId, guestCount) => {
+          onSelect={async (venueId, packageId, guestCount) => {
+            // Add a small delay to show loading state
+            await new Promise((resolve) => setTimeout(resolve, 500));
+
             setSelectedVenueId(venueId);
             // Look for venue in the appropriate list
             const venueList =
@@ -1898,6 +2123,9 @@ export default function EventBuilderPage() {
   ];
 
   const clearForm = () => {
+    // Clear local storage
+    clearLocalStorage();
+
     // Reset all form state
     setClientData({
       id: "",
@@ -1906,6 +2134,9 @@ export default function EventBuilderPage() {
       phone: "",
       address: "",
     });
+
+    // Reset dirty state
+    setIsFormDirty(false);
 
     setEventDetails({
       type: "birthday",
@@ -2020,7 +2251,15 @@ export default function EventBuilderPage() {
   return (
     <div className="container mx-auto py-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Event Builder</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-3xl font-bold">Event Builder</h1>
+          {isFormDirty && (
+            <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-1 rounded-md border border-blue-200">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              Auto-saving...
+            </div>
+          )}
+        </div>
         {bookingId && (
           <div className="bg-primary/10 text-primary px-3 py-1 rounded-md text-sm">
             Booking: {bookingId}
@@ -2191,14 +2430,10 @@ export default function EventBuilderPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => {
-                  toast({
-                    title: "Draft Saved",
-                    description: "The event draft has been saved.",
-                  });
-                }}
+                onClick={handleClearForm}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50"
               >
-                Save as Draft
+                Clear All Fields
               </Button>
             </div>
           </div>
@@ -2293,6 +2528,34 @@ export default function EventBuilderPage() {
         onClose={() => setShowSuccessModal(false)}
         onDashboard={() => router.push("/admin/dashboard")}
         eventDetails={eventData}
+      />
+
+      {/* Draft Handler */}
+      <DraftHandler
+        formData={{
+          currentStep,
+          clientData,
+          eventDetails,
+          selectedPackageId,
+          selectedVenueId,
+          selectedVenue,
+          components,
+          originalPackagePrice,
+          selectedOrganizers,
+          paymentData,
+          timelineData,
+          weddingFormData,
+        }}
+        onLoadDraft={handleLoadDraft}
+        onClearDraft={handleClearDraft}
+        isDirty={isFormDirty}
+      />
+
+      {/* Clear Form Confirmation Modal */}
+      <ClearFormModal
+        open={showClearFormModal}
+        onOpenChange={setShowClearFormModal}
+        onConfirm={handleClearDraft}
       />
     </div>
   );

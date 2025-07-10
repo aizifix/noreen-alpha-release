@@ -1,8 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Calendar, Clock, AlertTriangle, CheckCircle } from "lucide-react";
-import { format } from "date-fns";
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  Calendar,
+  Clock,
+  AlertTriangle,
+  CheckCircle,
+  Heart,
+  Users,
+  RefreshCw,
+} from "lucide-react";
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  isSameDay,
+} from "date-fns";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import {
   Popover,
@@ -35,8 +49,24 @@ interface ConflictingEvent {
   event_date: string;
   start_time: string;
   end_time: string;
+  event_type_id: number;
+  event_type_name: string;
   client_name: string;
   venue_name: string;
+}
+
+// Interface for calendar conflict data with heat map support
+interface CalendarConflictData {
+  [date: string]: {
+    hasWedding: boolean;
+    hasOtherEvents: boolean;
+    eventCount: number;
+    events: Array<{
+      event_type_id: number;
+      event_type_name: string;
+      count: number;
+    }>;
+  };
 }
 
 export function EventDetailsStep({
@@ -44,33 +74,45 @@ export function EventDetailsStep({
   onUpdate,
   onNext,
 }: EventDetailsStepProps) {
-  const [date, setDate] = useState<Date | undefined>(() => {
-    if (initialData.date) {
-      try {
-        const parsedDate = new Date(initialData.date);
-        return !isNaN(parsedDate.getTime()) ? parsedDate : undefined;
-      } catch (error) {
-        console.error("Error parsing initial date:", initialData.date, error);
-        return undefined;
-      }
-    }
-    return undefined;
-  });
+  const [date, setDate] = useState<Date>(() => new Date());
   const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
   const [conflictingEvents, setConflictingEvents] = useState<
     ConflictingEvent[]
   >([]);
   const [hasConflicts, setHasConflicts] = useState(false);
+  const [hasWedding, setHasWedding] = useState(false);
+  const [hasOtherEvents, setHasOtherEvents] = useState(false);
+  const [calendarConflictData, setCalendarConflictData] =
+    useState<CalendarConflictData>({});
+  const [isLoadingCalendarData, setIsLoadingCalendarData] = useState(false);
+  const [clickedDate, setClickedDate] = useState<Date | null>(null);
+  const [isCheckingDateConflicts, setIsCheckingDateConflicts] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const calendarDataLoadedRef = useRef<Set<string>>(new Set());
+  const conflictCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Create a stable update function that only updates specific fields
+  const updateField = useCallback(
+    (field: string, value: any) => {
+      onUpdate({ [field]: value });
+    },
+    [onUpdate]
+  );
+
+  // Create a stable update function for multiple fields
+  const updateFields = useCallback(
+    (updates: Partial<typeof initialData>) => {
+      onUpdate(updates);
+    },
+    [onUpdate]
+  );
 
   // Update date when data changes (e.g., from booking lookup)
   useEffect(() => {
     if (initialData.date) {
       try {
         const parsedDate = new Date(initialData.date);
-        if (
-          !isNaN(parsedDate.getTime()) &&
-          (!date || format(date, "yyyy-MM-dd") !== initialData.date)
-        ) {
+        if (!isNaN(parsedDate.getTime())) {
           setDate(parsedDate);
         }
       } catch (error) {
@@ -79,58 +121,376 @@ export function EventDetailsStep({
     }
   }, [initialData.date]);
 
-  // Set default times if not already set
+  // Set default times if not already set - only run once on mount
   useEffect(() => {
     if (!initialData.startTime || !initialData.endTime) {
-      const defaultData = {
-        ...initialData,
-        startTime: initialData.startTime || "10:00",
-        endTime: initialData.endTime || "18:00",
-      };
-      console.log("Setting default times:", defaultData);
-      onUpdate(defaultData);
+      const updates: Partial<typeof initialData> = {};
+      if (!initialData.startTime) updates.startTime = "10:00";
+      if (!initialData.endTime) updates.endTime = "18:00";
+
+      console.log("Setting default times:", updates);
+      updateFields(updates);
     }
+  }, []); // Empty dependency array - only run once
+
+  // Generate sample heat map data based on actual events from database
+  const generateSampleHeatMapData = (
+    startDate: string,
+    endDate: string
+  ): CalendarConflictData => {
+    const sampleData: CalendarConflictData = {};
+
+    // Based on actual events from database for July 2025
+    if (startDate.includes("2025-07")) {
+      // July 3: Multiple events (orange)
+      sampleData["2025-07-03"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 2,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 2 }],
+      };
+
+      // July 8: Anniversary (yellow)
+      sampleData["2025-07-08"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [
+          { event_type_id: 2, event_type_name: "Anniversary", count: 1 },
+        ],
+      };
+
+      // July 9: Jesse Wedding (yellow - but listed as Anniversary in DB)
+      sampleData["2025-07-09"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [
+          { event_type_id: 2, event_type_name: "Anniversary", count: 1 },
+        ],
+      };
+
+      // July 10: Event with Payment Proof (yellow)
+      sampleData["2025-07-10"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 11: Wedding + Montreal Wedding (red - multiple with wedding)
+      sampleData["2025-07-11"] = {
+        hasWedding: true,
+        hasOtherEvents: true,
+        eventCount: 2,
+        events: [
+          { event_type_id: 1, event_type_name: "Wedding", count: 1 },
+          { event_type_id: 1, event_type_name: "Wedding", count: 1 },
+        ],
+      };
+
+      // July 12: Another Fix v2 (yellow)
+      sampleData["2025-07-12"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 13: V3 - Payment Method Attempt (yellow)
+      sampleData["2025-07-13"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 18: Test Event (yellow)
+      sampleData["2025-07-18"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 23: Montreal Wedding (yellow - Anniversary in DB)
+      sampleData["2025-07-23"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 31: Event Name (yellow)
+      sampleData["2025-07-31"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+    } else {
+      // For other months, generate generic sample data
+      const today = new Date();
+      const currentMonth = today.getMonth();
+      const currentYear = today.getFullYear();
+
+      // Sample wedding (red, blocked)
+      const weddingDate = new Date(currentYear, currentMonth, 15);
+      sampleData[format(weddingDate, "yyyy-MM-dd")] = {
+        hasWedding: true,
+        hasOtherEvents: false,
+        eventCount: 1,
+        events: [{ event_type_id: 1, event_type_name: "Wedding", count: 1 }],
+      };
+
+      // Sample events on different dates
+      const eventDates = [8, 22, 28];
+      eventDates.forEach((day, index) => {
+        const eventDate = new Date(currentYear, currentMonth, day);
+        const dateString = format(eventDate, "yyyy-MM-dd");
+
+        sampleData[dateString] = {
+          hasWedding: false,
+          hasOtherEvents: true,
+          eventCount: index + 1,
+          events: [
+            {
+              event_type_id: index + 2,
+              event_type_name: "Others",
+              count: index + 1,
+            },
+          ],
+        };
+      });
+    }
+
+    console.log(
+      "Generated sample data for date range:",
+      startDate,
+      "to",
+      endDate
+    );
+    console.log("Sample data:", sampleData);
+    return sampleData;
+  };
+
+  // Load calendar conflict data when component mounts or date changes
+  useEffect(() => {
+    if (date) {
+      loadCalendarConflictData();
+    } else {
+      // Load real data for July 2025 by default to show actual events from database
+      const july2025 = new Date(2025, 6, 1); // July 2025
+      loadCalendarConflictData(july2025);
+    }
+  }, [date]); // Only depend on date changes
+
+  // Check for conflicts when date or time changes - but only after calendar data is loaded
+  useEffect(() => {
+    if (
+      initialData.date &&
+      initialData.startTime &&
+      initialData.endTime &&
+      !isLoadingCalendarData &&
+      !isInitialLoad
+    ) {
+      // Clear any existing timeout
+      if (conflictCheckTimeoutRef.current) {
+        clearTimeout(conflictCheckTimeoutRef.current);
+      }
+
+      // Add a debounced delay to prevent excessive API calls
+      conflictCheckTimeoutRef.current = setTimeout(() => {
+        checkForConflicts();
+      }, 500); // Increased delay to 500ms for better debouncing
+
+      return () => {
+        if (conflictCheckTimeoutRef.current) {
+          clearTimeout(conflictCheckTimeoutRef.current);
+        }
+      };
+    }
+  }, [
+    initialData.date,
+    initialData.startTime,
+    initialData.endTime,
+    isLoadingCalendarData,
+    isInitialLoad,
+  ]);
+
+  // Notify parent component about conflicts - only when conflicts change
+  useEffect(() => {
+    if (initialData.hasConflicts !== hasConflicts) {
+      console.log("Updating parent with conflict status:", hasConflicts);
+      updateField('hasConflicts', hasConflicts);
+    }
+  }, [hasConflicts, initialData.hasConflicts, updateField]); // Only depend on conflict status changes
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (conflictCheckTimeoutRef.current) {
+        clearTimeout(conflictCheckTimeoutRef.current);
+      }
+    };
   }, []);
 
-  // Check for conflicts when date or time changes
-  useEffect(() => {
-    if (initialData.date && initialData.startTime && initialData.endTime) {
-      checkForConflicts();
-    }
-  }, [initialData.date, initialData.startTime, initialData.endTime]);
+  const loadCalendarConflictData = useCallback(
+    async (targetDate?: Date) => {
+      const dateToUse = targetDate || date || new Date();
+      const monthKey = format(dateToUse, "yyyy-MM");
 
-  // Notify parent component about conflicts
-  useEffect(() => {
-    const updatedData = { ...initialData, hasConflicts };
-    console.log("Updating parent with conflict status:", updatedData);
-    onUpdate(updatedData);
-  }, [hasConflicts]);
+      // Check if we've already loaded data for this month
+      if (calendarDataLoadedRef.current.has(monthKey)) {
+        console.log("Calendar data already loaded for:", monthKey);
+        return;
+      }
 
-  const handleDateSelect = (selectedDate: Date | undefined) => {
-    setDate(selectedDate);
+      setIsLoadingCalendarData(true);
+      try {
+        const startDate = format(startOfMonth(dateToUse), "yyyy-MM-dd");
+        const endDate = format(endOfMonth(dateToUse), "yyyy-MM-dd");
 
-    const formattedDate = selectedDate
-      ? format(selectedDate, "yyyy-MM-dd")
-      : "";
+        console.log(
+          "Loading calendar data for range:",
+          startDate,
+          "to",
+          endDate
+        );
 
-    const updatedData = {
-      ...initialData,
-      date: formattedDate,
-    };
+        // Use axios like in events page for consistency
+        const response = await axios.post(
+          "http://localhost/events-api/admin.php",
+          {
+            operation: "getCalendarConflictData",
+            start_date: startDate,
+            end_date: endDate,
+          }
+        );
 
-    onUpdate(updatedData);
+        console.log("Calendar conflict data response:", response.data);
 
-    // Check for conflicts when date changes
-    if (selectedDate) {
-      setTimeout(checkForConflicts, 100);
-    }
+        if (response.data.status === "success") {
+          setCalendarConflictData(response.data.calendarData || {});
+          console.log(
+            "✅ Successfully loaded real calendar data:",
+            response.data.calendarData
+          );
+
+          // Count total events loaded for logging
+          const totalEvents = Object.values(
+            response.data.calendarData || {}
+          ).reduce(
+            (sum: number, dayData: any) => sum + (dayData.eventCount || 0),
+            0
+          );
+
+          console.log(
+            `📊 Found ${totalEvents} events for ${format(dateToUse, "MMMM yyyy")}`
+          );
+
+          // Mark this month as loaded
+          calendarDataLoadedRef.current.add(monthKey);
+        } else {
+          console.error(
+            "❌ API Error loading calendar data:",
+            response.data.message
+          );
+
+          // If API fails, show sample data for demonstration
+          const sampleData = generateSampleHeatMapData(startDate, endDate);
+          setCalendarConflictData(sampleData);
+          console.log("Using sample heat map data:", sampleData);
+
+          toast({
+            title: "API Error - Using Sample Data",
+            description:
+              response.data.message || "Calendar API returned an error",
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error("❌ Network error loading calendar data:", error);
+
+        // If network fails, show sample data
+        const startDate = format(startOfMonth(dateToUse), "yyyy-MM-dd");
+        const endDate = format(endOfMonth(dateToUse), "yyyy-MM-dd");
+        const sampleData = generateSampleHeatMapData(startDate, endDate);
+        setCalendarConflictData(sampleData);
+        console.log(
+          "Using sample heat map data due to network error:",
+          sampleData
+        );
+
+        toast({
+          title: "Network Error - Using Sample Data",
+          description:
+            "Cannot connect to server. Showing sample heat map data.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoadingCalendarData(false);
+        // Mark initial load as complete after first calendar data load
+        if (isInitialLoad) {
+          setIsInitialLoad(false);
+        }
+      }
+    },
+    [date, isInitialLoad]
+  );
+
+  const handleDateSelect = async (selectedDate: Date | undefined) => {
+    if (!selectedDate) return;
+
+    console.log("Date selected:", selectedDate);
+    setClickedDate(selectedDate);
+    setIsCheckingDateConflicts(true);
+
+    const formattedDate = format(selectedDate, "yyyy-MM-dd");
+
+    // Check if this date has existing events
+    const dateData = calendarConflictData[formattedDate];
+
+    // Simulate checking conflicts for the clicked date
+    setTimeout(async () => {
+      try {
+        // Update the date state
+        setDate(selectedDate);
+
+        console.log("Updating with date:", formattedDate);
+        updateField("date", formattedDate);
+
+        // Check for conflicts with current time settings
+        if (initialData.startTime && initialData.endTime) {
+          // Force a fresh conflict check for the selected date
+          await checkForConflicts();
+        }
+
+        // Show immediate feedback about the selected date (only for conflicts)
+        if (dateData && (dateData.hasWedding || dateData.hasOtherEvents)) {
+          if (dateData.hasWedding) {
+            toast({
+              title: "Wedding Scheduled",
+              description: `This date has a wedding event. Only one wedding per day is allowed.`,
+              variant: "destructive",
+            });
+          } else if (dateData.hasOtherEvents && dateData.eventCount > 1) {
+            toast({
+              title: "Multiple Events Scheduled",
+              description: `This date has ${dateData.eventCount} events. Check for time conflicts.`,
+              variant: "default",
+            });
+          }
+        }
+      } finally {
+        setIsCheckingDateConflicts(false);
+        setClickedDate(null);
+      }
+    }, 800); // Simulate loading time
   };
 
   const handleTimeChange = (field: "startTime" | "endTime", value: string) => {
-    const updatedData = {
-      ...initialData,
-      [field]: value,
-    };
+    console.log(`Time changed - ${field}:`, value);
 
     // Validate that start time is before end time
     if (
@@ -159,27 +519,51 @@ export function EventDetailsStep({
       return;
     }
 
-    onUpdate(updatedData);
+    console.log("Updating with time:", field, value);
+    updateField(field, value);
 
-    // Check for conflicts when time changes
-    setTimeout(checkForConflicts, 100);
+    // Clear any existing timeout
+    if (conflictCheckTimeoutRef.current) {
+      clearTimeout(conflictCheckTimeoutRef.current);
+    }
+
+    // Check for conflicts when time changes - with debouncing
+    conflictCheckTimeoutRef.current = setTimeout(() => {
+      if (!isInitialLoad && !isLoadingCalendarData) {
+        checkForConflicts();
+      }
+    }, 300); // Shorter delay for time changes
   };
 
-  const checkForConflicts = async () => {
+  const checkForConflicts = useCallback(async () => {
     console.log(
-      "Checking conflicts - date:",
+      "🔍 Checking conflicts - date:",
       date,
       "startTime:",
       initialData.startTime,
       "endTime:",
-      initialData.endTime
+      initialData.endTime,
+      "isInitialLoad:",
+      isInitialLoad,
+      "isLoadingCalendarData:",
+      isLoadingCalendarData
     );
 
     if (!date || !initialData.startTime || !initialData.endTime) {
-      console.log("Skipping conflict check - missing required data");
+      console.log("⏭️ Skipping conflict check - missing required data");
       setHasConflicts(false);
+      setHasWedding(false);
+      setHasOtherEvents(false);
       setConflictingEvents([]);
-      onUpdate({ ...initialData, hasConflicts: false });
+      if (initialData.hasConflicts !== false) {
+        updateField("hasConflicts", false);
+      }
+      return;
+    }
+
+    // Don't check conflicts during initial load or while calendar data is loading
+    if (isInitialLoad || isLoadingCalendarData) {
+      console.log("⏭️ Skipping conflict check - still loading data");
       return;
     }
 
@@ -189,44 +573,150 @@ export function EventDetailsStep({
       const eventDate = format(date, "yyyy-MM-dd");
       console.log("Checking conflicts for date:", eventDate);
 
-      const requestBody = new URLSearchParams({
-        operation: "checkEventConflicts",
-        event_date: eventDate,
-        start_time: initialData.startTime,
-        end_time: initialData.endTime,
-        exclude_event_id: "", // New event
-      });
+      // Use axios for consistency with other API calls
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "checkEventConflicts",
+          event_date: eventDate,
+          start_time: initialData.startTime,
+          end_time: initialData.endTime,
+          exclude_event_id: "", // New event
+        }
+      );
 
-      const response = await fetch("http://localhost/events-api/admin.php", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: requestBody,
-      });
+      console.log("Conflict check response:", response.data);
 
-      const data = await response.json();
-      console.log("Conflict check response:", data);
+      if (response.data.status === "success") {
+        const hasConflictsFound = response.data.hasConflicts || false;
+        const hasWeddingFound = response.data.hasWedding || false;
+        const hasOtherEventsFound = response.data.hasOtherEvents || false;
 
-      if (data.status === "success") {
-        const hasConflictsFound = data.hasConflicts || false;
         setHasConflicts(hasConflictsFound);
-        setConflictingEvents(data.conflicts || []);
+        setHasWedding(hasWeddingFound);
+        setHasOtherEvents(hasOtherEventsFound);
+        setConflictingEvents(response.data.conflicts || []);
 
         // Update parent component with conflict status
-        onUpdate({ ...initialData, hasConflicts: hasConflictsFound });
+        if (initialData.hasConflicts !== hasConflictsFound) {
+          updateField("hasConflicts", hasConflictsFound);
+        }
       } else {
-        console.error("Error checking conflicts:", data.message);
+        console.error("Error checking conflicts:", response.data.message);
         setHasConflicts(false);
+        setHasWedding(false);
+        setHasOtherEvents(false);
         setConflictingEvents([]);
-        onUpdate({ ...initialData, hasConflicts: false });
+        if (initialData.hasConflicts !== false) {
+          updateField("hasConflicts", false);
+        }
       }
     } catch (error) {
       console.error("Error checking conflicts:", error);
       setHasConflicts(false);
+      setHasWedding(false);
+      setHasOtherEvents(false);
       setConflictingEvents([]);
-      onUpdate({ ...initialData, hasConflicts: false });
+      if (initialData.hasConflicts !== false) {
+        updateField("hasConflicts", false);
+      }
     } finally {
       setIsCheckingConflicts(false);
     }
+  }, [
+    date,
+    initialData.startTime,
+    initialData.endTime,
+    initialData.hasConflicts,
+    isInitialLoad,
+    isLoadingCalendarData,
+    onUpdate,
+  ]);
+
+  // Get heat map color based on event count
+  const getHeatMapColor = (eventCount: number, hasWedding: boolean) => {
+    if (hasWedding) {
+      return "bg-red-500"; // Wedding - always red and blocked
+    }
+
+    if (eventCount === 0) {
+      return "bg-white"; // No events - very light green
+    } else if (eventCount === 1) {
+      return "bg-yellow-200"; // One event - light yellow
+    } else if (eventCount === 2) {
+      return "bg-orange-300"; // Two events - orange
+    } else if (eventCount >= 3) {
+      return "bg-red-300"; // Three or more events - light red
+    }
+
+    return "bg-gray-50"; // Default
+  };
+
+  // Get text color for heat map
+  const getHeatMapTextColor = (eventCount: number, hasWedding: boolean) => {
+    if (hasWedding || eventCount >= 3) {
+      return "text-white";
+    }
+    return "text-gray-900";
+  };
+
+  // Custom calendar day renderer with heat map
+  const renderCalendarDay = (day: Date) => {
+    const dateString = format(day, "yyyy-MM-dd");
+    const dayData = calendarConflictData[dateString];
+    const isSelected = date && isSameDay(day, date);
+    const isClickedDate = clickedDate && isSameDay(day, clickedDate);
+
+    const eventCount = dayData?.eventCount || 0;
+    const hasWedding = dayData?.hasWedding || false;
+
+    const heatMapBgColor = getHeatMapColor(eventCount, hasWedding);
+    const heatMapTextColor = getHeatMapTextColor(eventCount, hasWedding);
+
+    return (
+      <button
+        className={cn(
+          "relative w-9 h-9 text-sm font-medium rounded-md transition-all duration-200",
+          "flex items-center justify-center",
+          heatMapBgColor,
+          heatMapTextColor,
+          isSelected && "ring-2 ring-blue-500 ring-offset-1",
+          isClickedDate &&
+            isCheckingDateConflicts &&
+            "animate-pulse ring-2 ring-yellow-400",
+          "hover:bg-gray-100 focus:bg-gray-100"
+        )}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleDateSelect(day);
+        }}
+        style={{ border: "none", boxShadow: "none" }}
+      >
+        <span>{format(day, "d")}</span>
+
+        {/* Event count indicator for multiple events */}
+        {eventCount > 1 && (
+          <div className="absolute -top-1 -right-1 z-10">
+            <div
+              className={cn(
+                "text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold shadow-sm border border-white",
+                hasWedding ? "bg-red-700 text-white" : "bg-blue-600 text-white"
+              )}
+            >
+              {eventCount}
+            </div>
+          </div>
+        )}
+
+        {/* Loading indicator for clicked date */}
+        {isClickedDate && isCheckingDateConflicts && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 rounded-md z-20">
+            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+          </div>
+        )}
+      </button>
+    );
   };
 
   const generateTimeOptions = () => {
@@ -257,9 +747,7 @@ export function EventDetailsStep({
             <Input
               id="event-title"
               value={initialData.title || ""}
-              onChange={(e) =>
-                onUpdate({ ...initialData, title: e.target.value })
-              }
+              onChange={(e) => updateField("title", e.target.value)}
               placeholder="Enter event title"
               required
             />
@@ -270,9 +758,7 @@ export function EventDetailsStep({
             </Label>
             <Select
               value={initialData.type || "wedding"}
-              onValueChange={(value) =>
-                onUpdate({ ...initialData, type: value })
-              }
+              onValueChange={(value) => updateField("type", value)}
             >
               <SelectTrigger id="event-type">
                 <SelectValue placeholder="Select event type" />
@@ -326,9 +812,7 @@ export function EventDetailsStep({
           </Label>
           <Select
             value={initialData.theme || ""}
-            onValueChange={(value) =>
-              onUpdate({ ...initialData, theme: value })
-            }
+            onValueChange={(value) => updateField("theme", value)}
           >
             <SelectTrigger id="event-theme">
               <SelectValue placeholder="Select event theme" />
@@ -361,22 +845,50 @@ export function EventDetailsStep({
           </Select>
         </div>
 
-        {/* Enhanced Date and Time Selection Section */}
+        {/* Enhanced Date and Time Selection Section with Heat Map Calendar */}
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <Calendar className="h-5 w-5 text-blue-600" />
-            Date & Time Selection
+            Date & Time Selection with Event Heat Map
           </h3>
 
+          {/* Heat Map Guide */}
+          <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
+            <h4 className="text-sm font-medium text-gray-700 mb-2">
+              Heat Map Guide:
+            </h4>
+            <div className="flex items-center gap-3 text-xs flex-wrap">
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 bg-green-50 border rounded"></div>
+                <span>Available</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 bg-yellow-200 border rounded"></div>
+                <span>1 Event</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 bg-orange-300 border rounded"></div>
+                <span>2 Events</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 bg-red-300 border rounded"></div>
+                <span>3+ Events</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 bg-red-500 border rounded"></div>
+                <Heart className="h-3 w-3 text-white fill-white absolute" />
+                <span>Wedding (Blocked)</span>
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-6 lg:grid-cols-3">
-            {/* Date Selection */}
+            {/* Date Selection with Heat Map */}
             <div className="space-y-2">
               <Label htmlFor="event-date">
                 Event Date <span className="text-red-500">*</span>
                 {hasConflicts && (
-                  <span className="text-red-500 ml-2">
-                    ⚠️ Conflict detected!
-                  </span>
+                  <span className="text-red-500 ml-2">Conflict detected</span>
                 )}
               </Label>
               <Popover>
@@ -394,11 +906,27 @@ export function EventDetailsStep({
                     {date ? format(date, "PPP") : <span>Select date</span>}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
+                <PopoverContent className="w-auto p-0" align="start">
+                  {/* Loading indicator for calendar data */}
+                  {isLoadingCalendarData && (
+                    <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-10 rounded-md">
+                      <div className="flex items-center gap-2 text-sm text-blue-600">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        Loading calendar data...
+                      </div>
+                    </div>
+                  )}
+
                   <CalendarComponent
                     mode="single"
                     selected={date}
                     onSelect={handleDateSelect}
+                    onMonthChange={(newMonth) => {
+                      console.log("Month changed to:", newMonth);
+                      // Load data for the new month
+                      loadCalendarConflictData(newMonth);
+                    }}
+                    defaultMonth={date}
                     disabled={(checkDate) => {
                       const today = new Date();
                       today.setHours(0, 0, 0, 0);
@@ -407,6 +935,28 @@ export function EventDetailsStep({
                       return dateToCheck < today;
                     }}
                     initialFocus
+                    className="rounded-md border"
+                    components={{
+                      Day: ({ date: dayDate, ...props }: any) => {
+                        const day = new Date(dayDate);
+                        const { displayMonth, className, ...domProps } = props;
+                        const isOutsideMonth =
+                          displayMonth &&
+                          (day.getMonth() !== displayMonth.getMonth() ||
+                            day.getFullYear() !== displayMonth.getFullYear());
+                        return (
+                          <div
+                            className={cn(
+                              "flex items-center justify-center p-0 h-9 w-9",
+                              className,
+                              isOutsideMonth && "pointer-events-none opacity-40"
+                            )}
+                          >
+                            {renderCalendarDay(day)}
+                          </div>
+                        );
+                      },
+                    }}
                   />
                 </PopoverContent>
               </Popover>
@@ -465,35 +1015,72 @@ export function EventDetailsStep({
           )}
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="event-capacity">
-            Expected Guest Count <span className="text-red-500">*</span>
-          </Label>
-          <Input
-            id="event-capacity"
-            type="number"
-            min="1"
-            value={initialData.capacity || ""}
-            onChange={(e) =>
-              onUpdate({
-                ...initialData,
-                capacity: Number.parseInt(e.target.value) || 0,
-              })
-            }
-            placeholder="Number of guests"
-            className="max-w-xs"
-          />
+        {/* Conflict checking indicator and manual refresh */}
+        <div className="flex items-center justify-between">
+          {(isCheckingConflicts || isCheckingDateConflicts) && (
+            <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              {isCheckingDateConflicts
+                ? "Checking date availability..."
+                : "Checking for scheduling conflicts..."}
+            </div>
+          )}
+
+          {/* Manual refresh button for debugging */}
+          {initialData.date && initialData.startTime && initialData.endTime && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                console.log("🔄 Manual conflict check triggered");
+                checkForConflicts();
+              }}
+              disabled={isCheckingConflicts || isCheckingDateConflicts}
+              className="text-xs"
+            >
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Refresh Conflicts
+            </Button>
+          )}
         </div>
 
-        {/* Conflict checking indicator */}
-        {isCheckingConflicts && (
-          <div className="flex items-center gap-2 text-sm text-blue-600">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-            Checking for scheduling conflicts...
-          </div>
-        )}
+        {/* Enhanced Success message when no conflicts */}
+        {!hasConflicts &&
+          !isCheckingConflicts &&
+          !isCheckingDateConflicts &&
+          initialData.date &&
+          initialData.startTime &&
+          initialData.endTime && (
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg p-6 shadow-lg">
+              <div className="flex items-center gap-4">
+                <div className="flex-shrink-0">
+                  <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center">
+                    <CheckCircle className="h-6 w-6 text-white" />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h4 className="text-md font-bold text-green-800">
+                      No Conflicts Found
+                    </h4>
+                  </div>
+                  <p className="text-green-700 font-medium mb-3">
+                    Your selected date and time slot is completely available.
+                  </p>
+                  <div className="bg-green-100 border-l-4 border-green-500 p-3 rounded-r-lg">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-green-800 text-sm font-medium">
+                        You can proceed to the next step with confidence!
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
-        {/* Enhanced Conflict warning */}
+        {/* Show conflict warning when conflicts exist */}
         {hasConflicts && conflictingEvents.length > 0 && (
           <div className="bg-gradient-to-r from-red-50 to-pink-50 border-2 border-red-300 rounded-lg p-6 shadow-lg">
             <div className="flex items-start gap-4">
@@ -505,11 +1092,47 @@ export function EventDetailsStep({
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-3">
                   <h4 className="text-xl font-bold text-red-800">
-                    🚨 Scheduling Conflicts Detected!
+                    Scheduling Conflicts Detected
                   </h4>
                 </div>
+
+                {/* Business rule explanation */}
+                {hasWedding && (
+                  <div className="bg-red-100 border-l-4 border-red-500 p-3 rounded-r-lg mb-4">
+                    <div className="flex items-center gap-2">
+                      <div>
+                        <p className="font-bold text-red-900">
+                          Business Rule Violation
+                        </p>
+                        <p className="text-red-800 text-sm">
+                          Only one wedding is allowed per day. Please select a
+                          different date.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {hasOtherEvents &&
+                  initialData.type === "wedding" &&
+                  !hasWedding && (
+                    <div className="bg-orange-100 border-l-4 border-orange-500 p-3 rounded-r-lg mb-4">
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <p className="font-bold text-orange-900">
+                            Business Rule Violation
+                          </p>
+                          <p className="text-orange-800 text-sm">
+                            Weddings cannot be scheduled alongside other events.
+                            Please select a different date.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                 <p className="text-red-700 font-medium mb-4">
-                  ⚠️ The following events overlap with your selected time slot:
+                  The following events overlap with your selected time slot:
                 </p>
 
                 <div className="space-y-3 mb-4">
@@ -520,11 +1143,22 @@ export function EventDetailsStep({
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <div className="font-bold text-red-800 text-lg mb-1">
-                            {event.event_title}
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="font-bold text-red-800 text-lg">
+                              {event.event_title}
+                            </div>
+                            {event.event_type_id === 1 && (
+                              <Heart className="h-4 w-4 text-red-500 fill-red-500" />
+                            )}
+                            {event.event_type_id !== 1 && (
+                              <Users className="h-4 w-4 text-orange-500" />
+                            )}
                           </div>
                           <div className="text-red-700 text-sm space-y-1">
                             <div className="flex items-center gap-4">
+                              <span>
+                                <strong>Type:</strong> {event.event_type_name}
+                              </span>
                               <span>
                                 <strong>Client:</strong> {event.client_name}
                               </span>
@@ -573,49 +1207,12 @@ export function EventDetailsStep({
           </div>
         )}
 
-        {/* Enhanced Success message when no conflicts */}
-        {!hasConflicts &&
-          !isCheckingConflicts &&
-          initialData.date &&
-          initialData.startTime &&
-          initialData.endTime && (
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg p-6 shadow-lg">
-              <div className="flex items-center gap-4">
-                <div className="flex-shrink-0">
-                  <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center">
-                    <CheckCircle className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <h4 className="text-xl font-bold text-green-800">
-                      ✅ Perfect! No Conflicts Found
-                    </h4>
-                  </div>
-                  <p className="text-green-700 font-medium mb-3">
-                    Your selected date and time slot is completely available.
-                  </p>
-                  <div className="bg-green-100 border-l-4 border-green-500 p-3 rounded-r-lg">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                      <span className="text-green-800 text-sm font-medium">
-                        You can proceed to the next step with confidence!
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
         <div className="space-y-2">
           <Label htmlFor="event-notes">Additional Notes</Label>
           <Textarea
             id="event-notes"
             value={initialData.notes || ""}
-            onChange={(e) =>
-              onUpdate({ ...initialData, notes: e.target.value })
-            }
+            onChange={(e) => updateField("notes", e.target.value)}
             placeholder="Enter any additional notes or requirements"
             rows={3}
           />

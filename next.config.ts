@@ -1,6 +1,55 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Completely disable source maps
+  productionBrowserSourceMaps: false,
+
+  // Disable source maps in development
+  webpack: (config, { dev, isServer }) => {
+    // Completely disable source maps
+    config.devtool = false;
+
+    // Disable source map generation
+    config.optimization = {
+      ...config.optimization,
+      minimize: false,
+    };
+
+    // Disable source map generation in all loaders
+    config.module.rules.forEach((rule: any) => {
+      if (rule.use && Array.isArray(rule.use)) {
+        rule.use.forEach((loader: any) => {
+          if (loader.options && typeof loader.options === 'object') {
+            loader.options.sourceMap = false;
+          }
+        });
+      }
+    });
+
+    // Optimize module resolution
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+    };
+
+    return config;
+  },
+
+  // Optimize development experience
+  swcMinify: true,
+
+  // Reduce Fast Refresh rebuilds
+  experimental: {
+    optimizePackageImports: ['clsx', 'lucide-react'],
+    // Temporarily disable Fast Refresh to debug
+    fastRefresh: false,
+  },
+
+  // Disable source map generation
+  generateBuildId: async () => {
+    return 'build-' + Date.now();
+  },
+
   images: {
     remotePatterns: [
       {

@@ -83,6 +83,7 @@ export interface EventDetails {
   // Booking metadata for enhanced data flow
   bookingReference?: string;
   venueId?: string;
+  theme?: string;
 }
 
 // Add payment attachment types

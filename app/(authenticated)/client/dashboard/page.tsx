@@ -5,8 +5,16 @@ import { useRouter } from "next/navigation";
 import axios from "axios";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
-import { Calendar, Clock, DollarSign, Package, Users } from "lucide-react";
+import {
+  Calendar,
+  Clock,
+  DollarSign,
+  Package,
+  Users,
+  Plus,
+} from "lucide-react";
 import { format } from "date-fns";
+import { Button } from "@/components/ui/button";
 
 interface Event {
   event_id: number;
@@ -177,7 +185,16 @@ export default function ClientDashboard() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Dashboard</h1>
+        <Button
+          onClick={() => router.push("/client/bookings/create-booking")}
+          className="bg-brand-500 hover:bg-brand-600 text-white"
+        >
+          <Plus className="h-4 w-4" />
+          Create Booking
+        </Button>
+      </div>
 
       {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

@@ -387,7 +387,7 @@ const SignUpPage: React.FC = () => {
         />
         <div className="w-full max-w-2xl bg-white p-8 rounded-lg shadow-xl border-0">
           <h1 className="text-2xl font-bold text-gray-800 text-left mb-6">
-            Register as Vendor
+            Sign up
           </h1>
 
           <div className="relative mb-8">

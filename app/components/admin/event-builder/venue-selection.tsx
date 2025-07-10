@@ -12,6 +12,7 @@ import {
   DollarSign,
   Grid3X3,
   List,
+  Loader,
 } from "lucide-react";
 import {
   Card,
@@ -42,7 +43,11 @@ interface VenueSelectionProps {
   initialVenueId?: string;
   initialPackageId?: string;
   initialGuestCount?: number;
-  onSelect: (venueId: string, packageId: string, guestCount: number) => void;
+  onSelect: (
+    venueId: string,
+    packageId: string,
+    guestCount: number
+  ) => Promise<void>;
 }
 
 export function VenueSelection({
@@ -64,6 +69,7 @@ export function VenueSelection({
   const [filteredVenues, setFilteredVenues] = useState<any[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedVenue, setSelectedVenue] = useState<any | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // Filter venues based on search query
   useEffect(() => {
@@ -91,6 +97,18 @@ export function VenueSelection({
   const handleVenueSelect = (venueId: string) => {
     setSelectedVenueId(venueId);
     // Do NOT call onSelect here
+  };
+
+  // Handle venue confirmation
+  const handleConfirmSelection = async () => {
+    if (!selectedVenueId) return;
+
+    setIsConfirming(true);
+    try {
+      await onSelect(selectedVenueId, selectedPackageId, guestCount);
+    } finally {
+      setIsConfirming(false);
+    }
   };
 
   // Handle guest count change
@@ -578,12 +596,15 @@ export function VenueSelection({
             <CardFooter>
               <Button
                 className="w-full bg-brand-500 hover:bg-brand-600 text-white"
-                disabled={!selectedVenueId}
-                onClick={() =>
-                  onSelect(selectedVenueId, selectedPackageId, guestCount)
-                }
+                disabled={!selectedVenueId || isConfirming}
+                onClick={handleConfirmSelection}
               >
-                {selectedVenueId ? (
+                {isConfirming ? (
+                  <>
+                    <Loader className="h-4 w-4 mr-2 animate-spin" />
+                    Confirming...
+                  </>
+                ) : selectedVenueId ? (
                   <>
                     <Check className="h-4 w-4 mr-2" />
                     Confirm Venue Selection

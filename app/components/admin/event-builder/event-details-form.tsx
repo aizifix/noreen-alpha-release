@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -52,6 +52,20 @@ export function EventDetailsForm({
   const [date, setDate] = useState<Date | undefined>(
     initialValues.eventDate ? new Date(initialValues.eventDate) : undefined
   );
+
+  // Sync date state with initialValues when they change
+  useEffect(() => {
+    if (initialValues.eventDate) {
+      setDate(new Date(initialValues.eventDate));
+    } else {
+      setDate(undefined);
+    }
+  }, [initialValues.eventDate]);
+
+  // Sync values state with initialValues when they change
+  useEffect(() => {
+    setValues(initialValues);
+  }, [initialValues]);
 
   const handleChange = (field: string, value: any) => {
     const newValues = { ...values, [field]: value };

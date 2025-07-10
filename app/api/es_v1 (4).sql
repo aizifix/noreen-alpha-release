@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jul 08, 2025 at 06:04 AM
+-- Generation Time: Jul 10, 2025 at 07:32 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -20,6 +20,136 @@ SET time_zone = "+00:00";
 --
 -- Database: `es_v1`
 --
+
+DELIMITER $$
+--
+-- Procedures
+--
+CREATE DEFINER=`root`@`localhost` PROCEDURE `CleanupExpiredNotifications` ()   BEGIN
+    DELETE FROM tbl_notifications
+    WHERE expires_at IS NOT NULL
+    AND expires_at < NOW()
+    AND notification_status = 'read';
+
+    -- Also clean up old read notifications (older than 30 days)
+    DELETE FROM tbl_notifications
+    WHERE notification_status = 'read'
+    AND read_at < DATE_SUB(NOW(), INTERVAL 30 DAY);
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `CreateNotification` (IN `p_user_id` INT, IN `p_notification_type` VARCHAR(50), IN `p_title` VARCHAR(255), IN `p_message` TEXT, IN `p_priority` VARCHAR(10), IN `p_icon` VARCHAR(50), IN `p_url` VARCHAR(500), IN `p_event_id` INT, IN `p_booking_id` INT, IN `p_venue_id` INT, IN `p_store_id` INT, IN `p_budget_id` INT, IN `p_feedback_id` INT, IN `p_expires_hours` INT)   BEGIN
+    DECLARE expires_timestamp TIMESTAMP DEFAULT NULL;
+
+    -- Calculate expiration if provided
+    IF p_expires_hours IS NOT NULL AND p_expires_hours > 0 THEN
+        SET expires_timestamp = DATE_ADD(NOW(), INTERVAL p_expires_hours HOUR);
+    END IF;
+
+    -- Insert the notification
+    INSERT INTO tbl_notifications (
+        user_id, notification_type, notification_title, notification_message,
+        notification_priority, notification_icon, notification_url,
+        event_id, booking_id, venue_id, store_id, budget_id, feedback_id,
+        expires_at, created_at
+    ) VALUES (
+        p_user_id, p_notification_type, p_title, p_message,
+        p_priority, p_icon, p_url,
+        p_event_id, p_booking_id, p_venue_id, p_store_id, p_budget_id, p_feedback_id,
+        expires_timestamp, NOW()
+    );
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `CreatePaymentDueNotifications` ()   BEGIN
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE schedule_id INT;
+    DECLARE event_id INT;
+    DECLARE user_id INT;
+    DECLARE amount_due DECIMAL(12,2);
+    DECLARE due_date DATE;
+    DECLARE event_title VARCHAR(255);
+    DECLARE days_until_due INT;
+
+    DECLARE payment_cursor CURSOR FOR
+        SELECT eps.schedule_id, eps.event_id, e.user_id, eps.amount_due, eps.due_date, e.event_title,
+               DATEDIFF(eps.due_date, CURDATE()) as days_until_due
+        FROM tbl_event_payment_schedules eps
+        JOIN tbl_events e ON eps.event_id = e.event_id
+        WHERE eps.payment_status IN ('pending', 'partial')
+        AND eps.due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+        AND NOT EXISTS (
+            SELECT 1 FROM tbl_notifications n
+            WHERE n.user_id = e.user_id
+            AND n.notification_type = 'payment_due'
+            AND n.created_at >= CURDATE()
+            AND n.notification_message LIKE CONCAT('%', eps.schedule_id, '%')
+        );
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    OPEN payment_cursor;
+    payment_loop: LOOP
+        FETCH payment_cursor INTO schedule_id, event_id, user_id, amount_due, due_date, event_title, days_until_due;
+        IF done THEN
+            LEAVE payment_loop;
+        END IF;
+
+        -- Create notification based on how many days until due
+        IF days_until_due = 0 THEN
+            -- Due today
+            CALL CreateNotification(
+                user_id,
+                'payment_due',
+                'Payment Due Today',
+                CONCAT('Your payment of ₱', FORMAT(amount_due, 2), ' for "', event_title, '" is due today!'),
+                'urgent',
+                'alert-circle',
+                CONCAT('/client/payments?event_id=', event_id),
+                event_id, NULL, NULL, NULL, NULL, NULL, 24
+            );
+        ELSEIF days_until_due <= 3 THEN
+            -- Due in 1-3 days
+            CALL CreateNotification(
+                user_id,
+                'payment_due',
+                'Payment Due Soon',
+                CONCAT('Your payment of ₱', FORMAT(amount_due, 2), ' for "', event_title, '" is due in ', days_until_due, ' day(s).'),
+                'high',
+                'clock',
+                CONCAT('/client/payments?event_id=', event_id),
+                event_id, NULL, NULL, NULL, NULL, NULL, 72
+            );
+        ELSE
+            -- Due in 4-7 days
+            CALL CreateNotification(
+                user_id,
+                'payment_due',
+                'Upcoming Payment',
+                CONCAT('Reminder: Your payment of ₱', FORMAT(amount_due, 2), ' for "', event_title, '" is due on ', DATE_FORMAT(due_date, '%M %d, %Y'), '.'),
+                'medium',
+                'calendar',
+                CONCAT('/client/payments?event_id=', event_id),
+                event_id, NULL, NULL, NULL, NULL, NULL, 168
+            );
+        END IF;
+
+    END LOOP;
+    CLOSE payment_cursor;
+END$$
+
+--
+-- Functions
+--
+CREATE DEFINER=`root`@`localhost` FUNCTION `GetAdminUserIds` () RETURNS TEXT CHARSET utf8mb4 COLLATE utf8mb4_general_ci DETERMINISTIC READS SQL DATA BEGIN
+    DECLARE admin_ids TEXT DEFAULT '';
+
+    SELECT GROUP_CONCAT(user_id) INTO admin_ids
+    FROM tbl_users
+    WHERE user_role = 'admin';
+
+    RETURN COALESCE(admin_ids, '');
+END$$
+
+DELIMITER ;
 
 -- --------------------------------------------------------
 
@@ -67,7 +197,103 @@ CREATE TABLE `tbl_bookings` (
 INSERT INTO `tbl_bookings` (`booking_id`, `booking_reference`, `user_id`, `event_type_id`, `event_name`, `event_date`, `event_time`, `start_time`, `end_time`, `guest_count`, `venue_id`, `package_id`, `notes`, `booking_status`, `created_at`, `updated_at`) VALUES
 (7, 'BK-20250625-1100', 15, 5, 'ad', '2025-06-26', '10:00:00', '10:00:00', '18:00:00', 100, 30, 15, 'ad', 'converted', '2025-06-25 06:02:06', '2025-06-25 08:26:36'),
 (8, 'BK-20250625-4040', 15, 5, 'Other Event ', '2025-06-26', '10:00:00', '10:00:00', '18:00:00', 100, 29, 15, 'Other Event ', 'converted', '2025-06-25 08:29:08', '2025-06-25 09:10:39'),
-(9, 'BK-20250626-5133', 15, 1, 'hb', '2025-06-29', '10:00:00', '10:00:00', '18:00:00', 50, 29, 15, 'hb', 'converted', '2025-06-26 10:36:30', '2025-06-26 10:40:27');
+(9, 'BK-20250626-5133', 15, 1, 'hb', '2025-06-29', '10:00:00', '10:00:00', '18:00:00', 50, 29, 15, 'hb', 'converted', '2025-06-26 10:36:30', '2025-06-26 10:40:27'),
+(10, 'BK-20250709-2165', 20, 5, 'Jesse Birthday', '2025-08-01', '10:00:00', '10:00:00', '18:00:00', 100, 30, 19, 'Jesse Birthday', 'converted', '2025-07-09 12:08:10', '2025-07-09 12:22:19'),
+(13, 'BK-20250710-2531', 20, 2, 'Test', '2025-07-10', '10:00:00', '10:00:00', '18:00:00', 50, 30, 20, 'Test', 'pending', '2025-07-09 23:08:27', '2025-07-09 23:08:27'),
+(14, 'BK-20250710-8764', 20, 2, 'a', '2025-07-11', '10:00:00', '10:00:00', '18:00:00', 50, 30, 19, 'a', 'confirmed', '2025-07-10 06:24:10', '2025-07-10 06:24:28');
+
+--
+-- Triggers `tbl_bookings`
+--
+DELIMITER $$
+CREATE TRIGGER `notify_on_booking_status_change` AFTER UPDATE ON `tbl_bookings` FOR EACH ROW BEGIN
+    DECLARE notification_title VARCHAR(255);
+    DECLARE notification_message TEXT;
+    DECLARE notification_type VARCHAR(50);
+    DECLARE notification_icon VARCHAR(50);
+    DECLARE notification_url VARCHAR(500);
+
+    -- Only proceed if status actually changed
+    IF OLD.booking_status != NEW.booking_status THEN
+
+        -- Set notification details based on new status
+        CASE NEW.booking_status
+            WHEN 'confirmed' THEN
+                SET notification_type = 'booking_confirmed';
+                SET notification_title = 'Booking Confirmed';
+                SET notification_message = CONCAT('Your booking ', NEW.booking_reference, ' has been confirmed! You can now proceed with event planning.');
+                SET notification_icon = 'check-circle';
+                SET notification_url = CONCAT('/client/bookings/', NEW.booking_id);
+
+            WHEN 'cancelled' THEN
+                SET notification_type = 'booking_cancelled';
+                SET notification_title = 'Booking Cancelled';
+                SET notification_message = CONCAT('Your booking ', NEW.booking_reference, ' has been cancelled.');
+                SET notification_icon = 'x-circle';
+                SET notification_url = CONCAT('/client/bookings/', NEW.booking_id);
+
+            WHEN 'completed' THEN
+                SET notification_type = 'booking_completed';
+                SET notification_title = 'Booking Completed';
+                SET notification_message = CONCAT('Your booking ', NEW.booking_reference, ' has been completed successfully.');
+                SET notification_icon = 'check-circle-2';
+                SET notification_url = CONCAT('/client/bookings/', NEW.booking_id);
+
+            ELSE
+                SET notification_type = 'general';
+                SET notification_title = 'Booking Status Updated';
+                SET notification_message = CONCAT('Your booking ', NEW.booking_reference, ' status has been updated to ', NEW.booking_status, '.');
+                SET notification_icon = 'info';
+                SET notification_url = CONCAT('/client/bookings/', NEW.booking_id);
+        END CASE;
+
+        -- Send notification to client
+        CALL CreateNotification(
+            NEW.user_id,
+            notification_type,
+            notification_title,
+            notification_message,
+            'high',
+            notification_icon,
+            notification_url,
+            NULL, NEW.booking_id, NEW.venue_id, NULL, NULL, NULL, 168
+        );
+    END IF;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `notify_on_new_booking` AFTER INSERT ON `tbl_bookings` FOR EACH ROW BEGIN
+    DECLARE admin_ids TEXT;
+    DECLARE admin_id INT;
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE admin_cursor CURSOR FOR
+        SELECT user_id FROM tbl_users WHERE user_role = 'admin';
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    -- Notify all admins about new booking
+    OPEN admin_cursor;
+    admin_loop: LOOP
+        FETCH admin_cursor INTO admin_id;
+        IF done THEN
+            LEAVE admin_loop;
+        END IF;
+
+        CALL CreateNotification(
+            admin_id,
+            'booking_created',
+            'New Booking Created',
+            CONCAT('New booking ', NEW.booking_reference, ' has been created and requires your review.'),
+            'high',
+            'calendar-plus',
+            CONCAT('/admin/bookings/', NEW.booking_id),
+            NULL, NEW.booking_id, NEW.venue_id, NULL, NULL, NULL, 72
+        );
+    END LOOP;
+    CLOSE admin_cursor;
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
@@ -156,16 +382,162 @@ INSERT INTO `tbl_events` (`event_id`, `original_booking_reference`, `user_id`, `
 (43, NULL, 15, 7, NULL, 'Montreal Wedding', 'modern-minimalist', NULL, 1, 100, '2025-07-11', '12:00:00', '14:00:00', 'partial', 15, 30, 250000.00, 212500.00, 'gcash', 2, '123123123123', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-02 06:29:36', '2025-07-02 06:29:36', '[{\"original_name\":\"User_Involvement_Case_Study_Summary.pdf\",\"file_name\":\"1751436726_6864cdb6df266.pdf\",\"file_path\":\"uploads/event_attachments/1751436726_6864cdb6df266.pdf\",\"file_size\":2340,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T06:12:06.915Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-02 06:29:36', NULL),
 (44, NULL, 15, 7, NULL, 'Test Event', 'custom', NULL, 5, 100, '2025-07-18', '07:30:00', '13:00:00', 'partial', 15, 30, 250000.00, 62500.00, 'gcash', 2, '1231231231231231231231', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-02 06:55:23', '2025-07-02 06:55:23', '[{\"original_name\":\"User_Involvement_Case_Study_Summary.pdf\",\"file_name\":\"1751439219_6864d773cddca.pdf\",\"file_path\":\"uploads/event_attachments/1751439219_6864d773cddca.pdf\",\"file_size\":2340,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T06:53:39.845Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-02 06:55:23', NULL),
 (45, NULL, 15, 7, NULL, 'Proper Event V5', 'color-coordinated', NULL, 5, 100, '2025-07-03', '10:00:00', '18:00:00', 'partial', 15, 30, 250000.00, 212500.00, 'gcash', 2, '1231231231231231231231', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-02 13:20:50', '2025-07-02 13:20:50', '[{\"original_name\":\"image_2025-07-02_212037501.png\",\"file_name\":\"1751462437_68653225860a8.png\",\"file_path\":\"uploads/event_attachments/1751462437_68653225860a8.png\",\"file_size\":43446,\"file_type\":\"image/png\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T13:20:37.550Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-02 13:20:50', NULL),
-(46, NULL, 15, 7, NULL, 'Annivesary', 'cultural-traditional', NULL, 2, 100, '2025-07-08', '10:00:00', '18:00:00', 'partial', 18, 30, 249999.99, 187499.99, 'gcash', 2, '31212131233123123', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-07 20:04:55', '2025-07-07 20:04:55', '[{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751918669_686c284d61bb7.jpg\",\"file_path\":\"uploads/event_attachments/1751918669_686c284d61bb7.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:29.402Z\"},{\"original_name\":\"User_Stories_Event_Planning_System.docx\",\"file_name\":\"1751918671_686c284f2c616.docx\",\"file_path\":\"uploads/event_attachments/1751918671_686c284f2c616.docx\",\"file_size\":42584,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:31.184Z\"},{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751918672_686c28505cb3f.jpg\",\"file_path\":\"uploads/event_attachments/1751918672_686c28505cb3f.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:32.381Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-07 20:04:55', 'Agree');
+(46, NULL, 15, 7, NULL, 'Annivesary', 'cultural-traditional', NULL, 2, 100, '2025-07-08', '10:00:00', '18:00:00', 'partial', 18, 30, 249999.99, 187499.99, 'gcash', 2, '31212131233123123', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-07 20:04:55', '2025-07-07 20:04:55', '[{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751918669_686c284d61bb7.jpg\",\"file_path\":\"uploads/event_attachments/1751918669_686c284d61bb7.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:29.402Z\"},{\"original_name\":\"User_Stories_Event_Planning_System.docx\",\"file_name\":\"1751918671_686c284f2c616.docx\",\"file_path\":\"uploads/event_attachments/1751918671_686c284f2c616.docx\",\"file_size\":42584,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:31.184Z\"},{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751918672_686c28505cb3f.jpg\",\"file_path\":\"uploads/event_attachments/1751918672_686c28505cb3f.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:32.381Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-07 20:04:55', 'Agree'),
+(47, NULL, 15, 7, NULL, 'Jesse Wedding', 'vintage-romance', NULL, 2, 100, '2025-07-09', '10:00:00', '18:00:00', 'paid', 19, 29, 250000.00, 187500.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-08 04:17:11', '2025-07-08 04:18:45', '[{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751948216_686c9bb8102ba.jpg\",\"file_path\":\"uploads/event_attachments/1751948216_686c9bb8102ba.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-08T04:16:56.068Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-08 04:17:11', NULL),
+(48, 'BK-20250709-2165', 20, 7, NULL, 'Jesse Birthday', 'boho-chic', NULL, 5, 100, '2025-08-01', '10:00:00', '18:00:00', 'paid', 19, 30, 250000.00, 212500.00, 'cash', 2, NULL, 'Jesse Birthday', 'draft', NULL, NULL, NULL, NULL, '2025-07-09 12:22:19', '2025-07-09 12:25:24', '[{\"original_name\":\"Document1.docx\",\"file_name\":\"1752063684_686e5ec470f87.docx\",\"file_path\":\"uploads/event_attachments/1752063684_686e5ec470f87.docx\",\"file_size\":409700,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-09T12:21:24.467Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-09 12:22:19', 'Agree');
 
 --
 -- Triggers `tbl_events`
 --
 DELIMITER $$
+CREATE TRIGGER `notify_on_event_create` AFTER INSERT ON `tbl_events` FOR EACH ROW BEGIN
+    DECLARE admin_id INT;
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE admin_cursor CURSOR FOR
+        SELECT user_id FROM tbl_users WHERE user_role = 'admin';
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    -- Notify client about new event
+    CALL CreateNotification(
+        NEW.user_id,
+        'event_created',
+        'Event Created Successfully',
+        CONCAT('Your event "', NEW.event_title, '" has been created successfully! Check your payment schedule for upcoming payments.'),
+        'high',
+        'calendar-check',
+        CONCAT('/client/events/', NEW.event_id),
+        NEW.event_id, NULL, NEW.venue_id, NULL, NULL, NULL, 72
+    );
+
+    -- Notify admins about new event
+    OPEN admin_cursor;
+    admin_loop: LOOP
+        FETCH admin_cursor INTO admin_id;
+        IF done THEN
+            LEAVE admin_loop;
+        END IF;
+
+        -- Don't notify the admin who created the event
+        IF admin_id != NEW.admin_id THEN
+            CALL CreateNotification(
+                admin_id,
+                'event_created',
+                'New Event Created',
+                CONCAT('New event "', NEW.event_title, '" has been created by admin.'),
+                'medium',
+                'calendar-plus',
+                CONCAT('/admin/events/', NEW.event_id),
+                NEW.event_id, NULL, NEW.venue_id, NULL, NULL, NULL, 48
+            );
+        END IF;
+    END LOOP;
+    CLOSE admin_cursor;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `notify_on_event_created` AFTER INSERT ON `tbl_events` FOR EACH ROW BEGIN
+    DECLARE admin_ids TEXT;
+    DECLARE admin_id INT;
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE admin_cursor CURSOR FOR
+        SELECT user_id FROM tbl_users WHERE user_role = 'admin';
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    -- Notify client about new event
+    CALL CreateNotification(
+        NEW.user_id,
+        'event_created',
+        'Event Created Successfully',
+        CONCAT('Your event "', NEW.event_title, '" has been created successfully! Check your payment schedule for upcoming payments.'),
+        'high',
+        'calendar-check',
+        CONCAT('/client/events/', NEW.event_id),
+        NEW.event_id, NULL, NEW.venue_id, NULL, NULL, NULL, 72
+    );
+
+    -- Notify admins about new event
+    OPEN admin_cursor;
+    admin_loop: LOOP
+        FETCH admin_cursor INTO admin_id;
+        IF done THEN
+            LEAVE admin_loop;
+        END IF;
+
+        -- Don't notify the admin who created the event
+        IF admin_id != NEW.admin_id THEN
+            CALL CreateNotification(
+                admin_id,
+                'event_created',
+                'New Event Created',
+                CONCAT('New event "', NEW.event_title, '" has been created by admin.'),
+                'medium',
+                'calendar-plus',
+                CONCAT('/admin/events/', NEW.event_id),
+                NEW.event_id, NULL, NEW.venue_id, NULL, NULL, NULL, 48
+            );
+        END IF;
+    END LOOP;
+    CLOSE admin_cursor;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `notify_on_event_status_change` AFTER UPDATE ON `tbl_events` FOR EACH ROW BEGIN
+    DECLARE notification_title VARCHAR(255);
+    DECLARE notification_message TEXT;
+    DECLARE notification_type VARCHAR(50);
+    DECLARE notification_icon VARCHAR(50);
+
+    -- Only proceed if status actually changed
+    IF OLD.event_status != NEW.event_status THEN
+
+        CASE NEW.event_status
+            WHEN 'confirmed' THEN
+                SET notification_type = 'event_confirmed';
+                SET notification_title = 'Event Confirmed';
+                SET notification_message = CONCAT('Your event "', NEW.event_title, '" has been confirmed and is now scheduled for ', DATE_FORMAT(NEW.event_date, '%M %d, %Y'), '.');
+                SET notification_icon = 'check-circle';
+
+            WHEN 'cancelled' THEN
+                SET notification_type = 'event_cancelled';
+                SET notification_title = 'Event Cancelled';
+                SET notification_message = CONCAT('Your event "', NEW.event_title, '" has been cancelled.');
+                SET notification_icon = 'x-circle';
+
+            WHEN 'done' THEN
+                SET notification_type = 'event_completed';
+                SET notification_title = 'Event Completed';
+                SET notification_message = CONCAT('Your event "', NEW.event_title, '" has been completed successfully! We hope you had a wonderful time.');
+                SET notification_icon = 'check-circle-2';
+
+            ELSE
+                SET notification_type = 'general';
+                SET notification_title = 'Event Status Updated';
+                SET notification_message = CONCAT('Your event "', NEW.event_title, '" status has been updated to ', NEW.event_status, '.');
+                SET notification_icon = 'info';
+        END CASE;
+
+        -- Send notification to client
+        CALL CreateNotification(
+            NEW.user_id,
+            notification_type,
+            notification_title,
+            notification_message,
+            'high',
+            notification_icon,
+            CONCAT('/client/events/', NEW.event_id),
+            NEW.event_id, NULL, NEW.venue_id, NULL, NULL, NULL, 168
+        );
+    END IF;
+END
+$$
+DELIMITER ;
+DELIMITER $$
 CREATE TRIGGER `tr_events_update_tracking` BEFORE UPDATE ON `tbl_events` FOR EACH ROW BEGIN
     -- Auto-update timestamp
     SET NEW.updated_at = CURRENT_TIMESTAMP;
-    
+
     -- If updated_by is not explicitly set, try to maintain it
     IF NEW.updated_by IS NULL AND OLD.updated_by IS NOT NULL THEN
         SET NEW.updated_by = OLD.updated_by;
@@ -416,7 +788,24 @@ INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`
 (166, 46, 'Led Wall', 12000.00, '', 0, 1, 267, 6),
 (167, 46, 'Customized Cake', 7000.00, '', 0, 1, 268, 7),
 (168, 46, 'Anniversary Tokens', 8000.00, '', 0, 1, 269, 8),
-(169, 46, 'Event Coordinator & Staff', 18000.00, '', 0, 1, 270, 9);
+(169, 46, 'Event Coordinator & Staff', 18000.00, '', 0, 1, 270, 9),
+(170, 47, 'Venue Rental', 44000.00, '', 0, 1, 279, 0),
+(171, 47, 'Catering', 70000.00, '', 0, 1, 280, 1),
+(172, 47, 'Lights & Sounds', 30000.00, '', 0, 1, 281, 2),
+(173, 47, 'Host & Live Performer', 20000.00, '', 0, 1, 282, 3),
+(174, 47, 'Event Styling & Decorations', 30000.00, '', 0, 1, 283, 4),
+(175, 47, 'Photographer & Videographer', 25000.00, '', 0, 1, 284, 5),
+(176, 47, 'Invitation Design & Printing', 6000.00, '', 0, 1, 285, 6),
+(177, 47, 'Cake & Wine Set', 5000.00, '', 0, 1, 286, 7),
+(178, 48, 'Venue Rental', 44000.00, '', 0, 1, 279, 0),
+(179, 48, 'Catering', 70000.00, '', 0, 1, 280, 1),
+(180, 48, 'Lights & Sounds', 30000.00, '', 0, 1, 281, 2),
+(181, 48, 'Host & Live Performer', 20000.00, '', 0, 1, 282, 3),
+(182, 48, 'Event Styling & Decorations', 30000.00, '', 0, 1, 283, 4),
+(183, 48, 'Photographer & Videographer', 25000.00, '', 0, 1, 284, 5),
+(184, 48, 'Invitation Design & Printing', 6000.00, '', 0, 1, 285, 6),
+(185, 48, 'Cake & Wine Set', 5000.00, '', 0, 1, 286, 7),
+(186, 48, 'Inclusions', 0.00, '', 0, 1, NULL, 8);
 
 -- --------------------------------------------------------
 
@@ -646,7 +1035,24 @@ INSERT INTO `tbl_event_timeline` (`timeline_id`, `event_id`, `component_id`, `ac
 (390, 46, NULL, 'Host / Emcee', '2025-07-08', '16:00:00', '17:00:00', '', '', NULL, 'pending', 6),
 (391, 46, NULL, 'Acoustic Live Band', '2025-07-08', '18:00:00', '19:00:00', '', '', NULL, 'pending', 7),
 (392, 46, NULL, 'Led Wall', '2025-07-08', '20:00:00', '21:00:00', '', '', NULL, 'pending', 8),
-(393, 46, NULL, 'Customized Cake', '2025-07-08', '22:00:00', '23:00:00', '', '', NULL, 'pending', 9);
+(393, 46, NULL, 'Customized Cake', '2025-07-08', '22:00:00', '23:00:00', '', '', NULL, 'pending', 9),
+(394, 47, NULL, 'Venue Rental', '2025-07-09', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(395, 47, NULL, 'Catering', '2025-07-09', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(396, 47, NULL, 'Lights & Sounds', '2025-07-09', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(397, 47, NULL, 'Host & Live Performer', '2025-07-09', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
+(398, 47, NULL, 'Event Styling & Decorations', '2025-07-09', '16:00:00', '17:00:00', '', '', NULL, 'pending', 4),
+(399, 47, NULL, 'Photographer & Videographer', '2025-07-09', '18:00:00', '19:00:00', '', '', NULL, 'pending', 5),
+(400, 47, NULL, 'Invitation Design & Printing', '2025-07-09', '20:00:00', '21:00:00', '', '', NULL, 'pending', 6),
+(401, 47, NULL, 'Cake & Wine Set', '2025-07-09', '22:00:00', '23:00:00', '', '', NULL, 'pending', 7),
+(402, 48, NULL, 'Inclusions', '2025-08-01', '00:00:00', '01:00:00', '', '', NULL, 'pending', 0),
+(403, 48, NULL, 'Venue Rental', '2025-08-01', '08:00:00', '09:00:00', '', '', NULL, 'pending', 1),
+(404, 48, NULL, 'Catering', '2025-08-01', '10:00:00', '11:00:00', '', '', NULL, 'pending', 2),
+(405, 48, NULL, 'Lights & Sounds', '2025-08-01', '12:00:00', '13:00:00', '', '', NULL, 'pending', 3),
+(406, 48, NULL, 'Host & Live Performer', '2025-08-01', '14:00:00', '15:00:00', '', '', NULL, 'pending', 4),
+(407, 48, NULL, 'Event Styling & Decorations', '2025-08-01', '16:00:00', '17:00:00', '', '', NULL, 'pending', 5),
+(408, 48, NULL, 'Photographer & Videographer', '2025-08-01', '18:00:00', '19:00:00', '', '', NULL, 'pending', 6),
+(409, 48, NULL, 'Invitation Design & Printing', '2025-08-01', '20:00:00', '21:00:00', '', '', NULL, 'pending', 7),
+(410, 48, NULL, 'Cake & Wine Set', '2025-08-01', '22:00:00', '23:00:00', '', '', NULL, 'pending', 8);
 
 -- --------------------------------------------------------
 
@@ -710,6 +1116,13 @@ CREATE TABLE `tbl_notifications` (
   `booking_id` int(11) DEFAULT NULL,
   `feedback_id` int(11) DEFAULT NULL,
   `notification_message` text NOT NULL,
+  `notification_type` enum('booking_created','booking_confirmed','booking_rejected','booking_cancelled','booking_completed','event_created','event_updated','event_confirmed','event_cancelled','event_completed','payment_created','payment_confirmed','payment_rejected','payment_due','payment_overdue','system','general') NOT NULL DEFAULT 'general',
+  `notification_title` varchar(255) NOT NULL DEFAULT '',
+  `notification_priority` enum('low','medium','high','urgent') NOT NULL DEFAULT 'medium',
+  `notification_icon` varchar(50) DEFAULT NULL,
+  `notification_url` varchar(500) DEFAULT NULL,
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `read_at` timestamp NULL DEFAULT NULL,
   `notification_status` enum('unread','read') NOT NULL DEFAULT 'unread',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -718,13 +1131,19 @@ CREATE TABLE `tbl_notifications` (
 -- Dumping data for table `tbl_notifications`
 --
 
-INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venue_id`, `store_id`, `budget_id`, `booking_id`, `feedback_id`, `notification_message`, `notification_status`, `created_at`) VALUES
-(8, 7, NULL, NULL, NULL, NULL, 7, NULL, 'New booking created: BK-20250625-1100', 'unread', '2025-06-25 06:02:06'),
-(9, 15, NULL, NULL, NULL, NULL, 7, NULL, 'Your booking BK-20250625-1100 for \'ad\' has been accepted! You can now proceed with event planning.', 'unread', '2025-06-25 06:05:07'),
-(10, 7, NULL, NULL, NULL, NULL, 8, NULL, 'New booking created: BK-20250625-4040', 'unread', '2025-06-25 08:29:08'),
-(11, 15, NULL, NULL, NULL, NULL, 8, NULL, 'Your booking BK-20250625-4040 has been accepted! You can now proceed with event planning.', 'unread', '2025-06-25 08:50:18'),
-(12, 7, NULL, NULL, NULL, NULL, 9, NULL, 'New booking created: BK-20250626-5133', 'unread', '2025-06-26 10:36:30'),
-(13, 15, NULL, NULL, NULL, NULL, 9, NULL, 'Your booking BK-20250626-5133 has been accepted! You can now proceed with event planning.', 'unread', '2025-06-26 10:37:05');
+INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venue_id`, `store_id`, `budget_id`, `booking_id`, `feedback_id`, `notification_message`, `notification_type`, `notification_title`, `notification_priority`, `notification_icon`, `notification_url`, `expires_at`, `read_at`, `notification_status`, `created_at`) VALUES
+(8, 7, NULL, NULL, NULL, NULL, 7, NULL, 'New booking created: BK-20250625-1100', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-25 06:02:06'),
+(9, 15, NULL, NULL, NULL, NULL, 7, NULL, 'Your booking BK-20250625-1100 for \'ad\' has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-25 06:05:07'),
+(10, 7, NULL, NULL, NULL, NULL, 8, NULL, 'New booking created: BK-20250625-4040', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-25 08:29:08'),
+(11, 15, NULL, NULL, NULL, NULL, 8, NULL, 'Your booking BK-20250625-4040 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-25 08:50:18'),
+(12, 7, NULL, NULL, NULL, NULL, 9, NULL, 'New booking created: BK-20250626-5133', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-26 10:36:30'),
+(13, 15, NULL, NULL, NULL, NULL, 9, NULL, 'Your booking BK-20250626-5133 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-26 10:37:05'),
+(14, 7, NULL, NULL, NULL, NULL, 10, NULL, 'New booking created: BK-20250709-2165', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-09 12:08:10'),
+(15, 20, NULL, NULL, NULL, NULL, 10, NULL, 'Your booking BK-20250709-2165 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-09 12:10:24'),
+(18, 7, NULL, 30, NULL, NULL, 13, NULL, 'New booking BK-20250710-2531 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/13', '2025-07-12 23:08:27', NULL, 'unread', '2025-07-09 23:08:27'),
+(19, 7, NULL, 30, NULL, NULL, 14, NULL, 'New booking BK-20250710-8764 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/14', '2025-07-13 06:24:10', NULL, 'unread', '2025-07-10 06:24:10'),
+(20, 20, NULL, 30, NULL, NULL, 14, NULL, 'Your booking BK-20250710-8764 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/14', '2025-07-17 06:24:28', NULL, 'unread', '2025-07-10 06:24:28'),
+(21, 20, NULL, NULL, NULL, NULL, 14, NULL, 'Your booking BK-20250710-8764 has been accepted! You can now proceed with event planning.', 'booking_confirmed', 'Confirmed Booking', 'high', 'check-circle', '/client/bookings/14', '2025-07-17 06:24:28', NULL, 'unread', '2025-07-10 06:24:28');
 
 -- --------------------------------------------------------
 
@@ -755,7 +1174,9 @@ CREATE TABLE `tbl_packages` (
 INSERT INTO `tbl_packages` (`package_id`, `package_title`, `package_description`, `package_price`, `guest_capacity`, `created_by`, `created_at`, `updated_at`, `is_active`, `original_price`, `is_price_locked`, `price_lock_date`, `price_history`) VALUES
 (14, 'Wedding Package 1', 'All in wedding package 1', 120000.00, 100, 7, '2025-06-14 12:04:28', '2025-07-08 03:56:43', 1, 120000.00, 1, '2025-06-14 12:04:28', NULL),
 (15, 'Wedding Package 2', 'All in for wedding package 2', 250000.00, 100, 7, '2025-06-14 12:15:37', '2025-07-08 03:56:43', 1, 250000.00, 1, '2025-06-14 12:15:37', NULL),
-(18, 'Anniversary Package', 'All-in-package for anniversary', 249999.99, 100, 7, '2025-07-07 20:03:29', '2025-07-08 03:56:43', 1, 249999.99, 1, '2025-07-07 20:03:29', NULL);
+(18, 'Anniversary Package', 'All-in-package for anniversary', 249999.99, 100, 7, '2025-07-07 20:03:29', '2025-07-08 04:05:39', 0, 249999.99, 1, '2025-07-07 20:03:29', NULL),
+(19, 'Anniversary Package 1', 'All-in-anniversary package', 250000.00, 100, 7, '2025-07-08 04:14:11', '2025-07-08 04:14:45', 1, 250000.00, 1, '2025-07-08 04:14:11', NULL),
+(20, 'Sample Package', 'All-in-sample package', 500000.00, 100, 7, '2025-07-09 12:31:40', '2025-07-09 12:31:40', 1, 500000.00, 1, '2025-07-09 12:31:40', NULL);
 
 --
 -- Triggers `tbl_packages`
@@ -764,10 +1185,10 @@ DELIMITER $$
 CREATE TRIGGER `prevent_package_price_reduction` BEFORE UPDATE ON `tbl_packages` FOR EACH ROW BEGIN
     -- If price is locked and someone tries to reduce it, prevent the update
     IF OLD.is_price_locked = 1 AND NEW.package_price < OLD.package_price THEN
-        SIGNAL SQLSTATE '45000' 
+        SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Cannot reduce package price once locked. Package prices can only increase or remain the same.';
     END IF;
-    
+
     -- If price is being increased, log it in price history
     IF NEW.package_price > OLD.package_price THEN
         INSERT INTO `tbl_package_price_history` (package_id, old_price, new_price, changed_by, change_reason)
@@ -830,7 +1251,17 @@ INSERT INTO `tbl_package_components` (`component_id`, `package_id`, `component_n
 (267, 18, 'Led Wall', '', 12000.00, 6),
 (268, 18, 'Customized Cake', '', 7000.00, 7),
 (269, 18, 'Anniversary Tokens', '', 8000.00, 8),
-(270, 18, 'Event Coordinator & Staff', '', 18000.00, 9);
+(270, 18, 'Event Coordinator & Staff', '', 18000.00, 9),
+(279, 19, 'Venue Rental', '', 44000.00, 0),
+(280, 19, 'Catering', '', 70000.00, 1),
+(281, 19, 'Lights & Sounds', '', 30000.00, 2),
+(282, 19, 'Host & Live Performer', '', 20000.00, 3),
+(283, 19, 'Event Styling & Decorations', '', 30000.00, 4),
+(284, 19, 'Photographer & Videographer', '', 25000.00, 5),
+(285, 19, 'Invitation Design & Printing', '', 6000.00, 6),
+(286, 19, 'Cake & Wine Set', '', 5000.00, 7),
+(287, 20, 'sample_inclusion', '', 12000.00, 0),
+(288, 20, 'sample_inclusion 2', '', 20000.00, 1);
 
 -- --------------------------------------------------------
 
@@ -854,7 +1285,12 @@ INSERT INTO `tbl_package_event_types` (`id`, `package_id`, `event_type_id`) VALU
 (22, 15, 1),
 (23, 15, 5),
 (28, 18, 2),
-(29, 18, 5);
+(29, 18, 5),
+(31, 19, 2),
+(30, 19, 5),
+(32, 20, 2),
+(34, 20, 4),
+(33, 20, 5);
 
 -- --------------------------------------------------------
 
@@ -895,7 +1331,25 @@ INSERT INTO `tbl_package_freebies` (`freebie_id`, `package_id`, `freebie_name`, 
 (41, 18, 'Anniversary Cake', '', 0.00, 0),
 (42, 18, 'Giveaways', '', 0.00, 1),
 (43, 18, 'Toys', '', 0.00, 2),
-(44, 18, 'Picture frames', '', 0.00, 3);
+(44, 18, 'Picture frames', '', 0.00, 3),
+(45, 19, 'Welcome Signage', '', 0.00, 0),
+(46, 19, 'Customized Guestbook', '', 0.00, 1),
+(47, 19, 'Photobooth', '', 0.00, 2),
+(48, 19, 'Complimentary Overnight Stay', '', 0.00, 3),
+(49, 19, 'Cake Topper Upgrade', '', 0.00, 4),
+(50, 19, 'Couple Gift Set', '', 0.00, 5),
+(51, 19, 'Mood Lights Upgrade', '', 0.00, 6),
+(52, 19, 'Balloon Arch or Entrance Decor', '', 0.00, 7),
+(53, 19, 'Sparkular / Cold Pyro Effect', '', 0.00, 8),
+(54, 19, 'Free Use of Mobile Bar', '', 0.00, 9),
+(55, 19, 'E-Invitation Layout', '', 0.00, 10),
+(56, 19, 'Soundtrack Playlist Compilation', '', 0.00, 11),
+(57, 19, 'Coordinator', '', 0.00, 12),
+(58, 19, 'Event Signages', '', 0.00, 13),
+(59, 19, 'Token Gift for Guests', '', 0.00, 14),
+(60, 19, 'Backdrop Upgrade', '', 0.00, 15),
+(61, 20, 'Free 1', '', 0.00, 0),
+(62, 20, 'Free 2', '', 0.00, 1);
 
 -- --------------------------------------------------------
 
@@ -936,7 +1390,12 @@ INSERT INTO `tbl_package_venues` (`id`, `package_id`, `venue_id`, `created_at`) 
 (15, 15, 29, '2025-06-14 12:15:37'),
 (16, 15, 30, '2025-06-14 12:15:37'),
 (21, 18, 30, '2025-07-07 20:03:29'),
-(22, 18, 29, '2025-07-07 20:03:29');
+(22, 18, 29, '2025-07-07 20:03:29'),
+(23, 19, 29, '2025-07-08 04:14:11'),
+(24, 19, 30, '2025-07-08 04:14:11'),
+(25, 20, 34, '2025-07-09 12:31:40'),
+(26, 20, 29, '2025-07-09 12:31:40'),
+(27, 20, 30, '2025-07-09 12:31:40');
 
 -- --------------------------------------------------------
 
@@ -981,24 +1440,178 @@ INSERT INTO `tbl_payments` (`payment_id`, `event_id`, `schedule_id`, `client_id`
 (13, 45, NULL, 15, 'gcash', 212500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-02', '1231231231231231231231', '2025-07-02 13:20:50', '2025-07-02 13:20:50', '[{\"file_name\":\"1751462449_686532316c7d1.png\",\"original_name\":\"image_2025-07-02_212049403.png\",\"file_path\":\"uploads\\/payment_proofs\\/1751462449_686532316c7d1.png\",\"file_size\":43446,\"file_type\":\"image\\/png\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-07-02 15:20:50\"}]'),
 (14, 41, NULL, 5, 'cash', 44700.00, '', NULL, 'completed', '2025-07-02', '', '2025-07-02 15:13:26', '2025-07-02 15:13:26', NULL),
 (15, 42, NULL, 15, 'cash', 89400.00, '', NULL, 'completed', '2025-07-02', '', '2025-07-02 15:19:54', '2025-07-03 01:00:36', NULL),
-(16, 46, NULL, 15, 'gcash', 187499.99, 'Initial down payment for event creation', NULL, 'completed', '2025-07-07', '31212131233123123', '2025-07-07 20:04:55', '2025-07-07 20:04:55', '[{\"file_name\":\"1751918693_686c286577d9d.pdf\",\"original_name\":\"analysis gamon.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751918693_686c286577d9d.pdf\",\"file_size\":61531,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-07 22:04:55\"}]');
+(16, 46, NULL, 15, 'gcash', 187499.99, 'Initial down payment for event creation', NULL, 'completed', '2025-07-07', '31212131233123123', '2025-07-07 20:04:55', '2025-07-07 20:04:55', '[{\"file_name\":\"1751918693_686c286577d9d.pdf\",\"original_name\":\"analysis gamon.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751918693_686c286577d9d.pdf\",\"file_size\":61531,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-07 22:04:55\"}]'),
+(17, 47, NULL, 15, 'cash', 187500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-08', NULL, '2025-07-08 04:17:11', '2025-07-08 04:17:11', '[{\"file_name\":\"1751948226_686c9bc281c60.pdf\",\"original_name\":\"analysis gamon.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751948226_686c9bc281c60.pdf\",\"file_size\":61531,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-08 06:17:11\"}]'),
+(18, 47, NULL, 15, 'cash', 62500.00, '', NULL, 'completed', '2025-07-08', '', '2025-07-08 04:18:45', '2025-07-08 04:18:45', '[{\"filename\":\"1751948325_686c9c256e021.docx\",\"original_name\":\"Document1.docx\",\"description\":\"\",\"file_size\":133331,\"file_type\":\"docx\",\"uploaded_at\":\"2025-07-08 06:18:45\"}]'),
+(19, 48, NULL, 20, 'cash', 212500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-09', NULL, '2025-07-09 12:22:19', '2025-07-09 12:22:19', '[{\"file_name\":\"1752063718_686e5ee632d8c.pdf\",\"original_name\":\"Document1.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752063718_686e5ee632d8c.pdf\",\"file_size\":940474,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-09 14:22:19\"},{\"file_name\":\"1752063728_686e5ef07b2b2.pdf\",\"original_name\":\"milestone_1_filled_followed_format.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752063728_686e5ef07b2b2.pdf\",\"file_size\":79021,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-09 14:22:19\"}]'),
+(20, 48, NULL, 20, 'cash', 37500.00, '', NULL, 'completed', '2025-07-09', '', '2025-07-09 12:25:24', '2025-07-09 12:25:24', '[{\"filename\":\"1752063924_686e5fb42951a.docx\",\"original_name\":\"Document1.docx\",\"description\":\"\",\"file_size\":409700,\"file_type\":\"docx\",\"uploaded_at\":\"2025-07-09 14:25:24\"}]');
 
 --
 -- Triggers `tbl_payments`
 --
+DELIMITER $$
+CREATE TRIGGER `notify_on_payment_create` AFTER INSERT ON `tbl_payments` FOR EACH ROW BEGIN
+    DECLARE admin_id INT;
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE event_title VARCHAR(255);
+    DECLARE admin_cursor CURSOR FOR
+        SELECT user_id FROM tbl_users WHERE user_role = 'admin';
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    -- Get event title
+    SELECT event_title INTO event_title FROM tbl_events WHERE event_id = NEW.event_id;
+
+    -- Notify client about payment submission
+    CALL CreateNotification(
+        NEW.client_id,
+        'payment_created',
+        'Payment Submitted',
+        CONCAT('Your payment of ₱', FORMAT(NEW.payment_amount, 2), ' for "', COALESCE(event_title, 'your event'), '" has been submitted and is pending admin confirmation.'),
+        'medium',
+        'credit-card',
+        CONCAT('/client/payments/', NEW.payment_id),
+        NEW.event_id, NULL, NULL, NULL, NULL, NULL, 48
+    );
+
+    -- Notify admins about new payment
+    OPEN admin_cursor;
+    admin_loop: LOOP
+        FETCH admin_cursor INTO admin_id;
+        IF done THEN
+            LEAVE admin_loop;
+        END IF;
+
+        CALL CreateNotification(
+            admin_id,
+            'payment_created',
+            'New Payment Received',
+            CONCAT('New payment of ₱', FORMAT(NEW.payment_amount, 2), ' received for "', COALESCE(event_title, 'event'), '" requiring confirmation.'),
+            'high',
+            'dollar-sign',
+            CONCAT('/admin/payments/', NEW.payment_id),
+            NEW.event_id, NULL, NULL, NULL, NULL, NULL, 72
+        );
+    END LOOP;
+    CLOSE admin_cursor;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `notify_on_payment_created` AFTER INSERT ON `tbl_payments` FOR EACH ROW BEGIN
+    DECLARE admin_ids TEXT;
+    DECLARE admin_id INT;
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE event_title VARCHAR(255);
+    DECLARE admin_cursor CURSOR FOR
+        SELECT user_id FROM tbl_users WHERE user_role = 'admin';
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    -- Get event title
+    SELECT event_title INTO event_title FROM tbl_events WHERE event_id = NEW.event_id;
+
+    -- Notify client about payment submission
+    CALL CreateNotification(
+        NEW.client_id,
+        'payment_created',
+        'Payment Submitted',
+        CONCAT('Your payment of ₱', FORMAT(NEW.payment_amount, 2), ' for "', COALESCE(event_title, 'your event'), '" has been submitted and is pending admin confirmation.'),
+        'medium',
+        'credit-card',
+        CONCAT('/client/payments/', NEW.payment_id),
+        NEW.event_id, NULL, NULL, NULL, NULL, NULL, 48
+    );
+
+    -- Notify admins about new payment
+    OPEN admin_cursor;
+    admin_loop: LOOP
+        FETCH admin_cursor INTO admin_id;
+        IF done THEN
+            LEAVE admin_loop;
+        END IF;
+
+        CALL CreateNotification(
+            admin_id,
+            'payment_created',
+            'New Payment Received',
+            CONCAT('New payment of ₱', FORMAT(NEW.payment_amount, 2), ' received for "', COALESCE(event_title, 'event'), '" requiring confirmation.'),
+            'high',
+            'dollar-sign',
+            CONCAT('/admin/payments/', NEW.payment_id),
+            NEW.event_id, NULL, NULL, NULL, NULL, NULL, 72
+        );
+    END LOOP;
+    CLOSE admin_cursor;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `notify_on_payment_status_change` AFTER UPDATE ON `tbl_payments` FOR EACH ROW BEGIN
+    DECLARE notification_title VARCHAR(255);
+    DECLARE notification_message TEXT;
+    DECLARE notification_type VARCHAR(50);
+    DECLARE notification_icon VARCHAR(50);
+    DECLARE event_title VARCHAR(255);
+
+    -- Only proceed if status actually changed
+    IF OLD.payment_status != NEW.payment_status THEN
+
+        -- Get event title
+        SELECT event_title INTO event_title FROM tbl_events WHERE event_id = NEW.event_id;
+
+        CASE NEW.payment_status
+            WHEN 'completed' THEN
+                SET notification_type = 'payment_confirmed';
+                SET notification_title = 'Payment Confirmed';
+                SET notification_message = CONCAT('Your payment of ₱', FORMAT(NEW.payment_amount, 2), ' for "', COALESCE(event_title, 'your event'), '" has been confirmed.');
+                SET notification_icon = 'check-circle';
+
+            WHEN 'failed' THEN
+                SET notification_type = 'payment_rejected';
+                SET notification_title = 'Payment Failed';
+                SET notification_message = CONCAT('Your payment of ₱', FORMAT(NEW.payment_amount, 2), ' for "', COALESCE(event_title, 'your event'), '" has failed. Please contact support.');
+                SET notification_icon = 'x-circle';
+
+            WHEN 'cancelled' THEN
+                SET notification_type = 'payment_rejected';
+                SET notification_title = 'Payment Cancelled';
+                SET notification_message = CONCAT('Your payment of ₱', FORMAT(NEW.payment_amount, 2), ' for "', COALESCE(event_title, 'your event'), '" has been cancelled.');
+                SET notification_icon = 'x-circle';
+
+            ELSE
+                SET notification_type = 'general';
+                SET notification_title = 'Payment Status Updated';
+                SET notification_message = CONCAT('Your payment status has been updated to ', NEW.payment_status, '.');
+                SET notification_icon = 'info';
+        END CASE;
+
+        -- Send notification to client
+        CALL CreateNotification(
+            NEW.client_id,
+            notification_type,
+            notification_title,
+            notification_message,
+            'high',
+            notification_icon,
+            CONCAT('/client/payments/', NEW.payment_id),
+            NEW.event_id, NULL, NULL, NULL, NULL, NULL, 168
+        );
+    END IF;
+END
+$$
+DELIMITER ;
 DELIMITER $$
 CREATE TRIGGER `update_payment_schedule_on_payment` AFTER INSERT ON `tbl_payments` FOR EACH ROW BEGIN
   DECLARE schedule_amount_due DECIMAL(12,2);
   DECLARE schedule_amount_paid DECIMAL(12,2);
   DECLARE total_event_paid DECIMAL(12,2);
   DECLARE event_total DECIMAL(12,2);
-  
+
   -- If payment is linked to a schedule, update the schedule
   IF NEW.schedule_id IS NOT NULL AND NEW.payment_status = 'completed' THEN
     -- Update the payment schedule
-    UPDATE tbl_event_payment_schedules 
+    UPDATE tbl_event_payment_schedules
     SET amount_paid = amount_paid + NEW.payment_amount,
-        payment_status = CASE 
+        payment_status = CASE
           WHEN amount_paid + NEW.payment_amount >= amount_due THEN 'paid'
           WHEN amount_paid + NEW.payment_amount > 0 THEN 'partial'
           ELSE 'pending'
@@ -1006,31 +1619,31 @@ CREATE TRIGGER `update_payment_schedule_on_payment` AFTER INSERT ON `tbl_payment
         updated_at = CURRENT_TIMESTAMP
     WHERE schedule_id = NEW.schedule_id;
   END IF;
-  
+
   -- Update overall event payment status
-  SELECT COALESCE(SUM(payment_amount), 0) 
-  INTO total_event_paid 
-  FROM tbl_payments 
+  SELECT COALESCE(SUM(payment_amount), 0)
+  INTO total_event_paid
+  FROM tbl_payments
   WHERE event_id = NEW.event_id AND payment_status = 'completed';
-  
-  SELECT total_budget 
-  INTO event_total 
-  FROM tbl_events 
+
+  SELECT total_budget
+  INTO event_total
+  FROM tbl_events
   WHERE event_id = NEW.event_id;
-  
+
   -- Update event payment status
-  UPDATE tbl_events 
-  SET payment_status = CASE 
+  UPDATE tbl_events
+  SET payment_status = CASE
     WHEN total_event_paid >= event_total THEN 'paid'
     WHEN total_event_paid > 0 THEN 'partial'
     ELSE 'pending'
   END
   WHERE event_id = NEW.event_id;
-  
+
   -- Log the payment activity
   INSERT INTO tbl_payment_logs (event_id, schedule_id, payment_id, client_id, action_type, amount, reference_number, notes)
   VALUES (NEW.event_id, NEW.schedule_id, NEW.payment_id, NEW.client_id, 'payment_received', NEW.payment_amount, NEW.payment_reference, NEW.payment_notes);
-  
+
 END
 $$
 DELIMITER ;
@@ -1038,7 +1651,7 @@ DELIMITER $$
 CREATE TRIGGER `update_payment_schedule_on_payment_update` AFTER UPDATE ON `tbl_payments` FOR EACH ROW BEGIN
   DECLARE total_event_paid DECIMAL(12,2);
   DECLARE event_total DECIMAL(12,2);
-  
+
   -- If payment status changed and is linked to a schedule
   IF NEW.schedule_id IS NOT NULL AND (OLD.payment_status != NEW.payment_status OR OLD.payment_amount != NEW.payment_amount) THEN
     -- Recalculate schedule payment status
@@ -1048,7 +1661,7 @@ CREATE TRIGGER `update_payment_schedule_on_payment_update` AFTER UPDATE ON `tbl_
       FROM tbl_payments p
       WHERE p.schedule_id = eps.schedule_id AND p.payment_status = 'completed'
     ),
-    payment_status = CASE 
+    payment_status = CASE
       WHEN (SELECT COALESCE(SUM(p.payment_amount), 0) FROM tbl_payments p WHERE p.schedule_id = eps.schedule_id AND p.payment_status = 'completed') >= eps.amount_due THEN 'paid'
       WHEN (SELECT COALESCE(SUM(p.payment_amount), 0) FROM tbl_payments p WHERE p.schedule_id = eps.schedule_id AND p.payment_status = 'completed') > 0 THEN 'partial'
       ELSE 'pending'
@@ -1056,32 +1669,32 @@ CREATE TRIGGER `update_payment_schedule_on_payment_update` AFTER UPDATE ON `tbl_
     updated_at = CURRENT_TIMESTAMP
     WHERE schedule_id = NEW.schedule_id;
   END IF;
-  
+
   -- Update overall event payment status
-  SELECT COALESCE(SUM(payment_amount), 0) 
-  INTO total_event_paid 
-  FROM tbl_payments 
+  SELECT COALESCE(SUM(payment_amount), 0)
+  INTO total_event_paid
+  FROM tbl_payments
   WHERE event_id = NEW.event_id AND payment_status = 'completed';
-  
-  SELECT total_budget 
-  INTO event_total 
-  FROM tbl_events 
+
+  SELECT total_budget
+  INTO event_total
+  FROM tbl_events
   WHERE event_id = NEW.event_id;
-  
-  UPDATE tbl_events 
-  SET payment_status = CASE 
+
+  UPDATE tbl_events
+  SET payment_status = CASE
     WHEN total_event_paid >= event_total THEN 'paid'
     WHEN total_event_paid > 0 THEN 'partial'
     ELSE 'pending'
   END
   WHERE event_id = NEW.event_id;
-  
+
   -- Log the payment status change
   IF OLD.payment_status != NEW.payment_status THEN
     INSERT INTO tbl_payment_logs (event_id, schedule_id, payment_id, client_id, action_type, amount, reference_number, notes)
     VALUES (NEW.event_id, NEW.schedule_id, NEW.payment_id, NEW.client_id, 'payment_confirmed', NEW.payment_amount, NEW.payment_reference, CONCAT('Status changed from ', OLD.payment_status, ' to ', NEW.payment_status));
   END IF;
-  
+
 END
 $$
 DELIMITER ;
@@ -1128,7 +1741,11 @@ INSERT INTO `tbl_payment_logs` (`log_id`, `event_id`, `schedule_id`, `payment_id
 (15, 42, NULL, 15, 15, NULL, 'payment_received', 89400.00, '', '', '2025-07-02 15:19:54'),
 (16, 42, NULL, 15, 15, NULL, 'payment_confirmed', 89400.00, '', 'Status changed from pending to completed', '2025-07-03 01:00:36'),
 (17, 42, NULL, 15, 15, NULL, 'payment_confirmed', 89400.00, '', 'Status updated to completed by admin', '2025-07-03 01:00:36'),
-(18, 46, NULL, 16, 15, NULL, 'payment_received', 187499.99, '31212131233123123', 'Initial down payment for event creation', '2025-07-07 20:04:55');
+(18, 46, NULL, 16, 15, NULL, 'payment_received', 187499.99, '31212131233123123', 'Initial down payment for event creation', '2025-07-07 20:04:55'),
+(19, 47, NULL, 17, 15, NULL, 'payment_received', 187500.00, NULL, 'Initial down payment for event creation', '2025-07-08 04:17:11'),
+(20, 47, NULL, 18, 15, NULL, 'payment_received', 62500.00, '', '', '2025-07-08 04:18:45'),
+(21, 48, NULL, 19, 20, NULL, 'payment_received', 212500.00, NULL, 'Initial down payment for event creation', '2025-07-09 12:22:19'),
+(22, 48, NULL, 20, 20, NULL, 'payment_received', 37500.00, '', '', '2025-07-09 12:25:24');
 
 -- --------------------------------------------------------
 
@@ -1281,7 +1898,8 @@ CREATE TABLE `tbl_users` (
 INSERT INTO `tbl_users` (`user_id`, `user_firstName`, `user_lastName`, `user_suffix`, `user_birthdate`, `user_email`, `user_contact`, `user_username`, `user_pwd`, `user_pfp`, `user_role`, `created_at`) VALUES
 (5, 'test', 'test', 'III', '1995-10-20', 'test@gmail.com', '0909090990', 'test', '$2y$10$kINW0dn.gMncgts2MHlwAeuJluo1eotovACTt.z5TUhZ5rf2Ewhhm', 'uploads/user_profile/sample.jpg', 'client', '2025-02-25 12:43:54'),
 (7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 'uploads/user_profile/default_pfp.png', 'admin', '2025-02-25 16:41:22'),
-(15, 'Laurenz', 'Anches', '', '2000-10-31', 'lasi.anches.coc@phinmaed.com', '09054135590', 'laurenz', '$2y$10$IIUK.GHlqUPudNpZoBCw0e8z8OeIpoKH.BSdcHuQdGCiSqjK8prdS', 'uploads/user_profile/sakamoto.jpg', 'client', '2025-03-04 07:26:38');
+(15, 'Laurenz', 'Anches', '', '2000-10-31', 'lasi.anches.coc@phinmaed.com', '09054135590', 'laurenz', '$2y$10$IIUK.GHlqUPudNpZoBCw0e8z8OeIpoKH.BSdcHuQdGCiSqjK8prdS', 'uploads/user_profile/sakamoto.jpg', 'client', '2025-03-04 07:26:38'),
+(20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 'uploads/user_profile/default_pfp.png', 'client', '2025-07-09 12:04:49');
 
 -- --------------------------------------------------------
 
@@ -1315,7 +1933,8 @@ CREATE TABLE `tbl_venue` (
 
 INSERT INTO `tbl_venue` (`venue_id`, `venue_title`, `user_id`, `feedback_id`, `venue_owner`, `venue_location`, `venue_contact`, `venue_details`, `venue_status`, `is_active`, `venue_capacity`, `venue_price`, `venue_type`, `venue_profile_picture`, `venue_cover_photo`, `created_at`, `updated_at`) VALUES
 (29, 'Pearlmont Hotel', 7, NULL, 'Admin', 'Limketkai Drive, Cagayan de Oro City', '09176273275', 'Wedding Package 1', 'available', 1, 100, 44000.00, '', 'uploads/venue_profile_pictures/1749899533_684d590da78aa.jpg', 'uploads/venue_cover_photos/1749899533_684d590da7bbd.jpg', '2025-06-14 11:12:13', '2025-06-14 11:12:13'),
-(30, 'Pearlmont Hotel - Package 2', 7, NULL, 'Admin', 'Limketkai Drive, Cagayan de Oro City', '09176273275', 'Package 2', 'available', 1, 100, 48000.00, '', 'uploads/venue_profile_pictures/1749900114_684d5b5252fe9.jpg', 'uploads/venue_cover_photos/1749900114_684d5b5253360.jpg', '2025-06-14 11:21:54', '2025-06-14 11:21:54');
+(30, 'Pearlmont Hotel - Package 2', 7, NULL, 'Admin', 'Limketkai Drive, Cagayan de Oro City', '09176273275', 'Package 2', 'available', 1, 100, 48000.00, '', 'uploads/venue_profile_pictures/1749900114_684d5b5252fe9.jpg', 'uploads/venue_cover_photos/1749900114_684d5b5253360.jpg', '2025-06-14 11:21:54', '2025-06-14 11:21:54'),
+(34, 'Demiren Hotel', 7, NULL, 'Admin', 'Tiano Kalambaguhan Street, Brgy 14, Cagayan de Oro, Philippines', '0906 231 4236', 'Demiren Hotel & Restuarant has 87 air conditioned rooms w/ hot & cold showers.It has 2 function halls for all occasions. Wifi is free.It has an elevator & 2 standby generators.', 'available', 1, 100, 20000.00, 'outdoor', 'uploads/venue_profile_pictures/1751980388_686d1964acfe5.jpg', 'uploads/venue_cover_photos/1751980388_686d1964ad3b8.jpg', '2025-07-08 13:13:08', '2025-07-08 13:13:08');
 
 -- --------------------------------------------------------
 
@@ -1378,7 +1997,11 @@ CREATE TABLE `tbl_venue_inclusions` (
 
 INSERT INTO `tbl_venue_inclusions` (`inclusion_id`, `venue_id`, `inclusion_name`, `inclusion_price`, `inclusion_description`, `is_required`, `is_active`, `created_at`, `updated_at`) VALUES
 (20, 29, 'Inclusions', 0.00, '', 0, 1, '2025-06-14 11:12:13', '2025-06-14 11:12:13'),
-(21, 30, 'Inclusions', 0.00, '', 0, 1, '2025-06-14 11:21:54', '2025-06-14 11:21:54');
+(21, 30, 'Inclusions', 0.00, '', 0, 1, '2025-06-14 11:21:54', '2025-06-14 11:21:54'),
+(22, 34, 'Free Room Accomodation for Two', 0.00, '', 0, 1, '2025-07-08 13:13:08', '2025-07-08 13:13:08'),
+(23, 34, 'Free Breakfast', 0.00, '', 0, 1, '2025-07-08 13:13:08', '2025-07-08 13:13:08'),
+(24, 34, 'Free Swimming Pool', 0.00, '', 0, 1, '2025-07-08 13:13:08', '2025-07-08 13:13:08'),
+(25, 34, 'Full-Pack Catering', 0.00, '', 0, 1, '2025-07-08 13:13:08', '2025-07-08 13:13:08');
 
 -- --------------------------------------------------------
 
@@ -1621,6 +2244,21 @@ CREATE TABLE `view_event_payments` (
 -- --------------------------------------------------------
 
 --
+-- Stand-in structure for view `v_notification_summary`
+-- (See below for the actual view)
+--
+CREATE TABLE `v_notification_summary` (
+`user_id` int(11)
+,`total_notifications` bigint(21)
+,`unread_count` bigint(21)
+,`urgent_unread` bigint(21)
+,`high_unread` bigint(21)
+,`last_notification_at` timestamp
+);
+
+-- --------------------------------------------------------
+
+--
 -- Stand-in structure for view `v_package_budget_status`
 -- (See below for the actual view)
 --
@@ -1662,6 +2300,15 @@ CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW 
 DROP TABLE IF EXISTS `view_event_payments`;
 
 CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `view_event_payments`  AS SELECT `e`.`event_id` AS `event_id`, `e`.`event_title` AS `event_title`, `e`.`event_date` AS `event_date`, `e`.`payment_status` AS `event_payment_status`, `e`.`total_budget` AS `total_budget`, `e`.`down_payment` AS `down_payment`, `e`.`payment_schedule_type_id` AS `payment_schedule_type_id`, `pst`.`schedule_name` AS `payment_schedule_name`, `c`.`user_firstName` AS `user_firstName`, `c`.`user_lastName` AS `user_lastName`, `c`.`user_email` AS `user_email`, `a`.`user_firstName` AS `admin_firstName`, `a`.`user_lastName` AS `admin_lastName`, `eps`.`schedule_id` AS `schedule_id`, `eps`.`installment_number` AS `installment_number`, `eps`.`due_date` AS `due_date`, `eps`.`amount_due` AS `schedule_amount_due`, `eps`.`amount_paid` AS `schedule_amount_paid`, `eps`.`payment_status` AS `schedule_payment_status`, `p`.`payment_id` AS `payment_id`, `p`.`payment_amount` AS `payment_amount`, `p`.`payment_method` AS `payment_method`, `p`.`payment_status` AS `payment_status`, `p`.`payment_date` AS `payment_date`, `p`.`payment_reference` AS `payment_reference`, `p`.`payment_percentage` AS `payment_percentage`, `e`.`total_budget`- coalesce((select sum(`tbl_payments`.`payment_amount`) from `tbl_payments` where `tbl_payments`.`event_id` = `e`.`event_id` and `tbl_payments`.`payment_status` = 'completed'),0) AS `remaining_balance`, coalesce((select sum(`tbl_payments`.`payment_amount`) from `tbl_payments` where `tbl_payments`.`event_id` = `e`.`event_id` and `tbl_payments`.`payment_status` = 'completed'),0) AS `total_paid`, CASE WHEN `eps`.`due_date` < curdate() AND `eps`.`payment_status` <> 'paid' THEN 'overdue' WHEN `eps`.`due_date` = curdate() AND `eps`.`payment_status` <> 'paid' THEN 'due_today' ELSE 'current' END AS `payment_urgency` FROM (((((`tbl_events` `e` left join `tbl_users` `c` on(`e`.`user_id` = `c`.`user_id`)) left join `tbl_users` `a` on(`e`.`admin_id` = `a`.`user_id`)) left join `tbl_payment_schedule_types` `pst` on(`e`.`payment_schedule_type_id` = `pst`.`schedule_type_id`)) left join `tbl_event_payment_schedules` `eps` on(`e`.`event_id` = `eps`.`event_id`)) left join `tbl_payments` `p` on(`eps`.`schedule_id` = `p`.`schedule_id` and `p`.`payment_status` = 'completed')) ORDER BY `e`.`event_id` ASC, `eps`.`installment_number` ASC, `p`.`payment_date` ASC ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `v_notification_summary`
+--
+DROP TABLE IF EXISTS `v_notification_summary`;
+
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_notification_summary`  AS SELECT `n`.`user_id` AS `user_id`, count(0) AS `total_notifications`, count(case when `n`.`notification_status` = 'unread' then 1 end) AS `unread_count`, count(case when `n`.`notification_priority` = 'urgent' and `n`.`notification_status` = 'unread' then 1 end) AS `urgent_unread`, count(case when `n`.`notification_priority` = 'high' and `n`.`notification_status` = 'unread' then 1 end) AS `high_unread`, max(`n`.`created_at`) AS `last_notification_at` FROM `tbl_notifications` AS `n` WHERE `n`.`expires_at` is null OR `n`.`expires_at` > current_timestamp() GROUP BY `n`.`user_id` ;
 
 -- --------------------------------------------------------
 
@@ -1792,7 +2439,14 @@ ALTER TABLE `tbl_notifications`
   ADD KEY `store_id` (`store_id`),
   ADD KEY `budget_id` (`budget_id`),
   ADD KEY `booking_id` (`booking_id`),
-  ADD KEY `feedback_id` (`feedback_id`);
+  ADD KEY `feedback_id` (`feedback_id`),
+  ADD KEY `idx_notification_type` (`notification_type`),
+  ADD KEY `idx_notification_status` (`notification_status`),
+  ADD KEY `idx_notification_priority` (`notification_priority`),
+  ADD KEY `idx_user_unread` (`user_id`,`notification_status`),
+  ADD KEY `idx_created_at` (`created_at`),
+  ADD KEY `idx_notifications_user_type_status` (`user_id`,`notification_type`,`notification_status`),
+  ADD KEY `idx_notifications_priority_created` (`notification_priority`,`created_at`);
 
 --
 -- Indexes for table `tbl_packages`
@@ -1970,13 +2624,13 @@ ALTER TABLE `tbl_wedding_details`
 -- AUTO_INCREMENT for table `tbl_2fa`
 --
 ALTER TABLE `tbl_2fa`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=152;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=158;
 
 --
 -- AUTO_INCREMENT for table `tbl_bookings`
 --
 ALTER TABLE `tbl_bookings`
-  MODIFY `booking_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `booking_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
 
 --
 -- AUTO_INCREMENT for table `tbl_budget`
@@ -1988,13 +2642,13 @@ ALTER TABLE `tbl_budget`
 -- AUTO_INCREMENT for table `tbl_events`
 --
 ALTER TABLE `tbl_events`
-  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=47;
+  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=57;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_components`
 --
 ALTER TABLE `tbl_event_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=170;
+  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=187;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_package`
@@ -2012,7 +2666,7 @@ ALTER TABLE `tbl_event_payment_schedules`
 -- AUTO_INCREMENT for table `tbl_event_timeline`
 --
 ALTER TABLE `tbl_event_timeline`
-  MODIFY `timeline_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=394;
+  MODIFY `timeline_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=411;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_type`
@@ -2030,13 +2684,13 @@ ALTER TABLE `tbl_feedback`
 -- AUTO_INCREMENT for table `tbl_notifications`
 --
 ALTER TABLE `tbl_notifications`
-  MODIFY `notification_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+  MODIFY `notification_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
 
 --
 -- AUTO_INCREMENT for table `tbl_packages`
 --
 ALTER TABLE `tbl_packages`
-  MODIFY `package_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
+  MODIFY `package_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
 -- AUTO_INCREMENT for table `tbl_package_bookings`
@@ -2048,19 +2702,19 @@ ALTER TABLE `tbl_package_bookings`
 -- AUTO_INCREMENT for table `tbl_package_components`
 --
 ALTER TABLE `tbl_package_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=271;
+  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=289;
 
 --
 -- AUTO_INCREMENT for table `tbl_package_event_types`
 --
 ALTER TABLE `tbl_package_event_types`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
 
 --
 -- AUTO_INCREMENT for table `tbl_package_freebies`
 --
 ALTER TABLE `tbl_package_freebies`
-  MODIFY `freebie_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=45;
+  MODIFY `freebie_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=63;
 
 --
 -- AUTO_INCREMENT for table `tbl_package_price_history`
@@ -2072,19 +2726,19 @@ ALTER TABLE `tbl_package_price_history`
 -- AUTO_INCREMENT for table `tbl_package_venues`
 --
 ALTER TABLE `tbl_package_venues`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=28;
 
 --
 -- AUTO_INCREMENT for table `tbl_payments`
 --
 ALTER TABLE `tbl_payments`
-  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
+  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
 -- AUTO_INCREMENT for table `tbl_payment_logs`
 --
 ALTER TABLE `tbl_payment_logs`
-  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
 
 --
 -- AUTO_INCREMENT for table `tbl_payment_schedule_types`
@@ -2114,13 +2768,13 @@ ALTER TABLE `tbl_store_price`
 -- AUTO_INCREMENT for table `tbl_users`
 --
 ALTER TABLE `tbl_users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
 -- AUTO_INCREMENT for table `tbl_venue`
 --
 ALTER TABLE `tbl_venue`
-  MODIFY `venue_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
+  MODIFY `venue_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
 
 --
 -- AUTO_INCREMENT for table `tbl_venue_components`
@@ -2132,7 +2786,7 @@ ALTER TABLE `tbl_venue_components`
 -- AUTO_INCREMENT for table `tbl_venue_inclusions`
 --
 ALTER TABLE `tbl_venue_inclusions`
-  MODIFY `inclusion_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
+  MODIFY `inclusion_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
 
 --
 -- AUTO_INCREMENT for table `tbl_venue_price`
@@ -2238,7 +2892,7 @@ ALTER TABLE `tbl_feedback`
 --
 ALTER TABLE `tbl_notifications`
   ADD CONSTRAINT `tbl_notifications_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_notifications_ibfk_2` FOREIGN KEY (`event_id`) REFERENCES `tbl_event` (`event_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `tbl_notifications_ibfk_2` FOREIGN KEY (`event_id`) REFERENCES `tbl_events` (`event_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `tbl_notifications_ibfk_3` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `tbl_notifications_ibfk_4` FOREIGN KEY (`store_id`) REFERENCES `tbl_store` (`store_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `tbl_notifications_ibfk_5` FOREIGN KEY (`budget_id`) REFERENCES `tbl_budget` (`budget_id`) ON DELETE CASCADE,

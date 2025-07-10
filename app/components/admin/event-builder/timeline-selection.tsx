@@ -101,7 +101,7 @@ export function TimelineStep({
       setTimelineItems(initialItems);
       updateData(initialItems);
     }
-  }, [components, eventDateObj, timelineItems.length, updateData]);
+  }, [components?.length, timelineItems.length, eventDateObj, updateData]);
 
   // Update a timeline item
   const updateTimelineItem = (

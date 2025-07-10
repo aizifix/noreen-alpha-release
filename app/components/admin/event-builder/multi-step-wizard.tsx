@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
   const isFirstStep = currentStepIndex === 0;
   const isLastStep = currentStepIndex === steps.length - 1;
 
-  // Auto-scroll to center current step
+  // Auto-scroll to center current step - memoized to prevent unnecessary re-renders
   useEffect(() => {
     if (scrollContainerRef.current) {
       const container = scrollContainerRef.current;
@@ -50,7 +50,7 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
     }
   }, [currentStepIndex]);
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     if (isLastStep) {
       onComplete();
       return;
@@ -58,46 +58,158 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
 
     // Mark current step as completed
     if (!completedSteps.includes(currentStep.id)) {
-      setCompletedSteps([...completedSteps, currentStep.id]);
+      setCompletedSteps((prev) => [...prev, currentStep.id]);
     }
 
-    setCurrentStepIndex(currentStepIndex + 1);
-  };
+    setCurrentStepIndex((prev) => prev + 1);
+  }, [isLastStep, onComplete, completedSteps, currentStep.id]);
 
-  const handlePrevious = () => {
+  const handlePrevious = useCallback(() => {
     if (!isFirstStep) {
-      setCurrentStepIndex(currentStepIndex - 1);
+      setCurrentStepIndex((prev) => prev - 1);
     }
-  };
+  }, [isFirstStep]);
 
-  const handleStepClick = (index: number) => {
-    // Only allow clicking on completed steps or the next available step
-    if (
-      completedSteps.includes(steps[index].id) ||
-      index === 0 ||
-      (index <= completedSteps.length && index === currentStepIndex + 1)
-    ) {
-      setCurrentStepIndex(index);
-    }
-  };
+  const handleStepClick = useCallback(
+    (index: number) => {
+      // Only allow clicking on completed steps or the next available step
+      if (
+        completedSteps.includes(steps[index].id) ||
+        index === 0 ||
+        (index <= completedSteps.length && index === currentStepIndex + 1)
+      ) {
+        setCurrentStepIndex(index);
+      }
+    },
+    [completedSteps, steps, currentStepIndex]
+  );
 
-  const getStepStatus = (index: number) => {
-    const isCompleted =
-      completedSteps.includes(steps[index].id) || index < currentStepIndex;
-    const isCurrent = index === currentStepIndex;
+  const getStepStatus = useCallback(
+    (index: number) => {
+      const isCompleted =
+        completedSteps.includes(steps[index].id) || index < currentStepIndex;
+      const isCurrent = index === currentStepIndex;
 
-    if (isCompleted) return "completed";
-    if (isCurrent) return "current";
-    return "pending";
-  };
+      if (isCompleted) return "completed";
+      if (isCurrent) return "current";
+      return "pending";
+    },
+    [completedSteps, steps, currentStepIndex]
+  );
 
-  const isClickable = (index: number) => {
-    return (
-      completedSteps.includes(steps[index].id) ||
-      index === 0 ||
-      (index <= completedSteps.length && index === currentStepIndex + 1)
-    );
-  };
+  const isClickable = useCallback(
+    (index: number) => {
+      return (
+        completedSteps.includes(steps[index].id) ||
+        index === 0 ||
+        (index <= completedSteps.length && index === currentStepIndex + 1)
+      );
+    },
+    [completedSteps, steps, currentStepIndex]
+  );
+
+  // Memoize the step rendering to prevent unnecessary re-renders
+  const renderedSteps = useMemo(() => {
+    return steps.map((step, index) => {
+      const status = getStepStatus(index);
+      const clickable = isClickable(index);
+
+      return (
+        <div key={step.id} className="flex flex-col min-w-[154px]">
+          {/* Step Circle and Line Row */}
+          <div className="flex items-center">
+            {/* Step Circle */}
+            <div className="relative">
+              {status === "current" ? (
+                // Current step: border circle with inner filled circle
+                <div
+                  className="relative cursor-pointer transition-all duration-300 hover:scale-105"
+                  onClick={() => clickable && handleStepClick(index)}
+                >
+                  <div className="w-11 h-11 rounded-full border-4 border-[#028A75] bg-transparent" />
+                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#028A75] flex items-center justify-center">
+                    <span className="text-white text-sm font-semibold">
+                      {index + 1}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                // Completed and pending: solid circles
+                <div
+                  className={cn(
+                    "w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer text-sm font-semibold",
+                    {
+                      "bg-[#028A75] text-white": status === "completed",
+                      "bg-[#DADADA] text-gray-600": status === "pending",
+                      "hover:scale-105": clickable,
+                      "cursor-not-allowed": !clickable,
+                    }
+                  )}
+                  onClick={() => clickable && handleStepClick(index)}
+                >
+                  {status === "completed" ? (
+                    <Check className="h-6 w-6 text-white" strokeWidth={2} />
+                  ) : (
+                    index + 1
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Connecting Line */}
+            {index < steps.length - 1 && (
+              <div className="flex items-center ml-4">
+                <div className="relative h-1 w-[72px]">
+                  {/* Background Line */}
+                  <div className="absolute inset-0 bg-[#DADADA] rounded-sm" />
+                  {/* Progress Line */}
+                  <div
+                    className={cn(
+                      "absolute inset-0 bg-[#028A75] rounded-sm transition-all duration-500",
+                      {
+                        "w-full": index < currentStepIndex,
+                        "w-0": index >= currentStepIndex,
+                      }
+                    )}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Step Labels - Left aligned */}
+          <div className="mt-4 text-left">
+            <div className="text-xs font-medium text-[#C7C7C7] uppercase tracking-wide">
+              STEP {index + 1}
+            </div>
+            <div
+              className={cn("text-sm font-medium mt-1 transition-colors", {
+                "text-[#87878A]":
+                  status === "completed" ||
+                  status === "current" ||
+                  status === "pending",
+              })}
+            >
+              {step.title}
+            </div>
+            <div
+              className={cn("text-sm mt-1 font-medium transition-colors", {
+                "text-[#028A75]":
+                  status === "completed" || status === "current",
+                "text-[#DADADA]": status === "pending",
+              })}
+            >
+              {status === "completed"
+                ? "Completed"
+                : status === "current"
+                  ? "In Progress"
+                  : "Pending"}
+            </div>
+          </div>
+        </div>
+      );
+    });
+  }, [steps, getStepStatus, isClickable, handleStepClick, currentStepIndex]);
 
   return (
     <div className="space-y-6">
@@ -110,115 +222,7 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           <div className="flex items-center min-w-max space-x-1">
-            {steps.map((step, index) => {
-              const status = getStepStatus(index);
-              const clickable = isClickable(index);
-
-              return (
-                <div key={step.id} className="flex flex-col min-w-[154px]">
-                  {/* Step Circle and Line Row */}
-                  <div className="flex items-center">
-                    {/* Step Circle */}
-                    <div className="relative">
-                      {status === "current" ? (
-                        // Current step: border circle with inner filled circle
-                        <div
-                          className="relative cursor-pointer transition-all duration-300 hover:scale-105"
-                          onClick={() => clickable && handleStepClick(index)}
-                        >
-                          <div className="w-11 h-11 rounded-full border-4 border-[#028A75] bg-transparent" />
-                          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#028A75] flex items-center justify-center">
-                            <span className="text-white text-sm font-semibold">
-                              {index + 1}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        // Completed and pending: solid circles
-                        <div
-                          className={cn(
-                            "w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer text-sm font-semibold",
-                            {
-                              "bg-[#028A75] text-white": status === "completed",
-                              "bg-[#DADADA] text-gray-600":
-                                status === "pending",
-                              "hover:scale-105": clickable,
-                              "cursor-not-allowed": !clickable,
-                            }
-                          )}
-                          onClick={() => clickable && handleStepClick(index)}
-                        >
-                          {status === "completed" ? (
-                            <Check
-                              className="h-6 w-6 text-white"
-                              strokeWidth={2}
-                            />
-                          ) : (
-                            index + 1
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Connecting Line */}
-                    {index < steps.length - 1 && (
-                      <div className="flex items-center ml-4">
-                        <div className="relative h-1 w-[72px]">
-                          {/* Background Line */}
-                          <div className="absolute inset-0 bg-[#DADADA] rounded-sm" />
-                          {/* Progress Line */}
-                          <div
-                            className={cn(
-                              "absolute inset-0 bg-[#028A75] rounded-sm transition-all duration-500",
-                              {
-                                "w-full": index < currentStepIndex,
-                                "w-0": index >= currentStepIndex,
-                              }
-                            )}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Step Labels - Left aligned */}
-                  <div className="mt-4 text-left">
-                    <div className="text-xs font-medium text-[#C7C7C7] uppercase tracking-wide">
-                      STEP {index + 1}
-                    </div>
-                    <div
-                      className={cn(
-                        "text-sm font-medium mt-1 transition-colors",
-                        {
-                          "text-[#87878A]":
-                            status === "completed" ||
-                            status === "current" ||
-                            status === "pending",
-                        }
-                      )}
-                    >
-                      {step.title}
-                    </div>
-                    <div
-                      className={cn(
-                        "text-sm mt-1 font-medium transition-colors",
-                        {
-                          "text-[#028A75]":
-                            status === "completed" || status === "current",
-                          "text-[#DADADA]": status === "pending",
-                        }
-                      )}
-                    >
-                      {status === "completed"
-                        ? "Completed"
-                        : status === "current"
-                          ? "In Progress"
-                          : "Pending"}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {renderedSteps}
           </div>
         </div>
       </div>

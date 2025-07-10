@@ -3,11 +3,12 @@
 import { useState, useRef, useEffect } from "react";
 import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { ReactNode } from "react";
 
 interface CircularTimePickerProps {
   value: string; // Format: "HH:MM"
   onChange: (time: string) => void;
-  label?: string;
+  label?: ReactNode;
   className?: string;
   hasConflict?: boolean;
   disabled?: boolean;
@@ -37,6 +38,20 @@ export function CircularTimePicker({
     }
   }, [value]);
 
+  // Handle escape key to close modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        handleCancel();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener("keydown", handleEscape);
+      return () => document.removeEventListener("keydown", handleEscape);
+    }
+  }, [isOpen]);
+
   const formatTime = (time: string) => {
     if (!time) return "Select time";
     const [hours, minutes] = time.split(":").map(Number);
@@ -59,6 +74,9 @@ export function CircularTimePicker({
   };
 
   const handleClockClick = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
     if (!clockRef.current) return;
 
     const rect = clockRef.current.getBoundingClientRect();
@@ -93,6 +111,12 @@ export function CircularTimePicker({
       setTempMinute(minutes);
     }
     setIsOpen(false);
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      handleCancel();
+    }
   };
 
   const togglePeriod = () => {
@@ -222,17 +246,23 @@ export function CircularTimePicker({
         <label className="block text-sm font-medium text-gray-700 mb-1">
           {label}
           {hasConflict && (
-            <span className="text-red-500 ml-2">⚠️ Conflict detected!</span>
+            <span className="text-red-500 ml-2">Conflict detected</span>
           )}
         </label>
       )}
 
       <button
         type="button"
-        onClick={() => !disabled && setIsOpen(true)}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!disabled) {
+            setIsOpen(true);
+          }
+        }}
         disabled={disabled}
         className={cn(
-          "w-full px-3 py-2 text-left border border-gray-300 rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed",
+          "w-full px-3 py-2 text-left border border-gray-300 rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors",
           hasConflict && "border-red-500 border-2",
           "flex items-center gap-2"
         )}
@@ -244,8 +274,14 @@ export function CircularTimePicker({
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
+          onClick={handleBackdropClick}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="mb-4">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
                 Select Time

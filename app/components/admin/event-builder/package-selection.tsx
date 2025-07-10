@@ -205,7 +205,7 @@ const getVenueCount = (pkg: Package): number => {
 
 interface PackageSelectionProps {
   eventType: string;
-  onSelect: (packageId: string) => void;
+  onSelect: (packageId: string) => Promise<void>;
   initialPackageId?: string | null;
 }
 
@@ -220,6 +220,7 @@ export function PackageSelection({
   const [packages, setPackages] = useState<DbPackage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // Map event type strings to event type IDs
   const getEventTypeId = (type: string): number | null => {
@@ -419,7 +420,15 @@ export function PackageSelection({
   const handleSelect = (packageId: string) => {
     console.log("Selecting package:", packageId);
     setSelectedPackage(packageId);
-    onSelect(packageId);
+  };
+
+  const handleConfirmSelection = async (packageId: string) => {
+    setIsConfirming(true);
+    try {
+      await onSelect(packageId);
+    } finally {
+      setIsConfirming(false);
+    }
   };
 
   // Loading state
@@ -461,217 +470,180 @@ export function PackageSelection({
   // Render packages
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {packages.map((pkg) => {
-          const isSelected = selectedPackage === pkg.package_id;
-          return (
-            <Card
-              key={getPackageId(pkg)}
-              className={`relative overflow-hidden transition-all cursor-pointer hover:shadow-md h-full flex flex-col ${
-                isSelected
-                  ? "ring-2 ring-green-500 shadow-lg border-green-200"
-                  : "hover:border-green-200"
-              }`}
-              onClick={() => handleSelect(getPackageId(pkg))}
-            >
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-lg font-semibold">
-                      {getPackageTitle(pkg)}
-                    </h3>
-                    <CardDescription>
-                      {getPackageDescription(pkg)}
-                    </CardDescription>
-                  </div>
-                  <div className="text-right">
-                    {/* Show price range if venue pricing is available */}
-                    {"total_price_range" in pkg && pkg.total_price_range ? (
-                      <div>
-                        <div className="text-lg font-bold">
-                          {pkg.total_price_range.min ===
-                          pkg.total_price_range.max
-                            ? formatCurrency(pkg.total_price_range.min)
-                            : `${formatCurrency(pkg.total_price_range.min)} - ${formatCurrency(pkg.total_price_range.max)}`}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Package + Venue
-                        </div>
-                        <div className="text-xs text-green-600">
-                          Base: {formatCurrency(getPackagePrice(pkg))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <div className="text-2xl font-bold">
-                          {formatCurrency(getPackagePrice(pkg))}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          + Venue pricing
-                        </div>
-                      </div>
-                    )}
-                    <div className="text-sm text-muted-foreground mt-1">
-                      up to {getGuestCapacity(pkg)} guests
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4 flex-1">
-                {/* Inclusions Section */}
-                <div>
-                  <h4 className="font-medium mb-2 flex items-center gap-2">
-                    <Package className="h-4 w-4" />
-                    Inclusions ({getInclusionItems(pkg).length})
-                  </h4>
-                  {getInclusionItems(pkg).length > 0 ? (
-                    <>
-                      <div className="grid grid-cols-2 gap-2">
-                        {getInclusionItems(pkg)
-                          .slice(0, 6)
-                          .map((item, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center gap-2 text-sm text-muted-foreground"
-                            >
-                              <Check className="h-4 w-4 text-brand-500" />
-                              {item}
-                            </div>
-                          ))}
-                      </div>
-                      {getInclusionItems(pkg).length > 6 && (
-                        <div className="mt-2 text-sm text-muted-foreground">
-                          +{getInclusionItems(pkg).length - 6} more inclusions
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-sm text-muted-foreground italic">
-                      No inclusions specified
-                    </div>
-                  )}
-                </div>
-
-                {/* Venues Section */}
-                {getVenueCount(pkg) > 0 && (
-                  <div
-                    className={`p-3 rounded-lg ${isSelected ? "bg-primary/10 border border-primary/20" : "bg-muted/50"}`}
-                  >
-                    <h4 className="font-medium mb-2 flex items-center gap-2">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="h-4 w-4"
-                      >
-                        <path d="M3 21h18" />
-                        <path d="M19 21v-4" />
-                        <path d="M19 17a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-2" />
-                        <path d="M5 21v-16a2 2 0 0 1 2-2h8" />
-                        <path d="M9 21v-4" />
-                        <path d="M9 5v4" />
-                        <path d="M9 13v4" />
-                        <path d="M14 5h.01" />
-                        <path d="M14 9h.01" />
-                        <path d="M14 13h.01" />
-                        <path d="M14 17h.01" />
-                      </svg>
-                      {getVenueCount(pkg) > 1
-                        ? `Choose from ${getVenueCount(pkg)} venues`
-                        : `${getVenueCount(pkg)} venue available`}
-                    </h4>
-                    {isSelected && getVenueCount(pkg) > 1 && (
-                      <div className="text-xs text-primary font-medium mb-2">
-                        You'll choose your preferred venue in the next step
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-2">
-                      {getVenuePreviews(pkg).map((venue, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <div className="h-10 w-10 rounded-lg overflow-hidden">
-                            {venue.venue_profile_picture ? (
-                              <img
-                                src={venue.venue_profile_picture}
-                                alt={venue.venue_title}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="h-full w-full bg-muted flex items-center justify-center">
-                                <svg
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  width="20"
-                                  height="20"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  className="text-muted-foreground"
-                                >
-                                  <path d="M3 21h18" />
-                                  <path d="M19 21v-4" />
-                                  <path d="M19 17a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-2" />
-                                  <path d="M5 21v-16a2 2 0 0 1 2-2h8" />
-                                </svg>
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">
-                              {venue.venue_title}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Freebies Section */}
-                <div>
-                  <h4 className="font-medium mb-2 flex items-center gap-2">
-                    <Gift className="h-4 w-4" />
-                    Freebies ({getFreebiesCount(pkg)})
-                  </h4>
-                  <div className="text-sm text-muted-foreground">
-                    {getFreebiesCount(pkg) > 0 ? (
-                      getFreebiesText(pkg)
-                    ) : (
-                      <span className="italic">No freebies available</span>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter className="mt-auto">
-                <Button
-                  className={`w-full transition-all ${
+      <div className="flex flex-col md:flex-row gap-4">
+        {/* Package Cards Grid */}
+        <div className="w-full md:w-2/3">
+          <div className="mb-4">
+            <h2 className="text-2xl font-bold">Select a Package</h2>
+            <p className="text-muted-foreground">
+              Choose a package for your {eventType} event.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {packages.map((pkg) => {
+              const isSelected = selectedPackage === pkg.package_id;
+              return (
+                <Card
+                  key={getPackageId(pkg)}
+                  className={`overflow-hidden cursor-pointer transition-all duration-200 h-full flex flex-col p-4 border border-gray-200 bg-white ${
                     isSelected
-                      ? "bg-brand-500 hover:bg-brand-600 text-white"
-                      : "border-brand-500 text-brand-500 hover:bg-brand-50"
+                      ? "ring-2 ring-green-500 shadow-lg border-green-200"
+                      : "hover:shadow-md"
                   }`}
-                  variant={isSelected ? "default" : "outline"}
                   onClick={() => handleSelect(getPackageId(pkg))}
                 >
-                  {isSelected ? (
-                    <div className="flex items-center gap-2">
-                      <Check className="h-4 w-4" />
-                      Selected
+                  <div className="flex flex-col gap-2 flex-1">
+                    <div className="mb-2">
+                      <h3 className="text-lg font-bold text-gray-900 mb-1 truncate">
+                        {getPackageTitle(pkg)}
+                      </h3>
+                      <p className="text-sm text-gray-600 truncate">
+                        {getPackageDescription(pkg)}
+                      </p>
                     </div>
-                  ) : (
-                    "Select Package"
-                  )}
-                </Button>
-              </CardFooter>
-            </Card>
-          );
-        })}
+                    <div className="mb-4 flex items-center gap-4">
+                      <span className="text-2xl font-bold text-brand-600">
+                        {formatCurrency(getPackagePrice(pkg))}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        up to {getGuestCapacity(pkg)} guests
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-auto">
+                    <Button
+                      className={`w-full py-2 text-base font-semibold rounded-lg transition-all ${
+                        isSelected
+                          ? "bg-brand-500 hover:bg-brand-600 text-white shadow"
+                          : "border-brand-500 text-brand-500 hover:bg-brand-50"
+                      }`}
+                      variant={isSelected ? "default" : "outline"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelect(getPackageId(pkg));
+                      }}
+                    >
+                      {isSelected ? (
+                        <div className="flex items-center gap-2">
+                          <Check className="h-5 w-5" />
+                          Selected
+                        </div>
+                      ) : (
+                        "View Details"
+                      )}
+                    </Button>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Detail Panel */}
+        <div className="w-full md:w-1/3">
+          {selectedPackage &&
+            (() => {
+              const pkg = packages.find(
+                (p) => getPackageId(p) === selectedPackage
+              );
+              if (!pkg) return null;
+              const inclusions = getInclusionItems(pkg);
+              const venues = getVenuePreviews(pkg);
+              const freebies = pkg.freebies || [];
+              return (
+                <Card className="sticky top-4 border-green-200">
+                  <CardHeader className="bg-green-50">
+                    <h3 className="text-green-800 text-xl font-bold">
+                      {getPackageTitle(pkg)}
+                    </h3>
+                    <CardDescription className="text-green-600">
+                      {getPackageDescription(pkg)}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-6">
+                    <div className="flex items-center gap-4">
+                      <span className="text-2xl font-bold text-brand-600">
+                        {formatCurrency(getPackagePrice(pkg))}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        up to {getGuestCapacity(pkg)} guests
+                      </span>
+                    </div>
+                    {/* Inclusions */}
+                    <div>
+                      <div className="font-medium text-green-800 mb-1">
+                        Inclusions
+                      </div>
+                      <ul className="text-sm text-gray-700 list-disc list-inside pl-2 max-h-32 overflow-y-auto">
+                        {inclusions.length > 0 ? (
+                          inclusions.map((item, i) => (
+                            <li key={i} className="truncate">
+                              {item}
+                            </li>
+                          ))
+                        ) : (
+                          <li className="italic text-gray-400">
+                            No inclusions specified
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                    {/* Venues */}
+                    {venues.length > 0 && (
+                      <div>
+                        <div className="font-medium text-green-800 mb-1">
+                          Venues
+                        </div>
+                        <ul className="text-sm text-gray-700 list-disc list-inside pl-2 max-h-24 overflow-y-auto">
+                          {venues.map((venue, i) => (
+                            <li key={i} className="truncate">
+                              {venue.venue_title}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {/* Freebies */}
+                    {freebies.length > 0 && (
+                      <div>
+                        <div className="font-medium text-green-800 mb-1">
+                          Freebies
+                        </div>
+                        <ul className="text-sm text-gray-700 list-disc list-inside pl-2 max-h-24 overflow-y-auto">
+                          {freebies.map((freebie, i) => (
+                            <li key={i} className="truncate">
+                              {typeof freebie === "string"
+                                ? freebie
+                                : freebie.name}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </CardContent>
+                  <CardFooter>
+                    <Button
+                      className="w-full bg-brand-500 hover:bg-brand-600 text-white"
+                      disabled={isConfirming}
+                      onClick={() => handleConfirmSelection(getPackageId(pkg))}
+                    >
+                      {isConfirming ? (
+                        <>
+                          <Loader className="h-4 w-4 mr-2 animate-spin" />
+                          Confirming...
+                        </>
+                      ) : (
+                        <>
+                          <Check className="h-4 w-4 mr-2" />
+                          Confirm Package Selection
+                        </>
+                      )}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              );
+            })()}
+        </div>
       </div>
     </div>
   );

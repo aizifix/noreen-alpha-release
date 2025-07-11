@@ -133,7 +133,7 @@ export default function AdminLayout({
     { icon: MapPin, label: "Venues", href: "/admin/venues" },
     { icon: Users, label: "Clients", href: "/admin/clients" },
     { icon: UserCheck, label: "Organizers", href: "/admin/organizers" },
-    { icon: Truck, label: "Suppliers", href: "/admin/suppliers" },
+    { icon: Truck, label: "Suppliers", href: "/admin/supplier" },
     { icon: CreditCard, label: "Payments", href: "/admin/payments" },
     { icon: BarChart3, label: "Reports", href: "/admin/reports" },
   ];

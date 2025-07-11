@@ -1,0 +1,1411 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import {
+  Plus,
+  Search,
+  Filter,
+  Eye,
+  Edit,
+  Trash2,
+  Star,
+  MapPin,
+  Phone,
+  Mail,
+  FileText,
+  Users,
+  Upload,
+  X,
+  Download,
+  Send,
+  AlertCircle,
+  CheckCircle,
+  Copy,
+  Key,
+  RefreshCw,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+interface Supplier {
+  supplier_id: number;
+  business_name: string;
+  contact_person: string;
+  contact_number: string;
+  contact_email: string;
+  business_address: string;
+  supplier_type: "internal" | "external";
+  specialty_category: string;
+  agreement_signed: boolean;
+  is_verified: boolean;
+  is_active: boolean;
+  rating_average: number;
+  total_ratings: number;
+  total_offers: number;
+  registration_docs: any[];
+  created_at: string;
+  onboarding_status?:
+    | "pending"
+    | "documents_uploaded"
+    | "verified"
+    | "active"
+    | "suspended";
+  last_activity?: string;
+  business_description?: string;
+  user_id?: number;
+}
+
+interface DocumentType {
+  type_code: string;
+  type_name: string;
+  description: string;
+  is_required: boolean;
+  max_file_size_mb: number;
+  allowed_extensions: string[];
+}
+
+interface SupplierDocument {
+  document_id: number;
+  document_type: string;
+  document_title: string;
+  file_name: string;
+  file_path: string;
+  file_size: number;
+  file_type: string;
+  upload_date: string;
+  is_verified: boolean;
+  verified_at?: string;
+  verified_by?: number;
+  verification_notes?: string;
+}
+
+interface SupplierStats {
+  total_suppliers: number;
+  internal_suppliers: number;
+  external_suppliers: number;
+  verified_suppliers: number;
+  overall_avg_rating: number;
+  category_breakdown: { specialty_category: string; supplier_count: number }[];
+}
+
+interface FilterState {
+  search: string;
+  supplier_type: string;
+  specialty_category: string;
+  is_verified: string;
+  onboarding_status: string;
+}
+
+export default function SupplierPage() {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [stats, setStats] = useState<SupplierStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(
+    null
+  );
+  const [viewMode, setViewMode] = useState<"view" | "edit" | "add">("view");
+
+  // Filters and pagination
+  const [filters, setFilters] = useState<FilterState>({
+    search: "",
+    supplier_type: "",
+    specialty_category: "",
+    is_verified: "",
+    onboarding_status: "",
+  });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  // Fetch suppliers
+  const fetchSuppliers = async () => {
+    try {
+      setLoading(true);
+      const queryParams = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: "20",
+        ...Object.fromEntries(
+          Object.entries(filters).filter(([, value]) => value)
+        ),
+      });
+
+      const response = await fetch(
+        `http://localhost/events-api/admin.php?operation=getAllSuppliers&${queryParams}`
+      );
+      const data = await response.json();
+
+      if (data.status === "success") {
+        setSuppliers(data.suppliers || []);
+        setTotalPages(data.pagination?.total_pages || 1);
+      } else {
+        console.error("API Error:", data.message);
+        setError(data.message || "Failed to fetch suppliers");
+      }
+    } catch (error) {
+      console.error("Error fetching suppliers:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch metadata including document types
+  const fetchMetadata = async () => {
+    try {
+      const [categoriesRes, statsRes, docTypesRes] = await Promise.all([
+        fetch(
+          "http://localhost/events-api/admin.php?operation=getSupplierCategories"
+        ),
+        fetch(
+          "http://localhost/events-api/admin.php?operation=getSupplierStats"
+        ),
+        fetch(
+          "http://localhost/events-api/admin.php?operation=getDocumentTypes"
+        ),
+      ]);
+
+      const categoriesData = await categoriesRes.json();
+      const statsData = await statsRes.json();
+      const docTypesData = await docTypesRes.json();
+
+      if (categoriesData.status === "success") {
+        // Ensure categories is an array of strings
+        const validCategories = Array.isArray(categoriesData.categories)
+          ? categoriesData.categories.filter(
+              (cat: any) => typeof cat === "string"
+            )
+          : [];
+        setCategories(validCategories);
+      }
+      if (statsData.status === "success") {
+        // Ensure category_breakdown is properly formatted
+        const formattedStats = {
+          ...statsData.stats,
+          category_breakdown: Array.isArray(statsData.stats.category_breakdown)
+            ? statsData.stats.category_breakdown
+            : [],
+        };
+        setStats(formattedStats);
+      }
+      if (docTypesData.status === "success") {
+        setDocumentTypes(docTypesData.document_types);
+      }
+    } catch (error) {
+      console.error("Error fetching metadata:", error);
+      setError("Failed to load supplier metadata");
+    }
+  };
+
+  useEffect(() => {
+    fetchSuppliers();
+  }, [currentPage, filters]);
+
+  useEffect(() => {
+    fetchMetadata();
+  }, []);
+
+  // Handle filter changes
+  const handleFilterChange = (key: keyof FilterState, value: string) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setCurrentPage(1);
+  };
+
+  // Clear filters
+  const clearFilters = () => {
+    setFilters({
+      search: "",
+      supplier_type: "",
+      specialty_category: "",
+      is_verified: "",
+      onboarding_status: "",
+    });
+    setCurrentPage(1);
+  };
+
+  // Handle supplier actions
+  const handleViewSupplier = (supplier: Supplier) => {
+    setSelectedSupplier(supplier);
+    setViewMode("view");
+    setShowAddModal(true);
+  };
+
+  const handleEditSupplier = (supplier: Supplier) => {
+    setSelectedSupplier(supplier);
+    setViewMode("edit");
+    setShowAddModal(true);
+  };
+
+  const handleAddSupplier = () => {
+    setSelectedSupplier(null);
+    setViewMode("add");
+    setShowAddModal(true);
+  };
+
+  const handleDeleteSupplier = async (supplierId: number) => {
+    if (!confirm("Are you sure you want to delete this supplier?")) return;
+
+    try {
+      const response = await fetch(
+        `http://localhost/events-api/admin.php?operation=deleteSupplier&supplier_id=${supplierId}`,
+        {
+          method: "DELETE",
+        }
+      );
+      const data = await response.json();
+
+      if (data.status === "success") {
+        fetchSuppliers();
+        alert("Supplier deleted successfully");
+      } else {
+        alert(data.message || "Failed to delete supplier");
+      }
+    } catch (error) {
+      console.error("Error deleting supplier:", error);
+      alert("Failed to delete supplier");
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString();
+  };
+
+  const getSupplierTypeColor = (type: string) => {
+    return type === "internal"
+      ? "bg-blue-100 text-blue-800"
+      : "bg-green-100 text-green-800";
+  };
+
+  const getVerificationColor = (verified: boolean) => {
+    return verified
+      ? "bg-green-100 text-green-800"
+      : "bg-yellow-100 text-yellow-800";
+  };
+
+  const getOnboardingStatusColor = (status: string) => {
+    const colors = {
+      pending: "bg-yellow-100 text-yellow-800",
+      documents_uploaded: "bg-blue-100 text-blue-800",
+      verified: "bg-green-100 text-green-800",
+      active: "bg-emerald-100 text-emerald-800",
+      suspended: "bg-red-100 text-red-800",
+    };
+    return colors[status as keyof typeof colors] || "bg-gray-100 text-gray-800";
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-brand-500"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="text-red-500 text-lg font-semibold mb-2">Error</div>
+          <div className="text-gray-600">{error}</div>
+          <button
+            onClick={() => {
+              setError(null);
+              fetchMetadata();
+            }}
+            className="mt-4 px-4 py-2 bg-brand-500 text-white rounded hover:bg-brand-600"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Supplier Management
+          </h1>
+          <p className="text-gray-600">
+            Manage your event suppliers and their offerings
+          </p>
+        </div>
+        <button
+          onClick={handleAddSupplier}
+          className="flex items-center px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Supplier
+        </button>
+      </div>
+
+      {/* Stats Cards */}
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center">
+                <Users className="w-8 h-8 text-brand-500" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">
+                    Total Suppliers
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.total_suppliers || 0}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center">
+                <Users className="w-8 h-8 text-blue-500" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Internal</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.internal_suppliers || 0}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center">
+                <Users className="w-8 h-8 text-green-500" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">External</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.external_suppliers || 0}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center">
+                <CheckCircle className="w-8 h-8 text-emerald-500" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Verified</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.verified_suppliers || 0}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center">
+                <Star className="w-8 h-8 text-yellow-500" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">
+                    Avg Rating
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {(stats.overall_avg_rating || 0).toFixed(1)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Filter className="w-5 h-5 mr-2" />
+            Filters
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Search</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search suppliers..."
+                  value={filters.search}
+                  onChange={(e) => handleFilterChange("search", e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Type</label>
+              <select
+                value={filters.supplier_type}
+                onChange={(e) =>
+                  handleFilterChange("supplier_type", e.target.value)
+                }
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">All Types</option>
+                <option value="internal">Internal</option>
+                <option value="external">External</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Category</label>
+              <select
+                value={filters.specialty_category}
+                onChange={(e) =>
+                  handleFilterChange("specialty_category", e.target.value)
+                }
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">All Categories</option>
+                {categories.map((category, index) => (
+                  <option
+                    key={`filter-category-${index}-${category}`}
+                    value={String(category)}
+                  >
+                    {String(category)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Verification
+              </label>
+              <select
+                value={filters.is_verified}
+                onChange={(e) =>
+                  handleFilterChange("is_verified", e.target.value)
+                }
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">All Status</option>
+                <option value="1">Verified</option>
+                <option value="0">Unverified</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Onboarding
+              </label>
+              <select
+                value={filters.onboarding_status}
+                onChange={(e) =>
+                  handleFilterChange("onboarding_status", e.target.value)
+                }
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="documents_uploaded">Documents Uploaded</option>
+                <option value="verified">Verified</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+              </select>
+            </div>
+
+            <div className="flex items-end">
+              <button
+                onClick={clearFilters}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Suppliers Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Suppliers ({suppliers.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-3 px-4">Business Name</th>
+                  <th className="text-left py-3 px-4">Contact Person</th>
+                  <th className="text-left py-3 px-4">Type</th>
+                  <th className="text-left py-3 px-4">Category</th>
+                  <th className="text-left py-3 px-4">Verification</th>
+                  <th className="text-left py-3 px-4">Onboarding</th>
+                  <th className="text-left py-3 px-4">Rating</th>
+                  <th className="text-left py-3 px-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {suppliers.map((supplier) => (
+                  <tr
+                    key={supplier.supplier_id}
+                    className="border-b hover:bg-gray-50"
+                  >
+                    <td className="py-3 px-4">
+                      <div>
+                        <div className="font-medium">
+                          {String(supplier.business_name || "")}
+                        </div>
+                        <div className="text-gray-500 text-xs">
+                          {String(supplier.contact_email || "")}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div>
+                        <div>{String(supplier.contact_person || "")}</div>
+                        <div className="text-gray-500 text-xs">
+                          {String(supplier.contact_number || "")}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs ${getSupplierTypeColor(supplier.supplier_type)}`}
+                      >
+                        {String(supplier.supplier_type || "")}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      {String(supplier.specialty_category || "")}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs ${getVerificationColor(supplier.is_verified)}`}
+                      >
+                        {supplier.is_verified ? "Verified" : "Pending"}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs ${getOnboardingStatusColor(supplier.onboarding_status || "pending")}`}
+                      >
+                        {supplier.onboarding_status || "pending"}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center">
+                        <Star className="w-4 h-4 text-yellow-400 mr-1" />
+                        <span>
+                          {Number(supplier.rating_average || 0).toFixed(1)}
+                        </span>
+                        <span className="text-gray-500 ml-1">
+                          ({Number(supplier.total_ratings || 0)})
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => handleViewSupplier(supplier)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="View Details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleEditSupplier(supplier)}
+                          className="text-green-600 hover:text-green-800"
+                          title="Edit"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() =>
+                            handleDeleteSupplier(supplier.supplier_id)
+                          }
+                          className="text-red-600 hover:text-red-800"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center mt-4">
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="px-3 py-1">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() =>
+                    setCurrentPage(Math.min(totalPages, currentPage + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Enhanced Modal */}
+      {showAddModal && (
+        <EnhancedSupplierModal
+          supplier={selectedSupplier}
+          mode={viewMode}
+          categories={categories}
+          documentTypes={documentTypes}
+          onClose={() => setShowAddModal(false)}
+          onSuccess={() => {
+            fetchSuppliers();
+            setShowAddModal(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Enhanced Supplier Modal Component
+interface EnhancedSupplierModalProps {
+  supplier: Supplier | null;
+  mode: "view" | "edit" | "add";
+  categories: string[];
+  documentTypes: DocumentType[];
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+function EnhancedSupplierModal({
+  supplier,
+  mode,
+  categories,
+  documentTypes,
+  onClose,
+  onSuccess,
+}: EnhancedSupplierModalProps) {
+  const [formData, setFormData] = useState({
+    business_name: "",
+    contact_person: "",
+    contact_number: "",
+    contact_email: "",
+    business_address: "",
+    supplier_type: "external",
+    specialty_category: "",
+    business_description: "",
+    agreement_signed: false,
+    is_verified: false,
+    send_email: true,
+    create_user_account: false,
+  });
+
+  const [documents, setDocuments] = useState<{ [key: string]: File | null }>(
+    {}
+  );
+  const [uploadedDocuments, setUploadedDocuments] = useState<
+    SupplierDocument[]
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [generatedCredentials, setGeneratedCredentials] = useState<{
+    username: string;
+    password: string;
+    email_sent: boolean;
+  } | null>(null);
+  const [showCredentials, setShowCredentials] = useState(false);
+
+  // Auto-generate username based on business name
+  const generateUsername = (businessName: string) => {
+    return (
+      businessName
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "")
+        .substring(0, 15) + Math.floor(Math.random() * 1000)
+    );
+  };
+
+  // Auto-generate secure password
+  const generatePassword = () => {
+    const charset =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+    let password = "";
+    for (let i = 0; i < 12; i++) {
+      password += charset.charAt(Math.floor(Math.random() * charset.length));
+    }
+    return password;
+  };
+
+  // Copy to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert("Copied to clipboard!");
+  };
+
+  useEffect(() => {
+    if (supplier) {
+      setFormData({
+        business_name: supplier.business_name || "",
+        contact_person: supplier.contact_person || "",
+        contact_number: supplier.contact_number || "",
+        contact_email: supplier.contact_email || "",
+        business_address: supplier.business_address || "",
+        supplier_type: supplier.supplier_type || "external",
+        specialty_category: supplier.specialty_category || "",
+        business_description: supplier.business_description || "",
+        agreement_signed: supplier.agreement_signed || false,
+        is_verified: supplier.is_verified || false,
+        send_email: true,
+        create_user_account: supplier.supplier_type === "internal",
+      });
+
+      // Fetch existing documents if editing
+      if (mode === "edit" || mode === "view") {
+        fetchSupplierDocuments(supplier.supplier_id);
+      }
+    }
+  }, [supplier, mode]);
+
+  const fetchSupplierDocuments = async (supplierId: number) => {
+    try {
+      const response = await fetch(
+        `http://localhost/events-api/admin.php?operation=getSupplierDocuments&supplier_id=${supplierId}`
+      );
+      const data = await response.json();
+      if (data.status === "success") {
+        setUploadedDocuments(data.documents);
+      }
+    } catch (error) {
+      console.error("Error fetching documents:", error);
+    }
+  };
+
+  const handleFileChange = (documentType: string, file: File | null) => {
+    setDocuments((prev) => ({
+      ...prev,
+      [documentType]: file,
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      // Create FormData for file uploads
+      const formDataToSend = new FormData();
+
+      // Add text fields
+      Object.entries(formData).forEach(([key, value]) => {
+        formDataToSend.append(key, value.toString());
+      });
+
+      // Add files
+      Object.entries(documents).forEach(([type, file]) => {
+        if (file) {
+          formDataToSend.append(`documents[${type}]`, file);
+        }
+      });
+
+      const url =
+        mode === "edit"
+          ? `http://localhost/events-api/admin.php?operation=updateSupplier&supplier_id=${supplier?.supplier_id}`
+          : "http://localhost/events-api/admin.php?operation=createSupplier";
+
+      const method = mode === "edit" ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method,
+        body: formDataToSend,
+      });
+
+      const data = await response.json();
+
+      if (data.status === "success") {
+        if (mode === "add" && data.credentials) {
+          setGeneratedCredentials(data.credentials);
+          setShowCredentials(true);
+        }
+
+        alert(
+          mode === "edit"
+            ? "Supplier updated successfully!"
+            : "Supplier created successfully!"
+        );
+
+        if (!showCredentials) {
+          onSuccess();
+        }
+      } else {
+        alert(data.message || "Operation failed");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Operation failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isReadOnly = mode === "view";
+
+  // Credentials display modal
+  if (showCredentials && generatedCredentials) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <div className="text-center mb-4">
+            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-gray-900">
+              Supplier Created Successfully!
+            </h2>
+            <p className="text-gray-600">
+              Login credentials have been generated
+            </p>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-4 mb-4">
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Username
+                </label>
+                <div className="flex items-center mt-1">
+                  <input
+                    type="text"
+                    value={generatedCredentials.username}
+                    readOnly
+                    className="flex-1 px-3 py-2 bg-white border rounded-l-lg"
+                  />
+                  <button
+                    onClick={() =>
+                      copyToClipboard(generatedCredentials.username)
+                    }
+                    className="px-3 py-2 bg-gray-200 border border-l-0 rounded-r-lg hover:bg-gray-300"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Password
+                </label>
+                <div className="flex items-center mt-1">
+                  <input
+                    type="text"
+                    value={generatedCredentials.password}
+                    readOnly
+                    className="flex-1 px-3 py-2 bg-white border rounded-l-lg font-mono"
+                  />
+                  <button
+                    onClick={() =>
+                      copyToClipboard(generatedCredentials.password)
+                    }
+                    className="px-3 py-2 bg-gray-200 border border-l-0 rounded-r-lg hover:bg-gray-300"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {generatedCredentials.email_sent && (
+              <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center text-green-800">
+                  <Send className="w-4 h-4 mr-2" />
+                  <span className="text-sm">
+                    Email notification sent successfully!
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-center">
+            <button
+              onClick={() => {
+                setShowCredentials(false);
+                onSuccess();
+              }}
+              className="px-6 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold">
+            {mode === "add"
+              ? "Add New Supplier"
+              : mode === "edit"
+                ? "Edit Supplier"
+                : "Supplier Details"}
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Basic Information */}
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h3 className="text-lg font-semibold mb-4">Basic Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Business Name *
+                </label>
+                <input
+                  type="text"
+                  value={formData.business_name}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      business_name: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  required
+                  readOnly={isReadOnly}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Contact Person *
+                </label>
+                <input
+                  type="text"
+                  value={formData.contact_person}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      contact_person: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  required
+                  readOnly={isReadOnly}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Contact Number *
+                </label>
+                <input
+                  type="text"
+                  value={formData.contact_number}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      contact_number: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  required
+                  readOnly={isReadOnly}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  value={formData.contact_email}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      contact_email: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  required
+                  readOnly={isReadOnly}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Supplier Type
+                </label>
+                <select
+                  value={formData.supplier_type}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      supplier_type: e.target.value as "internal" | "external",
+                    }))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  disabled={isReadOnly}
+                >
+                  <option value="external">External</option>
+                  <option value="internal">Internal</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Specialty Category
+                </label>
+                <select
+                  value={formData.specialty_category}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      specialty_category: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  disabled={isReadOnly}
+                >
+                  <option value="">Select Category</option>
+                  {categories.map((category, index) => (
+                    <option
+                      key={`modal-category-${index}-${category}`}
+                      value={String(category)}
+                    >
+                      {String(category)}
+                    </option>
+                  ))}
+                  <option value="Catering">Catering</option>
+                  <option value="Photography">Photography</option>
+                  <option value="Floral Design">Floral Design</option>
+                  <option value="Audio Visual">Audio Visual</option>
+                  <option value="Entertainment">Entertainment</option>
+                  <option value="Transportation">Transportation</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">
+                Business Address
+              </label>
+              <textarea
+                value={formData.business_address}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    business_address: e.target.value,
+                  }))
+                }
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                rows={3}
+                readOnly={isReadOnly}
+              />
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">
+                Business Description
+              </label>
+              <textarea
+                value={formData.business_description}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    business_description: e.target.value,
+                  }))
+                }
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                rows={3}
+                readOnly={isReadOnly}
+                placeholder="Brief description of services and expertise..."
+              />
+            </div>
+          </div>
+
+          {/* Document Upload Section */}
+          {mode === "add" && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h3 className="text-lg font-semibold mb-4">Document Upload</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {documentTypes.map((docType) => (
+                  <div
+                    key={docType.type_code}
+                    className="border rounded-lg p-4 bg-white"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium">
+                        {docType.type_name}
+                        {docType.is_required && (
+                          <span className="text-red-500 ml-1">*</span>
+                        )}
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-3">
+                      {docType.description}
+                    </p>
+
+                    <div className="relative">
+                      <input
+                        type="file"
+                        onChange={(e) =>
+                          handleFileChange(
+                            docType.type_code,
+                            e.target.files?.[0] || null
+                          )
+                        }
+                        className="hidden"
+                        id={`file-${docType.type_code}`}
+                        accept={docType.allowed_extensions
+                          .map((ext) => `.${ext}`)
+                          .join(",")}
+                      />
+                      <label
+                        htmlFor={`file-${docType.type_code}`}
+                        className="flex items-center justify-center w-full p-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-brand-500 hover:bg-brand-50"
+                      >
+                        <Upload className="w-5 h-5 text-gray-400 mr-2" />
+                        <span className="text-sm text-gray-600">
+                          {documents[docType.type_code]
+                            ? documents[docType.type_code]?.name
+                            : `Upload ${docType.type_name}`}
+                        </span>
+                      </label>
+                    </div>
+
+                    <p className="text-xs text-gray-500 mt-1">
+                      Max size: {docType.max_file_size_mb}MB | Formats:{" "}
+                      {docType.allowed_extensions.join(", ")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Existing Documents (Edit/View Mode) */}
+          {(mode === "edit" || mode === "view") &&
+            uploadedDocuments.length > 0 && (
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold mb-4">
+                  Uploaded Documents
+                </h3>
+                <div className="grid grid-cols-1 gap-3">
+                  {uploadedDocuments.map((doc) => (
+                    <div
+                      key={doc.document_id}
+                      className="flex items-center justify-between bg-white p-3 rounded-lg border"
+                    >
+                      <div className="flex items-center">
+                        <FileText className="w-5 h-5 text-gray-400 mr-3" />
+                        <div>
+                          <div className="font-medium">
+                            {doc.document_title}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {doc.file_name} •{" "}
+                            {(doc.file_size / 1024 / 1024).toFixed(2)} MB
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {doc.is_verified ? (
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                        ) : (
+                          <AlertCircle className="w-5 h-5 text-yellow-500" />
+                        )}
+                        <button
+                          type="button"
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Download"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+          {/* Settings and Options */}
+          {mode === "add" && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h3 className="text-lg font-semibold mb-4">Options</h3>
+              <div className="space-y-3">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={formData.create_user_account}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        create_user_account: e.target.checked,
+                      }))
+                    }
+                    className="mr-2"
+                  />
+                  <span className="text-sm">
+                    Create user account (enables portal access)
+                  </span>
+                </label>
+
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={formData.send_email}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        send_email: e.target.checked,
+                      }))
+                    }
+                    className="mr-2"
+                  />
+                  <span className="text-sm">
+                    Send welcome email with credentials
+                  </span>
+                </label>
+
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={formData.agreement_signed}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        agreement_signed: e.target.checked,
+                      }))
+                    }
+                    className="mr-2"
+                  />
+                  <span className="text-sm">Agreement signed</span>
+                </label>
+
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={formData.is_verified}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        is_verified: e.target.checked,
+                      }))
+                    }
+                    className="mr-2"
+                  />
+                  <span className="text-sm">Mark as verified</span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* Status Checkboxes for Edit Mode */}
+          {mode === "edit" && (
+            <div className="flex items-center space-x-4">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.agreement_signed}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      agreement_signed: e.target.checked,
+                    }))
+                  }
+                  className="mr-2"
+                  disabled={isReadOnly}
+                />
+                Agreement Signed
+              </label>
+
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.is_verified}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      is_verified: e.target.checked,
+                    }))
+                  }
+                  className="mr-2"
+                  disabled={isReadOnly}
+                />
+                Verified
+              </label>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          {!isReadOnly && (
+            <div className="flex justify-end space-x-3 pt-4 border-t">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex items-center px-6 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50"
+              >
+                {loading && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
+                {loading
+                  ? "Processing..."
+                  : mode === "edit"
+                    ? "Update Supplier"
+                    : "Create Supplier"}
+              </button>
+            </div>
+          )}
+
+          {/* View Mode Close Button */}
+          {isReadOnly && (
+            <div className="flex justify-end pt-4 border-t">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+              >
+                Close
+              </button>
+            </div>
+          )}
+        </form>
+      </div>
+    </div>
+  );
+}

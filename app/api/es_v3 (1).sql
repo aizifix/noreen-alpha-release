@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jul 10, 2025 at 07:32 PM
+-- Generation Time: Jul 11, 2025 at 08:16 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -18,13 +18,30 @@ SET time_zone = "+00:00";
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Database: `es_v1`
+-- Database: `es_v3`
 --
 
 DELIMITER $$
 --
 -- Procedures
 --
+CREATE DEFINER=`root`@`localhost` PROCEDURE `AddColumnIfNotExists` (IN `table_name` VARCHAR(255), IN `column_name` VARCHAR(255), IN `column_definition` TEXT)   BEGIN
+    DECLARE column_exists INT DEFAULT 0;
+    
+    SELECT COUNT(*) INTO column_exists
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = table_name
+    AND COLUMN_NAME = column_name;
+    
+    IF column_exists = 0 THEN
+        SET @sql = CONCAT('ALTER TABLE ', table_name, ' ADD COLUMN ', column_name, ' ', column_definition);
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END$$
+
 CREATE DEFINER=`root`@`localhost` PROCEDURE `CleanupExpiredNotifications` ()   BEGIN
     DELETE FROM tbl_notifications
     WHERE expires_at IS NOT NULL
@@ -134,6 +151,23 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `CreatePaymentDueNotifications` ()  
 
     END LOOP;
     CLOSE payment_cursor;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `ModifyEnumIfNotExists` (IN `table_name` VARCHAR(255), IN `column_name` VARCHAR(255), IN `new_enum_values` TEXT)   BEGIN
+    DECLARE current_type TEXT;
+    
+    SELECT COLUMN_TYPE INTO current_type
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = table_name
+    AND COLUMN_NAME = column_name;
+    
+    IF current_type IS NOT NULL AND current_type NOT LIKE CONCAT('%', 'supplier', '%') THEN
+        SET @sql = CONCAT('ALTER TABLE ', table_name, ' MODIFY COLUMN ', column_name, ' ', new_enum_values);
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
 END$$
 
 --
@@ -316,6 +350,59 @@ CREATE TABLE `tbl_budget` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `tbl_document_types`
+--
+
+CREATE TABLE `tbl_document_types` (
+  `type_id` int(11) NOT NULL,
+  `type_code` varchar(50) NOT NULL,
+  `type_name` varchar(100) NOT NULL,
+  `description` text DEFAULT NULL,
+  `is_required` tinyint(1) DEFAULT 0,
+  `max_file_size_mb` int(11) DEFAULT 10,
+  `allowed_extensions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT '["pdf", "jpg", "jpeg", "png", "doc", "docx"]' CHECK (json_valid(`allowed_extensions`)),
+  `display_order` int(11) DEFAULT 0,
+  `is_active` tinyint(1) DEFAULT 1,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `tbl_document_types`
+--
+
+INSERT INTO `tbl_document_types` (`type_id`, `type_code`, `type_name`, `description`, `is_required`, `max_file_size_mb`, `allowed_extensions`, `display_order`, `is_active`, `created_at`) VALUES
+(1, 'dti', 'DTI Permit', 'Department of Trade and Industry business registration permit', 1, 10, '[\"pdf\", \"jpg\", \"jpeg\", \"png\", \"doc\", \"docx\"]', 1, 1, '2025-07-11 14:09:47'),
+(2, 'business_permit', 'Business Permit', 'Local government business permit and licenses', 1, 10, '[\"pdf\", \"jpg\", \"jpeg\", \"png\", \"doc\", \"docx\"]', 2, 1, '2025-07-11 14:09:47'),
+(3, 'contract', 'Service Contract', 'Signed service agreements and contracts', 1, 10, '[\"pdf\", \"jpg\", \"jpeg\", \"png\", \"doc\", \"docx\"]', 3, 1, '2025-07-11 14:09:47'),
+(4, 'portfolio', 'Portfolio', 'Work samples and portfolio documents', 0, 10, '[\"pdf\", \"jpg\", \"jpeg\", \"png\", \"doc\", \"docx\"]', 4, 1, '2025-07-11 14:09:47'),
+(5, 'certification', 'Certification', 'Professional certifications and awards', 0, 10, '[\"pdf\", \"jpg\", \"jpeg\", \"png\", \"doc\", \"docx\"]', 5, 1, '2025-07-11 14:09:47'),
+(6, 'other', 'Other Documents', 'Miscellaneous supporting documents', 0, 10, '[\"pdf\", \"jpg\", \"jpeg\", \"png\", \"doc\", \"docx\"]', 6, 1, '2025-07-11 14:09:47');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_email_logs`
+--
+
+CREATE TABLE `tbl_email_logs` (
+  `email_log_id` int(11) NOT NULL,
+  `recipient_email` varchar(255) NOT NULL,
+  `recipient_name` varchar(255) DEFAULT NULL,
+  `email_type` enum('supplier_welcome','password_reset','document_verification','booking_notification','payment_notification','general') NOT NULL,
+  `subject` varchar(500) NOT NULL,
+  `email_content` text DEFAULT NULL,
+  `sent_status` enum('pending','sent','failed') DEFAULT 'pending',
+  `sent_at` datetime DEFAULT NULL,
+  `error_message` text DEFAULT NULL,
+  `related_user_id` int(11) DEFAULT NULL,
+  `related_supplier_id` int(11) DEFAULT NULL,
+  `metadata` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`metadata`)),
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `tbl_events`
 --
 
@@ -384,7 +471,9 @@ INSERT INTO `tbl_events` (`event_id`, `original_booking_reference`, `user_id`, `
 (45, NULL, 15, 7, NULL, 'Proper Event V5', 'color-coordinated', NULL, 5, 100, '2025-07-03', '10:00:00', '18:00:00', 'partial', 15, 30, 250000.00, 212500.00, 'gcash', 2, '1231231231231231231231', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-02 13:20:50', '2025-07-02 13:20:50', '[{\"original_name\":\"image_2025-07-02_212037501.png\",\"file_name\":\"1751462437_68653225860a8.png\",\"file_path\":\"uploads/event_attachments/1751462437_68653225860a8.png\",\"file_size\":43446,\"file_type\":\"image/png\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-02T13:20:37.550Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-02 13:20:50', NULL),
 (46, NULL, 15, 7, NULL, 'Annivesary', 'cultural-traditional', NULL, 2, 100, '2025-07-08', '10:00:00', '18:00:00', 'partial', 18, 30, 249999.99, 187499.99, 'gcash', 2, '31212131233123123', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-07 20:04:55', '2025-07-07 20:04:55', '[{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751918669_686c284d61bb7.jpg\",\"file_path\":\"uploads/event_attachments/1751918669_686c284d61bb7.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:29.402Z\"},{\"original_name\":\"User_Stories_Event_Planning_System.docx\",\"file_name\":\"1751918671_686c284f2c616.docx\",\"file_path\":\"uploads/event_attachments/1751918671_686c284f2c616.docx\",\"file_size\":42584,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:31.184Z\"},{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751918672_686c28505cb3f.jpg\",\"file_path\":\"uploads/event_attachments/1751918672_686c28505cb3f.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-07T20:04:32.381Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-07 20:04:55', 'Agree'),
 (47, NULL, 15, 7, NULL, 'Jesse Wedding', 'vintage-romance', NULL, 2, 100, '2025-07-09', '10:00:00', '18:00:00', 'paid', 19, 29, 250000.00, 187500.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-08 04:17:11', '2025-07-08 04:18:45', '[{\"original_name\":\"a14c24f2-7492-4651-829b-d25f0e1cabd6.jpg\",\"file_name\":\"1751948216_686c9bb8102ba.jpg\",\"file_path\":\"uploads/event_attachments/1751948216_686c9bb8102ba.jpg\",\"file_size\":95092,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-08T04:16:56.068Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-08 04:17:11', NULL),
-(48, 'BK-20250709-2165', 20, 7, NULL, 'Jesse Birthday', 'boho-chic', NULL, 5, 100, '2025-08-01', '10:00:00', '18:00:00', 'paid', 19, 30, 250000.00, 212500.00, 'cash', 2, NULL, 'Jesse Birthday', 'draft', NULL, NULL, NULL, NULL, '2025-07-09 12:22:19', '2025-07-09 12:25:24', '[{\"original_name\":\"Document1.docx\",\"file_name\":\"1752063684_686e5ec470f87.docx\",\"file_path\":\"uploads/event_attachments/1752063684_686e5ec470f87.docx\",\"file_size\":409700,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-09T12:21:24.467Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-09 12:22:19', 'Agree');
+(48, 'BK-20250709-2165', 20, 7, NULL, 'Jesse Birthday', 'boho-chic', NULL, 5, 100, '2025-08-01', '10:00:00', '18:00:00', 'paid', 19, 30, 250000.00, 212500.00, 'cash', 2, NULL, 'Jesse Birthday', 'draft', NULL, NULL, NULL, NULL, '2025-07-09 12:22:19', '2025-07-09 12:25:24', '[{\"original_name\":\"Document1.docx\",\"file_name\":\"1752063684_686e5ec470f87.docx\",\"file_path\":\"uploads/event_attachments/1752063684_686e5ec470f87.docx\",\"file_size\":409700,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-09T12:21:24.467Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-09 12:22:19', 'Agree'),
+(57, NULL, 15, 7, NULL, 'Test', 'color-coordinated', NULL, 5, 100, '2025-07-19', '10:00:00', '18:00:00', 'partial', 15, 29, 250000.00, 125000.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-10 17:42:14', '2025-07-10 17:42:14', '[{\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders.pdf\",\"file_name\":\"1752169325_686ffb6dce8f3.pdf\",\"file_path\":\"uploads/event_attachments/1752169325_686ffb6dce8f3.pdf\",\"file_size\":2895,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-10T17:42:05.882Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-10 17:42:14', NULL),
+(58, NULL, 20, 7, NULL, 'Some Random Event', 'rustic-garden', NULL, 5, 100, '2025-07-14', '10:00:00', '18:00:00', 'partial', 20, 34, 500000.00, 400000.00, 'bank-transfer', 2, '1231231231231231231231', NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-11 03:45:10', '2025-07-11 03:45:10', '[{\"original_name\":\"images (3).jpg\",\"file_name\":\"1752205486_687088aea967b.jpg\",\"file_path\":\"uploads/event_attachments/1752205486_687088aea967b.jpg\",\"file_size\":13717,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-11T03:44:46.695Z\"}]', NULL, NULL, 0, NULL, NULL, '2025-07-11 03:45:10', 'Test');
 
 --
 -- Triggers `tbl_events`
@@ -805,7 +894,18 @@ INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`
 (183, 48, 'Photographer & Videographer', 25000.00, '', 0, 1, 284, 5),
 (184, 48, 'Invitation Design & Printing', 6000.00, '', 0, 1, 285, 6),
 (185, 48, 'Cake & Wine Set', 5000.00, '', 0, 1, 286, 7),
-(186, 48, 'Inclusions', 0.00, '', 0, 1, NULL, 8);
+(186, 48, 'Inclusions', 0.00, '', 0, 1, NULL, 8),
+(187, 57, 'Full Wedding Coordination', 15000.00, '', 0, 1, 189, 0),
+(188, 57, 'Attire ', 25000.00, '', 0, 1, 190, 1),
+(189, 57, 'Hair and Makeup', 8000.00, '', 0, 1, 191, 2),
+(190, 57, 'Wedding Cake', 5000.00, '', 0, 1, 192, 3),
+(191, 57, 'Transport & Floral Decor ', 7000.00, '', 0, 1, 193, 4),
+(192, 57, 'Emcee & Program Flow', 4000.00, '', 0, 1, 194, 5),
+(193, 57, 'Photography & Videography', 35000.00, '', 0, 1, 195, 6),
+(194, 57, 'Remaining Buffer ', 7000.00, '', 0, 1, 196, 7),
+(195, 57, 'Inclusions', 0.00, '', 0, 1, 205, 8),
+(196, 58, 'sample_inclusion', 12000.00, '', 0, 1, 287, 0),
+(197, 58, 'sample_inclusion 2', 20000.00, '', 0, 1, 288, 1);
 
 -- --------------------------------------------------------
 
@@ -1052,7 +1152,18 @@ INSERT INTO `tbl_event_timeline` (`timeline_id`, `event_id`, `component_id`, `ac
 (407, 48, NULL, 'Event Styling & Decorations', '2025-08-01', '16:00:00', '17:00:00', '', '', NULL, 'pending', 5),
 (408, 48, NULL, 'Photographer & Videographer', '2025-08-01', '18:00:00', '19:00:00', '', '', NULL, 'pending', 6),
 (409, 48, NULL, 'Invitation Design & Printing', '2025-08-01', '20:00:00', '21:00:00', '', '', NULL, 'pending', 7),
-(410, 48, NULL, 'Cake & Wine Set', '2025-08-01', '22:00:00', '23:00:00', '', '', NULL, 'pending', 8);
+(410, 48, NULL, 'Cake & Wine Set', '2025-08-01', '22:00:00', '23:00:00', '', '', NULL, 'pending', 8),
+(411, 57, NULL, 'Inclusions', '2025-07-19', '00:00:00', '01:00:00', '', '', NULL, 'pending', 0),
+(412, 57, NULL, 'Full Wedding Coordination', '2025-07-19', '08:00:00', '09:00:00', '', '', NULL, 'pending', 1),
+(413, 57, NULL, 'Attire ', '2025-07-19', '10:00:00', '11:00:00', '', '', NULL, 'pending', 2),
+(414, 57, NULL, 'Hair and Makeup', '2025-07-19', '12:00:00', '13:00:00', '', '', NULL, 'pending', 3),
+(415, 57, NULL, 'Wedding Cake', '2025-07-19', '14:00:00', '15:00:00', '', '', NULL, 'pending', 4),
+(416, 57, NULL, 'Transport & Floral Decor ', '2025-07-19', '16:00:00', '17:00:00', '', '', NULL, 'pending', 5),
+(417, 57, NULL, 'Emcee & Program Flow', '2025-07-19', '18:00:00', '19:00:00', '', '', NULL, 'pending', 6),
+(418, 57, NULL, 'Photography & Videography', '2025-07-19', '20:00:00', '21:00:00', '', '', NULL, 'pending', 7),
+(419, 57, NULL, 'Remaining Buffer ', '2025-07-19', '22:00:00', '23:00:00', '', '', NULL, 'pending', 8),
+(420, 58, NULL, 'sample_inclusion', '2025-07-14', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(421, 58, NULL, 'sample_inclusion 2', '2025-07-14', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1);
 
 -- --------------------------------------------------------
 
@@ -1143,7 +1254,19 @@ INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venu
 (18, 7, NULL, 30, NULL, NULL, 13, NULL, 'New booking BK-20250710-2531 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/13', '2025-07-12 23:08:27', NULL, 'unread', '2025-07-09 23:08:27'),
 (19, 7, NULL, 30, NULL, NULL, 14, NULL, 'New booking BK-20250710-8764 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/14', '2025-07-13 06:24:10', NULL, 'unread', '2025-07-10 06:24:10'),
 (20, 20, NULL, 30, NULL, NULL, 14, NULL, 'Your booking BK-20250710-8764 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/14', '2025-07-17 06:24:28', NULL, 'unread', '2025-07-10 06:24:28'),
-(21, 20, NULL, NULL, NULL, NULL, 14, NULL, 'Your booking BK-20250710-8764 has been accepted! You can now proceed with event planning.', 'booking_confirmed', 'Confirmed Booking', 'high', 'check-circle', '/client/bookings/14', '2025-07-17 06:24:28', NULL, 'unread', '2025-07-10 06:24:28');
+(21, 20, NULL, NULL, NULL, NULL, 14, NULL, 'Your booking BK-20250710-8764 has been accepted! You can now proceed with event planning.', 'booking_confirmed', 'Confirmed Booking', 'high', 'check-circle', '/client/bookings/14', '2025-07-17 06:24:28', NULL, 'unread', '2025-07-10 06:24:28'),
+(30, 15, 57, 29, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/57', '2025-07-13 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
+(31, 15, 57, 29, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/57', '2025-07-13 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
+(32, 15, 57, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱125,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/21', '2025-07-12 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
+(33, 7, 57, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱125,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/21', '2025-07-13 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
+(34, 15, 57, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱125,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/21', '2025-07-12 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
+(35, 7, 57, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱125,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/21', '2025-07-13 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
+(36, 20, 58, 34, NULL, NULL, NULL, NULL, 'Your event \"Some Random Event\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/58', '2025-07-14 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
+(37, 20, 58, 34, NULL, NULL, NULL, NULL, 'Your event \"Some Random Event\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/58', '2025-07-14 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
+(38, 20, 58, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱400,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/22', '2025-07-13 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
+(39, 7, 58, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱400,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/22', '2025-07-14 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
+(40, 20, 58, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱400,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/22', '2025-07-13 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
+(41, 7, 58, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱400,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/22', '2025-07-14 03:45:10', NULL, 'unread', '2025-07-11 03:45:10');
 
 -- --------------------------------------------------------
 
@@ -1444,7 +1567,9 @@ INSERT INTO `tbl_payments` (`payment_id`, `event_id`, `schedule_id`, `client_id`
 (17, 47, NULL, 15, 'cash', 187500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-08', NULL, '2025-07-08 04:17:11', '2025-07-08 04:17:11', '[{\"file_name\":\"1751948226_686c9bc281c60.pdf\",\"original_name\":\"analysis gamon.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751948226_686c9bc281c60.pdf\",\"file_size\":61531,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-08 06:17:11\"}]'),
 (18, 47, NULL, 15, 'cash', 62500.00, '', NULL, 'completed', '2025-07-08', '', '2025-07-08 04:18:45', '2025-07-08 04:18:45', '[{\"filename\":\"1751948325_686c9c256e021.docx\",\"original_name\":\"Document1.docx\",\"description\":\"\",\"file_size\":133331,\"file_type\":\"docx\",\"uploaded_at\":\"2025-07-08 06:18:45\"}]'),
 (19, 48, NULL, 20, 'cash', 212500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-09', NULL, '2025-07-09 12:22:19', '2025-07-09 12:22:19', '[{\"file_name\":\"1752063718_686e5ee632d8c.pdf\",\"original_name\":\"Document1.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752063718_686e5ee632d8c.pdf\",\"file_size\":940474,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-09 14:22:19\"},{\"file_name\":\"1752063728_686e5ef07b2b2.pdf\",\"original_name\":\"milestone_1_filled_followed_format.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752063728_686e5ef07b2b2.pdf\",\"file_size\":79021,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-09 14:22:19\"}]'),
-(20, 48, NULL, 20, 'cash', 37500.00, '', NULL, 'completed', '2025-07-09', '', '2025-07-09 12:25:24', '2025-07-09 12:25:24', '[{\"filename\":\"1752063924_686e5fb42951a.docx\",\"original_name\":\"Document1.docx\",\"description\":\"\",\"file_size\":409700,\"file_type\":\"docx\",\"uploaded_at\":\"2025-07-09 14:25:24\"}]');
+(20, 48, NULL, 20, 'cash', 37500.00, '', NULL, 'completed', '2025-07-09', '', '2025-07-09 12:25:24', '2025-07-09 12:25:24', '[{\"filename\":\"1752063924_686e5fb42951a.docx\",\"original_name\":\"Document1.docx\",\"description\":\"\",\"file_size\":409700,\"file_type\":\"docx\",\"uploaded_at\":\"2025-07-09 14:25:24\"}]'),
+(21, 57, NULL, 15, 'cash', 125000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-10', NULL, '2025-07-10 17:42:14', '2025-07-10 17:42:14', '[{\"file_name\":\"1752169333_686ffb7540559.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752169333_686ffb7540559.pdf\",\"file_size\":3191,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-10 19:42:14\"}]'),
+(22, 58, NULL, 20, 'bank-transfer', 400000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-11', '1231231231231231231231', '2025-07-11 03:45:10', '2025-07-11 03:45:10', '[{\"file_name\":\"1752205501_687088bd8db11.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752205501_687088bd8db11.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for bank-transfer payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-11 05:45:10\"}]');
 
 --
 -- Triggers `tbl_payments`
@@ -1745,7 +1870,9 @@ INSERT INTO `tbl_payment_logs` (`log_id`, `event_id`, `schedule_id`, `payment_id
 (19, 47, NULL, 17, 15, NULL, 'payment_received', 187500.00, NULL, 'Initial down payment for event creation', '2025-07-08 04:17:11'),
 (20, 47, NULL, 18, 15, NULL, 'payment_received', 62500.00, '', '', '2025-07-08 04:18:45'),
 (21, 48, NULL, 19, 20, NULL, 'payment_received', 212500.00, NULL, 'Initial down payment for event creation', '2025-07-09 12:22:19'),
-(22, 48, NULL, 20, 20, NULL, 'payment_received', 37500.00, '', '', '2025-07-09 12:25:24');
+(22, 48, NULL, 20, 20, NULL, 'payment_received', 37500.00, '', '', '2025-07-09 12:25:24'),
+(23, 57, NULL, 21, 15, NULL, 'payment_received', 125000.00, NULL, 'Initial down payment for event creation', '2025-07-10 17:42:14'),
+(24, 58, NULL, 22, 20, NULL, 'payment_received', 400000.00, '1231231231231231231231', 'Initial down payment for event creation', '2025-07-11 03:45:10');
 
 -- --------------------------------------------------------
 
@@ -1873,6 +2000,253 @@ INSERT INTO `tbl_store_price` (`tbl_store_price_id`, `store_id`, `store_price_ti
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `tbl_suppliers`
+--
+
+CREATE TABLE `tbl_suppliers` (
+  `supplier_id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL COMMENT 'FK to tbl_users for internal suppliers',
+  `supplier_type` enum('internal','external') NOT NULL DEFAULT 'external',
+  `business_name` varchar(255) NOT NULL,
+  `contact_number` varchar(20) NOT NULL,
+  `contact_email` varchar(255) DEFAULT NULL,
+  `contact_person` varchar(255) DEFAULT NULL,
+  `business_address` text DEFAULT NULL,
+  `agreement_signed` tinyint(1) NOT NULL DEFAULT 0,
+  `registration_docs` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'JSON array of document uploads',
+  `business_description` text DEFAULT NULL,
+  `specialty_category` varchar(100) DEFAULT NULL COMMENT 'Category of services (catering, photography, etc.)',
+  `rating_average` decimal(3,2) DEFAULT 0.00 COMMENT 'Average rating from feedback',
+  `total_ratings` int(11) DEFAULT 0 COMMENT 'Total number of ratings received',
+  `is_verified` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Admin verification status',
+  `is_active` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'Active status',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `tbl_suppliers`
+--
+
+INSERT INTO `tbl_suppliers` (`supplier_id`, `user_id`, `supplier_type`, `business_name`, `contact_number`, `contact_email`, `contact_person`, `business_address`, `agreement_signed`, `registration_docs`, `business_description`, `specialty_category`, `rating_average`, `total_ratings`, `is_verified`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, NULL, 'external', 'Elegant Catering Services', '09123456789', 'info@elegantcatering.com', 'Maria Santos', '123 Food Street, Makati City', 1, '[]', 'Premium catering services for weddings and corporate events', 'Catering', 4.50, 12, 1, 1, '2024-01-15 00:30:00', '2024-01-15 00:30:00'),
+(2, NULL, 'external', 'Perfect Shots Photography', '09234567890', 'contact@perfectshots.ph', 'John Dela Cruz', '456 Photo Avenue, BGC, Taguig', 1, '[]', 'Professional wedding and event photography with cinematic approach', 'Photography', 4.80, 8, 1, 1, '2024-01-20 02:15:00', '2024-01-20 02:15:00'),
+(3, NULL, 'external', 'Blooming Gardens Florals', '09345678901', 'hello@bloominggardens.com', 'Rose Fernandez', '789 Flower Road, Quezon City', 1, '[]', 'Exquisite floral arrangements and garden decorations for special occasions', 'Floral Design', 4.65, 15, 1, 1, '2024-01-25 06:20:00', '2024-01-25 06:20:00'),
+(4, NULL, 'internal', 'EventCorp AV Solutions', '09456789012', 'av@eventcorp.com', 'Mike Rodriguez', 'Internal Department - Main Office', 1, '[]', 'In-house audio visual equipment and technical support services', 'Audio Visual', 4.40, 6, 1, 1, '2024-02-01 01:45:00', '2024-02-01 01:45:00');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_supplier_activity`
+--
+
+CREATE TABLE `tbl_supplier_activity` (
+  `activity_id` int(11) NOT NULL,
+  `supplier_id` int(11) NOT NULL,
+  `activity_type` enum('created','updated','document_uploaded','document_verified','offer_created','offer_updated','component_delivered','profile_updated','login','password_changed') NOT NULL,
+  `activity_description` text DEFAULT NULL,
+  `related_id` int(11) DEFAULT NULL,
+  `metadata` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`metadata`)),
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` text DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Triggers `tbl_supplier_activity`
+--
+DELIMITER $$
+CREATE TRIGGER `tr_update_supplier_activity` AFTER INSERT ON `tbl_supplier_activity` FOR EACH ROW BEGIN
+    UPDATE tbl_suppliers 
+    SET last_activity = NEW.created_at 
+    WHERE supplier_id = NEW.supplier_id;
+END
+$$
+DELIMITER ;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_supplier_credentials`
+--
+
+CREATE TABLE `tbl_supplier_credentials` (
+  `credential_id` int(11) NOT NULL,
+  `supplier_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `temp_password_hash` varchar(255) NOT NULL,
+  `email_sent` tinyint(1) DEFAULT 0,
+  `used` tinyint(1) DEFAULT 0,
+  `expires_at` datetime NOT NULL,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_supplier_documents`
+--
+
+CREATE TABLE `tbl_supplier_documents` (
+  `document_id` int(11) NOT NULL,
+  `supplier_id` int(11) NOT NULL,
+  `document_type` enum('dti','business_permit','contract','portfolio','certification','other') NOT NULL,
+  `document_title` varchar(255) NOT NULL,
+  `file_name` varchar(255) NOT NULL,
+  `file_path` varchar(500) NOT NULL,
+  `file_size` int(11) DEFAULT 0,
+  `file_type` varchar(100) DEFAULT NULL,
+  `uploaded_by` int(11) NOT NULL,
+  `upload_date` datetime DEFAULT current_timestamp(),
+  `is_verified` tinyint(1) DEFAULT 0,
+  `verified_by` int(11) DEFAULT NULL,
+  `verified_at` datetime DEFAULT NULL,
+  `verification_notes` text DEFAULT NULL,
+  `is_active` tinyint(1) DEFAULT 1,
+  `created_at` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_supplier_offers`
+--
+
+CREATE TABLE `tbl_supplier_offers` (
+  `offer_id` int(11) NOT NULL,
+  `supplier_id` int(11) NOT NULL,
+  `offer_title` varchar(255) NOT NULL,
+  `offer_description` text DEFAULT NULL,
+  `price_min` decimal(10,2) NOT NULL,
+  `price_max` decimal(10,2) DEFAULT NULL,
+  `service_category` varchar(100) DEFAULT NULL,
+  `package_size` enum('small','medium','large','custom') DEFAULT NULL,
+  `delivery_timeframe` varchar(100) DEFAULT NULL,
+  `terms_conditions` text DEFAULT NULL,
+  `offer_attachments` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'JSON array of offer attachments',
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `tbl_supplier_offers`
+--
+
+INSERT INTO `tbl_supplier_offers` (`offer_id`, `supplier_id`, `offer_title`, `offer_description`, `price_min`, `price_max`, `service_category`, `package_size`, `delivery_timeframe`, `terms_conditions`, `offer_attachments`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 1, 'Wedding Catering Package - Premium', 'Full service catering for 100-200 guests including appetizers, main course, desserts, and beverages', 75000.00, 150000.00, 'Catering', 'large', '2-3 days preparation', 'Payment terms: 50% down payment, 50% on event day', '[]', 1, '2024-01-15 00:35:00', '2024-01-15 00:35:00'),
+(2, 1, 'Corporate Event Catering', 'Business lunch and meeting catering services for 20-50 people', 25000.00, 50000.00, 'Catering', 'medium', '1-2 days preparation', 'Minimum order 20 pax, advance booking required', '[]', 1, '2024-01-15 00:40:00', '2024-01-15 00:40:00'),
+(3, 2, 'Wedding Photography Full Day', 'Complete wedding coverage from preparation to reception with 2 photographers', 45000.00, 75000.00, 'Photography', 'large', 'Same day coverage', 'Includes 500+ edited photos, 1 highlight video, USB delivery', '[]', 1, '2024-01-20 02:20:00', '2024-01-20 02:20:00'),
+(4, 2, 'Event Photography Half Day', 'Professional event photography for parties and celebrations (4-6 hours)', 20000.00, 35000.00, 'Photography', 'medium', 'Same day coverage', 'Includes 200+ edited photos, online gallery access', '[]', 1, '2024-01-20 02:25:00', '2024-01-20 02:25:00'),
+(5, 3, 'Bridal Bouquet & Ceremony Florals', 'Complete floral package including bridal bouquet, bridesmaids bouquets, and ceremony decorations', 15000.00, 35000.00, 'Floral Design', 'medium', '3-5 days preparation', 'Fresh flowers guaranteed, setup included on event day', '[]', 1, '2024-01-25 06:25:00', '2024-01-25 06:25:00'),
+(6, 3, 'Reception Centerpieces', 'Elegant table centerpieces and reception area floral arrangements', 8000.00, 25000.00, 'Floral Design', 'small', '2-3 days preparation', 'Rental vases available, pickup service after event', '[]', 1, '2024-01-25 06:30:00', '2024-01-25 06:30:00'),
+(7, 4, 'Complete AV Setup - Large Events', 'Full audio visual setup for weddings and large events including sound system, microphones, projectors, and lighting', 35000.00, 60000.00, 'Audio Visual', 'large', 'Setup on event day', 'Technical support included throughout event, backup equipment available', '[]', 1, '2024-02-01 01:50:00', '2024-02-01 01:50:00'),
+(8, 4, 'Basic Sound System Package', 'Essential sound system for small to medium events with wireless microphones', 12000.00, 25000.00, 'Audio Visual', 'medium', 'Setup on event day', 'Includes 2 wireless mics, speakers, and mixer', '[]', 1, '2024-02-01 01:55:00', '2024-02-01 01:55:00');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_supplier_ratings`
+--
+
+CREATE TABLE `tbl_supplier_ratings` (
+  `rating_id` int(11) NOT NULL,
+  `supplier_id` int(11) NOT NULL,
+  `event_id` int(11) DEFAULT NULL COMMENT 'FK to tbl_events for post-event ratings',
+  `client_id` int(11) DEFAULT NULL COMMENT 'FK to tbl_users (client who gave rating)',
+  `admin_id` int(11) DEFAULT NULL COMMENT 'FK to tbl_users (admin who gave rating)',
+  `rating` tinyint(1) NOT NULL,
+  `feedback` text DEFAULT NULL,
+  `service_quality` tinyint(1) DEFAULT NULL,
+  `punctuality` tinyint(1) DEFAULT NULL,
+  `communication` tinyint(1) DEFAULT NULL,
+  `value_for_money` tinyint(1) DEFAULT NULL,
+  `would_recommend` tinyint(1) DEFAULT NULL COMMENT '1=Yes, 0=No',
+  `feedback_attachments` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'JSON array of attached photos/files',
+  `is_public` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'Whether rating is visible publicly',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Triggers `tbl_supplier_ratings`
+--
+DELIMITER $$
+CREATE TRIGGER `update_supplier_rating_average_on_delete` AFTER DELETE ON `tbl_supplier_ratings` FOR EACH ROW BEGIN
+    DECLARE avg_rating DECIMAL(3,2);
+    DECLARE total_count INT;
+
+    SELECT AVG(rating), COUNT(*)
+    INTO avg_rating, total_count
+    FROM tbl_supplier_ratings
+    WHERE supplier_id = OLD.supplier_id AND is_public = 1;
+
+    UPDATE tbl_suppliers
+    SET rating_average = COALESCE(avg_rating, 0.00),
+        total_ratings = COALESCE(total_count, 0)
+    WHERE supplier_id = OLD.supplier_id;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `update_supplier_rating_average_on_insert` AFTER INSERT ON `tbl_supplier_ratings` FOR EACH ROW BEGIN
+    DECLARE avg_rating DECIMAL(3,2);
+    DECLARE total_count INT;
+
+    SELECT AVG(rating), COUNT(*)
+    INTO avg_rating, total_count
+    FROM tbl_supplier_ratings
+    WHERE supplier_id = NEW.supplier_id AND is_public = 1;
+
+    UPDATE tbl_suppliers
+    SET rating_average = COALESCE(avg_rating, 0.00),
+        total_ratings = COALESCE(total_count, 0)
+    WHERE supplier_id = NEW.supplier_id;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `update_supplier_rating_average_on_update` AFTER UPDATE ON `tbl_supplier_ratings` FOR EACH ROW BEGIN
+    DECLARE avg_rating DECIMAL(3,2);
+    DECLARE total_count INT;
+
+    SELECT AVG(rating), COUNT(*)
+    INTO avg_rating, total_count
+    FROM tbl_supplier_ratings
+    WHERE supplier_id = NEW.supplier_id AND is_public = 1;
+
+    UPDATE tbl_suppliers
+    SET rating_average = COALESCE(avg_rating, 0.00),
+        total_ratings = COALESCE(total_count, 0)
+    WHERE supplier_id = NEW.supplier_id;
+END
+$$
+DELIMITER ;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_supplier_verification_requests`
+--
+
+CREATE TABLE `tbl_supplier_verification_requests` (
+  `verification_id` int(11) NOT NULL,
+  `supplier_id` int(11) NOT NULL,
+  `requested_by` int(11) NOT NULL,
+  `verification_type` enum('initial','document_update','renewal') DEFAULT 'initial',
+  `status` enum('pending','in_review','approved','rejected','requires_action') DEFAULT 'pending',
+  `admin_notes` text DEFAULT NULL,
+  `rejection_reason` text DEFAULT NULL,
+  `reviewed_by` int(11) DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `tbl_users`
 --
 
@@ -1886,8 +2260,11 @@ CREATE TABLE `tbl_users` (
   `user_contact` varchar(20) NOT NULL,
   `user_username` varchar(50) NOT NULL,
   `user_pwd` varchar(255) NOT NULL,
+  `force_password_change` tinyint(1) DEFAULT 0,
+  `last_login` datetime DEFAULT NULL,
+  `account_status` enum('active','inactive','suspended') DEFAULT 'active',
   `user_pfp` varchar(255) DEFAULT 'uploads/user_profile/default_pfp.png',
-  `user_role` enum('admin','organizer','client') NOT NULL,
+  `user_role` enum('admin','organizer','client','supplier') NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -1895,11 +2272,11 @@ CREATE TABLE `tbl_users` (
 -- Dumping data for table `tbl_users`
 --
 
-INSERT INTO `tbl_users` (`user_id`, `user_firstName`, `user_lastName`, `user_suffix`, `user_birthdate`, `user_email`, `user_contact`, `user_username`, `user_pwd`, `user_pfp`, `user_role`, `created_at`) VALUES
-(5, 'test', 'test', 'III', '1995-10-20', 'test@gmail.com', '0909090990', 'test', '$2y$10$kINW0dn.gMncgts2MHlwAeuJluo1eotovACTt.z5TUhZ5rf2Ewhhm', 'uploads/user_profile/sample.jpg', 'client', '2025-02-25 12:43:54'),
-(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 'uploads/user_profile/default_pfp.png', 'admin', '2025-02-25 16:41:22'),
-(15, 'Laurenz', 'Anches', '', '2000-10-31', 'lasi.anches.coc@phinmaed.com', '09054135590', 'laurenz', '$2y$10$IIUK.GHlqUPudNpZoBCw0e8z8OeIpoKH.BSdcHuQdGCiSqjK8prdS', 'uploads/user_profile/sakamoto.jpg', 'client', '2025-03-04 07:26:38'),
-(20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 'uploads/user_profile/default_pfp.png', 'client', '2025-07-09 12:04:49');
+INSERT INTO `tbl_users` (`user_id`, `user_firstName`, `user_lastName`, `user_suffix`, `user_birthdate`, `user_email`, `user_contact`, `user_username`, `user_pwd`, `force_password_change`, `last_login`, `account_status`, `user_pfp`, `user_role`, `created_at`) VALUES
+(5, 'test', 'test', 'III', '1995-10-20', 'test@gmail.com', '0909090990', 'test', '$2y$10$kINW0dn.gMncgts2MHlwAeuJluo1eotovACTt.z5TUhZ5rf2Ewhhm', 0, NULL, 'active', 'uploads/user_profile/sample.jpg', 'client', '2025-02-25 12:43:54'),
+(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 0, NULL, 'active', 'uploads/user_profile/default_pfp.png', 'admin', '2025-02-25 16:41:22'),
+(15, 'Laurenz', 'Anches', '', '2000-10-31', 'lasi.anches.coc@phinmaed.com', '09054135590', 'laurenz', '$2y$10$IIUK.GHlqUPudNpZoBCw0e8z8OeIpoKH.BSdcHuQdGCiSqjK8prdS', 0, NULL, 'active', 'uploads/user_profile/sakamoto.jpg', 'client', '2025-03-04 07:26:38'),
+(20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 0, NULL, 'active', 'uploads/user_profile/default_pfp.png', 'client', '2025-07-09 12:04:49');
 
 -- --------------------------------------------------------
 
@@ -2118,897 +2495,168 @@ CREATE TABLE `tbl_wedding_details` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `view_client_payment_summary`
--- (See below for the actual view)
---
-CREATE TABLE `view_client_payment_summary` (
-`event_id` int(11)
-,`event_title` varchar(255)
-,`event_date` date
-,`client_id` int(11)
-,`client_name` varchar(101)
-,`total_budget` decimal(12,2)
-,`down_payment` decimal(12,2)
-,`schedule_name` varchar(100)
-,`total_paid` decimal(34,2)
-,`remaining_balance` decimal(35,2)
-,`payment_progress_percent` decimal(40,2)
-,`total_installments` bigint(21)
-,`paid_installments` decimal(22,0)
-,`overdue_installments` decimal(22,0)
-,`next_payment_due` date
-,`next_payment_amount` decimal(12,2)
-,`overall_status` enum('unpaid','partial','paid','refunded')
-);
-
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `view_events_detailed`
--- (See below for the actual view)
---
-CREATE TABLE `view_events_detailed` (
-`event_id` int(11)
-,`original_booking_reference` varchar(50)
-,`user_id` int(11)
-,`admin_id` int(11)
-,`organizer_id` int(11)
-,`event_title` varchar(255)
-,`event_theme` varchar(255)
-,`event_description` text
-,`event_type_id` int(11)
-,`guest_count` int(11)
-,`event_date` date
-,`start_time` time
-,`end_time` time
-,`payment_status` enum('unpaid','partial','paid','refunded')
-,`package_id` int(11)
-,`venue_id` int(11)
-,`total_budget` decimal(12,2)
-,`down_payment` decimal(12,2)
-,`payment_method` varchar(50)
-,`payment_schedule_type_id` int(11)
-,`reference_number` varchar(100)
-,`additional_notes` text
-,`event_status` enum('draft','confirmed','on_going','done','cancelled')
-,`booking_date` date
-,`booking_time` time
-,`created_by` int(11)
-,`updated_by` int(11)
-,`created_at` timestamp
-,`updated_at` timestamp
-,`event_attachments` longtext
-,`event_feedback_id` int(11)
-,`event_wedding_form_id` int(11)
-,`is_recurring` tinyint(1)
-,`recurrence_rule` longtext
-,`cancellation_reason` text
-,`finalized_at` datetime
-,`client_signature` text
-,`client_name` varchar(101)
-,`admin_name` varchar(101)
-,`organizer_name` varchar(101)
-,`created_by_name` varchar(101)
-,`updated_by_name` varchar(101)
-,`event_type_name` varchar(100)
-,`package_title` varchar(255)
-,`venue_title` varchar(255)
-,`payment_schedule_name` varchar(100)
-,`bride_name` varchar(255)
-,`groom_name` varchar(255)
-,`feedback_rating` tinyint(4)
-,`feedback_text` text
-);
-
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `view_event_payments`
--- (See below for the actual view)
---
-CREATE TABLE `view_event_payments` (
-`event_id` int(11)
-,`event_title` varchar(255)
-,`event_date` date
-,`event_payment_status` enum('unpaid','partial','paid','refunded')
-,`total_budget` decimal(12,2)
-,`down_payment` decimal(12,2)
-,`payment_schedule_type_id` int(11)
-,`payment_schedule_name` varchar(100)
-,`user_firstName` varchar(50)
-,`user_lastName` varchar(50)
-,`user_email` varchar(100)
-,`admin_firstName` varchar(50)
-,`admin_lastName` varchar(50)
-,`schedule_id` int(11)
-,`installment_number` int(11)
-,`due_date` date
-,`schedule_amount_due` decimal(12,2)
-,`schedule_amount_paid` decimal(12,2)
-,`schedule_payment_status` enum('pending','partial','paid','overdue')
-,`payment_id` int(11)
-,`payment_amount` decimal(12,2)
-,`payment_method` enum('cash','gcash','bank-transfer','credit-card','check','online-banking')
-,`payment_status` enum('pending','processing','completed','failed','cancelled','refunded')
-,`payment_date` date
-,`payment_reference` varchar(255)
-,`payment_percentage` decimal(5,2)
-,`remaining_balance` decimal(35,2)
-,`total_paid` decimal(34,2)
-,`payment_urgency` varchar(9)
-);
-
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `v_notification_summary`
--- (See below for the actual view)
---
-CREATE TABLE `v_notification_summary` (
-`user_id` int(11)
-,`total_notifications` bigint(21)
-,`unread_count` bigint(21)
-,`urgent_unread` bigint(21)
-,`high_unread` bigint(21)
-,`last_notification_at` timestamp
-);
-
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `v_package_budget_status`
--- (See below for the actual view)
---
-CREATE TABLE `v_package_budget_status` (
-`package_id` int(11)
-,`package_title` varchar(255)
-,`package_price` decimal(10,2)
-,`original_price` decimal(10,2)
-,`is_price_locked` tinyint(1)
-,`inclusions_total` decimal(32,2)
-,`difference` decimal(33,2)
-,`budget_status` varchar(7)
-,`margin_percentage` decimal(42,6)
-);
-
--- --------------------------------------------------------
-
---
--- Structure for view `view_client_payment_summary`
---
-DROP TABLE IF EXISTS `view_client_payment_summary`;
-
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `view_client_payment_summary`  AS SELECT `e`.`event_id` AS `event_id`, `e`.`event_title` AS `event_title`, `e`.`event_date` AS `event_date`, `e`.`user_id` AS `client_id`, concat(`c`.`user_firstName`,' ',`c`.`user_lastName`) AS `client_name`, `e`.`total_budget` AS `total_budget`, `e`.`down_payment` AS `down_payment`, `pst`.`schedule_name` AS `schedule_name`, coalesce(sum(`p`.`payment_amount`),0) AS `total_paid`, `e`.`total_budget`- coalesce(sum(`p`.`payment_amount`),0) AS `remaining_balance`, round(coalesce(sum(`p`.`payment_amount`),0) / `e`.`total_budget` * 100,2) AS `payment_progress_percent`, count(`eps`.`schedule_id`) AS `total_installments`, sum(case when `eps`.`payment_status` = 'paid' then 1 else 0 end) AS `paid_installments`, sum(case when `eps`.`payment_status` = 'overdue' or `eps`.`due_date` < curdate() and `eps`.`payment_status` <> 'paid' then 1 else 0 end) AS `overdue_installments`, (select min(`tbl_event_payment_schedules`.`due_date`) from `tbl_event_payment_schedules` where `tbl_event_payment_schedules`.`event_id` = `e`.`event_id` and `tbl_event_payment_schedules`.`payment_status` <> 'paid') AS `next_payment_due`, (select `tbl_event_payment_schedules`.`amount_due` from `tbl_event_payment_schedules` where `tbl_event_payment_schedules`.`event_id` = `e`.`event_id` and `tbl_event_payment_schedules`.`payment_status` <> 'paid' order by `tbl_event_payment_schedules`.`due_date` limit 1) AS `next_payment_amount`, `e`.`payment_status` AS `overall_status` FROM ((((`tbl_events` `e` left join `tbl_users` `c` on(`e`.`user_id` = `c`.`user_id`)) left join `tbl_payment_schedule_types` `pst` on(`e`.`payment_schedule_type_id` = `pst`.`schedule_type_id`)) left join `tbl_event_payment_schedules` `eps` on(`e`.`event_id` = `eps`.`event_id`)) left join `tbl_payments` `p` on(`eps`.`schedule_id` = `p`.`schedule_id` and `p`.`payment_status` = 'completed')) GROUP BY `e`.`event_id` ;
-
--- --------------------------------------------------------
-
---
--- Structure for view `view_events_detailed`
---
-DROP TABLE IF EXISTS `view_events_detailed`;
-
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `view_events_detailed`  AS SELECT `e`.`event_id` AS `event_id`, `e`.`original_booking_reference` AS `original_booking_reference`, `e`.`user_id` AS `user_id`, `e`.`admin_id` AS `admin_id`, `e`.`organizer_id` AS `organizer_id`, `e`.`event_title` AS `event_title`, `e`.`event_theme` AS `event_theme`, `e`.`event_description` AS `event_description`, `e`.`event_type_id` AS `event_type_id`, `e`.`guest_count` AS `guest_count`, `e`.`event_date` AS `event_date`, `e`.`start_time` AS `start_time`, `e`.`end_time` AS `end_time`, `e`.`payment_status` AS `payment_status`, `e`.`package_id` AS `package_id`, `e`.`venue_id` AS `venue_id`, `e`.`total_budget` AS `total_budget`, `e`.`down_payment` AS `down_payment`, `e`.`payment_method` AS `payment_method`, `e`.`payment_schedule_type_id` AS `payment_schedule_type_id`, `e`.`reference_number` AS `reference_number`, `e`.`additional_notes` AS `additional_notes`, `e`.`event_status` AS `event_status`, `e`.`booking_date` AS `booking_date`, `e`.`booking_time` AS `booking_time`, `e`.`created_by` AS `created_by`, `e`.`updated_by` AS `updated_by`, `e`.`created_at` AS `created_at`, `e`.`updated_at` AS `updated_at`, `e`.`event_attachments` AS `event_attachments`, `e`.`event_feedback_id` AS `event_feedback_id`, `e`.`event_wedding_form_id` AS `event_wedding_form_id`, `e`.`is_recurring` AS `is_recurring`, `e`.`recurrence_rule` AS `recurrence_rule`, `e`.`cancellation_reason` AS `cancellation_reason`, `e`.`finalized_at` AS `finalized_at`, `e`.`client_signature` AS `client_signature`, concat(`c`.`user_firstName`,' ',`c`.`user_lastName`) AS `client_name`, concat(`a`.`user_firstName`,' ',`a`.`user_lastName`) AS `admin_name`, concat(`o`.`user_firstName`,' ',`o`.`user_lastName`) AS `organizer_name`, concat(`cb`.`user_firstName`,' ',`cb`.`user_lastName`) AS `created_by_name`, concat(`ub`.`user_firstName`,' ',`ub`.`user_lastName`) AS `updated_by_name`, `et`.`event_name` AS `event_type_name`, `p`.`package_title` AS `package_title`, `v`.`venue_title` AS `venue_title`, `pst`.`schedule_name` AS `payment_schedule_name`, `wd`.`bride_name` AS `bride_name`, `wd`.`groom_name` AS `groom_name`, `f`.`feedback_rating` AS `feedback_rating`, `f`.`feedback_text` AS `feedback_text` FROM (((((((((((`tbl_events` `e` left join `tbl_users` `c` on(`e`.`user_id` = `c`.`user_id`)) left join `tbl_users` `a` on(`e`.`admin_id` = `a`.`user_id`)) left join `tbl_users` `o` on(`e`.`organizer_id` = `o`.`user_id`)) left join `tbl_users` `cb` on(`e`.`created_by` = `cb`.`user_id`)) left join `tbl_users` `ub` on(`e`.`updated_by` = `ub`.`user_id`)) left join `tbl_event_type` `et` on(`e`.`event_type_id` = `et`.`event_type_id`)) left join `tbl_packages` `p` on(`e`.`package_id` = `p`.`package_id`)) left join `tbl_venue` `v` on(`e`.`venue_id` = `v`.`venue_id`)) left join `tbl_payment_schedule_types` `pst` on(`e`.`payment_schedule_type_id` = `pst`.`schedule_type_id`)) left join `tbl_wedding_details` `wd` on(`e`.`event_wedding_form_id` = `wd`.`id`)) left join `tbl_feedback` `f` on(`e`.`event_feedback_id` = `f`.`feedback_id`)) ;
-
--- --------------------------------------------------------
-
---
--- Structure for view `view_event_payments`
---
-DROP TABLE IF EXISTS `view_event_payments`;
-
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `view_event_payments`  AS SELECT `e`.`event_id` AS `event_id`, `e`.`event_title` AS `event_title`, `e`.`event_date` AS `event_date`, `e`.`payment_status` AS `event_payment_status`, `e`.`total_budget` AS `total_budget`, `e`.`down_payment` AS `down_payment`, `e`.`payment_schedule_type_id` AS `payment_schedule_type_id`, `pst`.`schedule_name` AS `payment_schedule_name`, `c`.`user_firstName` AS `user_firstName`, `c`.`user_lastName` AS `user_lastName`, `c`.`user_email` AS `user_email`, `a`.`user_firstName` AS `admin_firstName`, `a`.`user_lastName` AS `admin_lastName`, `eps`.`schedule_id` AS `schedule_id`, `eps`.`installment_number` AS `installment_number`, `eps`.`due_date` AS `due_date`, `eps`.`amount_due` AS `schedule_amount_due`, `eps`.`amount_paid` AS `schedule_amount_paid`, `eps`.`payment_status` AS `schedule_payment_status`, `p`.`payment_id` AS `payment_id`, `p`.`payment_amount` AS `payment_amount`, `p`.`payment_method` AS `payment_method`, `p`.`payment_status` AS `payment_status`, `p`.`payment_date` AS `payment_date`, `p`.`payment_reference` AS `payment_reference`, `p`.`payment_percentage` AS `payment_percentage`, `e`.`total_budget`- coalesce((select sum(`tbl_payments`.`payment_amount`) from `tbl_payments` where `tbl_payments`.`event_id` = `e`.`event_id` and `tbl_payments`.`payment_status` = 'completed'),0) AS `remaining_balance`, coalesce((select sum(`tbl_payments`.`payment_amount`) from `tbl_payments` where `tbl_payments`.`event_id` = `e`.`event_id` and `tbl_payments`.`payment_status` = 'completed'),0) AS `total_paid`, CASE WHEN `eps`.`due_date` < curdate() AND `eps`.`payment_status` <> 'paid' THEN 'overdue' WHEN `eps`.`due_date` = curdate() AND `eps`.`payment_status` <> 'paid' THEN 'due_today' ELSE 'current' END AS `payment_urgency` FROM (((((`tbl_events` `e` left join `tbl_users` `c` on(`e`.`user_id` = `c`.`user_id`)) left join `tbl_users` `a` on(`e`.`admin_id` = `a`.`user_id`)) left join `tbl_payment_schedule_types` `pst` on(`e`.`payment_schedule_type_id` = `pst`.`schedule_type_id`)) left join `tbl_event_payment_schedules` `eps` on(`e`.`event_id` = `eps`.`event_id`)) left join `tbl_payments` `p` on(`eps`.`schedule_id` = `p`.`schedule_id` and `p`.`payment_status` = 'completed')) ORDER BY `e`.`event_id` ASC, `eps`.`installment_number` ASC, `p`.`payment_date` ASC ;
-
--- --------------------------------------------------------
-
---
--- Structure for view `v_notification_summary`
---
-DROP TABLE IF EXISTS `v_notification_summary`;
-
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_notification_summary`  AS SELECT `n`.`user_id` AS `user_id`, count(0) AS `total_notifications`, count(case when `n`.`notification_status` = 'unread' then 1 end) AS `unread_count`, count(case when `n`.`notification_priority` = 'urgent' and `n`.`notification_status` = 'unread' then 1 end) AS `urgent_unread`, count(case when `n`.`notification_priority` = 'high' and `n`.`notification_status` = 'unread' then 1 end) AS `high_unread`, max(`n`.`created_at`) AS `last_notification_at` FROM `tbl_notifications` AS `n` WHERE `n`.`expires_at` is null OR `n`.`expires_at` > current_timestamp() GROUP BY `n`.`user_id` ;
-
--- --------------------------------------------------------
-
---
--- Structure for view `v_package_budget_status`
---
-DROP TABLE IF EXISTS `v_package_budget_status`;
-
-CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_package_budget_status`  AS SELECT `p`.`package_id` AS `package_id`, `p`.`package_title` AS `package_title`, `p`.`package_price` AS `package_price`, `p`.`original_price` AS `original_price`, `p`.`is_price_locked` AS `is_price_locked`, coalesce(sum(`pc`.`component_price`),0) AS `inclusions_total`, `p`.`package_price`- coalesce(sum(`pc`.`component_price`),0) AS `difference`, CASE WHEN `p`.`package_price` - coalesce(sum(`pc`.`component_price`),0) > 0 THEN 'BUFFER' WHEN `p`.`package_price` - coalesce(sum(`pc`.`component_price`),0) < 0 THEN 'OVERAGE' ELSE 'EXACT' END AS `budget_status`, CASE WHEN `p`.`package_price` > 0 THEN (`p`.`package_price` - coalesce(sum(`pc`.`component_price`),0)) / `p`.`package_price` * 100 ELSE 0 END AS `margin_percentage` FROM (`tbl_packages` `p` left join `tbl_package_components` `pc` on(`p`.`package_id` = `pc`.`package_id`)) GROUP BY `p`.`package_id`, `p`.`package_title`, `p`.`package_price`, `p`.`original_price`, `p`.`is_price_locked` ;
-
 --
 -- Indexes for dumped tables
 --
 
 --
--- Indexes for table `tbl_2fa`
+-- Indexes for table `tbl_document_types`
 --
-ALTER TABLE `tbl_2fa`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `user_id` (`user_id`);
+ALTER TABLE `tbl_document_types`
+  ADD PRIMARY KEY (`type_id`),
+  ADD UNIQUE KEY `type_code` (`type_code`);
 
 --
--- Indexes for table `tbl_bookings`
+-- Indexes for table `tbl_email_logs`
 --
-ALTER TABLE `tbl_bookings`
-  ADD PRIMARY KEY (`booking_id`),
-  ADD UNIQUE KEY `booking_reference` (`booking_reference`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `event_type_id` (`event_type_id`),
-  ADD KEY `venue_id` (`venue_id`),
-  ADD KEY `package_id` (`package_id`),
-  ADD KEY `idx_booking_status` (`booking_status`),
-  ADD KEY `idx_booking_reference` (`booking_reference`),
-  ADD KEY `idx_venue_id` (`venue_id`);
+ALTER TABLE `tbl_email_logs`
+  ADD PRIMARY KEY (`email_log_id`),
+  ADD KEY `idx_email_logs_recipient` (`recipient_email`),
+  ADD KEY `idx_email_logs_type` (`email_type`),
+  ADD KEY `idx_email_logs_status` (`sent_status`),
+  ADD KEY `idx_email_logs_date` (`created_at`);
 
 --
--- Indexes for table `tbl_budget`
+-- Indexes for table `tbl_suppliers`
 --
-ALTER TABLE `tbl_budget`
-  ADD PRIMARY KEY (`budget_id`),
-  ADD KEY `user_id` (`user_id`);
+ALTER TABLE `tbl_suppliers`
+  ADD PRIMARY KEY (`supplier_id`),
+  ADD KEY `idx_supplier_user` (`user_id`),
+  ADD KEY `idx_supplier_type` (`supplier_type`),
+  ADD KEY `idx_supplier_category` (`specialty_category`),
+  ADD KEY `idx_supplier_verified` (`is_verified`),
+  ADD KEY `idx_supplier_active` (`is_active`);
 
 --
--- Indexes for table `tbl_events`
+-- Indexes for table `tbl_supplier_activity`
 --
-ALTER TABLE `tbl_events`
-  ADD PRIMARY KEY (`event_id`),
-  ADD KEY `fk_event_client` (`user_id`),
-  ADD KEY `fk_event_admin` (`admin_id`),
-  ADD KEY `fk_event_organizer` (`organizer_id`),
-  ADD KEY `fk_event_type` (`event_type_id`),
-  ADD KEY `fk_event_package` (`package_id`),
-  ADD KEY `fk_event_venue` (`venue_id`),
-  ADD KEY `idx_events_date_time` (`event_date`,`start_time`,`end_time`),
-  ADD KEY `idx_event_booking_ref` (`original_booking_reference`),
-  ADD KEY `idx_payment_status` (`payment_status`),
-  ADD KEY `idx_booking_date` (`booking_date`),
-  ADD KEY `idx_event_theme` (`event_theme`),
-  ADD KEY `idx_created_by` (`created_by`),
-  ADD KEY `fk_event_schedule_type` (`payment_schedule_type_id`),
-  ADD KEY `idx_events_updated_by` (`updated_by`),
-  ADD KEY `idx_events_is_recurring` (`is_recurring`),
-  ADD KEY `idx_events_finalized_at` (`finalized_at`),
-  ADD KEY `idx_events_feedback` (`event_feedback_id`),
-  ADD KEY `idx_events_wedding_form` (`event_wedding_form_id`);
+ALTER TABLE `tbl_supplier_activity`
+  ADD PRIMARY KEY (`activity_id`),
+  ADD KEY `idx_supplier_activity_supplier` (`supplier_id`),
+  ADD KEY `idx_supplier_activity_type` (`activity_type`),
+  ADD KEY `idx_supplier_activity_date` (`created_at`);
 
 --
--- Indexes for table `tbl_event_components`
+-- Indexes for table `tbl_supplier_credentials`
 --
-ALTER TABLE `tbl_event_components`
-  ADD PRIMARY KEY (`component_id`),
-  ADD KEY `fk_event_component_event` (`event_id`),
-  ADD KEY `fk_event_component_original` (`original_package_component_id`);
+ALTER TABLE `tbl_supplier_credentials`
+  ADD PRIMARY KEY (`credential_id`),
+  ADD KEY `idx_supplier_credentials_supplier` (`supplier_id`),
+  ADD KEY `idx_supplier_credentials_user` (`user_id`),
+  ADD KEY `idx_supplier_credentials_expires` (`expires_at`);
 
 --
--- Indexes for table `tbl_event_package`
+-- Indexes for table `tbl_supplier_documents`
 --
-ALTER TABLE `tbl_event_package`
-  ADD PRIMARY KEY (`event_package_id`),
-  ADD KEY `venue_id` (`venue_id`),
-  ADD KEY `store_id` (`store_id`),
-  ADD KEY `budget_id` (`budget_id`),
-  ADD KEY `event_type_id` (`event_type_id`),
-  ADD KEY `fk_event_package_creator` (`user_id`);
+ALTER TABLE `tbl_supplier_documents`
+  ADD PRIMARY KEY (`document_id`),
+  ADD KEY `idx_supplier_documents_supplier` (`supplier_id`),
+  ADD KEY `idx_supplier_documents_type` (`document_type`),
+  ADD KEY `idx_supplier_documents_active` (`is_active`);
 
 --
--- Indexes for table `tbl_event_payment_schedules`
+-- Indexes for table `tbl_supplier_offers`
 --
-ALTER TABLE `tbl_event_payment_schedules`
-  ADD PRIMARY KEY (`schedule_id`),
-  ADD KEY `fk_schedule_event` (`event_id`),
-  ADD KEY `fk_schedule_type` (`schedule_type_id`),
-  ADD KEY `idx_due_date` (`due_date`),
-  ADD KEY `idx_payment_status` (`payment_status`);
+ALTER TABLE `tbl_supplier_offers`
+  ADD PRIMARY KEY (`offer_id`),
+  ADD KEY `fk_offer_supplier` (`supplier_id`),
+  ADD KEY `idx_offer_category` (`service_category`),
+  ADD KEY `idx_offer_package_size` (`package_size`),
+  ADD KEY `idx_offer_active` (`is_active`);
 
 --
--- Indexes for table `tbl_event_timeline`
+-- Indexes for table `tbl_supplier_ratings`
 --
-ALTER TABLE `tbl_event_timeline`
-  ADD PRIMARY KEY (`timeline_id`),
-  ADD KEY `fk_timeline_event` (`event_id`),
-  ADD KEY `fk_timeline_component` (`component_id`),
-  ADD KEY `fk_timeline_assigned` (`assigned_to`);
+ALTER TABLE `tbl_supplier_ratings`
+  ADD PRIMARY KEY (`rating_id`),
+  ADD KEY `fk_rating_supplier` (`supplier_id`),
+  ADD KEY `fk_rating_event` (`event_id`),
+  ADD KEY `fk_rating_client` (`client_id`),
+  ADD KEY `fk_rating_admin` (`admin_id`),
+  ADD KEY `idx_rating_public` (`is_public`);
 
 --
--- Indexes for table `tbl_event_type`
+-- Indexes for table `tbl_supplier_verification_requests`
 --
-ALTER TABLE `tbl_event_type`
-  ADD PRIMARY KEY (`event_type_id`);
-
---
--- Indexes for table `tbl_feedback`
---
-ALTER TABLE `tbl_feedback`
-  ADD PRIMARY KEY (`feedback_id`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `store_id` (`store_id`),
-  ADD KEY `venue_id` (`venue_id`);
-
---
--- Indexes for table `tbl_notifications`
---
-ALTER TABLE `tbl_notifications`
-  ADD PRIMARY KEY (`notification_id`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `event_id` (`event_id`),
-  ADD KEY `venue_id` (`venue_id`),
-  ADD KEY `store_id` (`store_id`),
-  ADD KEY `budget_id` (`budget_id`),
-  ADD KEY `booking_id` (`booking_id`),
-  ADD KEY `feedback_id` (`feedback_id`),
-  ADD KEY `idx_notification_type` (`notification_type`),
-  ADD KEY `idx_notification_status` (`notification_status`),
-  ADD KEY `idx_notification_priority` (`notification_priority`),
-  ADD KEY `idx_user_unread` (`user_id`,`notification_status`),
-  ADD KEY `idx_created_at` (`created_at`),
-  ADD KEY `idx_notifications_user_type_status` (`user_id`,`notification_type`,`notification_status`),
-  ADD KEY `idx_notifications_priority_created` (`notification_priority`,`created_at`);
-
---
--- Indexes for table `tbl_packages`
---
-ALTER TABLE `tbl_packages`
-  ADD PRIMARY KEY (`package_id`),
-  ADD KEY `fk_package_creator` (`created_by`);
-
---
--- Indexes for table `tbl_package_bookings`
---
-ALTER TABLE `tbl_package_bookings`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_package_booking_package` (`package_id`),
-  ADD KEY `fk_package_booking_booking` (`booking_id`);
-
---
--- Indexes for table `tbl_package_components`
---
-ALTER TABLE `tbl_package_components`
-  ADD PRIMARY KEY (`component_id`),
-  ADD KEY `fk_component_package` (`package_id`);
-
---
--- Indexes for table `tbl_package_event_types`
---
-ALTER TABLE `tbl_package_event_types`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `unique_package_event_type` (`package_id`,`event_type_id`),
-  ADD KEY `fk_package_event_type` (`event_type_id`);
-
---
--- Indexes for table `tbl_package_freebies`
---
-ALTER TABLE `tbl_package_freebies`
-  ADD PRIMARY KEY (`freebie_id`),
-  ADD KEY `fk_freebie_package` (`package_id`);
-
---
--- Indexes for table `tbl_package_price_history`
---
-ALTER TABLE `tbl_package_price_history`
-  ADD PRIMARY KEY (`history_id`),
-  ADD KEY `idx_package_id` (`package_id`),
-  ADD KEY `idx_changed_by` (`changed_by`);
-
---
--- Indexes for table `tbl_package_venues`
---
-ALTER TABLE `tbl_package_venues`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `unique_package_venue` (`package_id`,`venue_id`),
-  ADD KEY `fk_package_venue_venue` (`venue_id`);
-
---
--- Indexes for table `tbl_payments`
---
-ALTER TABLE `tbl_payments`
-  ADD PRIMARY KEY (`payment_id`),
-  ADD KEY `idx_payment_event` (`event_id`),
-  ADD KEY `idx_payment_client` (`client_id`),
-  ADD KEY `idx_payment_status` (`payment_status`),
-  ADD KEY `idx_payment_date` (`payment_date`),
-  ADD KEY `idx_payment_method` (`payment_method`),
-  ADD KEY `fk_payment_schedule` (`schedule_id`),
-  ADD KEY `idx_payment_attachments` (`payment_attachments`(255));
-
---
--- Indexes for table `tbl_payment_logs`
---
-ALTER TABLE `tbl_payment_logs`
-  ADD PRIMARY KEY (`log_id`),
-  ADD KEY `fk_log_event` (`event_id`),
-  ADD KEY `fk_log_schedule` (`schedule_id`),
-  ADD KEY `fk_log_payment` (`payment_id`),
-  ADD KEY `fk_log_client` (`client_id`),
-  ADD KEY `fk_log_admin` (`admin_id`),
-  ADD KEY `idx_action_type` (`action_type`);
-
---
--- Indexes for table `tbl_payment_schedule_types`
---
-ALTER TABLE `tbl_payment_schedule_types`
-  ADD PRIMARY KEY (`schedule_type_id`);
-
---
--- Indexes for table `tbl_store`
---
-ALTER TABLE `tbl_store`
-  ADD PRIMARY KEY (`store_id`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `store_category_id` (`store_category_id`),
-  ADD KEY `fk_store_feedback` (`feedback_id`);
-
---
--- Indexes for table `tbl_store_category`
---
-ALTER TABLE `tbl_store_category`
-  ADD PRIMARY KEY (`store_category_id`);
-
---
--- Indexes for table `tbl_store_price`
---
-ALTER TABLE `tbl_store_price`
-  ADD PRIMARY KEY (`tbl_store_price_id`),
-  ADD KEY `fk_store_price` (`store_id`);
-
---
--- Indexes for table `tbl_users`
---
-ALTER TABLE `tbl_users`
-  ADD PRIMARY KEY (`user_id`),
-  ADD UNIQUE KEY `user_email` (`user_email`),
-  ADD UNIQUE KEY `user_username` (`user_username`);
-
---
--- Indexes for table `tbl_venue`
---
-ALTER TABLE `tbl_venue`
-  ADD PRIMARY KEY (`venue_id`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `fk_venue_feedback` (`feedback_id`),
-  ADD KEY `idx_venue_status` (`venue_status`),
-  ADD KEY `idx_venue_type` (`venue_type`),
-  ADD KEY `idx_venue_capacity` (`venue_capacity`),
-  ADD KEY `idx_venue_price` (`venue_price`);
-
---
--- Indexes for table `tbl_venue_components`
---
-ALTER TABLE `tbl_venue_components`
-  ADD PRIMARY KEY (`component_id`),
-  ADD KEY `inclusion_id` (`inclusion_id`);
-
---
--- Indexes for table `tbl_venue_inclusions`
---
-ALTER TABLE `tbl_venue_inclusions`
-  ADD PRIMARY KEY (`inclusion_id`),
-  ADD KEY `venue_id` (`venue_id`),
-  ADD KEY `idx_inclusion_required` (`is_required`),
-  ADD KEY `idx_inclusion_active` (`is_active`);
-
---
--- Indexes for table `tbl_venue_price`
---
-ALTER TABLE `tbl_venue_price`
-  ADD PRIMARY KEY (`tbl_venue_price_id`),
-  ADD KEY `fk_venue_price_venue` (`venue_id`),
-  ADD KEY `idx_venue_price_capacity` (`tbl_capacity`),
-  ADD KEY `idx_venue_price_range` (`venue_price_min`,`venue_price_max`),
-  ADD KEY `idx_venue_price_active` (`is_active`),
-  ADD KEY `idx_venue_price_type` (`price_type`);
-
---
--- Indexes for table `tbl_website_settings`
---
-ALTER TABLE `tbl_website_settings`
-  ADD PRIMARY KEY (`setting_id`);
-
---
--- Indexes for table `tbl_wedding_details`
---
-ALTER TABLE `tbl_wedding_details`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `unique_event_wedding` (`event_id`),
-  ADD KEY `idx_wedding_event_id` (`event_id`),
-  ADD KEY `idx_wedding_bride_groom` (`bride_name`,`groom_name`);
+ALTER TABLE `tbl_supplier_verification_requests`
+  ADD PRIMARY KEY (`verification_id`),
+  ADD KEY `idx_supplier_verification_supplier` (`supplier_id`),
+  ADD KEY `idx_supplier_verification_status` (`status`),
+  ADD KEY `idx_supplier_verification_date` (`created_at`);
 
 --
 -- AUTO_INCREMENT for dumped tables
 --
 
 --
--- AUTO_INCREMENT for table `tbl_2fa`
+-- AUTO_INCREMENT for table `tbl_document_types`
 --
-ALTER TABLE `tbl_2fa`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=158;
+ALTER TABLE `tbl_document_types`
+  MODIFY `type_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
--- AUTO_INCREMENT for table `tbl_bookings`
+-- AUTO_INCREMENT for table `tbl_email_logs`
 --
-ALTER TABLE `tbl_bookings`
-  MODIFY `booking_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
+ALTER TABLE `tbl_email_logs`
+  MODIFY `email_log_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
--- AUTO_INCREMENT for table `tbl_budget`
+-- AUTO_INCREMENT for table `tbl_suppliers`
 --
-ALTER TABLE `tbl_budget`
-  MODIFY `budget_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+ALTER TABLE `tbl_suppliers`
+  MODIFY `supplier_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
--- AUTO_INCREMENT for table `tbl_events`
+-- AUTO_INCREMENT for table `tbl_supplier_activity`
 --
-ALTER TABLE `tbl_events`
-  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=57;
+ALTER TABLE `tbl_supplier_activity`
+  MODIFY `activity_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
--- AUTO_INCREMENT for table `tbl_event_components`
+-- AUTO_INCREMENT for table `tbl_supplier_credentials`
 --
-ALTER TABLE `tbl_event_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=187;
+ALTER TABLE `tbl_supplier_credentials`
+  MODIFY `credential_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
--- AUTO_INCREMENT for table `tbl_event_package`
+-- AUTO_INCREMENT for table `tbl_supplier_documents`
 --
-ALTER TABLE `tbl_event_package`
-  MODIFY `event_package_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+ALTER TABLE `tbl_supplier_documents`
+  MODIFY `document_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
--- AUTO_INCREMENT for table `tbl_event_payment_schedules`
+-- AUTO_INCREMENT for table `tbl_supplier_offers`
 --
-ALTER TABLE `tbl_event_payment_schedules`
-  MODIFY `schedule_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+ALTER TABLE `tbl_supplier_offers`
+  MODIFY `offer_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
 
 --
--- AUTO_INCREMENT for table `tbl_event_timeline`
+-- AUTO_INCREMENT for table `tbl_supplier_ratings`
 --
-ALTER TABLE `tbl_event_timeline`
-  MODIFY `timeline_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=411;
+ALTER TABLE `tbl_supplier_ratings`
+  MODIFY `rating_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
--- AUTO_INCREMENT for table `tbl_event_type`
+-- AUTO_INCREMENT for table `tbl_supplier_verification_requests`
 --
-ALTER TABLE `tbl_event_type`
-  MODIFY `event_type_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
-
---
--- AUTO_INCREMENT for table `tbl_feedback`
---
-ALTER TABLE `tbl_feedback`
-  MODIFY `feedback_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
-
---
--- AUTO_INCREMENT for table `tbl_notifications`
---
-ALTER TABLE `tbl_notifications`
-  MODIFY `notification_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
-
---
--- AUTO_INCREMENT for table `tbl_packages`
---
-ALTER TABLE `tbl_packages`
-  MODIFY `package_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
-
---
--- AUTO_INCREMENT for table `tbl_package_bookings`
---
-ALTER TABLE `tbl_package_bookings`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `tbl_package_components`
---
-ALTER TABLE `tbl_package_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=289;
-
---
--- AUTO_INCREMENT for table `tbl_package_event_types`
---
-ALTER TABLE `tbl_package_event_types`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
-
---
--- AUTO_INCREMENT for table `tbl_package_freebies`
---
-ALTER TABLE `tbl_package_freebies`
-  MODIFY `freebie_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=63;
-
---
--- AUTO_INCREMENT for table `tbl_package_price_history`
---
-ALTER TABLE `tbl_package_price_history`
-  MODIFY `history_id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `tbl_package_venues`
---
-ALTER TABLE `tbl_package_venues`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=28;
-
---
--- AUTO_INCREMENT for table `tbl_payments`
---
-ALTER TABLE `tbl_payments`
-  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
-
---
--- AUTO_INCREMENT for table `tbl_payment_logs`
---
-ALTER TABLE `tbl_payment_logs`
-  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
-
---
--- AUTO_INCREMENT for table `tbl_payment_schedule_types`
---
-ALTER TABLE `tbl_payment_schedule_types`
-  MODIFY `schedule_type_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
-
---
--- AUTO_INCREMENT for table `tbl_store`
---
-ALTER TABLE `tbl_store`
-  MODIFY `store_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
-
---
--- AUTO_INCREMENT for table `tbl_store_category`
---
-ALTER TABLE `tbl_store_category`
-  MODIFY `store_category_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
-
---
--- AUTO_INCREMENT for table `tbl_store_price`
---
-ALTER TABLE `tbl_store_price`
-  MODIFY `tbl_store_price_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
-
---
--- AUTO_INCREMENT for table `tbl_users`
---
-ALTER TABLE `tbl_users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
-
---
--- AUTO_INCREMENT for table `tbl_venue`
---
-ALTER TABLE `tbl_venue`
-  MODIFY `venue_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
-
---
--- AUTO_INCREMENT for table `tbl_venue_components`
---
-ALTER TABLE `tbl_venue_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=43;
-
---
--- AUTO_INCREMENT for table `tbl_venue_inclusions`
---
-ALTER TABLE `tbl_venue_inclusions`
-  MODIFY `inclusion_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
-
---
--- AUTO_INCREMENT for table `tbl_venue_price`
---
-ALTER TABLE `tbl_venue_price`
-  MODIFY `tbl_venue_price_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
-
---
--- AUTO_INCREMENT for table `tbl_website_settings`
---
-ALTER TABLE `tbl_website_settings`
-  MODIFY `setting_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
-
---
--- AUTO_INCREMENT for table `tbl_wedding_details`
---
-ALTER TABLE `tbl_wedding_details`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `tbl_supplier_verification_requests`
+  MODIFY `verification_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- Constraints for dumped tables
 --
 
 --
--- Constraints for table `tbl_2fa`
+-- Constraints for table `tbl_supplier_offers`
 --
-ALTER TABLE `tbl_2fa`
-  ADD CONSTRAINT `tbl_2fa_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE;
+ALTER TABLE `tbl_supplier_offers`
+  ADD CONSTRAINT `fk_offer_supplier` FOREIGN KEY (`supplier_id`) REFERENCES `tbl_suppliers` (`supplier_id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
--- Constraints for table `tbl_bookings`
+-- Constraints for table `tbl_supplier_ratings`
 --
-ALTER TABLE `tbl_bookings`
-  ADD CONSTRAINT `tbl_bookings_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_bookings_ibfk_2` FOREIGN KEY (`event_type_id`) REFERENCES `tbl_event_type` (`event_type_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `tbl_bookings_ibfk_3` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `tbl_bookings_ibfk_4` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE SET NULL;
-
---
--- Constraints for table `tbl_budget`
---
-ALTER TABLE `tbl_budget`
-  ADD CONSTRAINT `tbl_budget_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_events`
---
-ALTER TABLE `tbl_events`
-  ADD CONSTRAINT `fk_event_admin` FOREIGN KEY (`admin_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_event_client` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_event_created_by` FOREIGN KEY (`created_by`) REFERENCES `tbl_users` (`user_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_event_feedback` FOREIGN KEY (`event_feedback_id`) REFERENCES `tbl_feedback` (`feedback_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_event_organizer` FOREIGN KEY (`organizer_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_event_package` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_event_schedule_type` FOREIGN KEY (`payment_schedule_type_id`) REFERENCES `tbl_payment_schedule_types` (`schedule_type_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_event_type` FOREIGN KEY (`event_type_id`) REFERENCES `tbl_event_type` (`event_type_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_event_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `tbl_users` (`user_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_event_venue` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_event_wedding_form` FOREIGN KEY (`event_wedding_form_id`) REFERENCES `tbl_wedding_details` (`id`) ON DELETE SET NULL;
-
---
--- Constraints for table `tbl_event_components`
---
-ALTER TABLE `tbl_event_components`
-  ADD CONSTRAINT `fk_event_component_event` FOREIGN KEY (`event_id`) REFERENCES `tbl_events` (`event_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_event_component_original` FOREIGN KEY (`original_package_component_id`) REFERENCES `tbl_package_components` (`component_id`) ON DELETE SET NULL;
-
---
--- Constraints for table `tbl_event_package`
---
-ALTER TABLE `tbl_event_package`
-  ADD CONSTRAINT `fk_event_package_creator` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_event_package_ibfk_2` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_event_package_ibfk_3` FOREIGN KEY (`store_id`) REFERENCES `tbl_store` (`store_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_event_package_ibfk_4` FOREIGN KEY (`budget_id`) REFERENCES `tbl_budget` (`budget_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_event_package_ibfk_5` FOREIGN KEY (`event_type_id`) REFERENCES `tbl_event_type` (`event_type_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_event_payment_schedules`
---
-ALTER TABLE `tbl_event_payment_schedules`
-  ADD CONSTRAINT `fk_schedule_event` FOREIGN KEY (`event_id`) REFERENCES `tbl_events` (`event_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_schedule_type` FOREIGN KEY (`schedule_type_id`) REFERENCES `tbl_payment_schedule_types` (`schedule_type_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_event_timeline`
---
-ALTER TABLE `tbl_event_timeline`
-  ADD CONSTRAINT `fk_timeline_assigned` FOREIGN KEY (`assigned_to`) REFERENCES `tbl_users` (`user_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_timeline_component` FOREIGN KEY (`component_id`) REFERENCES `tbl_event_components` (`component_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_timeline_event` FOREIGN KEY (`event_id`) REFERENCES `tbl_events` (`event_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_feedback`
---
-ALTER TABLE `tbl_feedback`
-  ADD CONSTRAINT `tbl_feedback_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_feedback_ibfk_2` FOREIGN KEY (`store_id`) REFERENCES `tbl_store` (`store_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_feedback_ibfk_3` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_notifications`
---
-ALTER TABLE `tbl_notifications`
-  ADD CONSTRAINT `tbl_notifications_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_notifications_ibfk_2` FOREIGN KEY (`event_id`) REFERENCES `tbl_events` (`event_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_notifications_ibfk_3` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_notifications_ibfk_4` FOREIGN KEY (`store_id`) REFERENCES `tbl_store` (`store_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_notifications_ibfk_5` FOREIGN KEY (`budget_id`) REFERENCES `tbl_budget` (`budget_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_notifications_ibfk_6` FOREIGN KEY (`booking_id`) REFERENCES `tbl_bookings` (`booking_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_notifications_ibfk_7` FOREIGN KEY (`feedback_id`) REFERENCES `tbl_feedback` (`feedback_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_packages`
---
-ALTER TABLE `tbl_packages`
-  ADD CONSTRAINT `fk_package_creator` FOREIGN KEY (`created_by`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_package_bookings`
---
-ALTER TABLE `tbl_package_bookings`
-  ADD CONSTRAINT `fk_package_booking_booking` FOREIGN KEY (`booking_id`) REFERENCES `tbl_bookings` (`booking_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_package_booking_package` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_package_components`
---
-ALTER TABLE `tbl_package_components`
-  ADD CONSTRAINT `fk_component_package` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_package_event_types`
---
-ALTER TABLE `tbl_package_event_types`
-  ADD CONSTRAINT `fk_package_event_type` FOREIGN KEY (`event_type_id`) REFERENCES `tbl_event_type` (`event_type_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_package_event_type_package` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_package_freebies`
---
-ALTER TABLE `tbl_package_freebies`
-  ADD CONSTRAINT `fk_freebie_package` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_package_price_history`
---
-ALTER TABLE `tbl_package_price_history`
-  ADD CONSTRAINT `fk_price_history_package` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_price_history_user` FOREIGN KEY (`changed_by`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_package_venues`
---
-ALTER TABLE `tbl_package_venues`
-  ADD CONSTRAINT `fk_package_venue_package` FOREIGN KEY (`package_id`) REFERENCES `tbl_packages` (`package_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_package_venue_venue` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_payments`
---
-ALTER TABLE `tbl_payments`
-  ADD CONSTRAINT `fk_payment_client` FOREIGN KEY (`client_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_payment_event` FOREIGN KEY (`event_id`) REFERENCES `tbl_events` (`event_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_payment_schedule` FOREIGN KEY (`schedule_id`) REFERENCES `tbl_event_payment_schedules` (`schedule_id`) ON DELETE SET NULL;
-
---
--- Constraints for table `tbl_payment_logs`
---
-ALTER TABLE `tbl_payment_logs`
-  ADD CONSTRAINT `fk_log_admin` FOREIGN KEY (`admin_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_log_client` FOREIGN KEY (`client_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_log_event` FOREIGN KEY (`event_id`) REFERENCES `tbl_events` (`event_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_log_payment` FOREIGN KEY (`payment_id`) REFERENCES `tbl_payments` (`payment_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_log_schedule` FOREIGN KEY (`schedule_id`) REFERENCES `tbl_event_payment_schedules` (`schedule_id`) ON DELETE SET NULL;
-
---
--- Constraints for table `tbl_store`
---
-ALTER TABLE `tbl_store`
-  ADD CONSTRAINT `fk_store_feedback` FOREIGN KEY (`feedback_id`) REFERENCES `tbl_feedback` (`feedback_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `tbl_store_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_store_ibfk_2` FOREIGN KEY (`store_category_id`) REFERENCES `tbl_store_category` (`store_category_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_store_ibfk_3` FOREIGN KEY (`feedback_id`) REFERENCES `tbl_feedback` (`feedback_id`) ON DELETE SET NULL;
-
---
--- Constraints for table `tbl_store_price`
---
-ALTER TABLE `tbl_store_price`
-  ADD CONSTRAINT `fk_store_price` FOREIGN KEY (`store_id`) REFERENCES `tbl_store` (`store_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_venue`
---
-ALTER TABLE `tbl_venue`
-  ADD CONSTRAINT `fk_venue_feedback` FOREIGN KEY (`feedback_id`) REFERENCES `tbl_feedback` (`feedback_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `tbl_venue_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `tbl_venue_ibfk_2` FOREIGN KEY (`feedback_id`) REFERENCES `tbl_feedback` (`feedback_id`) ON DELETE SET NULL;
-
---
--- Constraints for table `tbl_venue_components`
---
-ALTER TABLE `tbl_venue_components`
-  ADD CONSTRAINT `tbl_venue_components_ibfk_1` FOREIGN KEY (`inclusion_id`) REFERENCES `tbl_venue_inclusions` (`inclusion_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_venue_inclusions`
---
-ALTER TABLE `tbl_venue_inclusions`
-  ADD CONSTRAINT `tbl_venue_inclusions_ibfk_1` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_venue_price`
---
-ALTER TABLE `tbl_venue_price`
-  ADD CONSTRAINT `fk_venue_price_venue` FOREIGN KEY (`venue_id`) REFERENCES `tbl_venue` (`venue_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `tbl_wedding_details`
---
-ALTER TABLE `tbl_wedding_details`
-  ADD CONSTRAINT `fk_wedding_details_event` FOREIGN KEY (`event_id`) REFERENCES `tbl_events` (`event_id`) ON DELETE CASCADE;
+ALTER TABLE `tbl_supplier_ratings`
+  ADD CONSTRAINT `fk_rating_supplier` FOREIGN KEY (`supplier_id`) REFERENCES `tbl_suppliers` (`supplier_id`) ON DELETE CASCADE ON UPDATE CASCADE;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jul 11, 2025 at 08:16 AM
+-- Generation Time: Jul 12, 2025 at 06:57 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -2032,7 +2032,8 @@ INSERT INTO `tbl_suppliers` (`supplier_id`, `user_id`, `supplier_type`, `busines
 (1, NULL, 'external', 'Elegant Catering Services', '09123456789', 'info@elegantcatering.com', 'Maria Santos', '123 Food Street, Makati City', 1, '[]', 'Premium catering services for weddings and corporate events', 'Catering', 4.50, 12, 1, 1, '2024-01-15 00:30:00', '2024-01-15 00:30:00'),
 (2, NULL, 'external', 'Perfect Shots Photography', '09234567890', 'contact@perfectshots.ph', 'John Dela Cruz', '456 Photo Avenue, BGC, Taguig', 1, '[]', 'Professional wedding and event photography with cinematic approach', 'Photography', 4.80, 8, 1, 1, '2024-01-20 02:15:00', '2024-01-20 02:15:00'),
 (3, NULL, 'external', 'Blooming Gardens Florals', '09345678901', 'hello@bloominggardens.com', 'Rose Fernandez', '789 Flower Road, Quezon City', 1, '[]', 'Exquisite floral arrangements and garden decorations for special occasions', 'Floral Design', 4.65, 15, 1, 1, '2024-01-25 06:20:00', '2024-01-25 06:20:00'),
-(4, NULL, 'internal', 'EventCorp AV Solutions', '09456789012', 'av@eventcorp.com', 'Mike Rodriguez', 'Internal Department - Main Office', 1, '[]', 'In-house audio visual equipment and technical support services', 'Audio Visual', 4.40, 6, 1, 1, '2024-02-01 01:45:00', '2024-02-01 01:45:00');
+(4, NULL, 'internal', 'EventCorp AV Solutions', '09456789012', 'av@eventcorp.com', 'Mike Rodriguez', 'Internal Department - Main Office', 1, '[]', 'In-house audio visual equipment and technical support services', 'Audio Visual', 4.40, 6, 1, 1, '2024-02-01 01:45:00', '2024-02-01 01:45:00'),
+(5, NULL, 'external', 'Purple Yam', '090909509095', 'aizelartunlock@gmail.com', 'Jay Raval', 'CDO central city', 1, NULL, 'Purple Cakes Yum yum', 'Catering', 0.00, 0, 1, 1, '2025-07-11 06:36:33', '2025-07-11 06:36:33');
 
 -- --------------------------------------------------------
 
@@ -2604,13 +2605,13 @@ ALTER TABLE `tbl_email_logs`
 -- AUTO_INCREMENT for table `tbl_suppliers`
 --
 ALTER TABLE `tbl_suppliers`
-  MODIFY `supplier_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `supplier_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `tbl_supplier_activity`
 --
 ALTER TABLE `tbl_supplier_activity`
-  MODIFY `activity_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `activity_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT for table `tbl_supplier_credentials`

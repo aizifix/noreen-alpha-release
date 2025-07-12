@@ -246,28 +246,64 @@ export default function BookingsPage() {
       </div>
 
       {/* Search and Tabs */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-        <input
-          type="text"
-          placeholder="Search bookings..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border rounded-lg px-4 py-2 w-full md:w-72 focus:outline-none focus:ring-2 focus:ring-green-600"
-        />
-        <div className="flex gap-2 mt-2 md:mt-0">
-          {["All Bookings", "Upcoming", "Past"].map((tab) => (
-            <button
-              key={tab}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                activeTab === tab
-                  ? "bg-green-600 text-white border-green-600"
-                  : "bg-white text-gray-700 border-gray-200 hover:bg-green-50"
-              }`}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab}
-            </button>
-          ))}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex-1">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search bookings by event type, venue, or booking reference..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 focus:border-green-600"
+              />
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg
+                  className="h-5 w-5 text-gray-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {["All Bookings", "Upcoming", "Past"].map((tab) => (
+              <button
+                key={tab}
+                className={`px-6 py-3 rounded-lg text-sm font-medium border transition-all duration-200 ${
+                  activeTab === tab
+                    ? "bg-green-600 text-white border-green-600 shadow-lg"
+                    : "bg-white text-gray-700 border-gray-200 hover:bg-green-50 hover:border-green-300"
+                }`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="mt-4 flex gap-4 text-sm text-gray-600">
+          <span>Total: {bookings.length}</span>
+          <span>
+            Pending:{" "}
+            {bookings.filter((b) => b.booking_status === "pending").length}
+          </span>
+          <span>
+            Confirmed:{" "}
+            {bookings.filter((b) => b.booking_status === "confirmed").length}
+          </span>
+          <span>
+            Completed:{" "}
+            {bookings.filter((b) => b.booking_status === "completed").length}
+          </span>
         </div>
       </div>
 
@@ -280,75 +316,142 @@ export default function BookingsPage() {
           {error}
         </div>
       ) : (
-        /* Bookings Grid */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        /* Enhanced Bookings Grid */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filtered.map((b) => (
             <div
               key={b.booking_reference}
-              className={`bg-white rounded-lg border p-5 flex flex-col gap-3 shadow-sm ${
+              className={`bg-white rounded-xl border-2 p-6 flex flex-col gap-4 shadow-sm hover:shadow-md transition-all duration-200 ${
                 b.booking_status === "converted"
                   ? "opacity-75 bg-gray-50 border-purple-200"
-                  : ""
+                  : b.booking_status === "confirmed"
+                  ? "border-green-200 bg-green-50"
+                  : b.booking_status === "pending"
+                  ? "border-yellow-200 bg-yellow-50"
+                  : "border-gray-200"
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-lg capitalize">
-                  {b.event_type_name}
-                </span>
+              {/* Header */}
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    b.booking_status === "confirmed" ? "bg-green-100" :
+                    b.booking_status === "pending" ? "bg-yellow-100" :
+                    b.booking_status === "completed" ? "bg-blue-100" :
+                    b.booking_status === "converted" ? "bg-purple-100" :
+                    "bg-red-100"
+                  }`}>
+                    <Calendar className={`h-5 w-5 ${
+                      b.booking_status === "confirmed" ? "text-green-600" :
+                      b.booking_status === "pending" ? "text-yellow-600" :
+                      b.booking_status === "completed" ? "text-blue-600" :
+                      b.booking_status === "converted" ? "text-purple-600" :
+                      "text-red-600"
+                    }`} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-lg text-gray-900 capitalize">
+                      {b.event_type_name}
+                    </h3>
+                    <p className="text-xs text-gray-500 font-medium">
+                      {b.booking_reference}
+                    </p>
+                  </div>
+                </div>
                 <span
-                  className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[b.booking_status]}`}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[b.booking_status]}`}
                 >
                   {b.booking_status.charAt(0).toUpperCase() +
                     b.booking_status.slice(1)}
                 </span>
               </div>
-              <div className="text-xs text-gray-500 mb-1">
-                Booking Ref: {b.booking_reference}
-              </div>
 
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-2 text-sm text-gray-700">
-                  <Calendar className="h-4 w-4 text-gray-500" />
-                  {formatDate(b.event_date)}
+              {/* Event Name */}
+              {b.event_name && (
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-sm text-gray-700 font-medium">{b.event_name}</p>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-700">
-                  <Clock className="h-4 w-4 text-gray-500" />
-                  {b.event_time}
+              )}
+
+              {/* Details Grid */}
+              <div className="grid grid-cols-1 gap-3">
+                <div className="flex items-center gap-3 text-sm text-gray-700 bg-white p-3 rounded-lg border">
+                  <Clock className="h-4 w-4 text-blue-600" />
+                  <div>
+                    <div className="font-medium">{formatDate(b.event_date)}</div>
+                    {b.event_time && (
+                      <div className="text-xs text-gray-500">at {b.event_time}</div>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-700">
-                  <Users className="h-4 w-4 text-gray-500" />
-                  {b.guest_count} guests
+                <div className="flex items-center gap-3 text-sm text-gray-700 bg-white p-3 rounded-lg border">
+                  <Users className="h-4 w-4 text-green-600" />
+                  <div>
+                    <div className="font-medium">{b.guest_count} guests</div>
+                  </div>
                 </div>
                 {b.venue_name && (
-                  <div className="flex items-center gap-2 text-sm text-gray-700">
-                    <MapPin className="h-4 w-4 text-gray-500" />
-                    {b.venue_name}
+                  <div className="flex items-center gap-3 text-sm text-gray-700 bg-white p-3 rounded-lg border">
+                    <MapPin className="h-4 w-4 text-red-600" />
+                    <div>
+                      <div className="font-medium">{b.venue_name}</div>
+                    </div>
                   </div>
                 )}
                 {b.package_name && (
-                  <div className="flex items-center gap-2 text-sm text-gray-700">
-                    <Package className="h-4 w-4 text-gray-500" />
-                    {b.package_name}
+                  <div className="flex items-center gap-3 text-sm text-gray-700 bg-white p-3 rounded-lg border">
+                    <Package className="h-4 w-4 text-purple-600" />
+                    <div>
+                      <div className="font-medium">{b.package_name}</div>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {b.event_name && (
-                <div className="mt-1 text-sm text-gray-600">{b.event_name}</div>
-              )}
-
+              {/* Status Messages */}
               {b.booking_status === "converted" && (
-                <div className="mt-2 p-2 bg-purple-100 rounded text-xs text-purple-800">
-                  ✅ This booking has been converted to an event by the admin.
+                <div className="p-3 bg-purple-100 rounded-lg border border-purple-200">
+                  <div className="flex items-center gap-2 text-purple-800 text-sm">
+                    <div className="w-2 h-2 bg-purple-600 rounded-full"></div>
+                    <span className="font-medium">Converted to Event</span>
+                  </div>
+                  <p className="text-xs text-purple-700 mt-1">
+                    Your booking has been successfully converted to an event by the admin.
+                  </p>
                 </div>
               )}
 
-              <div className="mt-2">
+              {b.booking_status === "pending" && (
+                <div className="p-3 bg-yellow-100 rounded-lg border border-yellow-200">
+                  <div className="flex items-center gap-2 text-yellow-800 text-sm">
+                    <div className="w-2 h-2 bg-yellow-600 rounded-full animate-pulse"></div>
+                    <span className="font-medium">Awaiting Confirmation</span>
+                  </div>
+                  <p className="text-xs text-yellow-700 mt-1">
+                    Your booking is being reviewed and will be confirmed soon.
+                  </p>
+                </div>
+              )}
+
+              {b.booking_status === "confirmed" && (
+                <div className="p-3 bg-green-100 rounded-lg border border-green-200">
+                  <div className="flex items-center gap-2 text-green-800 text-sm">
+                    <div className="w-2 h-2 bg-green-600 rounded-full"></div>
+                    <span className="font-medium">Confirmed</span>
+                  </div>
+                  <p className="text-xs text-green-700 mt-1">
+                    Your booking is confirmed and ready for the event date.
+                  </p>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 mt-auto">
                 <button
-                  className={`flex items-center gap-2 px-3 py-1 border rounded-lg text-sm w-full justify-center ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-1 justify-center ${
                     b.booking_status === "converted"
                       ? "text-gray-500 bg-gray-100 cursor-not-allowed"
-                      : "text-gray-700 hover:bg-gray-50"
+                      : "text-gray-700 bg-white border border-gray-300 hover:bg-gray-50"
                   }`}
                   disabled={b.booking_status === "converted"}
                 >
@@ -357,17 +460,36 @@ export default function BookingsPage() {
                     ? "Event Created"
                     : "View Details"}
                 </button>
+                {b.booking_status === "pending" && (
+                  <button className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors">
+                    Edit
+                  </button>
+                )}
               </div>
             </div>
           ))}
 
           {filtered.length === 0 && (
-            <div className="col-span-full text-center text-gray-400 py-10">
-              No bookings found.
+            <div className="col-span-full text-center py-16">
+              <div className="flex justify-center mb-4">
+                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center">
+                  <Calendar className="h-12 w-12 text-gray-400" />
+                </div>
+              </div>
+              <h3 className="text-xl font-medium text-gray-900 mb-2">
+                No bookings found
+              </h3>
+              <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                {search
+                  ? "No bookings match your search criteria. Try adjusting your search terms."
+                  : activeTab === "All Bookings"
+                  ? "You haven't made any bookings yet. Start planning your perfect event!"
+                  : `No ${activeTab.toLowerCase()} bookings found.`}
+              </p>
               <Link href="/client/bookings/create-booking">
-                <span className="text-green-600 hover:underline ml-1">
-                  Create your first booking
-                </span>
+                <button className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                  Create Your First Booking
+                </button>
               </Link>
             </div>
           )}

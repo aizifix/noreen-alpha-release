@@ -40,9 +40,7 @@ const nextConfig: NextConfig = {
 
   // Reduce Fast Refresh rebuilds
   experimental: {
-    optimizePackageImports: ['clsx', 'lucide-react'],
-    // Temporarily disable Fast Refresh to debug
-    fastRefresh: false,
+    optimizePackageImports: ['clsx', 'lucide-react']
   },
 
   // Disable source map generation
@@ -74,8 +72,10 @@ const nextConfig: NextConfig = {
                   "style-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com https://fonts.googleapis.com; " +
                   "font-src 'self' data: blob: https://fonts.googleapis.com https://fonts.gstatic.com; " +
                   "connect-src 'self' http://localhost http://localhost:3000 ws://localhost:3000 http://localhost/events-api " +
+                  "http://192.168.0.100 http://192.168.0.100:3000 ws://192.168.0.100:3000 http://192.168.0.100/events-api " +
                   "https://www.google.com https://www.gstatic.com https://www.google-analytics.com data: blob:; " +
-                  "img-src 'self' data: blob: https: http: http://localhost:3000/uploads/ http://localhost/events-api/uploads/; " +
+                  "img-src 'self' data: blob: https: http: http://localhost:3000/uploads/ http://localhost/events-api/uploads/ " +
+                  "http://192.168.0.100:3000/uploads/ http://192.168.0.100/events-api/uploads/; " +
                   "frame-src 'self' https://www.google.com/recaptcha/ https://www.recaptcha.net;",
               },
 

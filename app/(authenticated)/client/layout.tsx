@@ -18,12 +18,18 @@ import {
   BarChart3,
   Sun,
   Moon,
+  ChevronDown,
+  User,
+  CalendarCheck,
+  Package,
+  MapPin,
+  UserCheck,
+  Truck,
+  Menu,
+  X,
   Clock,
   FileText,
   BellRing,
-  CalendarCheck,
-  ChevronDown,
-  User,
 } from "lucide-react";
 import {
   Sidebar,
@@ -32,7 +38,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "../../components/sidebar/AdminSidebar";
+} from "../../components/sidebar/ClientSidebar";
 import { secureStorage } from "@/app/utils/encryption";
 import { useTheme } from "next-themes";
 
@@ -55,6 +61,7 @@ export default function ClientLayout({
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // After mounting, we can safely show the UI
   useEffect(() => {
@@ -65,8 +72,11 @@ export default function ClientLayout({
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element;
-      if (isUserDropdownOpen && !target.closest(".user-dropdown")) {
+      if (isUserDropdownOpen && !target.closest(".relative")) {
         setIsUserDropdownOpen(false);
+      }
+      if (isMobileMenuOpen && !target.closest(".mobile-menu")) {
+        setIsMobileMenuOpen(false);
       }
     };
 
@@ -74,7 +84,7 @@ export default function ClientLayout({
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isUserDropdownOpen]);
+  }, [isUserDropdownOpen, isMobileMenuOpen]);
 
   useEffect(() => {
     try {
@@ -112,7 +122,7 @@ export default function ClientLayout({
       secureStorage.removeItem("user");
       router.replace("/auth/login");
     }
-  }, []); // Remove router dependency to prevent repeated calls
+  }, []);
 
   const handleLogout = () => {
     try {
@@ -131,16 +141,23 @@ export default function ClientLayout({
     }
   };
 
-  // Client-specific menu items
   const menuItems = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/client/dashboard" },
-    { icon: Calendar, label: "My Events", href: "/client/events" },
+    { icon: Calendar, label: "Events", href: "/client/events" },
     { icon: CalendarCheck, label: "Bookings", href: "/client/bookings" },
-    { icon: Clock, label: "Timeline", href: "/client/settings" },
-    { icon: FileText, label: "Documents", href: "/client/settings" },
     { icon: CreditCard, label: "Payments", href: "/client/payments" },
-    { icon: BellRing, label: "Notifications", href: "/client/settings" },
+    { icon: Clock, label: "Timeline", href: "/client/timeline" },
+    { icon: FileText, label: "Documents", href: "/client/documents" },
+    { icon: BellRing, label: "Notifications", href: "/client/notifications" },
     { icon: Settings, label: "Settings", href: "/client/settings" },
+  ];
+
+  // Mobile navigation items for bottom nav
+  const mobileNavItems = [
+    { icon: LayoutDashboard, label: "Dashboard", href: "/client/dashboard" },
+    { icon: Calendar, label: "Events", href: "/client/events" },
+    { icon: CalendarCheck, label: "Bookings", href: "/client/bookings" },
+    { icon: CreditCard, label: "Payments", href: "/client/payments" },
   ];
 
   if (!user) {
@@ -149,8 +166,8 @@ export default function ClientLayout({
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* Sidebar (Fixed) */}
-      <div className="fixed inset-y-0 left-0 z-20 w-64">
+      {/* Desktop Sidebar (Fixed) - Hidden on mobile */}
+      <div className="hidden lg:block fixed inset-y-0 left-0 z-20 w-64">
         <Sidebar className="h-full w-64 bg-white border-r">
           <SidebarHeader className="border-b px-3 py-4 h-16 flex items-center justify-start">
             <Image
@@ -191,9 +208,9 @@ export default function ClientLayout({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 ml-64">
-        {/* Navbar */}
-        <header className="fixed top-0 right-0 left-64 z-10 bg-white border-b px-6 py-4 h-16 flex justify-end items-center">
+      <div className="flex-1 lg:ml-64">
+        {/* Desktop Navbar - Hidden on mobile */}
+        <header className="hidden lg:flex fixed top-0 right-0 left-64 z-10 bg-white border-b px-6 py-4 h-16 justify-end items-center">
           {/* User Info on the Right */}
           <div className="flex items-center gap-3">
             {/* Theme Toggle */}
@@ -212,7 +229,7 @@ export default function ClientLayout({
             <div className="relative cursor-pointer">
               <Calendar className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
               <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
-                29
+                12
               </span>
             </div>
             <div className="cursor-pointer">
@@ -220,7 +237,7 @@ export default function ClientLayout({
             </div>
 
             {/* User Dropdown */}
-            <div className="relative user-dropdown">
+            <div className="relative">
               <button
                 onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
                 className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"
@@ -256,15 +273,115 @@ export default function ClientLayout({
                   </div>
                 </div>
 
-                <ChevronDown className="h-4 w-4 text-gray-500" />
+                {/* Dropdown Arrow */}
+                <ChevronDown
+                  className={`h-4 w-4 text-gray-500 transition-transform ${isUserDropdownOpen ? "rotate-180" : ""}`}
+                />
               </button>
 
               {/* Dropdown Menu */}
               {isUserDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 border">
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                  <button
+                    onClick={() => {
+                      setIsUserDropdownOpen(false);
+                      router.push("/client/profile");
+                    }}
+                    className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <User className="h-4 w-4" />
+                    Profile
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsUserDropdownOpen(false);
+                      router.push("/client/settings");
+                    }}
+                    className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </button>
+                  <div className="border-t border-gray-100 my-1"></div>
+                  <button
+                    onClick={() => {
+                      setIsUserDropdownOpen(false);
+                      handleLogout();
+                    }}
+                    className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* Mobile Header - Only shown on mobile */}
+        <header className="lg:hidden bg-white border-b px-4 py-3 flex items-center justify-between relative z-30">
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <Image
+              src={Logo || "/placeholder.svg"}
+              alt="Noreen Logo"
+              width={80}
+              height={32}
+              className="object-contain"
+            />
+          </div>
+
+          {/* Right Side - User Actions */}
+          <div className="flex items-center gap-2">
+            {/* Notifications */}
+            <button className="relative p-2 rounded-full hover:bg-gray-100">
+              <Bell className="h-5 w-5 text-gray-600" />
+              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
+                3
+              </span>
+            </button>
+
+            {/* User Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                className="flex items-center gap-2 p-1 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="h-8 w-8 border border-gray-300 rounded-full overflow-hidden">
+                  {user.profilePicture ? (
+                    <Image
+                      src={user.profilePicture || "/placeholder.svg"}
+                      alt={`${user.user_firstName} ${user.user_lastName}`}
+                      width={32}
+                      height={32}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-gray-200 flex items-center justify-center">
+                      <span className="text-xs font-medium">
+                        {user?.user_firstName.charAt(0)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </button>
+
+              {/* Mobile Dropdown Menu */}
+              {isUserDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 border z-50">
+                  <div className="px-4 py-2 border-b">
+                    <div className="font-medium text-gray-900">
+                      {user?.user_firstName} {user?.user_lastName}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {user?.user_role}
+                    </div>
+                  </div>
                   <Link
                     href="/client/settings/userinfo"
                     className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    onClick={() => setIsUserDropdownOpen(false)}
                   >
                     <User className="h-4 w-4" />
                     Profile
@@ -272,10 +389,24 @@ export default function ClientLayout({
                   <Link
                     href="/client/settings"
                     className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    onClick={() => setIsUserDropdownOpen(false)}
                   >
                     <Settings className="h-4 w-4" />
                     Settings
                   </Link>
+                  <button
+                    onClick={() =>
+                      setTheme(theme === "dark" ? "light" : "dark")
+                    }
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    {mounted && theme === "dark" ? (
+                      <Sun className="h-4 w-4" />
+                    ) : (
+                      <Moon className="h-4 w-4" />
+                    )}
+                    Theme
+                  </button>
                   <hr className="my-1" />
                   <button
                     onClick={handleLogout}
@@ -287,14 +418,87 @@ export default function ClientLayout({
                 </div>
               )}
             </div>
+
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 rounded-full hover:bg-gray-100 ml-1"
+              aria-label="Toggle menu"
+            >
+              {isMobileMenuOpen ? (
+                <X className="h-5 w-5 text-gray-600" />
+              ) : (
+                <Menu className="h-5 w-5 text-gray-600" />
+              )}
+            </button>
           </div>
+
+          {/* Mobile Menu Overlay */}
+          {isMobileMenuOpen && (
+            <div className="absolute top-full left-0 right-0 bg-white border-b shadow-lg z-40 mobile-menu">
+              <div className="py-2">
+                {menuItems.slice(4).map((item) => {
+                  const isActive =
+                    pathname === item.href ||
+                    pathname.startsWith(`${item.href}/`);
+                  return (
+                    <Link
+                      key={item.label}
+                      href={item.href}
+                      className={`flex items-center gap-3 px-4 py-3 transition ${
+                        isActive
+                          ? "bg-brand-50 text-brand-600 border-r-2 border-brand-500"
+                          : "text-gray-700 hover:bg-gray-50"
+                      }`}
+                      onClick={() => setIsMobileMenuOpen(false)}
+                    >
+                      <item.icon className="h-5 w-5" />
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </header>
 
-        {/* Page Content */}
-        <main className="pt-16 h-screen overflow-y-auto">
-          <div className="p-6">{children}</div>
+        {/* Page Content - Adjusted for Navbar */}
+        <main className="lg:pt-24 lg:p-6 h-screen overflow-auto pb-16 lg:pb-0">
+          {children}
         </main>
       </div>
+
+      {/* Bottom Navigation - Mobile Only */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t z-30 lg:hidden">
+        <div className="flex items-center justify-around">
+          {mobileNavItems.map((item) => {
+            const isActive =
+              pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={`flex flex-col items-center gap-1 py-2 px-3 min-w-0 flex-1 transition ${
+                  isActive
+                    ? "text-brand-600"
+                    : "text-gray-600 hover:text-brand-600"
+                }`}
+              >
+                <item.icon
+                  className={`h-5 w-5 ${isActive ? "text-brand-600" : "text-gray-600"}`}
+                />
+                <span
+                  className={`text-xs font-medium truncate ${
+                    isActive ? "text-brand-600" : "text-gray-600"
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }

@@ -34,6 +34,8 @@ import {
   Camera,
   Loader2,
 } from "lucide-react";
+import ProfilePictureModal from "@/components/ProfilePictureModal";
+import { userDataHelper } from "@/app/utils/userDataHelper";
 
 interface UserProfile {
   user_id: number;
@@ -80,6 +82,7 @@ export default function SettingsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showProfilePictureModal, setShowProfilePictureModal] = useState(false);
 
   // Profile state
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -456,6 +459,58 @@ export default function SettingsPage() {
     );
   }
 
+  const handleProfilePictureUpload = (filePath: string) => {
+    setUserProfile((prev) => (prev ? { ...prev, user_pfp: filePath } : null));
+
+    // Use a safer approach: first refresh the profile data, then update secure storage
+    setTimeout(async () => {
+      await fetchUserProfile(); // Refresh the profile data first
+      await updateUserDataSafely(); // Then safely update the secure storage for navbar
+    }, 100);
+  };
+
+  // Function to safely update user data in secure storage after profile picture upload
+  const updateUserDataSafely = async () => {
+    try {
+      const token = secureStorage.getItem("authToken");
+      const userId = secureStorage.getItem("userId");
+
+      if (!token || !userId) return;
+
+      const response = await axios.get(
+        `http://localhost/events-api/admin.php?operation=getUserProfile&user_id=${userId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (response.data.status === "success") {
+        const profile = response.data.profile;
+
+        // Get current user data from secure storage
+        const currentUser = secureStorage.getItem("user");
+        if (currentUser && typeof currentUser === "object") {
+          // Update only the profile picture field while preserving all other data
+          const updatedUser = {
+            ...currentUser,
+            user_pfp: profile.user_pfp,
+          };
+
+          console.log(
+            "Safely updating user data with new profile picture:",
+            updatedUser
+          );
+          secureStorage.setItem("user", updatedUser);
+
+          // Dispatch event to update navbar
+          window.dispatchEvent(new CustomEvent("userDataChanged"));
+        }
+      }
+    } catch (error) {
+      console.error("Error updating user data safely:", error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -519,15 +574,13 @@ export default function SettingsPage() {
                     alt="Profile"
                     className="h-24 w-24 rounded-full object-cover border-4 border-gray-200"
                   />
-                  <label className="absolute bottom-0 right-0 bg-green-600 text-white p-2 rounded-full cursor-pointer hover:bg-green-700 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setShowProfilePictureModal(true)}
+                    className="absolute bottom-0 right-0 bg-green-600 text-white p-2 rounded-full cursor-pointer hover:bg-green-700 transition-colors"
+                  >
                     <Camera className="h-4 w-4" />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => handleImageUpload(e, "profile")}
-                    />
-                  </label>
+                  </button>
                 </div>
                 <div>
                   <h3 className="text-lg font-medium">
@@ -1205,6 +1258,15 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Profile Picture Modal */}
+      <ProfilePictureModal
+        isOpen={showProfilePictureModal}
+        onClose={() => setShowProfilePictureModal(false)}
+        onUploadSuccess={handleProfilePictureUpload}
+        uploadEndpoint="http://localhost/events-api/admin.php"
+        userId={userProfile?.user_id || 0}
+      />
     </div>
   );
 }

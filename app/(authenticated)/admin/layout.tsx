@@ -25,6 +25,8 @@ import {
   MapPin,
   UserCheck,
   Truck,
+  ChevronRight,
+  Plus,
 } from "lucide-react";
 import {
   Sidebar,
@@ -42,7 +44,22 @@ interface User {
   user_lastName: string;
   user_role: string;
   user_email: string;
+  user_pfp?: string;
   profilePicture?: string;
+}
+
+interface MenuItem {
+  icon: any;
+  label: string;
+  href?: string;
+  items?: MenuItem[];
+}
+
+interface MenuSection {
+  label: string;
+  icon?: any;
+  items: MenuItem[];
+  isExpanded?: boolean;
 }
 
 export default function AdminLayout({
@@ -56,6 +73,49 @@ export default function AdminLayout({
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+
+  const menuSections: MenuSection[] = [
+    {
+      label: "Overview",
+      items: [
+        { icon: LayoutDashboard, label: "Dashboard", href: "/admin/dashboard" },
+        { icon: BarChart3, label: "Reports", href: "/admin/reports" },
+      ],
+    },
+    {
+      label: "Event Management",
+      items: [
+        { icon: Calendar, label: "Events", href: "/admin/events" },
+        { icon: Wrench, label: "Event Builder", href: "/admin/event-builder" },
+        { icon: CalendarCheck, label: "Bookings", href: "/admin/bookings" },
+      ],
+    },
+    {
+      label: "Resources",
+      items: [
+        { icon: Package, label: "Packages", href: "/admin/packages" },
+        { icon: MapPin, label: "Venues", href: "/admin/venues" },
+      ],
+    },
+    {
+      label: "People",
+      items: [
+        { icon: Users, label: "Clients", href: "/admin/clients" },
+        { icon: UserCheck, label: "Organizers", href: "/admin/organizers" },
+        { icon: Truck, label: "Suppliers", href: "/admin/supplier" },
+        { icon: Users, label: "Staff", href: "/admin/staff" },
+      ],
+    },
+    {
+      label: "Finance",
+      items: [{ icon: CreditCard, label: "Payments", href: "/admin/payments" }],
+    },
+  ];
+
+  // Initialize expandedSections with all section labels
+  const [expandedSections, setExpandedSections] = useState<string[]>(
+    menuSections.map((section) => section.label)
+  );
 
   // After mounting, we can safely show the UI
   useEffect(() => {
@@ -107,6 +167,28 @@ export default function AdminLayout({
     }
   }, []); // Remove router dependency to prevent repeated calls
 
+  // Listen for user data changes (like profile picture updates)
+  useEffect(() => {
+    const handleUserDataChange = () => {
+      try {
+        const userData = secureStorage.getItem("user");
+        if (userData && userData.user_role === "Admin") {
+          console.log("Admin layout: User data updated, refreshing navbar");
+          setUser(userData);
+        }
+      } catch (error) {
+        console.error("Admin layout: Error handling user data change:", error);
+      }
+    };
+
+    // Listen for storage changes
+    window.addEventListener("userDataChanged", handleUserDataChange);
+
+    return () => {
+      window.removeEventListener("userDataChanged", handleUserDataChange);
+    };
+  }, []);
+
   const handleLogout = () => {
     try {
       secureStorage.removeItem("user");
@@ -124,19 +206,31 @@ export default function AdminLayout({
     }
   };
 
-  const menuItems = [
-    { icon: LayoutDashboard, label: "Dashboard", href: "/admin/dashboard" },
-    { icon: Calendar, label: "Events", href: "/admin/events" },
-    { icon: Wrench, label: "Event Builder", href: "/admin/event-builder" },
-    { icon: CalendarCheck, label: "Bookings", href: "/admin/bookings" },
-    { icon: Package, label: "Packages", href: "/admin/packages" },
-    { icon: MapPin, label: "Venues", href: "/admin/venues" },
-    { icon: Users, label: "Clients", href: "/admin/clients" },
-    { icon: UserCheck, label: "Organizers", href: "/admin/organizers" },
-    { icon: Truck, label: "Suppliers", href: "/admin/supplier" },
-    { icon: CreditCard, label: "Payments", href: "/admin/payments" },
-    { icon: BarChart3, label: "Reports", href: "/admin/reports" },
-  ];
+  // Toggle section expansion
+  const toggleSection = (sectionLabel: string) => {
+    setExpandedSections((prev) =>
+      prev.includes(sectionLabel)
+        ? prev.filter((label) => label !== sectionLabel)
+        : [...prev, sectionLabel]
+    );
+  };
+
+  // Optional: Save expanded state to localStorage to persist user preferences
+  useEffect(() => {
+    const savedExpandedSections = localStorage.getItem(
+      "sidebarExpandedSections"
+    );
+    if (savedExpandedSections) {
+      setExpandedSections(JSON.parse(savedExpandedSections));
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "sidebarExpandedSections",
+      JSON.stringify(expandedSections)
+    );
+  }, [expandedSections]);
 
   if (!user) {
     return null;
@@ -158,26 +252,78 @@ export default function AdminLayout({
           </SidebarHeader>
           <SidebarContent className="flex flex-col h-[calc(100%-64px)]">
             <SidebarMenu className="flex-1 mt-4 space-y-1 px-1">
-              {menuItems.map((item) => {
-                const isActive =
-                  pathname === item.href ||
-                  pathname.startsWith(`${item.href}/`); // Check if the current path is active or a subpath
+              {menuSections.map((section) => {
+                const isSectionExpanded = expandedSections.includes(
+                  section.label
+                );
+                const hasActiveItem = section.items.some(
+                  (item) =>
+                    pathname === item.href ||
+                    pathname.startsWith(`${item.href}/`)
+                );
+
                 return (
-                  <SidebarMenuItem key={item.label}>
-                    <SidebarMenuButton asChild>
-                      <Link
-                        href={item.href}
-                        className={`flex w-full items-center gap-3 px-3 py-2 rounded-md transition ${
-                          isActive
-                            ? "bg-brand-500 text-white"
-                            : "text-[#797979] hover:bg-brand-500 hover:text-white"
-                        }`}
-                      >
-                        <item.icon className="h-5 w-5" />
-                        <span>{item.label}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  <div key={section.label} className="space-y-1">
+                    {/* Section Header */}
+                    <button
+                      onClick={() => toggleSection(section.label)}
+                      className={`
+                        flex items-center justify-between w-full px-3 py-2 text-sm
+                        ${hasActiveItem ? "text-brand-500 font-medium" : "text-gray-600"}
+                        hover:bg-gray-100 rounded-md transition-colors
+                      `}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs uppercase tracking-wider">
+                          {section.label}
+                        </span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Plus className="h-4 w-4 opacity-0 group-hover:opacity-100" />
+                        <ChevronRight
+                          className={`h-4 w-4 transition-transform ${
+                            isSectionExpanded ? "rotate-90" : ""
+                          }`}
+                        />
+                      </div>
+                    </button>
+
+                    {/* Section Items */}
+                    <div
+                      className={`
+                        space-y-1 transition-all duration-200 ease-in-out
+                        ${isSectionExpanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0 overflow-hidden"}
+                      `}
+                    >
+                      {section.items.map((item) => {
+                        const isActive =
+                          pathname === item.href ||
+                          pathname.startsWith(`${item.href}/`);
+
+                        return (
+                          <SidebarMenuItem key={item.label}>
+                            <SidebarMenuButton asChild>
+                              <Link
+                                href={item.href || "#"}
+                                className={`
+                                  flex items-center gap-3 px-3 py-2 rounded-md transition
+                                  ml-2 text-sm
+                                  ${
+                                    isActive
+                                      ? "bg-brand-500 text-white"
+                                      : "text-gray-600 hover:bg-gray-100"
+                                  }
+                                `}
+                              >
+                                <item.icon className="h-4 w-4" />
+                                <span>{item.label}</span>
+                              </Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
             </SidebarMenu>
@@ -222,7 +368,13 @@ export default function AdminLayout({
               >
                 {/* Profile Picture */}
                 <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
-                  {user.profilePicture ? (
+                  {user.user_pfp && user.user_pfp.trim() !== "" ? (
+                    <img
+                      src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(user.user_pfp)}`}
+                      alt={`${user.user_firstName} ${user.user_lastName}`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : user.profilePicture ? (
                     <Image
                       src={user.profilePicture || "/placeholder.svg"}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
@@ -232,7 +384,7 @@ export default function AdminLayout({
                     />
                   ) : (
                     <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-                      <span className="text-sm">
+                      <span className="text-sm font-medium text-gray-600">
                         {user?.user_firstName.charAt(0)}
                       </span>
                     </div>

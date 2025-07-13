@@ -17,7 +17,7 @@ const SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "";
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({
-    username: "",
+    email: "",
     password: "",
     captchaResponse: "", // Store CAPTCHA response
   });
@@ -120,7 +120,7 @@ const LoginPage = () => {
     try {
       const formDataToSend = new FormData();
       formDataToSend.append("operation", "login");
-      formDataToSend.append("username", formData.username.trim());
+      formDataToSend.append("email", formData.email.trim());
       formDataToSend.append("password", formData.password);
       formDataToSend.append("captcha", formData.captchaResponse);
 
@@ -182,11 +182,11 @@ const LoginPage = () => {
 
         <form className="mt-4" onSubmit={handleSubmit}>
           <input
-            type="text"
-            name="username"
-            value={formData.username}
+            type="email"
+            name="email"
+            value={formData.email}
             onChange={handleChange}
-            placeholder="Username"
+            placeholder="Email"
             required
             className="mt-1 block w-full px-4 py-2 border rounded-lg"
           />

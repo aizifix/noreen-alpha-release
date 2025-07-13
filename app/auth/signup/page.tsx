@@ -41,7 +41,6 @@ const SignUpPage: React.FC = () => {
     suffix: "",
     birthdate: "",
     email: "",
-    username: "",
     password: "",
     confirmPassword: "",
     businessName: "",
@@ -60,7 +59,7 @@ const SignUpPage: React.FC = () => {
 
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [checkingUsername, setCheckingUsername] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showAlert, setShowAlert] = useState(false);
   const [passwordChecks, setPasswordChecks] = useState({
@@ -140,15 +139,15 @@ const SignUpPage: React.FC = () => {
     setFormData((prev) => ({ ...prev, captchaResponse: token || "" }));
   };
 
-  // Check if username is unique before proceeding
-  const checkUsername = async () => {
+  // Check if email is unique before proceeding
+  const checkEmail = async () => {
     setMessage(""); // Clear previous messages
     setShowAlert(false);
 
-    const trimmedUsername = formData.username.trim();
+    const trimmedEmail = formData.email.trim();
 
-    if (!trimmedUsername) {
-      setMessage("Username is required.");
+    if (!trimmedEmail) {
+      setMessage("Email is required.");
       setShowAlert(true);
       return;
     }
@@ -163,32 +162,32 @@ const SignUpPage: React.FC = () => {
       return;
     }
 
-    setCheckingUsername(true); // Show loading state
+    setCheckingEmail(true); // Show loading state
 
     try {
-      console.log("Checking username:", trimmedUsername); // Debugging log
+      console.log("Checking email:", trimmedEmail); // Debugging log
 
       const response = await axios.post(
         `${API_URL}/auth.php`,
-        { operation: "check_username", username: trimmedUsername },
+        { operation: "check_email", email: trimmedEmail },
         { headers: { "Content-Type": "application/json" } }
       );
 
       console.log("API Response:", response.data); // Debugging
 
       if (response.data.exists) {
-        setMessage("Username is already taken. Please choose another.");
+        setMessage("Email is already taken. Please use another email address.");
         setShowAlert(true);
         return; // Stop here, don't proceed
       }
 
-      setStep(3); // Only proceed if username is available
+      setStep(3); // Only proceed if email is available
     } catch (error) {
-      console.error("Error checking username:", error);
-      setMessage("Error checking username. Please try again.");
+      console.error("Error checking email:", error);
+      setMessage("Error checking email. Please try again.");
       setShowAlert(true);
     } finally {
-      setCheckingUsername(false); // Hide loading state
+      setCheckingEmail(false); // Hide loading state
     }
   };
 
@@ -233,30 +232,23 @@ const SignUpPage: React.FC = () => {
           setShowAlert(true);
           return;
         }
+        // Add email validation
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+          setMessage("Please enter a valid email address.");
+          setShowAlert(true);
+          return;
+        }
+        setStep(2);
         break;
 
       case 2:
-        if (
-          !formData.username.trim() ||
-          !formData.password ||
-          !formData.confirmPassword
-        ) {
+        if (!formData.password || !formData.confirmPassword) {
           setMessage("Please complete all fields.");
           setShowAlert(true);
           return;
         }
-
-        // Check if all password requirements are met
-        const allPasswordChecksPassed = Object.values(passwordChecks).every(
-          (check) => check
-        );
-        if (!allPasswordChecksPassed) {
-          setMessage("Please ensure all password requirements are met.");
-          setShowAlert(true);
-          return;
-        }
-
-        return checkUsername();
+        checkEmail(); // Check email availability before proceeding
+        break;
 
       case 3:
         if (
@@ -350,7 +342,7 @@ const SignUpPage: React.FC = () => {
         <p>Contact: {formData.user_contact}</p>
 
         <h3 className="font-semibold mt-4">Account Details:</h3>
-        <p>Username: {formData.username}</p>
+        <p>Password: {formData.password}</p>
 
         <h3 className="font-semibold mt-4">Business Info:</h3>
         <p>Business Name: {formData.businessName}</p>
@@ -553,25 +545,6 @@ const SignUpPage: React.FC = () => {
 
             {step === 2 && (
               <>
-                <div>
-                  <label
-                    htmlFor="username"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Username
-                  </label>
-                  <input
-                    id="username"
-                    type="text"
-                    name="username"
-                    placeholder="Username"
-                    value={formData.username}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#334746]"
-                    required
-                  />
-                </div>
-
                 <div>
                   <label
                     htmlFor="password"
@@ -877,10 +850,10 @@ const SignUpPage: React.FC = () => {
                 <button
                   type="button"
                   className="bg-[#334746] text-white px-6 py-2 rounded-lg"
-                  onClick={step === 2 ? checkUsername : nextStep} // Calls checkUsername in Step 2
-                  disabled={checkingUsername}
+                  onClick={nextStep}
+                  disabled={checkingEmail}
                 >
-                  {checkingUsername ? "Checking..." : "Next"}
+                  {checkingEmail ? "Checking..." : "Next"}
                 </button>
               ) : (
                 <button

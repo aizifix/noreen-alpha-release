@@ -47,6 +47,7 @@ interface User {
   user_lastName: string;
   user_role: string;
   user_email: string;
+  user_pfp?: string;
   profilePicture?: string;
 }
 
@@ -89,8 +90,9 @@ export default function ClientLayout({
   useEffect(() => {
     try {
       let userData = secureStorage.getItem("user");
+
       if (!userData) {
-        console.log("No user data found in secure storage");
+        console.log("Client layout: No user data found, redirecting to login");
         router.replace("/auth/login");
         return;
       }
@@ -98,15 +100,24 @@ export default function ClientLayout({
         try {
           userData = JSON.parse(userData);
         } catch {
+          console.log(
+            "Client layout: Failed to parse user data, redirecting to login"
+          );
           secureStorage.removeItem("user");
           router.replace("/auth/login");
           return;
         }
       }
       if (!userData.user_role || userData.user_role !== "Client") {
-        console.log("Invalid user role:", userData.user_role);
+        console.log(
+          "Client layout: Invalid user role:",
+          userData.user_role,
+          "- redirecting"
+        );
         // Redirect to correct dashboard based on role
-        const role = userData.user_role.toLowerCase();
+        const role = userData.user_role
+          ? userData.user_role.toLowerCase()
+          : "unknown";
         if (role === "admin") {
           router.replace("/admin/dashboard");
         } else if (role === "vendor" || role === "organizer") {
@@ -118,10 +129,32 @@ export default function ClientLayout({
       }
       setUser(userData);
     } catch (error) {
-      console.error("Error in client layout:", error);
+      console.error("Client layout: Authentication error:", error);
       secureStorage.removeItem("user");
       router.replace("/auth/login");
     }
+  }, []);
+
+  // Listen for user data changes (like profile picture updates)
+  useEffect(() => {
+    const handleUserDataChange = () => {
+      try {
+        const userData = secureStorage.getItem("user");
+        if (userData && userData.user_role === "Client") {
+          console.log("Client layout: User data updated, refreshing navbar");
+          setUser(userData);
+        }
+      } catch (error) {
+        console.error("Client layout: Error handling user data change:", error);
+      }
+    };
+
+    // Listen for storage changes
+    window.addEventListener("userDataChanged", handleUserDataChange);
+
+    return () => {
+      window.removeEventListener("userDataChanged", handleUserDataChange);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -244,7 +277,13 @@ export default function ClientLayout({
               >
                 {/* Profile Picture */}
                 <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
-                  {user.profilePicture ? (
+                  {user.user_pfp && user.user_pfp.trim() !== "" ? (
+                    <img
+                      src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(user.user_pfp)}`}
+                      alt={`${user.user_firstName} ${user.user_lastName}`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : user.profilePicture ? (
                     <Image
                       src={user.profilePicture || "/placeholder.svg"}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
@@ -254,7 +293,7 @@ export default function ClientLayout({
                     />
                   ) : (
                     <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-                      <span className="text-sm">
+                      <span className="text-sm font-medium text-gray-600">
                         {user?.user_firstName.charAt(0)}
                       </span>
                     </div>
@@ -349,7 +388,13 @@ export default function ClientLayout({
                 className="flex items-center gap-2 p-1 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <div className="h-8 w-8 border border-gray-300 rounded-full overflow-hidden">
-                  {user.profilePicture ? (
+                  {user.user_pfp && user.user_pfp.trim() !== "" ? (
+                    <img
+                      src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(user.user_pfp)}`}
+                      alt={`${user.user_firstName} ${user.user_lastName}`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : user.profilePicture ? (
                     <Image
                       src={user.profilePicture || "/placeholder.svg"}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
@@ -359,7 +404,7 @@ export default function ClientLayout({
                     />
                   ) : (
                     <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-                      <span className="text-xs font-medium">
+                      <span className="text-xs font-medium text-gray-600">
                         {user?.user_firstName.charAt(0)}
                       </span>
                     </div>

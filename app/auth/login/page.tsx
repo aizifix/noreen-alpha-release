@@ -13,7 +13,9 @@ import { redirectIfAuthenticated } from "@/app/utils/routeProtection";
 // Get API and reCAPTCHA keys from .env
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
-const SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "";
+const SITE_KEY =
+  process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY ||
+  "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"; // Test site key
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({
@@ -208,7 +210,7 @@ const LoginPage = () => {
           <div className="mt-2 flex justify-between text-sm">
             <Link href="/auth/signup">
               <span className="text-gray-500 hover:underline cursor-pointer">
-                Become an Organizer
+                Don't have an account yet? Sign up
               </span>
             </Link>
             <a href="#" className="text-gray-500 hover:underline">

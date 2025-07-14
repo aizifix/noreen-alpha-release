@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import Logo from "@/public/logo.png";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,6 +12,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import {
   Calendar,
   Users,
@@ -18,10 +28,166 @@ import {
   ArrowRight,
   Menu,
   X,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Heart,
+  Gift,
+  Package,
+  CheckCircle,
 } from "lucide-react";
+import axios from "axios";
+
+interface PackageData {
+  package_id: number;
+  package_title: string;
+  package_description: string;
+  package_price: number;
+  guest_capacity: number;
+  created_by_name: string;
+  is_active: number;
+  component_count: number;
+  venue_count: number;
+  freebie_count: number;
+  event_type_names: string[];
+  components: {
+    component_name: string;
+    component_price: number;
+  }[];
+  freebies: {
+    freebie_name: string;
+    freebie_description: string;
+    freebie_value: number;
+  }[];
+  venue_previews?: Array<{
+    venue_id: number;
+    venue_title: string;
+    venue_location: string;
+    venue_capacity: number;
+    venue_price: number;
+    venue_profile_picture: string | null;
+    venue_cover_photo: string | null;
+  }>;
+  created_at: string;
+}
+
+interface PackageDetails {
+  package_id: number;
+  package_title: string;
+  package_description: string;
+  package_price: number;
+  guest_capacity: number;
+  event_type_names: string[];
+  components: {
+    component_name: string;
+    component_price: number;
+  }[];
+  freebies: {
+    freebie_name: string;
+    freebie_description: string;
+    freebie_value: number;
+  }[];
+  venue_previews?: Array<{
+    venue_id: number;
+    venue_title: string;
+    venue_location: string;
+    venue_capacity: number;
+    venue_price: number;
+    venue_profile_picture: string | null;
+    venue_cover_photo: string | null;
+  }>;
+}
 
 export default function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [packages, setPackages] = useState<PackageData[]>([]);
+  const [currentPackageIndex, setCurrentPackageIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedPackage, setSelectedPackage] = useState<PackageDetails | null>(null);
+  const [isPackageModalOpen, setIsPackageModalOpen] = useState(false);
+  const [isPackageLoading, setIsPackageLoading] = useState(false);
+  const [currentVenueIndex, setCurrentVenueIndex] = useState(0);
+
+  // Fetch packages on component mount
+  useEffect(() => {
+    const fetchPackages = async () => {
+      try {
+        setIsLoading(true);
+        const response = await axios.get(
+          "http://localhost/events-api/client.php?operation=getAllPackages"
+        );
+
+        if (response.data.status === "success") {
+          setPackages(response.data.packages || []);
+        }
+      } catch (error) {
+        console.error("Error fetching packages:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPackages();
+  }, []);
+
+  // Auto-scroll carousel
+  useEffect(() => {
+    if (packages.length > 0) {
+      const interval = setInterval(() => {
+        setCurrentPackageIndex((prev) => (prev + 1) % packages.length);
+      }, 5000); // Auto-scroll every 5 seconds
+
+      return () => clearInterval(interval);
+    }
+  }, [packages.length]);
+
+  const nextPackage = () => {
+    setCurrentPackageIndex((prev) => (prev + 1) % packages.length);
+  };
+
+  const prevPackage = () => {
+    setCurrentPackageIndex((prev) => (prev - 1 + packages.length) % packages.length);
+  };
+
+  const goToPackage = (index: number) => {
+    setCurrentPackageIndex(index);
+  };
+
+  const fetchPackageDetails = async (packageId: number) => {
+    try {
+      setIsPackageLoading(true);
+      const response = await axios.get(
+        `http://localhost/events-api/client.php?operation=getPackageDetails&package_id=${packageId}`
+      );
+
+      if (response.data.status === "success") {
+        const packageData = response.data.package;
+        const transformedPackage = {
+          ...packageData,
+          venue_previews: packageData.venues?.map((venue: any) => ({
+            venue_id: venue.venue_id,
+            venue_title: venue.venue_title,
+            venue_location: venue.venue_location,
+            venue_capacity: venue.venue_capacity,
+            venue_price: venue.total_price,
+            venue_profile_picture: venue.venue_profile_picture,
+            venue_cover_photo: venue.venue_cover_photo,
+          })),
+        };
+        setSelectedPackage(transformedPackage);
+        setIsPackageModalOpen(true);
+      }
+    } catch (error) {
+      console.error("Error fetching package details:", error);
+    } finally {
+      setIsPackageLoading(false);
+    }
+  };
+
+  const getImageUrl = (imagePath: string | null) => {
+    if (!imagePath) return null;
+    return `http://localhost/events-api/${imagePath}`;
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -32,7 +198,7 @@ export default function LandingPage() {
             {/* Logo */}
             <div className="flex-shrink-0">
               <Link href="/" className="text-2xl font-bold text-[#334746]">
-                Noreen
+                <Image src={Logo} alt="Noreen Logo" width={100} height={100} />
               </Link>
             </div>
 
@@ -146,14 +312,27 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-green-50 to-emerald-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 w-full h-full">
+          <video
+            autoPlay
+            muted
+            loop
+            playsInline
+            className="w-full h-full object-cover"
+          >
+            <source src="/noreen.mp4" type="video/mp4" />
+            Your browser does not support the video tag.
+          </video>
+          <div className="absolute inset-0 bg-black/50" />{" "}
+          {/* Darker overlay for better text visibility */}
+        </div>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
           <div className="text-center">
-            <h1 className="text-4xl md:text-6xl font-bold text-gray-900 mb-6">
-              Plan Your Perfect
-              <span className="text-brand-500"> Event</span>
+            <h1 className="text-4xl md:text-6xl font-bold text-white mb-6">
+              Plan Your Perfect Event
             </h1>
-            <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
+            <p className="text-xl text-gray-200 mb-8 max-w-3xl mx-auto">
               From intimate gatherings to grand celebrations, our comprehensive
               event coordination system helps you plan, manage, and execute
               unforgettable experiences.
@@ -165,7 +344,11 @@ export default function LandingPage() {
                 </Button>
               </Link>
               <Link href="#features">
-                <Button size="lg" variant="outline">
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="text-black border-white"
+                >
                   Learn More
                 </Button>
               </Link>
@@ -248,6 +431,128 @@ export default function LandingPage() {
               </CardContent>
             </Card>
           </div>
+        </div>
+      </section>
+
+      {/* Packages Section */}
+      <section id="packages" className="py-24 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              Our Featured Packages
+            </h2>
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+              Discover our carefully curated event packages designed to make your special day unforgettable
+            </p>
+          </div>
+
+          {isLoading ? (
+            <div className="flex justify-center items-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#334746]"></div>
+            </div>
+          ) : packages.length > 0 ? (
+            <div className="relative">
+              {/* Carousel Container */}
+              <div className="overflow-hidden rounded-xl">
+                <div
+                  className="flex transition-transform duration-500 ease-in-out"
+                  style={{
+                    transform: `translateX(-${currentPackageIndex * 100}%)`,
+                  }}
+                >
+                  {packages.map((pkg, index) => (
+                    <div key={pkg.package_id} className="w-full flex-shrink-0 px-4">
+                      <Card className="mx-auto max-w-2xl bg-white shadow-xl hover:shadow-2xl transition-all duration-300">
+                        <div className="p-8">
+                          {/* Package Header */}
+                          <div className="text-center space-y-4">
+                            <div className="flex items-center justify-between mb-4">
+                              <Badge className="bg-[#334746] text-white">
+                                Featured Package
+                              </Badge>
+                              <div className="flex items-center text-yellow-500">
+                                {[...Array(5)].map((_, i) => (
+                                  <Star key={i} className="h-4 w-4 fill-current" />
+                                ))}
+                              </div>
+                            </div>
+
+                            <h3 className="text-3xl font-bold text-gray-900">
+                              {pkg.package_title}
+                            </h3>
+
+                            <p className="text-gray-600 text-lg leading-relaxed">
+                              {pkg.package_description}
+                            </p>
+
+                            {/* Price */}
+                            <div className="text-4xl font-bold text-[#334746] py-4">
+                              ₱{pkg.package_price.toLocaleString()}
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex flex-col sm:flex-row gap-4 pt-4">
+                              <Button
+                                variant="outline"
+                                className="flex-1 border-[#334746] text-[#334746] hover:bg-[#334746] hover:text-white"
+                                onClick={() => fetchPackageDetails(pkg.package_id)}
+                                disabled={isPackageLoading}
+                              >
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
+                              </Button>
+                              <Link href="/auth/signup" className="flex-1">
+                                <Button className="w-full bg-[#334746] hover:bg-gray-800">
+                                  <Heart className="h-4 w-4 mr-2" />
+                                  Book Now
+                                </Button>
+                              </Link>
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Navigation Arrows */}
+              <button
+                onClick={prevPackage}
+                className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white shadow-lg rounded-full p-3 hover:bg-gray-50 transition-colors z-10"
+                aria-label="Previous package"
+              >
+                <ChevronLeft className="h-6 w-6 text-gray-600" />
+              </button>
+              <button
+                onClick={nextPackage}
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white shadow-lg rounded-full p-3 hover:bg-gray-50 transition-colors z-10"
+                aria-label="Next package"
+              >
+                <ChevronRight className="h-6 w-6 text-gray-600" />
+              </button>
+
+              {/* Dots Indicator */}
+              <div className="flex justify-center mt-8 space-x-2">
+                {packages.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => goToPackage(index)}
+                    className={`w-3 h-3 rounded-full transition-colors ${
+                      index === currentPackageIndex
+                        ? "bg-[#334746]"
+                        : "bg-gray-300 hover:bg-gray-400"
+                    }`}
+                    aria-label={`Go to package ${index + 1}`}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-gray-500 text-lg">No packages available at the moment.</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -449,6 +754,182 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* Package Details Modal */}
+      <Dialog open={isPackageModalOpen} onOpenChange={setIsPackageModalOpen}>
+        <DialogContent className="max-w-4xl h-[85vh] mx-auto fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex flex-col p-0 gap-0 bg-white rounded-lg">
+          {/* Close Button */}
+          <button
+            onClick={() => setIsPackageModalOpen(false)}
+            className="absolute top-4 right-4 z-10 p-2 hover:bg-gray-100 rounded-full transition-colors"
+            aria-label="Close modal"
+          >
+            <X className="h-5 w-5" />
+          </button>
+
+          {/* Main Content Container */}
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Header Section */}
+            <div className="px-6 pt-6 pb-4">
+              <DialogHeader className="space-y-1">
+                <DialogTitle className="text-2xl font-semibold text-gray-900">
+                  {selectedPackage?.package_title}
+                </DialogTitle>
+                <DialogDescription className="text-base text-gray-600">
+                  {selectedPackage?.package_description}
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto px-6">
+              {selectedPackage && (
+                <div className="space-y-8 pb-6">
+                  {/* Package Overview */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="text-center p-6 bg-brand-50 rounded-xl">
+                      <div className="text-2xl sm:text-3xl font-bold text-[#334746]">
+                        ₱{Number(selectedPackage.package_price).toLocaleString()}
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Total Package Price
+                      </div>
+                    </div>
+                    <div className="text-center p-6 bg-green-50 rounded-xl">
+                      <div className="text-2xl sm:text-3xl font-bold text-green-600">
+                        {selectedPackage.guest_capacity}
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Maximum Guests
+                      </div>
+                    </div>
+                    <div className="text-center p-6 bg-purple-50 rounded-xl">
+                      <div className="text-2xl sm:text-3xl font-bold text-purple-600">
+                        {selectedPackage.freebies ? selectedPackage.freebies.length : 0}
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Free Items
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Package Inclusions */}
+                  <div>
+                    <h4 className="text-xl font-semibold mb-4 flex items-center">
+                      <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
+                      What's Included
+                    </h4>
+                    <div className="space-y-3">
+                      {selectedPackage?.components && selectedPackage.components.length > 0 ? (
+                        selectedPackage.components.map((component, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center p-4 bg-white border rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            <CheckCircle className="h-4 w-4 mr-3 text-green-500" />
+                            <h5 className="font-medium text-gray-900">
+                              {component.component_name}
+                            </h5>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-gray-500 text-center p-4">
+                          No inclusions available
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Freebies */}
+                  {selectedPackage.freebies && selectedPackage.freebies.length > 0 && (
+                    <div>
+                      <h4 className="text-xl font-semibold mb-4 flex items-center">
+                        <Gift className="h-5 w-5 mr-2 text-orange-600" />
+                        Free Bonuses
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {selectedPackage.freebies.map((freebie, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-start p-4 bg-orange-50 rounded-lg"
+                          >
+                            <Gift className="h-5 w-5 mr-3 text-orange-600 flex-shrink-0 mt-0.5" />
+                            <div className="min-w-0">
+                              <p className="font-medium text-gray-900">
+                                {freebie.freebie_name}
+                              </p>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {freebie.freebie_description}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Event Types */}
+                  {Array.isArray(selectedPackage.event_type_names) && selectedPackage.event_type_names.length > 0 && (
+                    <div>
+                      <h4 className="text-xl font-semibold mb-4 flex items-center">
+                        <Calendar className="h-5 w-5 mr-2 text-[#334746]" />
+                        Perfect for These Events
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedPackage.event_type_names.map((eventType, idx) => (
+                          <Badge
+                            key={idx}
+                            variant="secondary"
+                            className="bg-[#334746] bg-opacity-10 text-[#334746] px-3 py-1 text-sm"
+                          >
+                            {eventType}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Available Venues */}
+                  {selectedPackage.venue_previews && selectedPackage.venue_previews.length > 0 && (
+                    <div>
+                      <h4 className="text-xl font-semibold mb-4 flex items-center">
+                        <MapPin className="h-5 w-5 mr-2 text-[#334746]" />
+                        Available Venues
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {selectedPackage.venue_previews.map((venue) => (
+                          <div key={venue.venue_id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div className="flex items-start space-x-4">
+                              <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100">
+                                <img
+                                  src={getImageUrl(venue.venue_profile_picture) || "/placeholder.jpg"}
+                                  alt={venue.venue_title}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                              <div className="flex-1">
+                                <h5 className="font-semibold text-gray-900">{venue.venue_title}</h5>
+                                <p className="text-sm text-gray-600 flex items-center mt-1">
+                                  <MapPin className="h-3 w-3 mr-1" />
+                                  {venue.venue_location}
+                                </p>
+                                <p className="text-sm text-gray-600 flex items-center mt-1">
+                                  <Users className="h-3 w-3 mr-1" />
+                                  Up to {venue.venue_capacity} guests
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

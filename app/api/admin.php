@@ -4545,6 +4545,7 @@ This is an automated message. Please do not reply.
             // Create directory based on file type
             switch ($fileType) {
                 case 'profile':
+                case 'profile_picture':
                     $uploadDir .= "profile_pictures/";
                     break;
                 case 'company_logo':
@@ -4564,6 +4565,12 @@ This is an automated message. Please do not reply.
                     break;
                 case 'venue_cover_photos':
                     $uploadDir .= "venue_cover_photos/";
+                    break;
+                case 'resume':
+                    $uploadDir .= "resumes/";
+                    break;
+                case 'certification':
+                    $uploadDir .= "certifications/";
                     break;
                 default:
                     $uploadDir .= "misc/";
@@ -6453,6 +6460,621 @@ This is an automated message. Please do not reply.
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
         }
     }
+
+    // =============================================================================
+    // ORGANIZER MANAGEMENT METHODS
+    // =============================================================================
+
+    public function createOrganizer($data) {
+        try {
+            $this->conn->beginTransaction();
+
+            // Validate required fields
+            $required = ['first_name', 'last_name', 'email', 'phone', 'username', 'password'];
+            foreach ($required as $field) {
+                if (empty($data[$field])) {
+                    throw new Exception("$field is required");
+                }
+            }
+
+            // Validate email format
+            if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+                throw new Exception("Invalid email format");
+            }
+
+            // Check for duplicate email or username
+            $checkStmt = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_email = ? OR user_username = ?");
+            $checkStmt->execute([$data['email'], $data['username']]);
+            if ($checkStmt->fetch()) {
+                throw new Exception("An account with this email or username already exists");
+            }
+
+            // Hash password
+            $hashedPassword = password_hash($data['password'], PASSWORD_DEFAULT);
+
+            // Handle profile picture - use the provided path or default
+            $profilePicturePath = !empty($data['profile_picture']) ? $data['profile_picture'] : null;
+
+            // Create user account
+            $userSql = "INSERT INTO tbl_users (
+                           user_firstName, user_lastName, user_suffix, user_birthdate,
+                           user_email, user_contact, user_username, user_pwd,
+                           user_role, user_pfp, account_status, created_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'organizer', ?, 'active', NOW())";
+
+            $userStmt = $this->conn->prepare($userSql);
+            $userStmt->execute([
+                $data['first_name'],
+                $data['last_name'],
+                $data['suffix'] ?? null,
+                $data['date_of_birth'] ?? null,
+                $data['email'],
+                $data['phone'],
+                $data['username'],
+                $hashedPassword,
+                $profilePicturePath
+            ]);
+
+            $userId = $this->conn->lastInsertId();
+
+            // Handle resume path - use the provided path
+            $resumePath = !empty($data['resume_path']) ? $data['resume_path'] : null;
+
+            // Handle certification files (JSON array)
+            $certificationFilesJson = null;
+            if (!empty($data['certification_files']) && is_array($data['certification_files'])) {
+                $certificationFilesJson = json_encode($data['certification_files']);
+            }
+
+            // Create experience summary
+            $experienceSummary = "Years of Experience: " . ($data['years_of_experience'] ?? 0);
+            if (!empty($data['address'])) {
+                $experienceSummary .= "\nAddress: " . $data['address'];
+            }
+
+            // Create organizer record (using actual database column names)
+            $organizerSql = "INSERT INTO tbl_organizer (
+                                user_id, organizer_experience, organizer_certifications,
+                                organizer_resume_path, organizer_portfolio_link,
+                                organizer_availability, remarks, created_at
+                            ) VALUES (?, ?, ?, ?, ?, 'flexible', ?, NOW())";
+
+            $organizerStmt = $this->conn->prepare($organizerSql);
+            $organizerStmt->execute([
+                $userId,
+                $experienceSummary,
+                $certificationFilesJson,
+                $resumePath,
+                $data['portfolio_link'] ?? null,
+                $data['admin_remarks'] ?? null
+            ]);
+
+            $organizerId = $this->conn->lastInsertId();
+
+            $this->conn->commit();
+
+            // Send welcome email (outside transaction)
+            try {
+                $this->sendOrganizerWelcomeEmail($data['email'], $data['first_name'] . ' ' . $data['last_name'], $data['password'], $organizerId);
+            } catch (Exception $emailError) {
+                // Log email error but don't fail the organizer creation
+                error_log("Failed to send welcome email: " . $emailError->getMessage());
+            }
+
+            // Log activity (outside transaction)
+            try {
+                $this->logOrganizerActivity($organizerId, 'created', 'Organizer account created', $userId);
+            } catch (Exception $logError) {
+                // Log activity error but don't fail the organizer creation
+                error_log("Failed to log activity: " . $logError->getMessage());
+            }
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Organizer created successfully",
+                "data" => [
+                    "organizer_id" => $organizerId,
+                    "user_id" => $userId,
+                    "email" => $data['email'],
+                    "username" => $data['username']
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            // Check if transaction is active before rolling back
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+            return json_encode(["status" => "error", "message" => "Error creating organizer: " . $e->getMessage()]);
+        }
+    }
+
+    public function getAllOrganizers($page = 1, $limit = 20, $filters = []) {
+        try {
+            $offset = ($page - 1) * $limit;
+            $conditions = ["u.user_role = 'organizer'"];
+            $params = [];
+
+            // Apply filters
+            if (!empty($filters['search'])) {
+                $conditions[] = "(u.user_firstName LIKE ? OR u.user_lastName LIKE ? OR u.user_email LIKE ?)";
+                $searchTerm = '%' . $filters['search'] . '%';
+                $params[] = $searchTerm;
+                $params[] = $searchTerm;
+                $params[] = $searchTerm;
+            }
+
+            if (!empty($filters['availability'])) {
+                $conditions[] = "o.organizer_availability = ?";
+                $params[] = $filters['availability'];
+            }
+
+            if (isset($filters['is_active']) && $filters['is_active'] !== '') {
+                $conditions[] = "u.account_status = ?";
+                $params[] = $filters['is_active'] === 'true' ? 'active' : 'inactive';
+            }
+
+            $whereClause = implode(' AND ', $conditions);
+
+            // Get total count
+            $countSql = "SELECT COUNT(*) FROM tbl_users u
+                         LEFT JOIN tbl_organizer o ON u.user_id = o.user_id
+                         WHERE $whereClause";
+            $countStmt = $this->conn->prepare($countSql);
+            $countStmt->execute($params);
+            $totalCount = $countStmt->fetchColumn();
+
+            // Get organizers
+            $sql = "SELECT
+                        u.user_id, u.user_firstName, u.user_lastName, u.user_suffix,
+                        u.user_birthdate, u.user_email, u.user_contact, u.user_username,
+                        u.user_pfp, u.account_status, u.created_at,
+                        o.organizer_id, o.organizer_experience, o.organizer_certifications,
+                        o.organizer_resume_path, o.organizer_portfolio_link,
+                        o.organizer_availability, o.remarks
+                    FROM tbl_users u
+                    LEFT JOIN tbl_organizer o ON u.user_id = o.user_id
+                    WHERE $whereClause
+                    ORDER BY u.created_at DESC
+                    LIMIT ? OFFSET ?";
+
+            $params[] = $limit;
+            $params[] = $offset;
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute($params);
+            $organizers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Format data
+            $formattedOrganizers = array_map(function($organizer) {
+                return [
+                    'organizer_id' => $organizer['organizer_id'],
+                    'user_id' => $organizer['user_id'],
+                    'first_name' => $organizer['user_firstName'],
+                    'last_name' => $organizer['user_lastName'],
+                    'suffix' => $organizer['user_suffix'],
+                    'birthdate' => $organizer['user_birthdate'],
+                    'email' => $organizer['user_email'],
+                    'contact_number' => $organizer['user_contact'],
+                    'username' => $organizer['user_username'],
+                    'profile_picture' => $organizer['user_pfp'],
+                    'is_active' => $organizer['account_status'] === 'active',
+                    'experience_summary' => $organizer['organizer_experience'],
+                    'certifications' => $organizer['organizer_certifications'],
+                    'resume_path' => $organizer['organizer_resume_path'],
+                    'portfolio_link' => $organizer['organizer_portfolio_link'],
+                    'availability' => $organizer['organizer_availability'],
+                    'remarks' => $organizer['remarks'],
+                    'created_at' => $organizer['created_at']
+                ];
+            }, $organizers);
+
+            return json_encode([
+                "status" => "success",
+                "data" => [
+                    "organizers" => $formattedOrganizers,
+                    "pagination" => [
+                        "current_page" => $page,
+                        "total_pages" => ceil($totalCount / $limit),
+                        "total_count" => $totalCount,
+                        "per_page" => $limit
+                    ]
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode(["status" => "error", "message" => "Error fetching organizers: " . $e->getMessage()]);
+        }
+    }
+
+    public function getOrganizerById($organizerId) {
+        try {
+            $sql = "SELECT
+                        u.user_id, u.user_firstName, u.user_lastName, u.user_suffix,
+                        u.user_birthdate, u.user_email, u.user_contact, u.user_username,
+                        u.user_pfp, u.account_status, u.created_at,
+                        o.organizer_id, o.organizer_experience, o.organizer_certifications,
+                        o.organizer_resume_path, o.organizer_portfolio_link,
+                        o.organizer_availability, o.remarks
+                    FROM tbl_users u
+                    INNER JOIN tbl_organizer o ON u.user_id = o.user_id
+                    WHERE o.organizer_id = ?";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$organizerId]);
+            $organizer = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$organizer) {
+                return json_encode(["status" => "error", "message" => "Organizer not found"]);
+            }
+
+            $formattedOrganizer = [
+                'organizer_id' => $organizer['organizer_id'],
+                'user_id' => $organizer['user_id'],
+                'first_name' => $organizer['user_firstName'],
+                'last_name' => $organizer['user_lastName'],
+                'suffix' => $organizer['user_suffix'],
+                'birthdate' => $organizer['user_birthdate'],
+                'email' => $organizer['user_email'],
+                'contact_number' => $organizer['user_contact'],
+                'username' => $organizer['user_username'],
+                'profile_picture' => $organizer['user_pfp'],
+                'is_active' => $organizer['account_status'] === 'active',
+                'experience_summary' => $organizer['organizer_experience'],
+                'certifications' => $organizer['organizer_certifications'],
+                'resume_path' => $organizer['organizer_resume_path'],
+                'portfolio_link' => $organizer['organizer_portfolio_link'],
+                'availability' => $organizer['organizer_availability'],
+                'remarks' => $organizer['remarks'],
+                'created_at' => $organizer['created_at']
+            ];
+
+            return json_encode([
+                "status" => "success",
+                "data" => $formattedOrganizer
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode(["status" => "error", "message" => "Error fetching organizer: " . $e->getMessage()]);
+        }
+    }
+
+    public function updateOrganizer($organizerId, $data) {
+        try {
+            $this->conn->beginTransaction();
+
+            // Get existing organizer
+            $existingStmt = $this->conn->prepare("SELECT user_id FROM tbl_organizer WHERE organizer_id = ?");
+            $existingStmt->execute([$organizerId]);
+            $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$existing) {
+                throw new Exception("Organizer not found");
+            }
+
+            $userId = $existing['user_id'];
+
+            // Update user data
+            if (isset($data['first_name']) || isset($data['last_name']) || isset($data['email']) || isset($data['contact_number'])) {
+                $userFields = [];
+                $userParams = [];
+
+                if (isset($data['first_name'])) {
+                    $userFields[] = "user_firstName = ?";
+                    $userParams[] = $data['first_name'];
+                }
+                if (isset($data['last_name'])) {
+                    $userFields[] = "user_lastName = ?";
+                    $userParams[] = $data['last_name'];
+                }
+                if (isset($data['suffix'])) {
+                    $userFields[] = "user_suffix = ?";
+                    $userParams[] = $data['suffix'];
+                }
+                if (isset($data['birthdate'])) {
+                    $userFields[] = "user_birthdate = ?";
+                    $userParams[] = $data['birthdate'];
+                }
+                if (isset($data['email'])) {
+                    $userFields[] = "user_email = ?";
+                    $userParams[] = $data['email'];
+                }
+                if (isset($data['contact_number'])) {
+                    $userFields[] = "user_contact = ?";
+                    $userParams[] = $data['contact_number'];
+                }
+
+                if (!empty($userFields)) {
+                    $userParams[] = $userId;
+                    $userSql = "UPDATE tbl_users SET " . implode(', ', $userFields) . " WHERE user_id = ?";
+                    $userStmt = $this->conn->prepare($userSql);
+                    $userStmt->execute($userParams);
+                }
+            }
+
+            // Update organizer data
+            $organizerFields = [];
+            $organizerParams = [];
+
+            if (isset($data['experience_summary'])) {
+                $organizerFields[] = "organizer_experience = ?";
+                $organizerParams[] = $data['experience_summary'];
+            }
+            if (isset($data['certifications'])) {
+                $organizerFields[] = "organizer_certifications = ?";
+                $organizerParams[] = $data['certifications'];
+            }
+            if (isset($data['portfolio_link'])) {
+                $organizerFields[] = "organizer_portfolio_link = ?";
+                $organizerParams[] = $data['portfolio_link'];
+            }
+            if (isset($data['availability'])) {
+                $organizerFields[] = "organizer_availability = ?";
+                $organizerParams[] = $data['availability'];
+            }
+            if (isset($data['remarks'])) {
+                $organizerFields[] = "remarks = ?";
+                $organizerParams[] = $data['remarks'];
+            }
+
+            // Handle resume upload
+            if (isset($_FILES['resume']) && $_FILES['resume']['error'] === UPLOAD_ERR_OK) {
+                $resumePath = $this->uploadOrganizerFile($_FILES['resume'], 'resume');
+                $organizerFields[] = "organizer_resume_path = ?";
+                $organizerParams[] = $resumePath;
+            }
+
+            if (!empty($organizerFields)) {
+                $organizerParams[] = $organizerId;
+                $organizerSql = "UPDATE tbl_organizer SET " . implode(', ', $organizerFields) . " WHERE organizer_id = ?";
+                $organizerStmt = $this->conn->prepare($organizerSql);
+                $organizerStmt->execute($organizerParams);
+            }
+
+            // Log activity
+            $this->logOrganizerActivity($organizerId, 'updated', 'Organizer profile updated', $userId);
+
+            $this->conn->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Organizer updated successfully"
+            ]);
+
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return json_encode(["status" => "error", "message" => "Error updating organizer: " . $e->getMessage()]);
+        }
+    }
+
+    public function deleteOrganizer($organizerId) {
+        try {
+            $this->conn->beginTransaction();
+
+            // Get organizer details
+            $stmt = $this->conn->prepare("SELECT user_id FROM tbl_organizer WHERE organizer_id = ?");
+            $stmt->execute([$organizerId]);
+            $organizer = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$organizer) {
+                throw new Exception("Organizer not found");
+            }
+
+            // Soft delete - update status instead of actual deletion
+            $updateUserStmt = $this->conn->prepare("UPDATE tbl_users SET account_status = 'inactive' WHERE user_id = ?");
+            $updateUserStmt->execute([$organizer['user_id']]);
+
+            // Log activity
+            $this->logOrganizerActivity($organizerId, 'deactivated', 'Organizer account deactivated', $organizer['user_id']);
+
+            $this->conn->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Organizer deactivated successfully"
+            ]);
+
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return json_encode(["status" => "error", "message" => "Error deactivating organizer: " . $e->getMessage()]);
+        }
+    }
+
+    private function uploadOrganizerFile($file, $fileType) {
+        $uploadDir = "uploads/organizer_documents/";
+        if (!file_exists($uploadDir)) {
+            mkdir($uploadDir, 0777, true);
+        }
+
+        if ($fileType === 'profile') {
+            $allowedTypes = ['jpg', 'jpeg', 'png', 'gif'];
+            $maxSize = 5 * 1024 * 1024; // 5MB
+        } else {
+            $allowedTypes = ['pdf', 'doc', 'docx'];
+            $maxSize = 10 * 1024 * 1024; // 10MB
+        }
+
+        $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+        if (!in_array($fileExtension, $allowedTypes)) {
+            throw new Exception("Invalid file type for $fileType.");
+        }
+
+        if ($file['size'] > $maxSize) {
+            throw new Exception("File size exceeds limit for $fileType.");
+        }
+
+        $timestamp = time();
+        $fileName = $timestamp . '_' . $fileType . '.' . $fileExtension;
+        $filePath = $uploadDir . $fileName;
+
+        if (!move_uploaded_file($file['tmp_name'], $filePath)) {
+            throw new Exception("Failed to upload $fileType file.");
+        }
+
+        return $filePath;
+    }
+
+    private function sendOrganizerWelcomeEmail($email, $organizerName, $tempPassword, $organizerId) {
+        try {
+            $subject = "Welcome to Event Coordination System - Organizer Portal";
+            $portalUrl = "http://localhost:3000/auth/login"; // Update with actual domain
+
+            $htmlContent = $this->generateOrganizerWelcomeEmailTemplate($organizerName, $email, $tempPassword, $portalUrl);
+            $textContent = $this->generateOrganizerWelcomeEmailText($organizerName, $email, $tempPassword, $portalUrl);
+
+            // Use existing email sending functionality (PHPMailer)
+            require_once 'vendor/phpmailer/phpmailer/src/PHPMailer.php';
+            require_once 'vendor/phpmailer/phpmailer/src/SMTP.php';
+            require_once 'vendor/phpmailer/phpmailer/src/Exception.php';
+
+            $mail = new PHPMailer\PHPMailer\PHPMailer();
+            $mail->isSMTP();
+            $mail->Host = 'smtp.gmail.com'; // Update with your SMTP settings
+            $mail->SMTPAuth = true;
+            $mail->Username = 'your-email@gmail.com'; // Update with your email
+            $mail->Password = 'your-app-password'; // Update with your app password
+            $mail->SMTPSecure = 'tls';
+            $mail->Port = 587;
+
+            $mail->setFrom('your-email@gmail.com', 'Event Coordination System');
+            $mail->addAddress($email, $organizerName);
+            $mail->Subject = $subject;
+            $mail->isHTML(true);
+            $mail->Body = $htmlContent;
+            $mail->AltBody = $textContent;
+
+            if (!$mail->send()) {
+                throw new Exception('Email sending failed: ' . $mail->ErrorInfo);
+            }
+
+            // Log email activity
+            $this->logEmailActivity($email, $organizerName, 'organizer_welcome', $subject, 'sent', null, null, $organizerId);
+
+        } catch (Exception $e) {
+            // Log email failure
+            $this->logEmailActivity($email, $organizerName, 'organizer_welcome', $subject, 'failed', $e->getMessage(), null, $organizerId);
+            // Don't throw exception to prevent blocking organizer creation
+            error_log("Failed to send welcome email: " . $e->getMessage());
+        }
+    }
+
+    private function generateOrganizerWelcomeEmailTemplate($organizerName, $email, $tempPassword, $portalUrl) {
+        return "
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset='UTF-8'>
+            <title>Welcome to Event Coordination System</title>
+        </head>
+        <body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;'>
+            <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;'>
+                <h1 style='color: white; margin: 0; font-size: 28px;'>Welcome to Our Team!</h1>
+                <p style='color: white; margin: 10px 0 0 0; font-size: 16px;'>Event Coordination System - Organizer Portal</p>
+            </div>
+
+            <div style='background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e9ecef;'>
+                <h2 style='color: #495057; margin-top: 0;'>Hello {$organizerName}!</h2>
+
+                <p>We're excited to welcome you as an Event Organizer in our coordination system. Your account has been created and you're now ready to start managing events!</p>
+
+                <div style='background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea; margin: 20px 0;'>
+                    <h3 style='color: #495057; margin-top: 0;'>Your Account Details:</h3>
+                    <p><strong>Email:</strong> {$email}</p>
+                    <p><strong>Temporary Password:</strong> <code style='background: #f1f3f4; padding: 4px 8px; border-radius: 4px; font-family: monospace;'>{$tempPassword}</code></p>
+                </div>
+
+                <div style='background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107; margin: 20px 0;'>
+                    <p style='margin: 0; color: #856404;'><strong>Important:</strong> Please change your password upon first login for security purposes.</p>
+                </div>
+
+                <div style='text-align: center; margin: 30px 0;'>
+                    <a href='{$portalUrl}' style='background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block;'>Access Organizer Portal</a>
+                </div>
+
+                <h3 style='color: #495057;'>What you can do as an Event Organizer:</h3>
+                <ul style='color: #6c757d;'>
+                    <li>Manage and coordinate events</li>
+                    <li>Work with clients and suppliers</li>
+                    <li>Track event progress and timelines</li>
+                    <li>Generate reports and analytics</li>
+                    <li>Collaborate with team members</li>
+                </ul>
+
+                <p>If you have any questions or need assistance, please don't hesitate to contact our support team.</p>
+
+                <div style='text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #dee2e6;'>
+                    <p style='color: #6c757d; font-size: 14px; margin: 0;'>
+                        Best regards,<br>
+                        Event Coordination System Team
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>";
+    }
+
+    private function generateOrganizerWelcomeEmailText($organizerName, $email, $tempPassword, $portalUrl) {
+        return "
+Welcome to Event Coordination System - Organizer Portal
+
+Hello {$organizerName}!
+
+We're excited to welcome you as an Event Organizer in our coordination system. Your account has been created and you're now ready to start managing events!
+
+Your Account Details:
+- Email: {$email}
+- Temporary Password: {$tempPassword}
+
+IMPORTANT: Please change your password upon first login for security purposes.
+
+Access your organizer portal at: {$portalUrl}
+
+What you can do as an Event Organizer:
+- Manage and coordinate events
+- Work with clients and suppliers
+- Track event progress and timelines
+- Generate reports and analytics
+- Collaborate with team members
+
+If you have any questions or need assistance, please don't hesitate to contact our support team.
+
+Best regards,
+Event Coordination System Team
+        ";
+    }
+
+    private function logOrganizerActivity($organizerId, $activityType, $description, $relatedId = null, $metadata = null) {
+        try {
+            // Check if activity log table exists, if not create it
+            $sql = "CREATE TABLE IF NOT EXISTS tbl_organizer_activity_logs (
+                        log_id INT AUTO_INCREMENT PRIMARY KEY,
+                        organizer_id INT NOT NULL,
+                        activity_type VARCHAR(100) NOT NULL,
+                        description TEXT,
+                        related_id INT,
+                        metadata JSON,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )";
+            $this->conn->exec($sql);
+
+            $insertSql = "INSERT INTO tbl_organizer_activity_logs (
+                            organizer_id, activity_type, description, related_id, metadata, created_at
+                          ) VALUES (?, ?, ?, ?, ?, NOW())";
+
+            $stmt = $this->conn->prepare($insertSql);
+            $stmt->execute([
+                $organizerId,
+                $activityType,
+                $description,
+                $relatedId,
+                json_encode($metadata)
+            ]);
+        } catch (Exception $e) {
+            // Silently fail logging to not interrupt main operations
+            error_log("Failed to log organizer activity: " . $e->getMessage());
+        }
+    }
 }
 
 if (!$pdo) {
@@ -6978,6 +7600,45 @@ switch ($operation) {
         break;
     case "getDocumentTypes":
         echo $admin->getDocumentTypes();
+        break;
+
+    // Organizer Management
+    case "createOrganizer":
+        echo $admin->createOrganizer($data);
+        break;
+    case "getAllOrganizers":
+        $page = (int)($_GET['page'] ?? 1);
+        $limit = (int)($_GET['limit'] ?? 20);
+        $filters = [
+            'search' => $_GET['search'] ?? '',
+            'availability' => $_GET['availability'] ?? '',
+            'is_active' => $_GET['is_active'] ?? ''
+        ];
+        echo $admin->getAllOrganizers($page, $limit, $filters);
+        break;
+    case "getOrganizerById":
+        $organizerId = (int)($_GET['organizer_id'] ?? 0);
+        if ($organizerId <= 0) {
+            echo json_encode(["status" => "error", "message" => "Valid organizer ID required"]);
+        } else {
+            echo $admin->getOrganizerById($organizerId);
+        }
+        break;
+    case "updateOrganizer":
+        $organizerId = (int)($_GET['organizer_id'] ?? ($data['organizer_id'] ?? 0));
+        if ($organizerId <= 0) {
+            echo json_encode(["status" => "error", "message" => "Valid organizer ID required"]);
+        } else {
+            echo $admin->updateOrganizer($organizerId, $data);
+        }
+        break;
+    case "deleteOrganizer":
+        $organizerId = (int)($_GET['organizer_id'] ?? 0);
+        if ($organizerId <= 0) {
+            echo json_encode(["status" => "error", "message" => "Valid organizer ID required"]);
+        } else {
+            echo $admin->deleteOrganizer($organizerId);
+        }
         break;
 
     default:

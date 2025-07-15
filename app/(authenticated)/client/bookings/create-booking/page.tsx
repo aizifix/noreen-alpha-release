@@ -107,6 +107,11 @@ interface Venue {
   venue_price: number;
   venue_profile_picture: string | null;
   venue_cover_photo: string | null;
+  inclusions?: Array<{
+    inclusion_id: number;
+    inclusion_name: string;
+    inclusion_description?: string;
+  }>;
 }
 
 interface BookingFormData {
@@ -168,7 +173,7 @@ export default function EnhancedCreateBookingPage() {
     eventDate: "",
     startTime: "10:00",
     endTime: "18:00",
-    guestCount: 50,
+    guestCount: 100,
     packageId: preselectedPackageId ? parseInt(preselectedPackageId) : null,
     venueId: null,
     notes: "",
@@ -201,6 +206,33 @@ export default function EnhancedCreateBookingPage() {
   // Booking success state
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [bookingReference, setBookingReference] = useState<string | null>(null);
+
+  // Modal state for venue inclusions
+  const [venueDetailsModalOpen, setVenueDetailsModalOpen] = useState(false);
+  const [modalVenue, setModalVenue] = useState<Venue | null>(null);
+
+  // Helper function to format price with proper formatting
+  const formatPrice = (amount: number): string => {
+    return `₱${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // Helper function to calculate total package price with guest count adjustments
+  const calculateTotalPackagePrice = (
+    packagePrice?: number,
+    guestCount?: number
+  ): number => {
+    const price = packagePrice ?? selectedPackage?.package_price ?? 0;
+    const guests = guestCount ?? formData.guestCount;
+
+    // If guest count exceeds 100, charge ₱350 per additional person
+    if (guests > 100) {
+      const extraGuests = guests - 100;
+      const extraCost = extraGuests * 350;
+      return price + extraCost;
+    }
+
+    return price;
+  };
 
   // Steps configuration
   const steps: BookingStep[] = [
@@ -258,6 +290,14 @@ export default function EnhancedCreateBookingPage() {
       }
     }
   }, [preselectedPackageId, packages]);
+
+  // Reset modal only when leaving step 3
+  useEffect(() => {
+    if (currentStep !== 3) {
+      setVenueDetailsModalOpen(false);
+      setModalVenue(null);
+    }
+  }, [currentStep]);
 
   // Initialize client information
   const initializeClientInfo = () => {
@@ -592,6 +632,10 @@ export default function EnhancedCreateBookingPage() {
   // Step navigation
   const nextStep = () => {
     if (currentStep < steps.length) {
+      // Reset modal state when changing steps
+      setVenueDetailsModalOpen(false);
+      setModalVenue(null);
+
       setCurrentStep(currentStep + 1);
       // Fetch venues when moving to step 3
       if (currentStep + 1 === 3) {
@@ -602,6 +646,10 @@ export default function EnhancedCreateBookingPage() {
 
   const prevStep = () => {
     if (currentStep > 1) {
+      // Reset modal state when changing steps
+      setVenueDetailsModalOpen(false);
+      setModalVenue(null);
+
       setCurrentStep(currentStep - 1);
     }
   };
@@ -887,13 +935,25 @@ export default function EnhancedCreateBookingPage() {
                                 <div className="space-y-3">
                                   <div className="flex justify-between items-center">
                                     <span className="text-2xl font-bold text-[#028A75]">
-                                      ₱{pkg.package_price.toLocaleString()}
+                                      {formatPrice(
+                                        calculateTotalPackagePrice(
+                                          pkg.package_price,
+                                          formData.guestCount
+                                        )
+                                      )}
                                     </span>
                                     <div className="flex items-center text-sm text-gray-600">
                                       <Users className="h-4 w-4 mr-1" />
                                       {pkg.guest_capacity} guests
                                     </div>
                                   </div>
+                                  {formData.guestCount > 100 && (
+                                    <div className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded mt-2">
+                                      Base: {formatPrice(pkg.package_price)} +{" "}
+                                      {formData.guestCount - 100} extra guests @
+                                      ₱350 each
+                                    </div>
+                                  )}
                                   <div className="flex justify-between text-sm text-gray-600">
                                     <span>
                                       {pkg.components?.length || 0} components
@@ -936,8 +996,7 @@ export default function EnhancedCreateBookingPage() {
                                 {selectedPackage.package_title}
                               </p>
                               <p className="text-sm text-[#028A75]/70">
-                                ₱
-                                {selectedPackage.package_price.toLocaleString()}
+                                {formatPrice(selectedPackage.package_price)}
                               </p>
                             </div>
                             <button
@@ -1334,9 +1393,18 @@ export default function EnhancedCreateBookingPage() {
                           max="1000"
                           placeholder="Enter number of guests"
                         />
-                        <p className="text-sm text-gray-600">
-                          Venues will be filtered based on your guest count
-                        </p>
+                        <div className="space-y-1">
+                          <p className="text-sm text-gray-600">
+                            Venues will be filtered based on your guest count
+                          </p>
+                          {formData.guestCount > 100 && (
+                            <p className="text-sm text-amber-600 font-medium">
+                              Additional cost: ₱350 per guest over 100 (
+                              {formData.guestCount - 100} extra guests ={" "}
+                              {formatPrice((formData.guestCount - 100) * 350)})
+                            </p>
+                          )}
+                        </div>
                       </div>
 
                       {venues.length === 0 ? (
@@ -1374,15 +1442,27 @@ export default function EnhancedCreateBookingPage() {
                                 setSelectedVenue(venue);
                               }}
                             >
-                              <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
+                              {/* Cover Photo */}
+                              <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden relative">
                                 <img
                                   src={
-                                    venue.venue_cover_photo ||
-                                    "/placeholder.jpg"
+                                    venue.venue_cover_photo
+                                      ? `http://localhost/events-api/${venue.venue_cover_photo}`
+                                      : "/placeholder.jpg"
                                   }
                                   alt={venue.venue_title}
                                   className="w-full h-full object-cover"
                                 />
+                                {/* Profile Picture Overlay */}
+                                {venue.venue_profile_picture && (
+                                  <div className="absolute bottom-3 left-3">
+                                    <img
+                                      src={`http://localhost/events-api/${venue.venue_profile_picture}`}
+                                      alt={`${venue.venue_title} profile`}
+                                      className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-md"
+                                    />
+                                  </div>
+                                )}
                               </div>
                               <CardHeader className="pb-2">
                                 <div className="flex justify-between items-start">
@@ -1399,17 +1479,28 @@ export default function EnhancedCreateBookingPage() {
                                 </p>
                               </CardHeader>
                               <CardContent>
-                                <div className="flex justify-between items-center">
-                                  <span className="text-lg font-bold text-[#028A75]">
-                                    ₱{venue.venue_price.toLocaleString()}
-                                  </span>
+                                <div className="flex justify-between items-center mb-3">
                                   <div className="flex items-center text-sm text-gray-600">
                                     <Users className="h-4 w-4 mr-1" />
                                     {venue.venue_capacity} capacity
                                   </div>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      setModalVenue(venue);
+                                      setVenueDetailsModalOpen(true);
+                                    }}
+                                    className="h-8 px-3 text-xs"
+                                  >
+                                    <Eye className="h-3 w-3 mr-1" />
+                                    View Details
+                                  </Button>
                                 </div>
                                 {formData.guestCount > venue.venue_capacity && (
-                                  <div className="mt-2 text-xs text-red-600 flex items-center">
+                                  <div className="text-xs text-red-600 flex items-center">
                                     <AlertTriangle className="h-3 w-3 mr-1" />
                                     Capacity exceeded by{" "}
                                     {formData.guestCount -
@@ -1428,115 +1519,160 @@ export default function EnhancedCreateBookingPage() {
                   {/* Step 4: Review & Confirm */}
                   {currentStep === 4 && (
                     <div className="space-y-6 animate-fadeSlideIn">
-                      <div className="bg-gray-50 p-4 sm:p-6 rounded-lg">
-                        <h3 className="text-base sm:text-lg font-semibold mb-4 animate-fadeSlideIn animation-delay-150">
-                          Booking Summary
-                        </h3>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                          <div className="animate-fadeSlideIn animation-delay-300">
-                            <h4 className="font-medium mb-2">Event Details</h4>
-                            <div className="space-y-2 text-sm">
-                              <div className="flex justify-between">
-                                <span>Event Type:</span>
-                                <span className="font-medium">
-                                  {formData.eventType}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Event Name:</span>
-                                <span className="font-medium">
-                                  {formData.eventName}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Date:</span>
-                                <span className="font-medium">
-                                  {selectedDate
-                                    ? format(selectedDate, "PPP")
-                                    : "Not selected"}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Time:</span>
-                                <span className="font-medium">
-                                  {formData.startTime} - {formData.endTime}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Guest Count:</span>
-                                <span className="font-medium">
-                                  {formData.guestCount}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="animate-fadeSlideIn animation-delay-450">
-                            <h4 className="font-medium mb-2">
-                              Package & Venue
-                            </h4>
-                            <div className="space-y-2 text-sm">
-                              <div className="flex justify-between">
-                                <span>Package:</span>
-                                <span className="font-medium">
-                                  {selectedPackage?.package_title}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Package Price:</span>
-                                <span className="font-medium">
-                                  ₱
-                                  {selectedPackage?.package_price.toLocaleString()}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Venue:</span>
-                                <span className="font-medium">
-                                  {selectedVenue?.venue_title}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Venue Price:</span>
-                                <span className="font-medium">
-                                  ₱{selectedVenue?.venue_price.toLocaleString()}
-                                </span>
-                              </div>
-                              <div className="border-t pt-2 mt-2">
-                                <div className="flex justify-between font-bold">
-                                  <span>Total Estimate:</span>
-                                  <span className="text-[#028A75]">
-                                    ₱
-                                    {(
-                                      (selectedPackage?.package_price || 0) +
-                                      (selectedVenue?.venue_price || 0)
-                                    ).toLocaleString()}
+                      {/* Main Summary Card */}
+                      <Card className="border shadow-sm rounded-xl">
+                        <CardContent className="p-6">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* Event Details Section */}
+                            <div className="space-y-4">
+                              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                                Event Details
+                              </h3>
+                              <div className="space-y-3">
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Event Type
+                                  </span>
+                                  <span className="font-medium text-gray-900">
+                                    {formData.eventType}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Event Name
+                                  </span>
+                                  <span className="font-medium text-gray-900">
+                                    {formData.eventName}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Event Date
+                                  </span>
+                                  <span className="font-medium text-gray-900">
+                                    {selectedDate
+                                      ? format(selectedDate, "MMMM dd, yyyy")
+                                      : "Not selected"}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Time
+                                  </span>
+                                  <span className="font-medium text-gray-900">
+                                    {formData.startTime} – {formData.endTime}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Guest Count
+                                  </span>
+                                  <span className="font-medium text-gray-900">
+                                    {formData.guestCount}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Booking Date
+                                  </span>
+                                  <span className="font-medium text-gray-900">
+                                    {format(new Date(), "MMMM dd, yyyy")}
                                   </span>
                                 </div>
                               </div>
                             </div>
+
+                            {/* Package & Venue Section */}
+                            <div className="space-y-4">
+                              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                                Package & Venue
+                              </h3>
+                              <div className="space-y-3">
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Package Name
+                                  </span>
+                                  <span className="font-medium text-gray-900">
+                                    {selectedPackage?.package_title}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Package Price
+                                  </span>
+                                  <span className="font-bold text-emerald-600">
+                                    {formatPrice(calculateTotalPackagePrice())}
+                                  </span>
+                                  {formData.guestCount > 100 && (
+                                    <div className="text-xs text-gray-600 mt-1">
+                                      Base:{" "}
+                                      {formatPrice(
+                                        selectedPackage?.package_price || 0
+                                      )}{" "}
+                                      + {formData.guestCount - 100} extra guests
+                                      @ ₱350 each
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Venue Name
+                                  </span>
+                                  <span className="font-medium text-gray-900">
+                                    {selectedVenue?.venue_title}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col space-y-1">
+                                  <span className="text-sm text-gray-500">
+                                    Venue Buffer
+                                  </span>
+                                  <span className="font-bold text-emerald-600">
+                                    {formatPrice(
+                                      selectedVenue?.venue_price || 0
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="border-t pt-3 mt-4">
+                                  <div className="flex flex-col space-y-1">
+                                    <span className="text-sm text-gray-500">
+                                      Total Estimate
+                                    </span>
+                                    <span className="text-xl font-bold text-emerald-600">
+                                      {formatPrice(
+                                        calculateTotalPackagePrice()
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="mt-6 animate-fadeSlideIn animation-delay-600">
-                          <Label>Additional Notes</Label>
-                          <Textarea
-                            value={formData.notes}
-                            onChange={(e) =>
-                              setFormData((prev) => ({
-                                ...prev,
-                                notes: e.target.value,
-                              }))
-                            }
-                            placeholder="Any special requests or notes..."
-                            rows={3}
-                          />
-                        </div>
-                      </div>
+                          {/* Additional Notes */}
+                          <div className="mt-8 pt-6 border-t">
+                            <Label className="text-sm font-medium text-gray-700">
+                              Additional Notes
+                            </Label>
+                            <Textarea
+                              value={formData.notes}
+                              onChange={(e) =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  notes: e.target.value,
+                                }))
+                              }
+                              placeholder="Any special requests or instructions..."
+                              rows={3}
+                              className="mt-2"
+                            />
+                          </div>
+                        </CardContent>
+                      </Card>
 
-                      <Alert className="animate-fadeSlideIn animation-delay-750">
-                        <Info className="h-4 w-4" />
-                        <AlertDescription>
+                      {/* Footer Note */}
+                      <Alert className="bg-blue-50 border-blue-200">
+                        <Info className="h-4 w-4 text-blue-600" />
+                        <AlertDescription className="text-blue-800">
                           Your booking will be submitted for review. You will
                           receive an email confirmation once it's approved.
                         </AlertDescription>
@@ -1585,8 +1721,14 @@ export default function EnhancedCreateBookingPage() {
                         {selectedPackage.package_title}
                       </p>
                       <p className="text-sm text-[#028A75]">
-                        ₱{selectedPackage.package_price.toLocaleString()}
+                        {formatPrice(calculateTotalPackagePrice())}
                       </p>
+                      {formData.guestCount > 100 && (
+                        <p className="text-xs text-gray-600">
+                          Base: {formatPrice(selectedPackage.package_price)} +{" "}
+                          {formData.guestCount - 100} extra guests
+                        </p>
+                      )}
                     </div>
                   )}
                   {decideLater && (
@@ -1608,7 +1750,7 @@ export default function EnhancedCreateBookingPage() {
                       <p className="text-sm text-gray-600">Venue</p>
                       <p className="font-medium">{selectedVenue.venue_title}</p>
                       <p className="text-sm text-[#028A75]">
-                        ₱{selectedVenue.venue_price.toLocaleString()}
+                        {formatPrice(selectedVenue.venue_price)}
                       </p>
                     </div>
                   )}
@@ -1616,11 +1758,7 @@ export default function EnhancedCreateBookingPage() {
                     <div className="border-t pt-4">
                       <p className="text-sm text-gray-600">Estimated Total</p>
                       <p className="text-xl font-bold text-[#028A75]">
-                        ₱
-                        {(
-                          (selectedPackage?.package_price || 0) +
-                          (selectedVenue?.venue_price || 0)
-                        ).toLocaleString()}
+                        {formatPrice(calculateTotalPackagePrice())}
                       </p>
                       {decideLater && (
                         <p className="text-xs text-gray-500 mt-1">
@@ -1679,6 +1817,101 @@ export default function EnhancedCreateBookingPage() {
           </div>
         </div>
       </div>
+
+      {/* Always-rendered venue detail modal */}
+      <Dialog
+        open={venueDetailsModalOpen}
+        onOpenChange={(open) => {
+          setVenueDetailsModalOpen(open);
+          if (!open) {
+            setModalVenue(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md mx-auto max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Venue Details</DialogTitle>
+          </DialogHeader>
+          {modalVenue && (
+            <div className="space-y-4">
+              {/* Venue Images */}
+              <div className="space-y-3">
+                {modalVenue.venue_cover_photo && (
+                  <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
+                    <img
+                      src={`http://localhost/events-api/${modalVenue.venue_cover_photo}`}
+                      alt={modalVenue.venue_title}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  {modalVenue.venue_profile_picture && (
+                    <img
+                      src={`http://localhost/events-api/${modalVenue.venue_profile_picture}`}
+                      alt={`${modalVenue.venue_title} profile`}
+                      className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
+                    />
+                  )}
+                  <div>
+                    <h4 className="font-semibold text-gray-900">
+                      {modalVenue.venue_title}
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {modalVenue.venue_location}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <span className="text-sm text-gray-500">Capacity</span>
+                  <p className="font-medium">
+                    {modalVenue.venue_capacity} guests
+                  </p>
+                </div>
+
+                {modalVenue.venue_details && (
+                  <div>
+                    <span className="text-sm text-gray-500">Details</span>
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                      {modalVenue.venue_details}
+                    </p>
+                  </div>
+                )}
+
+                {/* Venue Inclusions */}
+                {modalVenue.inclusions && modalVenue.inclusions.length > 0 && (
+                  <div>
+                    <span className="text-sm text-gray-500">Inclusions</span>
+                    <div className="space-y-2 mt-2">
+                      {modalVenue.inclusions.map((inclusion, index) => (
+                        <div
+                          key={`inclusion-${inclusion.inclusion_id || index}`}
+                          className="flex items-center p-2 bg-gray-50 rounded-md"
+                        >
+                          <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3 flex-shrink-0"></div>
+                          <span className="text-sm font-medium">
+                            {inclusion.inclusion_name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <span className="text-sm text-gray-500">Venue Buffer</span>
+                  <p className="font-bold text-emerald-600">
+                    {formatPrice(modalVenue.venue_price)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

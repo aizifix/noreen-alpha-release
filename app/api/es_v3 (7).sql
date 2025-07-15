@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jul 14, 2025 at 07:22 AM
+-- Generation Time: Jul 14, 2025 at 04:54 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -223,20 +223,6 @@ CREATE TABLE `tbl_bookings` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `tbl_bookings`
---
-
-INSERT INTO `tbl_bookings` (`booking_id`, `booking_reference`, `user_id`, `event_type_id`, `event_name`, `event_date`, `event_time`, `start_time`, `end_time`, `guest_count`, `venue_id`, `package_id`, `notes`, `booking_status`, `created_at`, `updated_at`) VALUES
-(7, 'BK-20250625-1100', 15, 5, 'ad', '2025-06-26', '10:00:00', '10:00:00', '18:00:00', 100, 30, 15, 'ad', 'converted', '2025-06-25 06:02:06', '2025-06-25 08:26:36'),
-(8, 'BK-20250625-4040', 15, 5, 'Other Event ', '2025-06-26', '10:00:00', '10:00:00', '18:00:00', 100, 29, 15, 'Other Event ', 'converted', '2025-06-25 08:29:08', '2025-06-25 09:10:39'),
-(9, 'BK-20250626-5133', 15, 1, 'hb', '2025-06-29', '10:00:00', '10:00:00', '18:00:00', 50, 29, 15, 'hb', 'converted', '2025-06-26 10:36:30', '2025-06-26 10:40:27'),
-(10, 'BK-20250709-2165', 20, 5, 'Jesse Birthday', '2025-08-01', '10:00:00', '10:00:00', '18:00:00', 100, 30, 19, 'Jesse Birthday', 'converted', '2025-07-09 12:08:10', '2025-07-09 12:22:19'),
-(13, 'BK-20250710-2531', 20, 2, 'Test', '2025-07-10', '10:00:00', '10:00:00', '18:00:00', 50, 30, 20, 'Test', 'pending', '2025-07-09 23:08:27', '2025-07-09 23:08:27'),
-(14, 'BK-20250710-8764', 20, 2, 'a', '2025-07-11', '10:00:00', '10:00:00', '18:00:00', 50, 30, 19, 'a', 'confirmed', '2025-07-10 06:24:10', '2025-07-10 06:24:28'),
-(0, 'BK-20250712-3518', 20, 5, 'Test', '2025-08-29', '10:00:00', '10:00:00', NULL, 100, 30, 15, '', 'pending', '2025-07-12 03:25:34', '2025-07-12 09:25:34'),
-(0, 'BK-20250712-8869', 20, 5, 'Booking Sample 3', '2025-08-15', '10:00:00', '10:00:00', NULL, 50, 30, 15, '', 'pending', '2025-07-12 04:27:11', '2025-07-12 10:27:11');
 
 --
 -- Triggers `tbl_bookings`
@@ -1277,6 +1263,41 @@ INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venu
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `tbl_organizer`
+--
+
+CREATE TABLE `tbl_organizer` (
+  `organizer_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `organizer_experience` text DEFAULT NULL COMMENT 'Experience summary of the organizer',
+  `organizer_certifications` text DEFAULT NULL COMMENT 'Certifications and qualifications',
+  `organizer_resume_path` varchar(500) DEFAULT NULL COMMENT 'Path to uploaded resume file',
+  `organizer_portfolio_link` varchar(255) DEFAULT NULL COMMENT 'Optional portfolio website URL',
+  `organizer_availability` enum('flexible','weekdays','weekends','limited') DEFAULT 'flexible' COMMENT 'Availability schedule',
+  `remarks` text DEFAULT NULL COMMENT 'Admin notes and remarks',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Organizer profile information linked to user accounts';
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_organizer_activity_logs`
+--
+
+CREATE TABLE `tbl_organizer_activity_logs` (
+  `log_id` int(11) NOT NULL,
+  `organizer_id` int(11) NOT NULL,
+  `activity_type` varchar(100) NOT NULL COMMENT 'Type of activity (created, updated, etc.)',
+  `description` text DEFAULT NULL COMMENT 'Description of the activity',
+  `related_id` int(11) DEFAULT NULL COMMENT 'Related entity ID if applicable',
+  `metadata` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Additional activity metadata' CHECK (json_valid(`metadata`)),
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Activity logs for organizer actions';
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `tbl_packages`
 --
 
@@ -1922,6 +1943,13 @@ CREATE TABLE `tbl_signup_otp` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `tbl_signup_otp`
+--
+
+INSERT INTO `tbl_signup_otp` (`id`, `user_id`, `email`, `otp_code`, `expires_at`, `created_at`, `updated_at`) VALUES
+(2, 22, 'chis.bacsarca.coc@phinmaed.com', '542417', '2025-07-14 14:27:39', '2025-07-14 06:17:39', '2025-07-14 06:17:39');
+
 -- --------------------------------------------------------
 
 --
@@ -2299,9 +2327,10 @@ CREATE TABLE `tbl_users` (
 
 INSERT INTO `tbl_users` (`user_id`, `user_firstName`, `user_lastName`, `user_suffix`, `user_birthdate`, `user_email`, `user_contact`, `user_username`, `user_pwd`, `force_password_change`, `last_login`, `account_status`, `user_pfp`, `user_role`, `is_verified`, `email_verified_at`, `created_at`) VALUES
 (5, 'test', 'test', 'III', '1995-10-20', 'test@gmail.com', '0909090990', 'test', '$2y$10$kINW0dn.gMncgts2MHlwAeuJluo1eotovACTt.z5TUhZ5rf2Ewhhm', 0, NULL, 'active', 'uploads/user_profile/sample.jpg', 'client', 1, NULL, '2025-02-25 12:43:54'),
-(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 0, '2025-07-14 12:59:24', 'active', 'uploads/profile_pictures/profile_7_1752469226.jpg', 'admin', 1, NULL, '2025-02-25 16:41:22'),
-(15, 'Laurenz', 'Anches', '', '2000-10-31', 'lasi.anches.coc@phinmaed.com', '09054135590', 'laurenz', '$2y$10$IIUK.GHlqUPudNpZoBCw0e8z8OeIpoKH.BSdcHuQdGCiSqjK8prdS', 0, NULL, 'active', 'uploads/user_profile/sakamoto.jpg', 'client', 1, NULL, '2025-03-04 07:26:38'),
-(20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 0, '2025-07-14 10:43:39', 'active', 'uploads/profile_pictures/profile_20_1752461113.jpg', 'client', 1, NULL, '2025-07-09 12:04:49');
+(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 0, '2025-07-14 16:34:26', 'active', 'uploads/profile_pictures/profile_7_1752471808.jpg', 'admin', 1, NULL, '2025-02-25 16:41:22'),
+(20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 0, '2025-07-14 10:43:39', 'active', 'uploads/profile_pictures/profile_20_1752461113.jpg', 'client', 1, NULL, '2025-07-09 12:04:49'),
+(21, 'Richard', 'Gamon', NULL, '1995-01-01', 'contact.aizworks@gmail.com', '+630995059950', 'richardq20', '$2y$10$iSf.6ZlAVsOR0Gcuwazw4uHeGggmQetB2raODfOzAjhz8qqxjopaW', 0, '2025-07-14 14:04:35', 'active', 'uploads/profile_pictures/profile_21_1752473745.jpg', 'client', 1, '2025-07-14 14:03:53', '2025-07-14 06:03:28'),
+(23, 'Christine', 'Bacsarsa', NULL, '2003-07-26', 'chis.bacsarsa.coc@phinmaed.com', '+639059490590', 'christinegrace', '$2y$10$c82pB7cRnWdV2.GoMCBVqe.kHzB..MjSJy1EjMi1w0CmIkbO.XlM.', 0, '2025-07-14 14:21:23', 'active', 'uploads/profile_pictures/profile_23_1752474108.jpg', 'client', 1, '2025-07-14 14:20:03', '2025-07-14 06:19:38');
 
 -- --------------------------------------------------------
 
@@ -2542,6 +2571,24 @@ ALTER TABLE `tbl_email_logs`
   ADD KEY `idx_email_logs_date` (`created_at`);
 
 --
+-- Indexes for table `tbl_organizer`
+--
+ALTER TABLE `tbl_organizer`
+  ADD PRIMARY KEY (`organizer_id`),
+  ADD UNIQUE KEY `unique_user_organizer` (`user_id`),
+  ADD KEY `idx_organizer_availability` (`organizer_availability`),
+  ADD KEY `idx_organizer_created` (`created_at`);
+
+--
+-- Indexes for table `tbl_organizer_activity_logs`
+--
+ALTER TABLE `tbl_organizer_activity_logs`
+  ADD PRIMARY KEY (`log_id`),
+  ADD KEY `idx_organizer_activity` (`organizer_id`),
+  ADD KEY `idx_activity_type` (`activity_type`),
+  ADD KEY `idx_activity_date` (`created_at`);
+
+--
 -- Indexes for table `tbl_signup_otp`
 --
 ALTER TABLE `tbl_signup_otp`
@@ -2619,6 +2666,12 @@ ALTER TABLE `tbl_supplier_verification_requests`
   ADD KEY `idx_supplier_verification_date` (`created_at`);
 
 --
+-- Indexes for table `tbl_users`
+--
+ALTER TABLE `tbl_users`
+  ADD PRIMARY KEY (`user_id`);
+
+--
 -- AUTO_INCREMENT for dumped tables
 --
 
@@ -2635,10 +2688,22 @@ ALTER TABLE `tbl_email_logs`
   MODIFY `email_log_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `tbl_organizer`
+--
+ALTER TABLE `tbl_organizer`
+  MODIFY `organizer_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `tbl_organizer_activity_logs`
+--
+ALTER TABLE `tbl_organizer_activity_logs`
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `tbl_signup_otp`
 --
 ALTER TABLE `tbl_signup_otp`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
 -- AUTO_INCREMENT for table `tbl_suppliers`
@@ -2683,8 +2748,26 @@ ALTER TABLE `tbl_supplier_verification_requests`
   MODIFY `verification_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `tbl_users`
+--
+ALTER TABLE `tbl_users`
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=24;
+
+--
 -- Constraints for dumped tables
 --
+
+--
+-- Constraints for table `tbl_organizer`
+--
+ALTER TABLE `tbl_organizer`
+  ADD CONSTRAINT `fk_organizer_user` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
+-- Constraints for table `tbl_organizer_activity_logs`
+--
+ALTER TABLE `tbl_organizer_activity_logs`
+  ADD CONSTRAINT `fk_activity_organizer` FOREIGN KEY (`organizer_id`) REFERENCES `tbl_organizer` (`organizer_id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
 -- Constraints for table `tbl_supplier_offers`

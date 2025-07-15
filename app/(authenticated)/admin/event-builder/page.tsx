@@ -2055,12 +2055,35 @@ export default function EventBuilderPage() {
                     Assigned Organizers
                   </h3>
                   <div className="p-4 bg-gray-50 rounded-lg">
-                    {getOrganizerNames().map((name, index) => (
-                      <div key={index} className="flex items-center mb-2">
+                    {selectedOrganizers.length === 0 ? (
+                      <div
+                        key="default-organizer"
+                        className="flex items-center mb-2"
+                      >
                         <span className="w-2 h-2 bg-brand-500 rounded-full mr-2"></span>
-                        <span className="font-medium">{name}</span>
+                        <span className="font-medium">
+                          Noreen Lagdamin (Default)
+                        </span>
                       </div>
-                    ))}
+                    ) : (
+                      selectedOrganizers.map((organizerId) => {
+                        const organizer = organizers.find(
+                          (org) => org.id === organizerId
+                        );
+                        const name = organizer
+                          ? organizer.name
+                          : "Unknown Organizer";
+                        return (
+                          <div
+                            key={`organizer-${organizerId}`}
+                            className="flex items-center mb-2"
+                          >
+                            <span className="w-2 h-2 bg-brand-500 rounded-full mr-2"></span>
+                            <span className="font-medium">{name}</span>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               )}
@@ -2350,12 +2373,33 @@ export default function EventBuilderPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Organizers</p>
                   <div className="font-medium">
-                    {getOrganizerNames().map((name, index) => (
-                      <div key={index} className="flex items-center">
+                    {selectedOrganizers.length === 0 ? (
+                      <div
+                        key="default-organizer-summary"
+                        className="flex items-center"
+                      >
                         <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                        {name}
+                        Noreen Lagdamin (Default)
                       </div>
-                    ))}
+                    ) : (
+                      selectedOrganizers.map((organizerId) => {
+                        const organizer = organizers.find(
+                          (org) => org.id === organizerId
+                        );
+                        const name = organizer
+                          ? organizer.name
+                          : "Unknown Organizer";
+                        return (
+                          <div
+                            key={`summary-organizer-${organizerId}`}
+                            className="flex items-center"
+                          >
+                            <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                            {name}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
                 {selectedPackageId && (

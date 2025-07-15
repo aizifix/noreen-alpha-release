@@ -425,6 +425,7 @@ export default function AdminBookingsPage() {
           </span>
           <div className="flex gap-2">
             <Button
+              key="view-button"
               variant="outline"
               size="sm"
               onClick={() => {
@@ -440,6 +441,7 @@ export default function AdminBookingsPage() {
             {isPending && (
               <>
                 <Button
+                  key="accept-button"
                   size="sm"
                   onClick={() => handleAcceptBooking(booking)}
                   className="bg-green-600 hover:bg-green-700"
@@ -448,6 +450,7 @@ export default function AdminBookingsPage() {
                   Accept
                 </Button>
                 <Button
+                  key="reject-button"
                   variant="outline"
                   size="sm"
                   onClick={() => handleRejectBooking(booking)}
@@ -462,6 +465,7 @@ export default function AdminBookingsPage() {
             {/* Show Convert to Event button for confirmed bookings */}
             {canConvert && (
               <Button
+                key="convert-button"
                 size="sm"
                 onClick={() => handleConvertToEvent(booking)}
                 disabled={convertingBookingId === booking.booking_id}
@@ -478,10 +482,10 @@ export default function AdminBookingsPage() {
 
             {(isConfirmed || isConverted) && (
               <Button
+                key="view-event-button"
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  // Navigate to events page to find the event created from this booking
                   router.push(
                     `/admin/events?booking_ref=${booking.booking_reference}`
                   );
@@ -651,7 +655,7 @@ export default function AdminBookingsPage() {
         ) : (
           <div className="grid gap-4">
             {filteredBookings.map((booking) => (
-              <BookingCard key={booking.booking_id} booking={booking} />
+              <BookingCard key={booking.booking_reference} booking={booking} />
             ))}
           </div>
         )}
@@ -681,7 +685,7 @@ export default function AdminBookingsPage() {
                   {selectedBooking.booking_status === "pending" && (
                     <>
                       <Button
-                        key="confirm-btn"
+                        key="modal-confirm-btn"
                         size="sm"
                         onClick={() =>
                           handleUpdateBookingStatus(
@@ -693,7 +697,7 @@ export default function AdminBookingsPage() {
                         Confirm
                       </Button>
                       <Button
-                        key="cancel-btn"
+                        key="modal-cancel-btn"
                         size="sm"
                         variant="destructive"
                         onClick={() =>
@@ -709,6 +713,7 @@ export default function AdminBookingsPage() {
                   )}
                   {selectedBooking.booking_status === "pending" && (
                     <Button
+                      key="modal-convert-btn"
                       size="sm"
                       className="bg-green-600 hover:bg-green-700"
                       onClick={() => handleConvertToEvent(selectedBooking)}

@@ -4,8 +4,15 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
-import { Calendar } from "@/components/ui/calendar";
-import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Search,
+  Filter,
+  CalendarDays,
+  List,
+} from "lucide-react";
 import axios from "axios";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
@@ -262,7 +269,7 @@ export default function EventsPage() {
       calendarDays.push(
         <div
           key={`prev-${day}`}
-          className="min-h-[120px] p-2 text-gray-400 bg-gray-50"
+          className="min-h-[120px] p-2 text-gray-400 bg-gray-50 border border-gray-100"
         >
           <div className="text-sm">{day}</div>
         </div>
@@ -280,9 +287,9 @@ export default function EventsPage() {
       calendarDays.push(
         <div
           key={day}
-          className={`min-h-[120px] p-2 border cursor-pointer hover:bg-gray-50 ${
+          className={`min-h-[120px] p-2 border cursor-pointer hover:bg-gray-50 transition-colors duration-200 ${
             isToday ? "bg-blue-50 border-blue-200" : "border-gray-200"
-          } ${isSelected ? "ring-2 ring-green-500" : ""}`}
+          } ${isSelected ? "ring-2 ring-[#028A75]" : ""}`}
           onClick={() => setSelectedDate(date)}
         >
           <div
@@ -296,7 +303,7 @@ export default function EventsPage() {
               return (
                 <div
                   key={event.event_id}
-                  className={`text-xs p-1 rounded truncate ${colors.bg} ${colors.text} cursor-pointer hover:opacity-80`}
+                  className={`text-xs p-1 rounded truncate ${colors.bg} ${colors.text} cursor-pointer hover:opacity-80 transition-opacity duration-200`}
                   title={`${event.event_title} - ${event.client_name || "Unknown Client"}${event.start_time && event.end_time ? ` (${format(new Date(`2000-01-01T${event.start_time}`), "h:mm a")} - ${format(new Date(`2000-01-01T${event.end_time}`), "h:mm a")})` : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -337,7 +344,7 @@ export default function EventsPage() {
       calendarDays.push(
         <div
           key={`next-${day}`}
-          className="min-h-[120px] p-2 text-gray-400 bg-gray-50"
+          className="min-h-[120px] p-2 text-gray-400 bg-gray-50 border border-gray-100"
         >
           <div className="text-sm">{day}</div>
         </div>
@@ -345,10 +352,10 @@ export default function EventsPage() {
     }
 
     return (
-      <div className="bg-white rounded-lg shadow">
+      <div className="bg-white rounded-lg border border-gray-200 animate-in slide-in-from-bottom-4 duration-500">
         {/* Calendar Header */}
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-900">
             {currentDate.toLocaleDateString("en-US", {
               month: "long",
               year: "numeric",
@@ -357,19 +364,19 @@ export default function EventsPage() {
           <div className="flex gap-2">
             <button
               onClick={() => navigateMonth("prev")}
-              className="p-2 hover:bg-gray-100 rounded"
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
               onClick={() => setCurrentDate(new Date())}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+              className="px-4 py-2 text-sm bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors duration-200"
             >
               Today
             </button>
             <button
               onClick={() => navigateMonth("next")}
-              className="p-2 hover:bg-gray-100 rounded"
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -377,11 +384,11 @@ export default function EventsPage() {
         </div>
 
         {/* Days of week header */}
-        <div className="grid grid-cols-7 border-b">
+        <div className="grid grid-cols-7 border-b border-gray-200">
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
             <div
               key={day}
-              className="p-3 text-sm font-medium text-gray-500 text-center border-r last:border-r-0"
+              className="p-4 text-sm font-medium text-gray-600 text-center border-r border-gray-200 last:border-r-0 bg-gray-50"
             >
               {day}
             </div>
@@ -401,8 +408,8 @@ export default function EventsPage() {
     const dayEvents = getEventsForDate(selectedDate);
 
     return (
-      <div className="bg-white rounded-lg shadow p-4">
-        <h3 className="font-semibold mb-3">
+      <div className="bg-white rounded-lg border border-gray-200 p-6 animate-in slide-in-from-right-4 duration-500">
+        <h3 className="font-semibold text-lg text-gray-900 mb-4">
           Events for{" "}
           {selectedDate.toLocaleDateString("en-US", {
             weekday: "long",
@@ -412,12 +419,15 @@ export default function EventsPage() {
         </h3>
 
         {dayEvents.length === 0 ? (
-          <p className="text-gray-500 text-sm">
-            No events scheduled for this date.
-          </p>
+          <div className="text-center py-8">
+            <CalendarDays className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500 text-sm">
+              No events scheduled for this date.
+            </p>
+          </div>
         ) : (
-          <div className="space-y-3">
-            {dayEvents.map((event) => {
+          <div className="space-y-4">
+            {dayEvents.map((event, index) => {
               const colors = getStatusColor(event.event_status);
               const paymentColors = getPaymentStatusColor(event.payment_status);
 
@@ -441,7 +451,7 @@ export default function EventsPage() {
               return (
                 <div
                   key={event.event_id}
-                  className={`p-3 rounded-lg border-l-4 ${colors.border} ${colors.bg} cursor-pointer hover:opacity-80 transition-all duration-200`}
+                  className={`p-4 rounded-lg border-l-4 ${colors.border} ${colors.bg} cursor-pointer hover:opacity-80 transition-all duration-200 animate-in slide-in-from-right-4 delay-${index * 100}`}
                   onClick={() => router.push(`/admin/events/${event.event_id}`)}
                 >
                   <div className="flex items-start space-x-3">
@@ -452,7 +462,7 @@ export default function EventsPage() {
                         <img
                           src={getProfileImageUrl(event.client_pfp)}
                           alt={`${event.client_name}'s profile`}
-                          className="w-8 h-8 rounded-full object-cover border border-gray-200"
+                          className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
                           onError={(e) => {
                             e.currentTarget.style.display = "none";
                             e.currentTarget.nextElementSibling?.classList.remove(
@@ -462,16 +472,16 @@ export default function EventsPage() {
                         />
                       ) : null}
                       <div
-                        className={`w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ${event.client_pfp ? "hidden" : ""}`}
+                        className={`w-10 h-10 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full flex items-center justify-center ${event.client_pfp ? "hidden" : ""}`}
                       >
-                        <span className="text-white font-medium text-xs">
+                        <span className="text-white font-medium text-sm">
                           {getClientInitials(event.client_name || "C")}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-sm truncate">
+                      <h4 className="font-semibold text-sm text-gray-900 truncate">
                         {event.event_title}
                       </h4>
                       <p className="text-xs text-gray-600 mt-1 truncate">
@@ -490,7 +500,7 @@ export default function EventsPage() {
                           )}
                         </p>
                       )}
-                      <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center justify-between mt-3">
                         <div className="text-xs text-gray-600">
                           <span>Guests: {event.guest_count}</span>
                           <span className="mx-1">•</span>
@@ -553,34 +563,55 @@ export default function EventsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
-          <p className="mt-2 text-gray-500">Loading events...</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#028A75] mx-auto"></div>
+            <p className="mt-2 text-gray-500">Loading events...</p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">Event Management</h1>
-        <div className="flex gap-2">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in slide-in-from-bottom-4 duration-700">
+      {/* Header Section */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold text-gray-900">Event Management</h1>
+          <p className="text-gray-600">Manage and organize all your events</p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* View Toggle Buttons */}
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            <button
+              className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-all duration-200 ${
+                view === "calendar"
+                  ? "bg-white text-[#028A75] shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+              onClick={() => setView("calendar")}
+            >
+              <CalendarDays className="h-4 w-4" />
+              Calendar
+            </button>
+            <button
+              className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-all duration-200 ${
+                view === "list"
+                  ? "bg-white text-[#028A75] shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+              onClick={() => setView("list")}
+            >
+              <List className="h-4 w-4" />
+              List
+            </button>
+          </div>
+
           <button
-            className={`px-4 py-2 rounded font-semibold border ${view === "calendar" ? "bg-brand-500 text-white border-brand-500" : "bg-white text-brand-600 border-brand-500"}`}
-            onClick={() => setView("calendar")}
-          >
-            Calendar
-          </button>
-          <button
-            className={`px-4 py-2 rounded font-semibold border ${view === "list" ? "bg-brand-500 text-white border-brand-500" : "bg-white text-brand-600 border-brand-500"}`}
-            onClick={() => setView("list")}
-          >
-            List
-          </button>
-          <button
-            className="ml-2 px-4 py-2 rounded bg-brand-500 text-white font-semibold hover:bg-brand-600 flex items-center gap-2"
+            className="flex items-center gap-2 px-6 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors duration-200 font-medium"
             onClick={() => router.push("/admin/event-builder")}
           >
             <Plus className="h-4 w-4" />
@@ -589,78 +620,90 @@ export default function EventsPage() {
         </div>
       </div>
 
-      {/* Search and filters */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-          <input
-            className="border rounded px-10 py-2 w-full"
-            placeholder="Search events..."
-          />
+      {/* Search and Filters Section */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6 mb-8 animate-in slide-in-from-bottom-4 duration-500 delay-100">
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <input
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200"
+              placeholder="Search events by title, client, or venue..."
+            />
+          </div>
+
+          {/* Filter Dropdowns */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200">
+              <option value="">All Event Types</option>
+              <option value="1">Wedding</option>
+              <option value="2">Anniversary</option>
+              <option value="3">Birthday</option>
+              <option value="4">Corporate Event</option>
+              <option value="5">Others</option>
+              <option value="10">Baptism</option>
+              <option value="11">Baby Shower</option>
+              <option value="12">Reunion</option>
+              <option value="13">Festival</option>
+              <option value="14">Engagement Party</option>
+              <option value="15">Christmas Party</option>
+              <option value="16">New Year's Party</option>
+            </select>
+
+            <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200">
+              <option value="">All Statuses</option>
+              <option value="draft">Draft</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="on_going">On Going</option>
+              <option value="done">Done</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+
+            <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200">
+              <option value="">All Payment Status</option>
+              <option value="unpaid">Unpaid</option>
+              <option value="partial">Partial</option>
+              <option value="paid">Paid</option>
+              <option value="refunded">Refunded</option>
+            </select>
+          </div>
         </div>
-        <select className="border rounded px-3 py-2">
-          <option value="">All Types</option>
-          <option value="1">Wedding</option>
-          <option value="2">Anniversary</option>
-          <option value="3">Birthday</option>
-          <option value="4">Corporate Event</option>
-          <option value="5">Others</option>
-          <option value="10">Baptism</option>
-          <option value="11">Baby Shower</option>
-          <option value="12">Reunion</option>
-          <option value="13">Festival</option>
-          <option value="14">Engagement Party</option>
-          <option value="15">Christmas Party</option>
-          <option value="16">New Year's Party</option>
-        </select>
-        <select className="border rounded px-3 py-2">
-          <option value="">All Statuses</option>
-          <option value="draft">Draft</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="on_going">On Going</option>
-          <option value="done">Done</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-        <select className="border rounded px-3 py-2">
-          <option value="">All Payment Status</option>
-          <option value="unpaid">Unpaid</option>
-          <option value="partial">Partial</option>
-          <option value="paid">Paid</option>
-          <option value="refunded">Refunded</option>
-        </select>
       </div>
 
+      {/* Main Content */}
       {view === "calendar" ? (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           <div className="lg:col-span-3">
             <EventCalendar />
           </div>
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 space-y-6">
             <EventDetailsSidebar />
 
-            {/* Calendar legend */}
-            <div className="bg-white rounded-lg shadow p-4 mt-4">
-              <h4 className="font-semibold mb-3">Status Legend</h4>
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-green-100 border-l-4 border-green-500"></div>
-                  <span>Confirmed</span>
+            {/* Calendar Legend */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6 animate-in slide-in-from-right-4 duration-500 delay-200">
+              <h4 className="font-semibold text-gray-900 mb-4">
+                Status Legend
+              </h4>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-4 h-4 bg-green-100 border-l-4 border-green-500 rounded-sm"></div>
+                  <span className="text-gray-700">Confirmed</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-yellow-100 border-l-4 border-yellow-500"></div>
-                  <span>Planning/Draft</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-4 h-4 bg-yellow-100 border-l-4 border-yellow-500 rounded-sm"></div>
+                  <span className="text-gray-700">Planning/Draft</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-blue-100 border-l-4 border-blue-500"></div>
-                  <span>On Going</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-4 h-4 bg-blue-100 border-l-4 border-blue-500 rounded-sm"></div>
+                  <span className="text-gray-700">On Going</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-purple-100 border-l-4 border-purple-500"></div>
-                  <span>Done</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-4 h-4 bg-purple-100 border-l-4 border-purple-500 rounded-sm"></div>
+                  <span className="text-gray-700">Done</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-red-100 border-l-4 border-red-500"></div>
-                  <span>Cancelled</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-4 h-4 bg-red-100 border-l-4 border-red-500 rounded-sm"></div>
+                  <span className="text-gray-700">Cancelled</span>
                 </div>
               </div>
             </div>
@@ -668,13 +711,13 @@ export default function EventsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {events.map((event) => {
+          {events.map((event, index) => {
             const colors = getStatusColor(event.event_status);
             const paymentColors = getPaymentStatusColor(event.payment_status);
             return (
               <div
                 key={event.event_id}
-                className={`rounded-lg shadow border-t-4 ${colors.border} bg-white p-6 flex flex-col justify-between hover:shadow-lg transition-shadow cursor-pointer`}
+                className={`rounded-lg border border-gray-200 bg-white p-6 flex flex-col justify-between hover:shadow-lg transition-all duration-300 cursor-pointer animate-in slide-in-from-bottom-4  delay-${index * 50}`}
                 onClick={() => {
                   console.log(
                     "🃏 Event card clicked, navigating to:",
@@ -684,8 +727,8 @@ export default function EventsPage() {
                 }}
               >
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="font-bold text-lg truncate">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="font-bold text-lg text-gray-900 truncate">
                       {event.event_title}
                     </h2>
                     <span
@@ -696,12 +739,12 @@ export default function EventsPage() {
                   </div>
 
                   {event.event_theme && (
-                    <div className="text-sm text-gray-500 mb-1 italic">
+                    <div className="text-sm text-gray-500 mb-3 italic">
                       Theme: {event.event_theme}
                     </div>
                   )}
 
-                  <div className="text-sm text-gray-600 mb-1">
+                  <div className="text-sm text-gray-600 mb-2">
                     {new Date(event.event_date).toLocaleDateString("en-US", {
                       weekday: "long",
                       year: "numeric",
@@ -711,7 +754,7 @@ export default function EventsPage() {
                   </div>
 
                   {event.start_time && event.end_time && (
-                    <div className="text-sm text-gray-600 mb-2">
+                    <div className="text-sm text-gray-600 mb-4">
                       {format(
                         new Date(`2000-01-01T${event.start_time}`),
                         "h:mm a"
@@ -725,8 +768,8 @@ export default function EventsPage() {
                   )}
 
                   {/* Client Information Section */}
-                  <div className="mb-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-3 mb-2">
+                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <div className="flex items-center space-x-3 mb-3">
                       {/* Client Profile Picture */}
                       <div className="relative flex-shrink-0">
                         {event.client_pfp &&
@@ -742,7 +785,7 @@ export default function EventsPage() {
                               <img
                                 src={imageUrl}
                                 alt={`${event.client_name}'s profile`}
-                                className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
+                                className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
                                 onError={(e) => {
                                   e.currentTarget.style.display = "none";
                                   e.currentTarget.nextElementSibling?.classList.remove(
@@ -753,7 +796,7 @@ export default function EventsPage() {
                             );
                           })()}
                         <div
-                          className={`w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ${event.client_pfp ? "hidden" : ""}`}
+                          className={`w-12 h-12 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full flex items-center justify-center ${event.client_pfp ? "hidden" : ""}`}
                         >
                           <span className="text-white font-medium text-sm">
                             {event.client_name
@@ -784,43 +827,61 @@ export default function EventsPage() {
                     </div>
                   </div>
 
-                  <div className="text-sm mb-2 space-y-1">
-                    <div>
-                      <span className="font-semibold">Venue:</span>{" "}
-                      {event.venue_name || "TBD"}
+                  <div className="text-sm mb-4 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Venue:</span>
+                      <span className="text-gray-600">
+                        {event.venue_name || "TBD"}
+                      </span>
                     </div>
-                    <div>
-                      <span className="font-semibold">Type:</span>{" "}
-                      {event.event_type_name || "Unknown"}
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Type:</span>
+                      <span className="text-gray-600">
+                        {event.event_type_name || "Unknown"}
+                      </span>
                     </div>
-                    <div>
-                      <span className="font-semibold">Package:</span>{" "}
-                      {event.package_title || "Custom"}
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">
+                        Package:
+                      </span>
+                      <span className="text-gray-600">
+                        {event.package_title || "Custom"}
+                      </span>
                     </div>
-                    <div>
-                      <span className="font-semibold">Guests:</span>{" "}
-                      {event.guest_count}
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Guests:</span>
+                      <span className="text-gray-600">{event.guest_count}</span>
                     </div>
-                    <div>
-                      <span className="font-semibold">Budget:</span> ₱
-                      {event.total_budget?.toLocaleString() || "0"}
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Budget:</span>
+                      <span className="text-gray-600">
+                        ₱{event.total_budget?.toLocaleString() || "0"}
+                      </span>
                     </div>
-                    <div>
-                      <span className="font-semibold">Down Payment:</span> ₱
-                      {event.down_payment?.toLocaleString() || "0"}
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">
+                        Down Payment:
+                      </span>
+                      <span className="text-gray-600">
+                        ₱{event.down_payment?.toLocaleString() || "0"}
+                      </span>
                     </div>
                     {event.original_booking_reference && (
-                      <div>
-                        <span className="font-semibold">Booking Ref:</span>{" "}
-                        {event.original_booking_reference}
+                      <div className="flex justify-between">
+                        <span className="font-medium text-gray-700">
+                          Booking Ref:
+                        </span>
+                        <span className="text-gray-600">
+                          {event.original_booking_reference}
+                        </span>
                       </div>
                     )}
                   </div>
 
                   {/* Payment Status */}
-                  <div className="mb-3">
+                  <div className="mb-4">
                     <span
-                      className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
+                      className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
                     >
                       Payment: {event.payment_status}
                     </span>
@@ -832,16 +893,16 @@ export default function EventsPage() {
                   </div>
 
                   {event.additional_notes && (
-                    <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded mt-2">
+                    <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg mb-4">
                       <span className="font-semibold">Notes:</span>{" "}
                       {event.additional_notes}
                     </div>
                   )}
                 </div>
 
-                <div className="flex justify-between items-center mt-4">
+                <div className="flex justify-between items-center pt-4 border-t border-gray-100">
                   <button
-                    className="flex items-center gap-1 px-3 py-1 rounded border border-gray-300 bg-gray-50 text-gray-700 text-sm font-medium hover:bg-gray-100"
+                    className="flex items-center gap-1 px-3 py-1 rounded border border-gray-300 bg-gray-50 text-gray-700 text-sm font-medium hover:bg-gray-100 transition-colors duration-200"
                     onClick={(e) => {
                       e.stopPropagation();
                       router.push(`/admin/events/${event.event_id}/timeline`);
@@ -850,7 +911,7 @@ export default function EventsPage() {
                     <span>⏱️</span> Timeline
                   </button>
                   <button
-                    className="flex items-center gap-1 px-3 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100"
+                    className="flex items-center gap-1 px-3 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition-colors duration-200"
                     onClick={(e) => {
                       e.stopPropagation();
                       router.push(`/admin/payments?event_id=${event.event_id}`);
@@ -859,7 +920,7 @@ export default function EventsPage() {
                     <span>💳</span> Payments
                   </button>
                   <button
-                    className="px-3 py-1 rounded bg-green-600 text-white text-sm font-semibold hover:bg-green-700"
+                    className="px-4 py-1 rounded bg-[#028A75] text-white text-sm font-semibold hover:bg-[#027a65] transition-colors duration-200"
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -874,18 +935,19 @@ export default function EventsPage() {
           })}
 
           {events.length === 0 && (
-            <div className="col-span-full text-center py-12">
-              <div className="text-gray-400 mb-4">
-                <Calendar className="h-12 w-12 mx-auto" />
+            <div className="col-span-full text-center py-16 animate-in slide-in-from-bottom-4 duration-500">
+              <div className="text-gray-400 mb-6">
+                <CalendarDays className="h-16 w-16 mx-auto" />
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
+              <h3 className="text-xl font-medium text-gray-900 mb-3">
                 No events found
               </h3>
-              <p className="text-gray-500 mb-4">
-                Get started by creating your first event.
+              <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                Get started by creating your first event. You can organize
+                weddings, birthdays, corporate events, and more.
               </p>
               <button
-                className="px-4 py-2 rounded bg-green-500 text-white font-semibold hover:bg-green-600 flex items-center gap-2 mx-auto"
+                className="px-6 py-3 rounded-lg bg-[#028A75] text-white font-semibold hover:bg-[#027a65] transition-colors duration-200 flex items-center gap-2 mx-auto"
                 onClick={() => router.push("/admin/event-builder")}
               >
                 <Plus className="h-4 w-4" />

@@ -168,11 +168,28 @@ export function DraftHandler({
   useEffect(() => {
     const draft = loadDraft();
     if (draft) {
-      onLoadDraft(draft);
-      toast({
-        title: "Draft Restored",
-        description: "Your previous progress has been restored.",
-      });
+      // Check if this is a page refresh (not navigation)
+      const isRefresh =
+        !document.referrer ||
+        document.referrer.includes(window.location.origin);
+
+      if (isRefresh) {
+        // On refresh, always start from step 1 but keep the form data
+        const draftWithStep1 = { ...draft, currentStep: 1 };
+        onLoadDraft(draftWithStep1);
+        toast({
+          title: "Draft Restored",
+          description:
+            "Your previous progress has been restored. Starting from step 1.",
+        });
+      } else {
+        // On navigation, restore everything including the step
+        onLoadDraft(draft);
+        toast({
+          title: "Draft Restored",
+          description: "Your previous progress has been restored.",
+        });
+      }
     }
   }, []); // Empty dependency array to run only once
 
@@ -180,7 +197,8 @@ export function DraftHandler({
   useEffect(() => {
     // Listen for beforeunload (page refresh/close)
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isDirty) {
+      // Only show warning if there are unsaved changes AND we're not on step 1
+      if (isDirty && formDataRef.current.currentStep !== 1) {
         e.preventDefault();
         e.returnValue =
           "You have unsaved changes. Are you sure you want to leave?";
@@ -190,7 +208,8 @@ export function DraftHandler({
 
     // Listen for popstate (browser back/forward)
     const handlePopState = (e: PopStateEvent) => {
-      if (isDirty) {
+      // Only show modal if there are unsaved changes AND we're not on step 1
+      if (isDirty && formDataRef.current.currentStep !== 1) {
         e.preventDefault();
         setShowExitModal(true);
         // Push the current state back to prevent navigation
@@ -200,7 +219,8 @@ export function DraftHandler({
 
     // Listen for click events on navigation links - more targeted approach
     const handleClick = (e: MouseEvent) => {
-      if (!isDirty) return; // Only intercept if there are unsaved changes
+      // Only intercept if there are unsaved changes AND we're not on step 1
+      if (!isDirty || formDataRef.current.currentStep === 1) return;
 
       const target = e.target as HTMLElement;
 
@@ -287,8 +307,8 @@ export function DraftHandler({
           <DialogHeader>
             <DialogTitle>Save Your Progress?</DialogTitle>
             <DialogDescription>
-              You have unsaved changes. Would you like to save your progress as
-              a draft before leaving?
+              You have unsaved changes on step {formDataRef.current.currentStep}
+              . Would you like to save your progress as a draft before leaving?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex flex-col sm:flex-row gap-2">

@@ -4,7 +4,14 @@ export const showConfetti = () => {
   try {
     const duration = 3 * 1000;
     const animationEnd = Date.now() + duration;
-    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+    const defaults = {
+      startVelocity: 30,
+      spread: 360,
+      ticks: 60,
+      zIndex: 9999, // High z-index to appear in front
+      useWorker: false, // Disable worker to avoid CSP issues
+      disableForReducedMotion: true, // Accessibility consideration
+    };
 
     function randomInRange(min: number, max: number) {
       return Math.random() * (max - min) + min;
@@ -20,7 +27,7 @@ export const showConfetti = () => {
       const particleCount = 50 * (timeLeft / duration);
 
       try {
-        // Try to create confetti - this might fail due to CSP
+        // Try to create confetti with CSP-compatible settings
         confetti({
           ...defaults,
           particleCount,

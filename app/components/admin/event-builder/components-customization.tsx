@@ -1,13 +1,24 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Minus, Edit, Trash, Lock, Info } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Plus,
+  Minus,
+  Edit,
+  Trash,
+  Lock,
+  Info,
+  User,
+  Building,
+} from "lucide-react";
+import axios from "axios";
 import { formatCurrency } from "@/lib/utils";
 import {
   eventPackages,
@@ -60,11 +71,32 @@ const createVenueComponent = (
 // Add type for custom categories
 type ExtendedComponentCategory = ComponentCategory | string;
 
+// Supplier interface
+interface Supplier {
+  supplier_id: string;
+  supplier_name: string;
+  supplier_category: string;
+  supplier_email: string;
+  supplier_phone: string;
+  supplier_status: string;
+  pricing_tiers?: Array<{
+    tier_name: string;
+    tier_price: number;
+    tier_description: string;
+  }>;
+}
+
+// Extended component with supplier assignment
+interface ComponentWithSupplier extends DataPackageComponent {
+  assignedSupplier?: Supplier;
+  supplierPrice?: number;
+}
+
 export function ComponentCustomization({
   components: initialComponents,
   selectedVenue,
   onUpdate,
-  onNext,
+  eventDetails,
 }: ComponentCustomizationProps & { selectedVenue: any }) {
   const [componentList, setComponentList] = useState<DataPackageComponent[]>(
     initialComponents as DataPackageComponent[]
@@ -86,39 +118,124 @@ export function ComponentCustomization({
   const [newComponentCategory, setNewComponentCategory] =
     useState<ExtendedComponentCategory>("extras");
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState<Set<string>>(
+    new Set()
+  );
+
+  // Ref to track unique ID counter
+  const uniqueIdCounter = useRef(0);
 
   // Update components when initialComponents change
   useEffect(() => {
     if (initialComponents.length > 0) {
-      setComponentList(initialComponents as DataPackageComponent[]);
+      // Filter out venue components from initialComponents to prevent duplicates
+      // Venue components will be handled separately by the venue useEffect
+      const nonVenueComponents = initialComponents.filter(
+        (comp) => !(comp.category === "venue" && comp.isVenueInclusion)
+      ) as DataPackageComponent[];
+
+      setComponentList(nonVenueComponents);
     }
   }, [initialComponents]);
 
-  // Load venue components when venueId changes
+  // Load venue as a single component when venueId changes
   useEffect(() => {
     if (selectedVenue) {
-      // Convert inclusions to components
-      const venueInclusions = (selectedVenue.inclusions || []).map(
-        (inclusion: any, idx: number) => ({
-          id: `venue-inclusion-${inclusion.inclusion_id || idx}`,
-          name: inclusion.inclusion_name,
-          price: parseFloat(inclusion.inclusion_price) || 0,
-          category: "venue",
+      // Check if venue component already exists in the main components array
+      const existingVenueComponent = initialComponents.find(
+        (comp) => comp.category === "venue" && comp.isVenueInclusion
+      );
+
+      if (existingVenueComponent) {
+        // Use existing venue component
+        setVenueComponents([existingVenueComponent]);
+      } else {
+        // Calculate overflow charge based on guest count
+        const baseCapacity = 100; // Default venue capacity as per instructions
+        const extraPaxRate = parseFloat(selectedVenue.extra_pax_rate) || 0;
+        const guestCount = parseInt(
+          eventDetails?.capacity?.toString() || "100"
+        );
+
+        let totalVenuePrice = parseFloat(selectedVenue.venue_price) || 0;
+        let overflowCharge = 0;
+
+        if (guestCount > baseCapacity && extraPaxRate > 0) {
+          const extraGuests = guestCount - baseCapacity;
+          overflowCharge = extraGuests * extraPaxRate;
+          totalVenuePrice += overflowCharge;
+        }
+
+        // Create a single venue component (not broken down into inclusions)
+        const venueComponent = {
+          id: `venue-${selectedVenue.venue_id}`,
+          name: selectedVenue.venue_title || selectedVenue.venue_name,
+          description: `Venue: ${selectedVenue.venue_title || selectedVenue.venue_name}${overflowCharge > 0 ? ` (includes ₱${overflowCharge.toLocaleString()} overflow charge for ${guestCount - baseCapacity} extra guests)` : ""}`,
+          price: totalVenuePrice,
+          category: "venue" as ComponentCategory,
           included: true,
           isVenueInclusion: true,
           isRemovable: false,
           isExpanded: false,
-        })
-      );
-      setVenueComponents(venueInclusions);
+          venueInclusions: selectedVenue.inclusions || [], // Store for display only
+        };
+        setVenueComponents([venueComponent]);
+      }
     } else {
       setVenueComponents([]);
     }
-  }, [selectedVenue]);
+  }, [
+    selectedVenue?.venue_id,
+    selectedVenue?.venue_title,
+    selectedVenue?.venue_name,
+    selectedVenue?.venue_price,
+    selectedVenue?.extra_pax_rate,
+    eventDetails?.capacity,
+    initialComponents,
+  ]);
+
+  // Fetch suppliers from backend
+  useEffect(() => {
+    const fetchSuppliers = async () => {
+      try {
+        setIsLoadingSuppliers(true);
+        const response = await axios.post(
+          "http://localhost/events-api/admin.php",
+          {
+            operation: "getSuppliersForEventBuilder",
+            page: 1,
+            limit: 100, // Get all suppliers
+          }
+        );
+
+        if (response.data.status === "success") {
+          setSuppliers(response.data.data?.suppliers || []);
+        } else {
+          console.error("Failed to fetch suppliers:", response.data.message);
+        }
+      } catch (err) {
+        console.error("Error fetching suppliers:", err);
+      } finally {
+        setIsLoadingSuppliers(false);
+      }
+    };
+
+    fetchSuppliers();
+  }, []);
 
   const handleComponentListChange = (updatedList: DataPackageComponent[]) => {
-    onUpdate([...venueComponents, ...updatedList]);
-    setComponentList(updatedList);
+    // Filter out any venue components from updatedList to prevent duplicates
+    const nonVenueComponents = updatedList.filter(
+      (comp) => !(comp.category === "venue" && comp.isVenueInclusion)
+    );
+
+    // Combine venue components with non-venue components, ensuring no duplicates
+    const combinedComponents = [...venueComponents, ...nonVenueComponents];
+
+    onUpdate(combinedComponents);
+    setComponentList(nonVenueComponents);
   };
 
   const toggleComponentInclusion = (componentId: string) => {
@@ -167,7 +284,7 @@ export function ComponentCustomization({
 
   const addNewComponent = () => {
     const newComponent: DataPackageComponent = {
-      id: `custom-${Date.now()}`,
+      id: `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: newComponentName,
       description: newComponentName,
       price: newComponentPrice,
@@ -184,7 +301,55 @@ export function ComponentCustomization({
     setNewComponentCategory("extras");
   };
 
+  const addComponentFromSupplier = (supplier: Supplier) => {
+    // Check if supplier is already selected
+    if (selectedSupplierIds.has(supplier.supplier_id)) {
+      return; // Don't add if already selected
+    }
+
+    // Use the first pricing tier if available, otherwise use a default price
+    const defaultPrice =
+      supplier.pricing_tiers && supplier.pricing_tiers.length > 0
+        ? supplier.pricing_tiers[0].tier_price
+        : 0;
+
+    const newComponent: ComponentWithSupplier = {
+      id: `supplier-${supplier.supplier_id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: supplier.supplier_name,
+      description: `${supplier.supplier_name} - ${supplier.supplier_category}`,
+      price: defaultPrice,
+      category: supplier.supplier_category as ComponentCategory,
+      included: true,
+      isCustom: true,
+      isRemovable: true,
+      isExpanded: false,
+      assignedSupplier: supplier,
+      supplierPrice: defaultPrice,
+    };
+
+    handleComponentListChange([...componentList, newComponent]);
+    setSelectedSupplierIds((prev) => new Set([...prev, supplier.supplier_id]));
+    setShowAddDialog(false);
+  };
+
   const deleteComponent = (componentId: string) => {
+    // Find the component being deleted
+    const componentToDelete = componentList.find(
+      (component) => component.id === componentId
+    );
+
+    // If it's a supplier component, remove from selected suppliers
+    if (componentToDelete && "assignedSupplier" in componentToDelete) {
+      const supplierComponent = componentToDelete as ComponentWithSupplier;
+      if (supplierComponent.assignedSupplier) {
+        setSelectedSupplierIds((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(supplierComponent.assignedSupplier!.supplier_id);
+          return newSet;
+        });
+      }
+    }
+
     handleComponentListChange(
       componentList.filter((component) => component.id !== componentId)
     );
@@ -194,8 +359,11 @@ export function ComponentCustomization({
   const calculateTotalPrice = () => {
     let total = 0;
     componentList.forEach((component) => {
-      if (component.included) {
-        total += component.price;
+      if (component.included !== false) {
+        // Use supplier price if assigned, otherwise use component price
+        const componentWithSupplier = component as ComponentWithSupplier;
+        const price = componentWithSupplier.supplierPrice || component.price;
+        total += price;
       }
     });
 
@@ -268,13 +436,6 @@ export function ComponentCustomization({
     setEditingComponent((prev) =>
       prev ? { ...prev, category: e.target.value as ComponentCategory } : null
     );
-  };
-
-  // Handle next step
-  const handleNext = () => {
-    if (onNext) {
-      onNext();
-    }
   };
 
   return (
@@ -417,21 +578,40 @@ export function ComponentCustomization({
                                   className="accent-green-600 border-green-400 focus:ring-green-600"
                                 />
                                 <AccordionTrigger className="flex items-center gap-2 p-0 bg-transparent border-0 shadow-none hover:bg-transparent">
-                                  <span
-                                    className={`font-medium ${
-                                      component.included === false
-                                        ? "text-muted-foreground line-through"
-                                        : "text-green-900"
-                                    }`}
-                                  >
-                                    {component.name}
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={`font-medium ${
+                                        component.included === false
+                                          ? "text-muted-foreground line-through"
+                                          : "text-green-900"
+                                      }`}
+                                    >
+                                      {component.name}
+                                    </span>
+                                    {(component as ComponentWithSupplier)
+                                      .assignedSupplier && (
+                                      <Badge
+                                        variant="outline"
+                                        className="bg-blue-50 text-blue-700 border-blue-200 text-xs"
+                                      >
+                                        <User className="h-3 w-3 mr-1" />
+                                        {
+                                          (component as ComponentWithSupplier)
+                                            .assignedSupplier?.supplier_name
+                                        }
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </AccordionTrigger>
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="font-medium text-green-700">
-                                  {formatCurrency(component.price)}
+                                  {formatCurrency(
+                                    (component as ComponentWithSupplier)
+                                      .supplierPrice || component.price
+                                  )}
                                 </span>
+
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -509,18 +689,37 @@ export function ComponentCustomization({
               <Input
                 id="component-price"
                 type="number"
-                value={editingComponent?.price || 0}
+                value={
+                  (editingComponent as ComponentWithSupplier)?.supplierPrice ||
+                  editingComponent?.price ||
+                  0
+                }
                 onChange={(e) =>
                   setEditingComponent((prev) =>
                     prev
                       ? {
                           ...prev,
                           price: Number.parseFloat(e.target.value) || 0,
+                          ...((prev as ComponentWithSupplier)
+                            .assignedSupplier && {
+                            supplierPrice:
+                              Number.parseFloat(e.target.value) || 0,
+                          }),
                         }
                       : null
                   )
                 }
               />
+              {(editingComponent as ComponentWithSupplier)
+                ?.assignedSupplier && (
+                <p className="text-sm text-muted-foreground">
+                  Supplier:{" "}
+                  {
+                    (editingComponent as ComponentWithSupplier).assignedSupplier
+                      ?.supplier_name
+                  }
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="component-category">Category</Label>
@@ -554,85 +753,210 @@ export function ComponentCustomization({
 
       {/* Add Component Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add New Component</DialogTitle>
             <DialogDescription>
-              Add a custom component to your event. You can select or create a
-              new inclusion/category.
+              Add a custom component or select from available suppliers.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-component-name">Component Name</Label>
-              <Input
-                id="new-component-name"
-                value={newComponentName}
-                onChange={(e) => setNewComponentName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-component-price">Price</Label>
-              <Input
-                id="new-component-price"
-                type="number"
-                value={newComponentPrice}
-                onChange={(e) =>
-                  setNewComponentPrice(Number.parseFloat(e.target.value) || 0)
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-component-category">
-                Category (Inclusion)
-              </Label>
-              <select
-                id="new-component-category"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2"
-                value={newComponentCategory}
-                onChange={(e) => setNewComponentCategory(e.target.value)}
-              >
-                <option value="food">Food & Beverages</option>
-                <option value="drinks">Drinks</option>
-                <option value="desserts">Desserts</option>
-                <option value="appetizers">Appetizers</option>
-                <option value="attire">Attire</option>
-                <option value="decor">Decoration</option>
-                <option value="media">Photo & Video</option>
-                <option value="extras">Extras</option>
-                <option value="hotel">Hotel & Accommodation</option>
-                <option value="entertainment">Entertainment</option>
-                <option value="transportation">Transportation</option>
-                <option value="equipment">Equipment</option>
-                <option value="custom">(Create New...)</option>
-              </select>
-              {newComponentCategory === "custom" && (
-                <Input
-                  className="mt-2"
-                  placeholder="Enter new category name"
-                  value={
-                    newComponentCategory === "custom"
-                      ? ""
-                      : newComponentCategory
-                  }
-                  onChange={(e) => setNewComponentCategory(e.target.value)}
-                />
+
+          <Tabs defaultValue="custom" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="custom">Custom Component</TabsTrigger>
+              <TabsTrigger value="supplier">Select Supplier</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="custom" className="space-y-4">
+              <div className="grid gap-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="new-component-name">Component Name</Label>
+                  <Input
+                    id="new-component-name"
+                    value={newComponentName}
+                    onChange={(e) => setNewComponentName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-component-price">Price</Label>
+                  <Input
+                    id="new-component-price"
+                    type="number"
+                    value={newComponentPrice}
+                    onChange={(e) =>
+                      setNewComponentPrice(
+                        Number.parseFloat(e.target.value) || 0
+                      )
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-component-category">
+                    Category (Inclusion)
+                  </Label>
+                  <select
+                    id="new-component-category"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2"
+                    value={newComponentCategory}
+                    onChange={(e) => setNewComponentCategory(e.target.value)}
+                  >
+                    <option value="food">Food & Beverages</option>
+                    <option value="drinks">Drinks</option>
+                    <option value="desserts">Desserts</option>
+                    <option value="appetizers">Appetizers</option>
+                    <option value="attire">Attire</option>
+                    <option value="decor">Decoration</option>
+                    <option value="media">Photo & Video</option>
+                    <option value="extras">Extras</option>
+                    <option value="hotel">Hotel & Accommodation</option>
+                    <option value="entertainment">Entertainment</option>
+                    <option value="transportation">Transportation</option>
+                    <option value="equipment">Equipment</option>
+                    <option value="custom">(Create New...)</option>
+                  </select>
+                  {newComponentCategory === "custom" && (
+                    <Input
+                      className="mt-2"
+                      placeholder="Enter new category name"
+                      value={
+                        newComponentCategory === "custom"
+                          ? ""
+                          : newComponentCategory
+                      }
+                      onChange={(e) => setNewComponentCategory(e.target.value)}
+                    />
+                  )}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAddDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={addNewComponent} disabled={!newComponentName}>
+                  Add Custom Component
+                </Button>
+              </DialogFooter>
+            </TabsContent>
+
+            <TabsContent value="supplier" className="space-y-4">
+              {isLoadingSuppliers ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <span className="ml-2">Loading suppliers...</span>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-96 overflow-y-auto">
+                    {suppliers
+                      .filter(
+                        (supplier) => supplier.supplier_status === "active"
+                      )
+                      .map((supplier) => {
+                        const isSelected = selectedSupplierIds.has(
+                          supplier.supplier_id
+                        );
+                        return (
+                          <Card
+                            key={supplier.supplier_id}
+                            className={`transition-colors ${
+                              isSelected
+                                ? "cursor-not-allowed bg-green-50 border-green-300"
+                                : "cursor-pointer hover:border-blue-300"
+                            }`}
+                            onClick={() =>
+                              !isSelected && addComponentFromSupplier(supplier)
+                            }
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <h4 className="font-semibold text-gray-900">
+                                    {supplier.supplier_name}
+                                  </h4>
+                                  <p className="text-sm text-gray-600">
+                                    {supplier.supplier_category}
+                                  </p>
+                                  <p className="text-sm text-gray-500">
+                                    {supplier.supplier_email}
+                                  </p>
+                                  <p className="text-sm text-gray-500">
+                                    {supplier.supplier_phone}
+                                  </p>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-green-50 text-green-700 border-green-200"
+                                  >
+                                    Active
+                                  </Badge>
+                                  {isSelected && (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-blue-50 text-blue-700 border-blue-200"
+                                    >
+                                      Selected
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+
+                              {supplier.pricing_tiers &&
+                                supplier.pricing_tiers.length > 0 && (
+                                  <div className="mt-3 pt-3 border-t">
+                                    <p className="text-sm font-medium text-gray-700 mb-2">
+                                      Pricing Tiers:
+                                    </p>
+                                    <div className="space-y-1">
+                                      {supplier.pricing_tiers.map(
+                                        (tier, index) => (
+                                          <div
+                                            key={index}
+                                            className="flex justify-between text-sm"
+                                          >
+                                            <span className="text-gray-600">
+                                              {tier.tier_name}:
+                                            </span>
+                                            <span className="font-medium">
+                                              {formatCurrency(tier.tier_price)}
+                                            </span>
+                                          </div>
+                                        )
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                  </div>
+
+                  {suppliers.filter((s) => s.supplier_status === "active")
+                    .length === 0 && (
+                    <div className="text-center py-8">
+                      <p className="text-muted-foreground">
+                        No active suppliers available.
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={addNewComponent} disabled={!newComponentName}>
-              Add Component
-            </Button>
-          </DialogFooter>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAddDialog(false)}
+                >
+                  Cancel
+                </Button>
+              </DialogFooter>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
-      <div className="flex justify-end mt-6">
-        <Button onClick={handleNext}>Next Step</Button>
-      </div>
     </div>
   );
 }

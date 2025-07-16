@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Search, UserPlus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Check, Search, UserPlus, Loader } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,81 +17,142 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { OrganizerSelectionProps } from "@/app/types/event-builder";
+import axios from "axios";
 
-// Sample organizer data
-const organizers = [
+// Interface for organizer data from API
+interface Organizer {
+  organizer_id: string;
+  organizer_name: string;
+  organizer_role: string;
+  organizer_email: string;
+  organizer_phone: string;
+  organizer_specialties: string;
+  organizer_status: string;
+  organizer_profile_picture?: string;
+}
+
+// Default organizers as fallback
+const defaultOrganizers: Organizer[] = [
   {
-    id: "org-001",
-    name: "Maria Reyes",
-    role: "Lead Coordinator",
-    avatar: "/placeholder.svg?height=40&width=40",
-    availability: "available",
-    specialties: ["Wedding", "Corporate"],
-    contact: "+63 917 123 4567",
-    email: "maria.reyes@example.com",
+    organizer_id: "noreen",
+    organizer_name: "Noreen Lagdamin",
+    organizer_role: "Lead Coordinator",
+    organizer_email: "noreen@example.com",
+    organizer_phone: "+63 912 345 6789",
+    organizer_specialties: "Wedding Coordination, Event Planning",
+    organizer_status: "active",
   },
   {
-    id: "org-002",
-    name: "Juan Santos",
-    role: "Event Manager",
-    avatar: "/placeholder.svg?height=40&width=40",
-    availability: "busy",
-    specialties: ["Birthday", "Anniversary"],
-    contact: "+63 918 234 5678",
-    email: "juan.santos@example.com",
+    organizer_id: "maria",
+    organizer_name: "Maria Santos",
+    organizer_role: "Assistant Coordinator",
+    organizer_email: "maria@example.com",
+    organizer_phone: "+63 923 456 7890",
+    organizer_specialties: "Corporate Events, Birthday Parties",
+    organizer_status: "active",
   },
   {
-    id: "org-003",
-    name: "Elena Cruz",
-    role: "Decor Specialist",
-    avatar: "/placeholder.svg?height=40&width=40",
-    availability: "available",
-    specialties: ["Wedding", "Birthday"],
-    contact: "+63 919 345 6789",
-    email: "elena.cruz@example.com",
-  },
-  {
-    id: "org-004",
-    name: "Carlos Mendoza",
-    role: "Technical Director",
-    avatar: "/placeholder.svg?height=40&width=40",
-    availability: "available",
-    specialties: ["Corporate", "Concert"],
-    contact: "+63 920 456 7890",
-    email: "carlos.mendoza@example.com",
-  },
-  {
-    id: "org-005",
-    name: "Sofia Garcia",
-    role: "Catering Coordinator",
-    avatar: "/placeholder.svg?height=40&width=40",
-    availability: "leave",
-    specialties: ["Wedding", "Corporate", "Birthday"],
-    contact: "+63 921 567 8901",
-    email: "sofia.garcia@example.com",
+    organizer_id: "juan",
+    organizer_name: "Juan Dela Cruz",
+    organizer_role: "Event Specialist",
+    organizer_email: "juan@example.com",
+    organizer_phone: "+63 934 567 8901",
+    organizer_specialties: "Outdoor Events, Catering Coordination",
+    organizer_status: "active",
   },
 ];
 
 export function OrganizerSelection({
   selectedIds,
   onSelect,
-  onNext,
-}: OrganizerSelectionProps) {
+  onOrganizerDataUpdate,
+}: Omit<OrganizerSelectionProps, "onNext"> & {
+  onOrganizerDataUpdate?: (organizers: Organizer[]) => void;
+}) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAvailableOnly, setShowAvailableOnly] = useState(false);
   const [newOrganizerDialog, setNewOrganizerDialog] = useState(false);
+  const [organizers, setOrganizers] = useState<Organizer[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch organizers from backend
+  useEffect(() => {
+    const fetchOrganizers = async () => {
+      try {
+        setIsLoading(true);
+        const response = await axios.post(
+          "http://localhost/events-api/admin.php",
+          {
+            operation: "getAllOrganizers",
+            page: 1,
+            limit: 100, // Get all organizers
+          }
+        );
+
+        if (response.data.status === "success") {
+          // Map the API response to match our interface
+          const apiOrganizers = response.data.data?.organizers || [];
+          const mappedOrganizers = apiOrganizers.map((org: any) => ({
+            organizer_id: org.organizer_id || org.user_id,
+            organizer_name:
+              `${org.first_name || ""} ${org.last_name || ""}`.trim(),
+            organizer_role: "Event Coordinator", // Default role since API doesn't provide it
+            organizer_email: org.email || "",
+            organizer_phone: org.contact_number || "",
+            organizer_specialties:
+              org.experience_summary || "Event Planning, Coordination",
+            organizer_status: org.is_active ? "active" : "inactive",
+            organizer_profile_picture: org.profile_picture || undefined,
+          }));
+
+          const finalOrganizers =
+            mappedOrganizers.length > 0 ? mappedOrganizers : defaultOrganizers;
+          setOrganizers(finalOrganizers);
+          setError(null);
+
+          // Notify parent component about the organizer data
+          if (onOrganizerDataUpdate) {
+            onOrganizerDataUpdate(finalOrganizers);
+          }
+        } else {
+          console.log("API response:", response.data);
+          // Use default organizers as fallback
+          setOrganizers(defaultOrganizers);
+          setError(null);
+        }
+      } catch (err) {
+        console.error("Error fetching organizers:", err);
+        // Use default organizers as fallback
+        setOrganizers(defaultOrganizers);
+        setError(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchOrganizers();
+  }, []);
 
   // Filter organizers based on search query and availability filter
   const filteredOrganizers = organizers.filter((organizer) => {
+    const specialties = organizer.organizer_specialties
+      ? organizer.organizer_specialties.split(",").map((s) => s.trim())
+      : [];
+
     const matchesSearch =
-      organizer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      organizer.role.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      organizer.specialties.some((s) =>
+      organizer.organizer_name
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase()) ||
+      organizer.organizer_role
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase()) ||
+      specialties.some((s) =>
         s.toLowerCase().includes(searchQuery.toLowerCase())
       );
 
     const matchesAvailability = showAvailableOnly
-      ? organizer.availability === "available"
+      ? organizer.organizer_status === "active"
       : true;
 
     return matchesSearch && matchesAvailability;
@@ -105,9 +166,9 @@ export function OrganizerSelection({
     }
   };
 
-  const getAvailabilityBadge = (availability: string) => {
-    switch (availability) {
-      case "available":
+  const getAvailabilityBadge = (status: string) => {
+    switch (status) {
+      case "active":
         return (
           <Badge
             variant="outline"
@@ -125,13 +186,13 @@ export function OrganizerSelection({
             Busy
           </Badge>
         );
-      case "leave":
+      case "inactive":
         return (
           <Badge
             variant="outline"
             className="bg-red-50 text-red-700 border-red-200"
           >
-            On Leave
+            Inactive
           </Badge>
         );
       default:
@@ -170,7 +231,10 @@ export function OrganizerSelection({
             onOpenChange={setNewOrganizerDialog}
           >
             <DialogTrigger asChild>
-              <Button size="sm" className="gap-1">
+              <Button
+                size="sm"
+                className="gap-1 bg-[#028A75] hover:bg-[#027A65] text-white"
+              >
                 <UserPlus className="h-4 w-4" />
                 <span className="hidden sm:inline">Add Organizer</span>
               </Button>
@@ -189,64 +253,97 @@ export function OrganizerSelection({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredOrganizers.map((organizer) => (
-          <Card
-            key={organizer.id}
-            className={cn(
-              "cursor-pointer transition-all hover:border-primary",
-              selectedIds.includes(organizer.id) && "border-primary"
-            )}
-            onClick={() => toggleOrganizer(organizer.id)}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-start gap-4">
-                <Avatar className="h-12 w-12">
-                  <AvatarImage src={organizer.avatar} alt={organizer.name} />
-                  <AvatarFallback>{organizer.name.charAt(0)}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-medium">{organizer.name}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {organizer.role}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {getAvailabilityBadge(organizer.availability)}
-                      {selectedIds.includes(organizer.id) && (
-                        <div className="h-6 w-6 rounded-full bg-primary flex items-center justify-center">
-                          <Check className="h-4 w-4 text-primary-foreground" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {organizer.specialties.map((specialty) => (
-                        <Badge
-                          key={specialty}
-                          variant="secondary"
-                          className="text-xs"
-                        >
-                          {specialty}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="mt-2 text-sm">
-                      <p>{organizer.contact}</p>
-                      <p>{organizer.email}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader className="h-12 w-12 animate-spin text-green-500 mb-4" />
+          <p className="text-lg text-gray-600">Loading organizers...</p>
+        </div>
+      ) : error && filteredOrganizers.length === 0 ? (
+        <div className="rounded-lg bg-red-50 p-6 text-center">
+          <p className="text-red-600 mb-4">{error}</p>
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filteredOrganizers.map((organizer) => {
+            const specialties = organizer.organizer_specialties
+              ? organizer.organizer_specialties.split(",").map((s) => s.trim())
+              : [];
 
-      {filteredOrganizers.length === 0 && (
+            return (
+              <Card
+                key={organizer.organizer_id}
+                className={cn(
+                  "cursor-pointer transition-all hover:border-primary",
+                  selectedIds.includes(organizer.organizer_id) &&
+                    "border-primary"
+                )}
+                onClick={() => toggleOrganizer(organizer.organizer_id)}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-4">
+                    <Avatar className="h-12 w-12">
+                      <AvatarImage
+                        src={
+                          organizer.organizer_profile_picture ||
+                          "/default_pfp.png"
+                        }
+                        alt={organizer.organizer_name}
+                      />
+                      <AvatarFallback>
+                        {organizer.organizer_name.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-medium">
+                            {organizer.organizer_name}
+                          </h3>
+                          <p className="text-sm text-muted-foreground">
+                            {organizer.organizer_role}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {getAvailabilityBadge(organizer.organizer_status)}
+                          {selectedIds.includes(organizer.organizer_id) && (
+                            <div className="h-6 w-6 rounded-full bg-primary flex items-center justify-center">
+                              <Check className="h-4 w-4 text-primary-foreground" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-2">
+                        {specialties.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {specialties.map((specialty) => (
+                              <Badge
+                                key={specialty}
+                                variant="secondary"
+                                className="text-xs"
+                              >
+                                {specialty}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-2 text-sm">
+                          <p>{organizer.organizer_phone}</p>
+                          <p>{organizer.organizer_email}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {!isLoading && !error && filteredOrganizers.length === 0 && (
         <div className="text-center py-8">
           <p className="text-muted-foreground">
             No organizers found matching your criteria.

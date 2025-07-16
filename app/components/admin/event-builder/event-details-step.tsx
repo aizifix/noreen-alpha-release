@@ -322,7 +322,7 @@ export function EventDetailsStep({
   useEffect(() => {
     if (initialData.hasConflicts !== hasConflicts) {
       console.log("Updating parent with conflict status:", hasConflicts);
-      updateField('hasConflicts', hasConflicts);
+      updateField("hasConflicts", hasConflicts);
     }
   }, [hasConflicts, initialData.hasConflicts, updateField]); // Only depend on conflict status changes
 
@@ -751,57 +751,6 @@ export function EventDetailsStep({
               placeholder="Enter event title"
               required
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="event-type">
-              Event Type <span className="text-red-500">*</span>
-            </Label>
-            <Select
-              value={initialData.type || "wedding"}
-              onValueChange={(value) => updateField("type", value)}
-            >
-              <SelectTrigger id="event-type">
-                <SelectValue placeholder="Select event type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem key="wedding" value="wedding">
-                  Wedding
-                </SelectItem>
-                <SelectItem key="corporate" value="corporate">
-                  Corporate Event
-                </SelectItem>
-                <SelectItem key="birthday" value="birthday">
-                  Birthday
-                </SelectItem>
-                <SelectItem key="anniversary" value="anniversary">
-                  Anniversary
-                </SelectItem>
-                <SelectItem key="baptism" value="baptism">
-                  Baptism
-                </SelectItem>
-                <SelectItem key="baby-shower" value="baby-shower">
-                  Baby Shower
-                </SelectItem>
-                <SelectItem key="reunion" value="reunion">
-                  Reunion
-                </SelectItem>
-                <SelectItem key="festival" value="festival">
-                  Festival
-                </SelectItem>
-                <SelectItem key="engagement" value="engagement">
-                  Engagement Party
-                </SelectItem>
-                <SelectItem key="christmas" value="christmas">
-                  Christmas Party
-                </SelectItem>
-                <SelectItem key="new-year" value="new-year">
-                  New Year's Party
-                </SelectItem>
-                <SelectItem key="other" value="other">
-                  Other
-                </SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </div>
 

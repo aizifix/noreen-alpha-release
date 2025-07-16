@@ -1927,34 +1927,33 @@ function ClientProfile({ event }: { event: Event }) {
         {/* Profile Picture */}
         <div className="relative flex-shrink-0">
           {event.client_pfp ? (
-            <>
-              <img
-                src={getProfileImageUrl(event.client_pfp) || ""}
-                alt={`${getClientFullName()}'s profile`}
-                className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
-                onError={(e) => {
-                  // Fallback to initials if image fails to load
-                  e.currentTarget.style.display = "none";
-                  const fallbackDiv = e.currentTarget
-                    .nextElementSibling as HTMLElement;
-                  if (fallbackDiv) {
-                    fallbackDiv.classList.remove("hidden");
-                  }
-                }}
-              />
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                <span className="text-white font-semibold text-lg">
-                  {getClientInitials(getClientFullName())}
-                </span>
-              </div>
-            </>
-          ) : (
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-              <span className="text-white font-semibold text-lg">
-                {getClientInitials(getClientFullName())}
-              </span>
-            </div>
-          )}
+            <img
+              src={getProfileImageUrl(event.client_pfp) || ""}
+              alt={`${getClientFullName()}'s profile`}
+              className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
+              onError={(e) => {
+                // Fallback to initials if image fails to load
+                e.currentTarget.style.display = "none";
+                const fallbackDiv = e.currentTarget
+                  .nextElementSibling as HTMLElement;
+                if (fallbackDiv) {
+                  fallbackDiv.classList.remove("hidden");
+                }
+              }}
+            />
+          ) : null}
+
+          {/* Fallback initials (hidden if image loads successfully) */}
+          <div
+            className={`w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ${
+              event.client_pfp ? "hidden" : ""
+            }`}
+          >
+            <span className="text-white font-semibold text-lg">
+              {getClientInitials(getClientFullName())}
+            </span>
+          </div>
+
           {/* Online status indicator */}
           <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-400 border-2 border-white rounded-full"></div>
         </div>
@@ -1970,7 +1969,7 @@ function ClientProfile({ event }: { event: Event }) {
           {/* Client Role and Username */}
           <div className="mb-4">
             <div className="flex items-center space-x-2 text-sm">
-              <span className="text-gray-600">Primary Client</span>
+              <span className="text-gray-600">Client</span>
               {event.client_username && (
                 <>
                   <span className="text-gray-400">•</span>
@@ -2381,10 +2380,12 @@ export default function EventDetailsPage() {
             <BudgetProgress event={event} />
             <EventTimeline event={event} />
             <EventCountdown event={event} />
+            {/* Event Finalization temporarily disabled
             <EventFinalization
               event={event}
               onEventUpdate={fetchEventDetails}
             />
+            */}
           </div>
 
           {/* Main Content */}
@@ -2765,7 +2766,7 @@ export default function EventDetailsPage() {
 
                           return (
                             <div
-                              key={index}
+                              key={`attachment-${attachment.id || attachment.file_id || index}`}
                               className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border hover:shadow-md transition-shadow"
                             >
                               <div className="flex items-center space-x-3 flex-1 min-w-0">

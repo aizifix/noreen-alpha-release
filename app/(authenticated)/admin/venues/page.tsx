@@ -1,46 +1,48 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import {
   Plus,
-  MoreVertical,
-  Eye,
-  Edit,
-  Trash2,
-  Archive,
   MapPin,
-  Users,
-  PhilippinePeso,
+  Edit,
+  Trash,
+  Save,
   X,
-  ImageIcon,
+  Eye,
+  Settings,
+  Search,
+  Filter,
+  Users,
+  Calendar,
+  DollarSign,
+  CheckCircle,
+  Building,
+  Archive,
+  MoreVertical,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
-import { Card } from "@/components/ui/card";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { useEffect, useState } from "react";
+import axios from "axios";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 
+// Define venue interface
 interface VenueInclusion {
   inclusion_id: number;
   venue_id: number;
@@ -72,655 +74,932 @@ interface Venue {
   venue_status: string;
   inclusions: VenueInclusion[];
   is_active?: boolean;
+  created_at?: string;
+  created_by_name?: string;
+  inclusion_count?: number;
 }
 
-interface VenueEditForm {
-  venue_title: string;
-  venue_details: string;
-  venue_location: string;
-  venue_contact: string;
-  venue_capacity: number;
-  venue_price: number;
-  venue_profile_picture?: File;
-  venue_cover_photo?: File;
+interface FilterState {
+  search: string;
+  status: string;
+  priceRange: string;
+  capacity: string;
+  type: string;
 }
 
 export default function VenuesPage() {
   const router = useRouter();
   const [venues, setVenues] = useState<Venue[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState<VenueEditForm | null>(null);
-  const [profilePreview, setProfilePreview] = useState<string>("");
-  const [coverPreview, setCoverPreview] = useState<string>("");
-
-  // Search and filter states
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedType, setSelectedType] = useState<string>("all");
-  const [selectedStatus, setSelectedStatus] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<string>("name");
+  const [filteredVenues, setFilteredVenues] = useState<Venue[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [editingVenue, setEditingVenue] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<{
+    venue_title: string;
+    venue_details: string;
+    venue_location: string;
+    venue_contact: string;
+    venue_capacity: number;
+    venue_price: number;
+  }>({
+    venue_title: "",
+    venue_details: "",
+    venue_location: "",
+    venue_contact: "",
+    venue_capacity: 0,
+    venue_price: 0,
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    search: "",
+    status: "",
+    priceRange: "",
+    capacity: "",
+    type: "",
+  });
 
   useEffect(() => {
+    // Fetch venues when component mounts
     fetchVenues();
   }, []);
 
-  // Filter venues based on search and filters
-  const filteredVenues = venues
-    .filter((venue) => {
-      const matchesSearch =
-        venue.venue_title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        venue.venue_location.toLowerCase().includes(searchTerm.toLowerCase());
+  // Filter venues when filters or venues change
+  useEffect(() => {
+    let filtered = [...venues];
 
-      const matchesType =
-        selectedType === "all" || venue.venue_type === selectedType;
-      const matchesStatus =
-        selectedStatus === "all" || venue.venue_status === selectedStatus;
+    // Search filter
+    if (filters.search) {
+      filtered = filtered.filter(
+        (venue) =>
+          venue.venue_title
+            .toLowerCase()
+            .includes(filters.search.toLowerCase()) ||
+          venue.venue_details
+            ?.toLowerCase()
+            .includes(filters.search.toLowerCase()) ||
+          venue.venue_location
+            .toLowerCase()
+            .includes(filters.search.toLowerCase()) ||
+          venue.created_by_name
+            ?.toLowerCase()
+            .includes(filters.search.toLowerCase())
+      );
+    }
 
-      return matchesSearch && matchesType && matchesStatus;
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case "name":
-          return a.venue_title.localeCompare(b.venue_title);
-        case "price":
-          return a.venue_price - b.venue_price;
-        case "capacity":
-          return a.venue_capacity - b.venue_capacity;
-        default:
-          return 0;
-      }
-    });
+    // Status filter
+    if (filters.status) {
+      filtered = filtered.filter((venue) => {
+        if (filters.status === "active") return venue.is_active === true;
+        if (filters.status === "inactive") return venue.is_active === false;
+        return true;
+      });
+    }
 
-  // Calculate statistics
-  const stats = {
-    totalVenues: venues?.length || 0,
-    activeVenues: venues?.filter((v) => v.is_active)?.length || 0,
-    avgPrice: venues?.length
-      ? Math.round(
-          venues.reduce((sum, v) => sum + v.venue_price, 0) / venues.length
-        )
-      : 0,
-    totalCapacity: venues?.reduce((sum, v) => sum + v.venue_capacity, 0) || 0,
-  };
+    // Type filter
+    if (filters.type) {
+      filtered = filtered.filter((venue) => {
+        if (filters.type === "indoor") return venue.venue_type === "indoor";
+        if (filters.type === "outdoor") return venue.venue_type === "outdoor";
+        if (filters.type === "hybrid") return venue.venue_type === "hybrid";
+        return true;
+      });
+    }
+
+    // Price range filter
+    if (filters.priceRange) {
+      const [min, max] = filters.priceRange.split("-").map(Number);
+      filtered = filtered.filter((venue) => {
+        const price = venue.venue_price;
+        if (max) {
+          return price >= min && price <= max;
+        }
+        return price >= min;
+      });
+    }
+
+    // Capacity filter
+    if (filters.capacity) {
+      const [min, max] = filters.capacity.split("-").map(Number);
+      filtered = filtered.filter((venue) => {
+        if (max) {
+          return venue.venue_capacity >= min && venue.venue_capacity <= max;
+        }
+        return venue.venue_capacity >= min;
+      });
+    }
+
+    setFilteredVenues(filtered);
+  }, [venues, filters]);
 
   const fetchVenues = async () => {
     try {
-      const response = await fetch(
-        "http://localhost/events-api/admin.php?operation=getAllVenues"
-      );
-      const data = await response.json();
-      if (data.status === "success") {
-        setVenues(data.data || []);
-      }
-    } catch (error) {
-      console.error("Error fetching venues:", error);
-      setVenues([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchVenueDetails = async (venueId: number) => {
-    setIsLoadingDetails(true);
-    try {
-      const response = await fetch(
-        `http://localhost/events-api/admin.php?operation=getVenueById&venue_id=${venueId}`
-      );
-      const data = await response.json();
-      if (data.status === "success") {
-        setSelectedVenue(data.venue);
-        setIsModalOpen(true);
-      }
-    } catch (error) {
-      console.error("Error fetching venue details:", error);
-      toast.error("Failed to load venue details");
-    } finally {
-      setIsLoadingDetails(false);
-    }
-  };
-
-  const handleView = (venue: Venue) => {
-    router.push(`/admin/venues/${venue.venue_id}`);
-  };
-
-  const handleEdit = () => {
-    if (!selectedVenue) return;
-    setEditForm({
-      venue_title: selectedVenue.venue_title,
-      venue_details: selectedVenue.venue_details || "",
-      venue_location: selectedVenue.venue_location,
-      venue_contact: selectedVenue.venue_contact,
-      venue_capacity: selectedVenue.venue_capacity,
-      venue_price: selectedVenue.venue_price,
-    });
-    setIsEditing(true);
-  };
-
-  const handleDelete = async (venue: Venue) => {
-    if (confirm(`Are you sure you want to delete "${venue.venue_title}"?`)) {
-      // TODO: Implement delete functionality
-      toast.success("Venue deleted successfully");
-      fetchVenues();
-    }
-  };
-
-  const handleArchive = async (venue: Venue) => {
-    // TODO: Implement archive functionality
-    toast.success("Venue archived successfully");
-    fetchVenues();
-  };
-
-  const handleToggleActive = async (venue: Venue) => {
-    try {
-      const response = await fetch(
-        `http://localhost/events-api/admin.php?operation=updateVenueStatus&venue_id=${venue.venue_id}&is_active=${!venue.is_active ? 1 : 0}`
-      );
-      const data = await response.json();
-      if (data.status === "success") {
-        toast.success(
-          `Venue ${venue.is_active ? "deactivated" : "activated"} successfully`
-        );
-        fetchVenues();
-      } else {
-        toast.error(data.message || "Failed to update venue status");
-      }
-    } catch (error) {
-      console.error("Error updating venue status:", error);
-      toast.error("Failed to update venue status");
-    }
-  };
-
-  const handleFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    type: "profile" | "cover"
-  ) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === "string") {
-          if (type === "profile") {
-            setProfilePreview(reader.result);
-            setEditForm((prev) =>
-              prev ? { ...prev, venue_profile_picture: file } : null
-            );
-          } else {
-            setCoverPreview(reader.result);
-            setEditForm((prev) =>
-              prev ? { ...prev, venue_cover_photo: file } : null
-            );
-          }
+      setIsLoading(true);
+      const response = await axios.get(
+        "http://localhost/events-api/admin.php",
+        {
+          params: { operation: "getAllVenues" },
         }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+      );
 
-  const handleSave = async () => {
-    if (!editForm || !selectedVenue) return;
-
-    const formData = new FormData();
-    formData.append("operation", "updateVenue");
-    formData.append("venue_id", selectedVenue.venue_id.toString());
-    formData.append("venue_title", editForm.venue_title);
-    formData.append("venue_details", editForm.venue_details);
-    formData.append("venue_location", editForm.venue_location);
-    formData.append("venue_contact", editForm.venue_contact);
-    formData.append("venue_capacity", editForm.venue_capacity.toString());
-    formData.append("venue_price", editForm.venue_price.toString());
-
-    if (editForm.venue_profile_picture) {
-      formData.append("venue_profile_picture", editForm.venue_profile_picture);
-    }
-    if (editForm.venue_cover_photo) {
-      formData.append("venue_cover_photo", editForm.venue_cover_photo);
-    }
-
-    try {
-      const response = await fetch("http://localhost/events-api/admin.php", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await response.json();
-      if (data.status === "success") {
-        toast.success("Venue updated successfully");
-        setIsEditing(false);
-        fetchVenues();
-        setIsModalOpen(false);
+      if (response.data.status === "success") {
+        setVenues(response.data.data || []);
       } else {
-        toast.error(data.message || "Failed to update venue");
+        console.error("Error fetching venues:", response.data.message);
+        toast.error("Failed to fetch venues: " + response.data.message);
       }
     } catch (error) {
-      console.error("Error updating venue:", error);
-      toast.error("Failed to update venue");
+      console.error("API error:", error);
+      toast.error("Failed to connect to server");
+    } finally {
+      setIsLoading(false);
     }
   };
+
+  const handleDeleteVenue = async (venueId: number) => {
+    if (confirm("Are you sure you want to delete this venue?")) {
+      try {
+        const response = await axios.post(
+          "http://localhost/events-api/admin.php",
+          {
+            operation: "deleteVenue",
+            venue_id: venueId,
+          }
+        );
+
+        if (response.data.status === "success") {
+          toast.success(response.data.message || "Venue deleted successfully");
+          // Refresh the list
+          fetchVenues();
+        } else {
+          console.error("Delete error:", response.data.message);
+          toast.error("Failed to delete venue: " + response.data.message);
+        }
+      } catch (error) {
+        console.error("API error:", error);
+        toast.error("Failed to connect to server");
+      }
+    }
+  };
+
+  const handleEditClick = (venue: Venue) => {
+    setEditForm({
+      venue_title: venue.venue_title,
+      venue_details: venue.venue_details || "",
+      venue_location: venue.venue_location,
+      venue_contact: venue.venue_contact,
+      venue_capacity: venue.venue_capacity,
+      venue_price: venue.venue_price,
+    });
+    setEditingVenue(venue.venue_id);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingVenue(null);
+    setEditForm({
+      venue_title: "",
+      venue_details: "",
+      venue_location: "",
+      venue_contact: "",
+      venue_capacity: 0,
+      venue_price: 0,
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingVenue) return;
+
+    try {
+      setIsSaving(true);
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "updateVenue",
+          venue_id: editingVenue,
+          venue_title: editForm.venue_title,
+          venue_details: editForm.venue_details,
+          venue_location: editForm.venue_location,
+          venue_contact: editForm.venue_contact,
+          venue_capacity: editForm.venue_capacity,
+          venue_price: editForm.venue_price,
+        }
+      );
+
+      if (response.data.status === "success") {
+        toast.success("Venue updated successfully");
+        setEditingVenue(null);
+        fetchVenues();
+      } else {
+        console.error("Update error:", response.data.message);
+        toast.error("Failed to update venue: " + response.data.message);
+      }
+    } catch (error) {
+      console.error("API error:", error);
+      toast.error("Failed to connect to server");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      search: "",
+      status: "",
+      priceRange: "",
+      capacity: "",
+      type: "",
+    });
+  };
+
+  const getStats = () => {
+    const totalVenues = venues.length;
+    const activeVenues = venues.filter((v) => v.is_active).length;
+    const avgPrice =
+      venues.length > 0
+        ? Math.round(
+            venues.reduce((sum, v) => sum + v.venue_price, 0) / venues.length
+          )
+        : 0;
+    const maxCapacity =
+      venues.length > 0 ? Math.max(...venues.map((v) => v.venue_capacity)) : 0;
+
+    return { totalVenues, activeVenues, avgPrice, maxCapacity };
+  };
+
+  const stats = getStats();
 
   return (
-    <div className="container mx-auto py-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Venues</h1>
-        <Button onClick={() => router.push("/admin/venues/venue-builder")}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Venue
-        </Button>
-      </div>
-
-      {/* Statistics Dashboard */}
-      {!loading && venues.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-100 p-2 rounded-lg">
-                <svg
-                  className="h-5 w-5 text-blue-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                  />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Total Venues</p>
-                <p className="text-xl font-bold">{stats.totalVenues}</p>
-              </div>
+    <div className="min-h-screen p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header Section with Slide-up Animation */}
+        <div className="animate-slide-up mb-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                Venue Management
+              </h1>
+              <p className="text-gray-600 text-lg">
+                Manage and organize your event venues
+              </p>
             </div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-green-100 p-2 rounded-lg">
-                <svg
-                  className="h-5 w-5 text-green-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Active Venues</p>
-                <p className="text-xl font-bold">{stats.activeVenues}</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-yellow-100 p-2 rounded-lg">
-                <PhilippinePeso className="h-5 w-5 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Average Price</p>
-                <p className="text-xl font-bold">
-                  ₱{stats.avgPrice.toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-purple-100 p-2 rounded-lg">
-                <Users className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Total Capacity</p>
-                <p className="text-xl font-bold">
-                  {stats.totalCapacity.toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </Card>
+            <Link href="/admin/venues/venue-builder">
+              <Button
+                size="lg"
+                className="bg-[#028A75] hover:bg-[#027A65] text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+              >
+                <Plus className="h-5 w-5 mr-2" />
+                Add New Venue
+              </Button>
+            </Link>
+          </div>
         </div>
-      )}
 
-      {/* Search and Filters */}
-      <div className="mb-6 space-y-4">
-        <div className="flex gap-4">
-          <Input
-            placeholder="Search venues..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="max-w-sm"
-          />
-          <select
-            className="border rounded-md px-3 py-2"
-            value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value)}
-          >
-            <option value="all">All Types</option>
-            <option value="indoor">Indoor</option>
-            <option value="outdoor">Outdoor</option>
-            <option value="hybrid">Hybrid</option>
-          </select>
-          <select
-            className="border rounded-md px-3 py-2"
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-          <select
-            className="border rounded-md px-3 py-2"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="name">Sort by Name</option>
-            <option value="price">Sort by Price</option>
-            <option value="capacity">Sort by Capacity</option>
-          </select>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="text-center py-8">Loading venues...</div>
-      ) : venues.length === 0 ? (
-        <Card className="p-8 text-center">
-          <p className="text-gray-500 mb-4">No venues available</p>
-          <Button onClick={() => router.push("/admin/venues/venue-builder")}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create Your First Venue
-          </Button>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredVenues.map((venue) => (
-            <Card key={venue.venue_id} className="relative">
-              <div className="relative h-48 w-full overflow-hidden rounded-t-lg">
-                <div
-                  className="h-full w-full bg-cover bg-center"
-                  style={{
-                    backgroundImage: venue.venue_cover_photo
-                      ? `url(http://localhost/events-api/${venue.venue_cover_photo})`
-                      : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                  }}
-                />
-              </div>
-
-              <div className="p-4">
-                <div className="flex items-start gap-4">
-                  <Avatar className="h-12 w-12">
-                    {venue.venue_profile_picture ? (
-                      <AvatarImage
-                        src={`http://localhost/events-api/${venue.venue_profile_picture}`}
-                        alt={venue.venue_title}
-                      />
-                    ) : (
-                      <AvatarFallback>{venue.venue_title[0]}</AvatarFallback>
-                    )}
-                  </Avatar>
-                  <div className="flex-1">
-                    <h3 className="font-semibold">{venue.venue_title}</h3>
-                    <div className="flex items-center text-sm text-gray-500">
-                      <MapPin className="h-4 w-4 mr-1" />
-                      {venue.venue_location}
+        {/* Stats Cards with Slide-up Animation */}
+        {!isLoading && venues.length > 0 && (
+          <div className="animate-slide-up-delay-1 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="bg-white border-0 shadow-lg">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600 mb-1">
+                        Total Venues
+                      </p>
+                      <p className="text-3xl font-bold text-gray-900">
+                        {stats.totalVenues}
+                      </p>
+                    </div>
+                    <div className="bg-[#E6F4F1] p-3 rounded-xl">
+                      <Building className="h-6 w-6 text-[#028A75]" />
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white border-0 shadow-lg">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600 mb-1">
+                        Active Venues
+                      </p>
+                      <p className="text-3xl font-bold text-gray-900">
+                        {stats.activeVenues}
+                      </p>
+                    </div>
+                    <div className="bg-blue-100 p-3 rounded-xl">
+                      <CheckCircle className="h-6 w-6 text-blue-600" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white border-0 shadow-lg">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600 mb-1">
+                        Average Price
+                      </p>
+                      <p className="text-3xl font-bold text-gray-900">
+                        ₱{Math.round(stats.avgPrice).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="bg-yellow-100 p-3 rounded-xl">
+                      <DollarSign className="h-6 w-6 text-yellow-600" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white border-0 shadow-lg">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600 mb-1">
+                        Max Capacity
+                      </p>
+                      <p className="text-3xl font-bold text-gray-900">
+                        {stats.maxCapacity}
+                      </p>
+                    </div>
+                    <div className="bg-purple-100 p-3 rounded-xl">
+                      <Users className="h-6 w-6 text-purple-600" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* Search and Filters Section */}
+        <div className="animate-slide-up-delay-2 mb-8">
+          <Card className="bg-white border-0 shadow-lg">
+            <CardContent className="p-6">
+              <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+                {/* Search Bar */}
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                  <Input
+                    placeholder="Search venues..."
+                    value={filters.search}
+                    onChange={(e) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        search: e.target.value,
+                      }))
+                    }
+                    className="pl-10 pr-4 py-3 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                  />
                 </div>
 
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center text-sm">
-                    <Users className="h-4 w-4 mr-2" />
-                    <span>Capacity: {venue.venue_capacity}</span>
-                  </div>
-                  <div className="flex items-center text-sm">
-                    <PhilippinePeso className="h-4 w-4 mr-2" />
-                    <span>Price: ₱{venue.venue_price.toLocaleString()}</span>
-                  </div>
-                </div>
-
-                <div className="mt-4">
+                {/* Filter Toggle */}
+                <div className="flex items-center gap-3">
                   <Button
-                    className="w-full bg-[#16a34a] hover:bg-[#059669] text-white"
-                    onClick={() => handleView(venue)}
+                    variant="outline"
+                    onClick={() => setShowFilters(!showFilters)}
+                    className="border-gray-200 hover:bg-gray-50 rounded-xl px-4 py-2"
                   >
-                    View Details
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Venue Details Modal */}
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader className="flex flex-row items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setIsModalOpen(false)}
-                className="h-8 w-8"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-              <DialogTitle className="text-xl">
-                {selectedVenue?.venue_title}
-              </DialogTitle>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  router.push(
-                    `/admin/venues/venue-builder/${selectedVenue?.venue_id}`
-                  )
-                }
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Venue
-              </Button>
-            </div>
-          </DialogHeader>
-
-          {isLoadingDetails ? (
-            <div className="py-8 text-center">Loading venue details...</div>
-          ) : (
-            <div className="space-y-6">
-              {/* Cover Photo */}
-              <div className="relative h-64 rounded-lg overflow-hidden">
-                <div
-                  className="w-full h-full bg-cover bg-center"
-                  style={{
-                    backgroundImage: selectedVenue?.venue_cover_photo
-                      ? `url(http://localhost/events-api/${selectedVenue.venue_cover_photo})`
-                      : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                  }}
-                />
-                {/* Profile Picture Overlay */}
-                <div className="absolute -bottom-6 left-6">
-                  <Avatar className="h-24 w-24 border-4 border-white shadow-lg">
-                    {selectedVenue?.venue_profile_picture ? (
-                      <AvatarImage
-                        src={`http://localhost/events-api/${selectedVenue.venue_profile_picture}`}
-                        alt={selectedVenue?.venue_title}
-                      />
+                    <Filter className="h-4 w-4 mr-2" />
+                    Filters
+                    {showFilters ? (
+                      <ChevronUp className="h-4 w-4 ml-2" />
                     ) : (
-                      <AvatarFallback>
-                        {selectedVenue?.venue_title[0]}
-                      </AvatarFallback>
+                      <ChevronDown className="h-4 w-4 ml-2" />
                     )}
-                  </Avatar>
-                </div>
-              </div>
-
-              {/* Venue Details Grid */}
-              <div className="grid grid-cols-2 gap-8 pt-8">
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold mb-2">About</h3>
-                    <p className="text-gray-600">
-                      {selectedVenue?.venue_details ||
-                        "No description available."}
-                    </p>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold mb-2">Location</h3>
-                    <div className="flex items-center text-gray-600">
-                      <MapPin className="h-4 w-4 mr-2" />
-                      {selectedVenue?.venue_location}
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold mb-2">Contact</h3>
-                    <p className="text-gray-600">
-                      {selectedVenue?.venue_contact}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold mb-2">
-                      Specifications
-                    </h3>
-                    <div className="grid gap-4">
-                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center">
-                          <Users className="h-4 w-4 mr-2 text-gray-500" />
-                          <span>Capacity</span>
-                        </div>
-                        <span className="font-medium">
-                          {selectedVenue?.venue_capacity.toLocaleString()}{" "}
-                          guests
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center">
-                          <PhilippinePeso className="h-4 w-4 mr-2 text-gray-500" />
-                          <span>Price</span>
-                        </div>
-                        <span className="font-medium">
-                          ₱{selectedVenue?.venue_price.toLocaleString()}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center">
-                          <svg
-                            className="h-4 w-4 mr-2 text-gray-500"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                            />
-                          </svg>
-                          <span>Type</span>
-                        </div>
-                        <span className="font-medium capitalize">
-                          {selectedVenue?.venue_type || "Not specified"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold mb-2">Status</h3>
-                    <span
-                      className={`px-3 py-1 rounded-full text-sm ${
-                        selectedVenue?.is_active
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-800"
-                      }`}
+                  </Button>
+                  {(filters.search ||
+                    filters.status ||
+                    filters.priceRange ||
+                    filters.capacity ||
+                    filters.type) && (
+                    <Button
+                      variant="ghost"
+                      onClick={clearFilters}
+                      className="text-gray-500 hover:text-gray-700"
                     >
-                      {selectedVenue?.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </div>
+                      Clear
+                    </Button>
+                  )}
                 </div>
               </div>
 
-              {/* Venue Inclusions */}
-              {selectedVenue?.inclusions &&
-                selectedVenue.inclusions.length > 0 && (
-                  <div className="mt-8">
-                    <h3 className="text-lg font-semibold mb-4">Inclusions</h3>
-                    <Accordion type="single" collapsible className="w-full">
-                      {selectedVenue.inclusions.map((inclusion) => (
-                        <AccordionItem
-                          key={inclusion.inclusion_id}
-                          value={inclusion.inclusion_id.toString()}
-                        >
-                          <AccordionTrigger className="hover:no-underline">
-                            <div className="flex justify-between items-center w-full pr-4">
-                              <span>{inclusion.inclusion_name}</span>
-                              <span className="text-green-600 font-medium">
-                                ₱{inclusion.inclusion_price.toLocaleString()}
+              {/* Expanded Filters */}
+              {showFilters && (
+                <div className="mt-6 pt-6 border-t border-gray-100 animate-slide-down">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700 mb-2 block">
+                        Status
+                      </Label>
+                      <select
+                        value={filters.status}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            status: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                      >
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700 mb-2 block">
+                        Type
+                      </Label>
+                      <select
+                        value={filters.type}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            type: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                      >
+                        <option value="">All Types</option>
+                        <option value="indoor">Indoor</option>
+                        <option value="outdoor">Outdoor</option>
+                        <option value="hybrid">Hybrid</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700 mb-2 block">
+                        Price Range
+                      </Label>
+                      <select
+                        value={filters.priceRange}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            priceRange: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                      >
+                        <option value="">All Prices</option>
+                        <option value="0-50000">Under ₱50,000</option>
+                        <option value="50000-100000">₱50,000 - ₱100,000</option>
+                        <option value="100000-200000">
+                          ₱100,000 - ₱200,000
+                        </option>
+                        <option value="200000-">Over ₱200,000</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700 mb-2 block">
+                        Capacity
+                      </Label>
+                      <select
+                        value={filters.capacity}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            capacity: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                      >
+                        <option value="">All Capacities</option>
+                        <option value="0-50">Under 50 guests</option>
+                        <option value="50-100">50 - 100 guests</option>
+                        <option value="100-200">100 - 200 guests</option>
+                        <option value="200-">Over 200 guests</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-end">
+                      <Button
+                        variant="outline"
+                        onClick={clearFilters}
+                        className="w-full border-gray-200 hover:bg-gray-50"
+                      >
+                        Clear All Filters
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Loading State */}
+        {isLoading ? (
+          <div className="animate-slide-up-delay-3">
+            <div className="text-center py-20">
+              <div className="inline-flex items-center justify-center w-16 h-16 border-4 border-green-200 border-t-green-600 rounded-full animate-spin mb-4"></div>
+              <p className="text-lg text-gray-600">Loading venues...</p>
+            </div>
+          </div>
+        ) : (
+          /* Venues Grid with Staggered Animation */
+          <div className="animate-slide-up-delay-3">
+            {filteredVenues.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {filteredVenues.map((venue, index) => (
+                  <div
+                    key={venue.venue_id}
+                    className="animate-slide-up-stagger"
+                    style={{ animationDelay: `${index * 100}ms` }}
+                  >
+                    <Card className="bg-white border-0 shadow-lg overflow-hidden group flex flex-col h-full">
+                      {/* Cover Photo Section */}
+                      <div className="relative h-48 w-full overflow-hidden">
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{
+                            backgroundImage: venue.venue_cover_photo
+                              ? `url(http://localhost/events-api/${venue.venue_cover_photo})`
+                              : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                          }}
+                        />
+                        {/* 3-Dot Menu Overlay */}
+                        <div className="absolute top-3 right-3">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 bg-white/80 hover:bg-white text-gray-700 hover:text-[#028A75] backdrop-blur-sm"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuItem
+                                onClick={() => handleEditClick(venue)}
+                                className="cursor-pointer"
+                              >
+                                <Edit className="h-4 w-4 mr-2" />
+                                Quick Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  router.push(
+                                    `/admin/venues/venue-builder/${venue.venue_id}`
+                                  )
+                                }
+                                className="cursor-pointer"
+                              >
+                                <Settings className="h-4 w-4 mr-2" />
+                                Full Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleDeleteVenue(venue.venue_id)
+                                }
+                                className="cursor-pointer text-red-600 focus:text-red-600"
+                                disabled={!venue.is_active}
+                              >
+                                <Trash className="h-4 w-4 mr-2" />
+                                Delete Venue
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+
+                      {/* Main Content */}
+                      <CardContent className="p-6 flex-1 flex flex-col">
+                        {/* Profile Picture and Title Section */}
+                        <div className="flex items-start gap-4 mb-4">
+                          <div className="relative">
+                            <div className="h-12 w-12 rounded-full overflow-hidden border-2 border-white shadow-lg">
+                              {venue.venue_profile_picture ? (
+                                <img
+                                  src={`http://localhost/events-api/${venue.venue_profile_picture}`}
+                                  alt={venue.venue_title}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="h-full w-full bg-gradient-to-br from-[#028A75] to-[#027A65] flex items-center justify-center text-white font-bold text-lg">
+                                  {venue.venue_title[0]}
+                                </div>
+                              )}
+                            </div>
+                            {/* Status Badge */}
+                            <div className="absolute -top-1 -right-1">
+                              <Badge
+                                variant={venue.is_active ? "default" : "secondary"}
+                                className={`${venue.is_active ? "bg-[#E6F4F1] text-[#028A75] hover:bg-[#D1E8E3]" : "bg-gray-100 text-gray-700 hover:bg-gray-200"} text-xs px-2 py-1`}
+                              >
+                                {venue.is_active ? "Active" : "Inactive"}
+                              </Badge>
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            {editingVenue === venue.venue_id ? (
+                              <Input
+                                value={editForm.venue_title}
+                                onChange={(e) =>
+                                  setEditForm((prev) => ({
+                                    ...prev,
+                                    venue_title: e.target.value,
+                                  }))
+                                }
+                                className="text-lg font-bold text-gray-900 bg-white border-[#028A75]/30 mb-2"
+                                placeholder="Venue title"
+                              />
+                            ) : (
+                              <h3 className="text-lg font-bold text-gray-900 line-clamp-2">
+                                {venue.venue_title}
+                              </h3>
+                            )}
+                            <div className="flex items-center text-sm text-gray-500">
+                              <MapPin className="h-4 w-4 mr-1" />
+                              {venue.venue_location}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Quick Edit Form */}
+                        {editingVenue === venue.venue_id && (
+                          <div className="space-y-3 mb-4 p-4 bg-gray-50 rounded-lg">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <Label className="text-xs font-medium text-gray-700 mb-1 block">
+                                  Price
+                                </Label>
+                                <Input
+                                  type="number"
+                                  value={editForm.venue_price}
+                                  onChange={(e) =>
+                                    setEditForm((prev) => ({
+                                      ...prev,
+                                      venue_price: parseFloat(e.target.value) || 0,
+                                    }))
+                                  }
+                                  className="text-sm bg-white border-[#028A75]/30"
+                                  placeholder="Price"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs font-medium text-gray-700 mb-1 block">
+                                  Capacity
+                                </Label>
+                                <Input
+                                  type="number"
+                                  value={editForm.venue_capacity}
+                                  onChange={(e) =>
+                                    setEditForm((prev) => ({
+                                      ...prev,
+                                      venue_capacity: parseInt(e.target.value) || 0,
+                                    }))
+                                  }
+                                  className="text-sm bg-white border-[#028A75]/30"
+                                  placeholder="Capacity"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <Label className="text-xs font-medium text-gray-700 mb-1 block">
+                                Description
+                              </Label>
+                              <Textarea
+                                value={editForm.venue_details}
+                                onChange={(e) =>
+                                  setEditForm((prev) => ({
+                                    ...prev,
+                                    venue_details: e.target.value,
+                                  }))
+                                }
+                                className="text-sm bg-white border-[#028A75]/30"
+                                placeholder="Venue description"
+                                rows={2}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Venue Details */}
+                        <div className="space-y-3 mb-6">
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center text-gray-600">
+                              <Users className="h-4 w-4 mr-2" />
+                              <span>Capacity</span>
+                            </div>
+                            <span className="font-medium text-gray-900">
+                              {venue.venue_capacity.toLocaleString()} guests
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center text-gray-600">
+                              <DollarSign className="h-4 w-4 mr-2" />
+                              <span>Price</span>
+                            </div>
+                            <span className="font-medium text-gray-900">
+                              ₱{venue.venue_price.toLocaleString()}
+                            </span>
+                          </div>
+                          {venue.venue_type && (
+                            <div className="flex items-center justify-between text-sm">
+                              <div className="flex items-center text-gray-600">
+                                <Building className="h-4 w-4 mr-2" />
+                                <span>Type</span>
+                              </div>
+                              <span className="font-medium text-gray-900 capitalize">
+                                {venue.venue_type}
                               </span>
                             </div>
-                          </AccordionTrigger>
-                          <AccordionContent>
-                            <div className="p-4 space-y-4">
-                              <p className="text-gray-600">
-                                {inclusion.inclusion_description}
-                              </p>
-                              {inclusion.components &&
-                                inclusion.components.length > 0 && (
-                                  <div>
-                                    <h4 className="font-medium mb-2">
-                                      Components:
-                                    </h4>
-                                    <ul className="list-disc list-inside space-y-1">
-                                      {inclusion.components.map((component) => (
-                                        <li
-                                          key={component.component_id}
-                                          className="text-gray-600"
-                                        >
-                                          <span className="font-medium">
-                                            {component.component_name}
-                                          </span>
-                                          {component.component_description && (
-                                            <span className="text-gray-500">
-                                              {" "}
-                                              -{" "}
-                                              {component.component_description}
-                                            </span>
-                                          )}
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
+                          )}
+                        </div>
+
+                        {/* Contact Info */}
+                        {venue.venue_contact && (
+                          <div className="mb-6">
+                            <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2 text-sm">
+                              <CheckCircle className="h-4 w-4 text-[#028A75]" />
+                              Contact
+                            </h4>
+                            <p className="text-sm text-gray-600">
+                              📞 {venue.venue_contact}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Inclusions Preview */}
+                        {venue.inclusions && venue.inclusions.length > 0 && (
+                          <div className="mb-6">
+                            <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2 text-sm">
+                              <Building className="h-4 w-4 text-blue-600" />
+                              Inclusions
+                            </h4>
+                            <div className="text-sm text-gray-600">
+                              <span className="font-medium">
+                                {venue.inclusions.length} items
+                              </span>
+                              {venue.inclusions.length > 0 && (
+                                <span className="text-gray-500">
+                                  {" "}
+                                  including{" "}
+                                  {venue.inclusions
+                                    .slice(0, 2)
+                                    .map((inc) => inc.inclusion_name)
+                                    .join(", ")}
+                                  {venue.inclusions.length > 2 && ", and more..."}
+                                </span>
+                              )}
                             </div>
-                          </AccordionContent>
-                        </AccordionItem>
-                      ))}
-                    </Accordion>
+                          </div>
+                        )}
+
+                        {/* Action Buttons */}
+                        <div className="mt-auto pt-4">
+                          {editingVenue === venue.venue_id ? (
+                            <div className="flex gap-3">
+                              <Button
+                                onClick={handleSaveEdit}
+                                disabled={isSaving}
+                                className="flex-1 bg-[#028A75] hover:bg-[#027A65] text-white rounded-xl py-2 font-medium transition-all duration-300 text-sm"
+                              >
+                                <Save className="h-4 w-4 mr-2" />
+                                {isSaving ? "Saving..." : "Save Changes"}
+                              </Button>
+                              <Button
+                                onClick={handleCancelEdit}
+                                disabled={isSaving}
+                                variant="outline"
+                                className="flex-1 border-gray-300 hover:bg-gray-50 rounded-xl py-2 font-medium text-sm"
+                              >
+                                <X className="h-4 w-4 mr-2" />
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              onClick={() =>
+                                router.push(`/admin/venues/${venue.venue_id}`)
+                              }
+                              className="w-full bg-[#028A75] hover:bg-[#027A65] text-white rounded-xl py-3 font-medium transition-all duration-300 shadow-lg hover:shadow-xl"
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
+                ))}
+              </div>
+            ) : (
+              /* Empty State */
+              <div className="text-center py-20 animate-slide-up">
+                <div className="bg-white rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-6 shadow-lg">
+                  <Building className="h-12 w-12 text-gray-300" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                  {filters.search ||
+                  filters.status ||
+                  filters.priceRange ||
+                  filters.capacity ||
+                  filters.type
+                    ? "No venues found"
+                    : "No venues yet!"}
+                </h3>
+                <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                  {filters.search ||
+                  filters.status ||
+                  filters.priceRange ||
+                  filters.capacity ||
+                  filters.type
+                    ? "Try adjusting your filters to see more results."
+                    : "Create your first venue to offer to clients and start growing your business."}
+                </p>
+                {!(
+                  filters.search ||
+                  filters.status ||
+                  filters.priceRange ||
+                  filters.capacity ||
+                  filters.type
+                ) && (
+                  <Link href="/admin/venues/venue-builder">
+                    <Button
+                      size="lg"
+                      className="bg-[#028A75] hover:bg-[#027A65] text-white px-8 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                    >
+                      <Plus className="h-5 w-5 mr-2" />
+                      Create Your First Venue
+                    </Button>
+                  </Link>
                 )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Custom CSS for animations */}
+        <style jsx>{`
+          @keyframes slide-up {
+            from {
+              opacity: 0;
+              transform: translateY(30px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          @keyframes slide-down {
+            from {
+              opacity: 0;
+              transform: translateY(-20px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          .animate-slide-up {
+            animation: slide-up 0.6s ease-out;
+          }
+
+          .animate-slide-up-delay-1 {
+            animation: slide-up 0.6s ease-out 0.1s both;
+          }
+
+          .animate-slide-up-delay-2 {
+            animation: slide-up 0.6s ease-out 0.2s both;
+          }
+
+          .animate-slide-up-delay-3 {
+            animation: slide-up 0.6s ease-out 0.3s both;
+          }
+
+          .animate-slide-up-stagger {
+            animation: slide-up 0.6s ease-out both;
+          }
+
+          .animate-slide-down {
+            animation: slide-down 0.3s ease-out;
+          }
+
+          .line-clamp-1 {
+            display: -webkit-box;
+            -webkit-line-clamp: 1;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+          }
+
+          .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+          }
+        `}</style>
+      </div>
     </div>
   );
 }

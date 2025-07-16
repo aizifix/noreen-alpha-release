@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Plus,
   Search,
@@ -23,8 +23,19 @@ import {
   Copy,
   Key,
   RefreshCw,
+  MoreVertical,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "@/hooks/use-toast";
 
 interface Supplier {
   supplier_id: number;
@@ -107,6 +118,8 @@ export default function SupplierPage() {
     null
   );
   const [viewMode, setViewMode] = useState<"view" | "edit" | "add">("view");
+  const [selectedSuppliers, setSelectedSuppliers] = useState<number[]>([]);
+  const [selectAll, setSelectAll] = useState(false);
 
   // Filters and pagination
   const [filters, setFilters] = useState<FilterState>({
@@ -120,35 +133,47 @@ export default function SupplierPage() {
   const [totalPages, setTotalPages] = useState(1);
 
   // Fetch suppliers
-  const fetchSuppliers = async () => {
-    try {
-      setLoading(true);
-      const queryParams = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: "20",
-        ...Object.fromEntries(
-          Object.entries(filters).filter(([, value]) => value)
-        ),
-      });
+  const fetchSuppliers = useCallback(
+    async (searchTerm?: string) => {
+      try {
+        setLoading(true);
+        const queryParams = new URLSearchParams({
+          page: currentPage.toString(),
+          limit: "20",
+          ...Object.fromEntries(
+            Object.entries({
+              ...filters,
+              search: searchTerm !== undefined ? searchTerm : filters.search,
+            }).filter(([, value]) => value)
+          ),
+        });
 
-      const response = await fetch(
-        `http://localhost/events-api/admin.php?operation=getAllSuppliers&${queryParams}`
-      );
-      const data = await response.json();
+        const response = await fetch(
+          `http://localhost/events-api/admin.php?operation=getAllSuppliers&${queryParams}`
+        );
+        const data = await response.json();
 
-      if (data.status === "success") {
-        setSuppliers(data.suppliers || []);
-        setTotalPages(data.pagination?.total_pages || 1);
-      } else {
-        console.error("API Error:", data.message);
-        setError(data.message || "Failed to fetch suppliers");
+        if (data.status === "success") {
+          setSuppliers(data.suppliers || []);
+          setTotalPages(data.pagination?.total_pages || 1);
+        } else {
+          console.error("API Error:", data.message);
+          setError(data.message || "Failed to fetch suppliers");
+        }
+      } catch (error) {
+        console.error("Error fetching suppliers:", error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Error fetching suppliers:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [
+      currentPage,
+      filters.supplier_type,
+      filters.specialty_category,
+      filters.is_verified,
+      filters.onboarding_status,
+    ]
+  );
 
   // Fetch metadata including document types
   const fetchMetadata = async () => {
@@ -197,18 +222,52 @@ export default function SupplierPage() {
     }
   };
 
+  // Effect for filters (immediate)
+  useEffect(() => {
+    if (
+      filters.supplier_type ||
+      filters.specialty_category ||
+      filters.is_verified ||
+      filters.onboarding_status
+    ) {
+      fetchSuppliers();
+    }
+  }, [
+    filters.supplier_type,
+    filters.specialty_category,
+    filters.is_verified,
+    filters.onboarding_status,
+    fetchSuppliers,
+  ]);
+
+  // Effect for pagination
   useEffect(() => {
     fetchSuppliers();
-  }, [currentPage, filters]);
+  }, [currentPage, fetchSuppliers]);
 
   useEffect(() => {
     fetchMetadata();
   }, []);
 
+  // Manual search function
+  const handleSearch = () => {
+    setCurrentPage(1);
+    fetchSuppliers(filters.search);
+  };
+
+  // Handle Enter key in search input
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleSearch();
+    }
+  };
+
   // Handle filter changes
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
-    setCurrentPage(1);
+    if (key !== "search") {
+      setCurrentPage(1);
+    }
   };
 
   // Clear filters
@@ -221,6 +280,62 @@ export default function SupplierPage() {
       onboarding_status: "",
     });
     setCurrentPage(1);
+  };
+
+  // Checkbox handlers
+  const handleSelectAll = (checked: boolean | string) => {
+    const isChecked = checked === true;
+    setSelectAll(isChecked);
+    if (isChecked) {
+      setSelectedSuppliers(suppliers.map((supplier) => supplier.supplier_id));
+    } else {
+      setSelectedSuppliers([]);
+    }
+  };
+
+  const handleSelectSupplier = (
+    supplierId: number,
+    checked: boolean | string
+  ) => {
+    const isChecked = checked === true;
+    if (isChecked) {
+      setSelectedSuppliers((prev) => [...prev, supplierId]);
+    } else {
+      setSelectedSuppliers((prev) => prev.filter((id) => id !== supplierId));
+    }
+  };
+
+  // Bulk actions
+  const handleBulkDelete = () => {
+    if (selectedSuppliers.length === 0) {
+      toast({
+        title: "No suppliers selected",
+        description: "Please select suppliers to delete",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Implement bulk delete logic here
+    toast({
+      title: "Bulk delete",
+      description: `Deleting ${selectedSuppliers.length} suppliers...`,
+    });
+  };
+
+  const handleBulkExport = () => {
+    if (selectedSuppliers.length === 0) {
+      toast({
+        title: "No suppliers selected",
+        description: "Please select suppliers to export",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Implement bulk export logic here
+    toast({
+      title: "Bulk export",
+      description: `Exporting ${selectedSuppliers.length} suppliers...`,
+    });
   };
 
   // Handle supplier actions
@@ -256,13 +371,24 @@ export default function SupplierPage() {
 
       if (data.status === "success") {
         fetchSuppliers();
-        alert("Supplier deleted successfully");
+        toast({
+          title: "Success!",
+          description: "Supplier deleted successfully",
+        });
       } else {
-        alert(data.message || "Failed to delete supplier");
+        toast({
+          title: "Error",
+          description: data.message || "Failed to delete supplier",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Error deleting supplier:", error);
-      alert("Failed to delete supplier");
+      toast({
+        title: "Error",
+        description: "Failed to delete supplier",
+        variant: "destructive",
+      });
     }
   };
 
@@ -295,36 +421,43 @@ export default function SupplierPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-brand-500"></div>
+      <div className="container mx-auto py-6 max-w-7xl">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#028A75] mx-auto"></div>
+            <p className="mt-2 text-muted-foreground">Loading suppliers...</p>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="text-red-500 text-lg font-semibold mb-2">Error</div>
-          <div className="text-gray-600">{error}</div>
-          <button
-            onClick={() => {
-              setError(null);
-              fetchMetadata();
-            }}
-            className="mt-4 px-4 py-2 bg-brand-500 text-white rounded hover:bg-brand-600"
-          >
-            Retry
-          </button>
+      <div className="container mx-auto py-6 max-w-7xl">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="text-red-500 text-lg font-semibold mb-2">Error</div>
+            <div className="text-gray-600">{error}</div>
+            <button
+              onClick={() => {
+                setError(null);
+                fetchMetadata();
+              }}
+              className="mt-4 px-4 py-2 bg-[#028A75] text-white rounded hover:bg-[#027a68]"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="container mx-auto py-6 max-w-7xl animate-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
             Supplier Management
@@ -333,22 +466,32 @@ export default function SupplierPage() {
             Manage your event suppliers and their offerings
           </p>
         </div>
-        <button
-          onClick={handleAddSupplier}
-          className="flex items-center px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Supplier
-        </button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={fetchSuppliers}
+            variant="outline"
+            className="bg-white border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <Button
+            onClick={handleAddSupplier}
+            className="bg-[#028A75] hover:bg-[#027a68] text-white"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Supplier
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <Card>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+          <Card className="border">
             <CardContent className="p-4">
               <div className="flex items-center">
-                <Users className="w-8 h-8 text-brand-500" />
+                <Users className="w-8 h-8 text-[#028A75]" />
                 <div className="ml-3">
                   <p className="text-sm font-medium text-gray-600">
                     Total Suppliers
@@ -361,7 +504,7 @@ export default function SupplierPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border">
             <CardContent className="p-4">
               <div className="flex items-center">
                 <Users className="w-8 h-8 text-blue-500" />
@@ -375,7 +518,7 @@ export default function SupplierPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border">
             <CardContent className="p-4">
               <div className="flex items-center">
                 <Users className="w-8 h-8 text-green-500" />
@@ -389,7 +532,7 @@ export default function SupplierPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border">
             <CardContent className="p-4">
               <div className="flex items-center">
                 <CheckCircle className="w-8 h-8 text-emerald-500" />
@@ -403,7 +546,7 @@ export default function SupplierPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border">
             <CardContent className="p-4">
               <div className="flex items-center">
                 <Star className="w-8 h-8 text-yellow-500" />
@@ -422,7 +565,7 @@ export default function SupplierPage() {
       )}
 
       {/* Filters */}
-      <Card>
+      <Card className="border mb-6">
         <CardHeader>
           <CardTitle className="flex items-center">
             <Filter className="w-5 h-5 mr-2" />
@@ -430,17 +573,18 @@ export default function SupplierPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Search</label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="Search suppliers..."
+                  placeholder="Search suppliers... (Press Enter)"
                   value={filters.search}
                   onChange={(e) => handleFilterChange("search", e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  onKeyPress={handleSearchKeyPress}
+                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75]"
                 />
               </div>
             </div>
@@ -452,7 +596,7 @@ export default function SupplierPage() {
                 onChange={(e) =>
                   handleFilterChange("supplier_type", e.target.value)
                 }
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75]"
               >
                 <option value="">All Types</option>
                 <option value="internal">Internal</option>
@@ -467,7 +611,7 @@ export default function SupplierPage() {
                 onChange={(e) =>
                   handleFilterChange("specialty_category", e.target.value)
                 }
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75]"
               >
                 <option value="">All Categories</option>
                 {categories.map((category, index) => (
@@ -478,43 +622,6 @@ export default function SupplierPage() {
                     {String(category)}
                   </option>
                 ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Verification
-              </label>
-              <select
-                value={filters.is_verified}
-                onChange={(e) =>
-                  handleFilterChange("is_verified", e.target.value)
-                }
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-              >
-                <option value="">All Status</option>
-                <option value="1">Verified</option>
-                <option value="0">Unverified</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Onboarding
-              </label>
-              <select
-                value={filters.onboarding_status}
-                onChange={(e) =>
-                  handleFilterChange("onboarding_status", e.target.value)
-                }
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-              >
-                <option value="">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="documents_uploaded">Documents Uploaded</option>
-                <option value="verified">Verified</option>
-                <option value="active">Active</option>
-                <option value="suspended">Suspended</option>
               </select>
             </div>
 
@@ -530,8 +637,33 @@ export default function SupplierPage() {
         </CardContent>
       </Card>
 
+      {/* Bulk Actions */}
+      {selectedSuppliers.length > 0 && (
+        <Card className="border mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">
+                {selectedSuppliers.length} supplier(s) selected
+              </span>
+              <div className="flex space-x-2">
+                <Button
+                  onClick={handleBulkExport}
+                  variant="outline"
+                  className="border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
+                >
+                  Export Selected
+                </Button>
+                <Button onClick={handleBulkDelete} variant="destructive">
+                  Delete Selected
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Suppliers Table */}
-      <Card>
+      <Card className="border">
         <CardHeader>
           <CardTitle>Suppliers ({suppliers.length})</CardTitle>
         </CardHeader>
@@ -540,6 +672,12 @@ export default function SupplierPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
+                  <th className="text-left py-3 px-4">
+                    <Checkbox
+                      checked={selectAll}
+                      onCheckedChange={handleSelectAll}
+                    />
+                  </th>
                   <th className="text-left py-3 px-4">Business Name</th>
                   <th className="text-left py-3 px-4">Contact Person</th>
                   <th className="text-left py-3 px-4">Type</th>
@@ -556,6 +694,16 @@ export default function SupplierPage() {
                     key={supplier.supplier_id}
                     className="border-b hover:bg-gray-50"
                   >
+                    <td className="py-3 px-4">
+                      <Checkbox
+                        checked={selectedSuppliers.includes(
+                          supplier.supplier_id
+                        )}
+                        onCheckedChange={(checked: boolean | string) =>
+                          handleSelectSupplier(supplier.supplier_id, checked)
+                        }
+                      />
+                    </td>
                     <td className="py-3 px-4">
                       <div>
                         <div className="font-medium">
@@ -610,31 +758,37 @@ export default function SupplierPage() {
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => handleViewSupplier(supplier)}
-                          className="text-blue-600 hover:text-blue-800"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleEditSupplier(supplier)}
-                          className="text-green-600 hover:text-green-800"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() =>
-                            handleDeleteSupplier(supplier.supplier_id)
-                          }
-                          className="text-red-600 hover:text-red-800"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => handleViewSupplier(supplier)}
+                          >
+                            <Eye className="mr-2 h-4 w-4" />
+                            View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleEditSupplier(supplier)}
+                          >
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-red-600"
+                            onClick={() =>
+                              handleDeleteSupplier(supplier.supplier_id)
+                            }
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                 ))}
@@ -649,7 +803,7 @@ export default function SupplierPage() {
                 <button
                   onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
+                  className="px-3 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
                 >
                   Previous
                 </button>
@@ -661,7 +815,7 @@ export default function SupplierPage() {
                     setCurrentPage(Math.min(totalPages, currentPage + 1))
                   }
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
+                  className="px-3 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
                 >
                   Next
                 </button>

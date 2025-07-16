@@ -23,16 +23,67 @@ interface Step {
 interface MultiStepWizardProps {
   steps: Step[];
   onComplete: () => void;
+  currentStepIndex?: number;
+  onStepChange?: (index: number) => void;
+  disableNext?: boolean;
 }
 
-export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+export function MultiStepWizard({
+  steps,
+  onComplete,
+  currentStepIndex: externalCurrentStepIndex,
+  onStepChange,
+  disableNext = false,
+}: MultiStepWizardProps) {
+  // Defensive check: ensure steps is a valid array
+  const validSteps = Array.isArray(steps)
+    ? steps.filter((step) => step && step.id)
+    : [];
+
+  // If no valid steps, show error state
+  if (validSteps.length === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="text-red-500 text-lg font-semibold mb-2">
+            No Steps Available
+          </div>
+          <p className="text-gray-600">
+            Please configure the wizard steps properly.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const [internalCurrentStepIndex, setInternalCurrentStepIndex] = useState(0);
+
+  // Use external step index if provided, otherwise use internal
+  const currentStepIndex =
+    externalCurrentStepIndex !== undefined
+      ? Math.min(Math.max(0, externalCurrentStepIndex), validSteps.length - 1)
+      : Math.min(internalCurrentStepIndex, validSteps.length - 1);
+  const setCurrentStepIndex = onStepChange || setInternalCurrentStepIndex;
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const currentStep = steps[currentStepIndex];
+  const currentStep = validSteps[currentStepIndex];
   const isFirstStep = currentStepIndex === 0;
-  const isLastStep = currentStepIndex === steps.length - 1;
+  const isLastStep = currentStepIndex === validSteps.length - 1;
+
+  // Defensive check: ensure currentStep exists
+  if (!currentStep) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="text-red-500 text-lg font-semibold mb-2">
+            Invalid Step
+          </div>
+          <p className="text-gray-600">The current step is not available.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Auto-scroll to center current step - memoized to prevent unnecessary re-renders
   useEffect(() => {
@@ -61,56 +112,76 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
       setCompletedSteps((prev) => [...prev, currentStep.id]);
     }
 
-    setCurrentStepIndex((prev) => prev + 1);
-  }, [isLastStep, onComplete, completedSteps, currentStep.id]);
+    if (onStepChange) {
+      onStepChange(currentStepIndex + 1);
+    } else {
+      setInternalCurrentStepIndex((prev) => prev + 1);
+    }
+  }, [
+    isLastStep,
+    onComplete,
+    completedSteps,
+    currentStep.id,
+    onStepChange,
+    currentStepIndex,
+  ]);
 
   const handlePrevious = useCallback(() => {
     if (!isFirstStep) {
-      setCurrentStepIndex((prev) => prev - 1);
+      if (onStepChange) {
+        onStepChange(currentStepIndex - 1);
+      } else {
+        setInternalCurrentStepIndex((prev) => prev - 1);
+      }
     }
-  }, [isFirstStep]);
+  }, [isFirstStep, onStepChange, currentStepIndex]);
 
   const handleStepClick = useCallback(
     (index: number) => {
       // Only allow clicking on completed steps or the next available step
       if (
-        completedSteps.includes(steps[index].id) ||
+        completedSteps.includes(validSteps[index].id) ||
         index === 0 ||
         (index <= completedSteps.length && index === currentStepIndex + 1)
       ) {
-        setCurrentStepIndex(index);
+        if (onStepChange) {
+          onStepChange(index);
+        } else {
+          setInternalCurrentStepIndex(index);
+        }
       }
     },
-    [completedSteps, steps, currentStepIndex]
+    [completedSteps, validSteps, currentStepIndex, onStepChange]
   );
 
   const getStepStatus = useCallback(
     (index: number) => {
       const isCompleted =
-        completedSteps.includes(steps[index].id) || index < currentStepIndex;
+        completedSteps.includes(validSteps[index].id) ||
+        index < currentStepIndex;
       const isCurrent = index === currentStepIndex;
 
       if (isCompleted) return "completed";
       if (isCurrent) return "current";
       return "pending";
     },
-    [completedSteps, steps, currentStepIndex]
+    [completedSteps, validSteps, currentStepIndex]
   );
 
   const isClickable = useCallback(
     (index: number) => {
       return (
-        completedSteps.includes(steps[index].id) ||
+        completedSteps.includes(validSteps[index].id) ||
         index === 0 ||
         (index <= completedSteps.length && index === currentStepIndex + 1)
       );
     },
-    [completedSteps, steps, currentStepIndex]
+    [completedSteps, validSteps, currentStepIndex]
   );
 
   // Memoize the step rendering to prevent unnecessary re-renders
   const renderedSteps = useMemo(() => {
-    return steps.map((step, index) => {
+    return validSteps.map((step, index) => {
       const status = getStepStatus(index);
       const clickable = isClickable(index);
 
@@ -157,7 +228,7 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
             </div>
 
             {/* Connecting Line */}
-            {index < steps.length - 1 && (
+            {index < validSteps.length - 1 && (
               <div className="flex items-center ml-4">
                 <div className="relative h-1 w-[72px]">
                   {/* Background Line */}
@@ -209,7 +280,13 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
         </div>
       );
     });
-  }, [steps, getStepStatus, isClickable, handleStepClick, currentStepIndex]);
+  }, [
+    validSteps,
+    getStepStatus,
+    isClickable,
+    handleStepClick,
+    currentStepIndex,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -238,7 +315,7 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
               </p>
             </div>
             <div className="text-sm text-muted-foreground">
-              Step {currentStepIndex + 1} of {steps.length}
+              Step {currentStepIndex + 1} of {validSteps.length}
             </div>
           </div>
         </CardHeader>
@@ -254,9 +331,10 @@ export function MultiStepWizard({ steps, onComplete }: MultiStepWizardProps) {
           </Button>
           <Button
             onClick={handleNext}
-            className="px-6 bg-[#028A75] hover:bg-[#026B5C]"
+            disabled={disableNext}
+            className="px-6 bg-[#028A75] hover:bg-[#026B5C] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLastStep ? "Complete Package" : "Next Step"}
+            {isLastStep ? "Create Event" : "Next Step"}
           </Button>
         </CardFooter>
       </Card>

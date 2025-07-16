@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -12,20 +11,16 @@ import {
   Users,
   Calendar,
   DollarSign,
-  Phone,
-  Mail,
   User,
   Filter,
   MoreVertical,
   Eye,
   Edit,
   Trash2,
-  Star,
   CheckCircle,
+  RefreshCw,
 } from "lucide-react";
-import { secureStorage } from "@/app/utils/encryption";
 import { toast } from "@/components/ui/use-toast";
-import axios from "axios";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,26 +34,8 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 
 interface Client {
   user_id: number;
@@ -86,6 +63,8 @@ export default function ClientsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [showClientDetails, setShowClientDetails] = useState(false);
+  const [selectedClients, setSelectedClients] = useState<number[]>([]);
+  const [selectAll, setSelectAll] = useState(false);
 
   // Filters and pagination
   const [filters, setFilters] = useState<FilterState>({
@@ -96,45 +75,74 @@ export default function ClientsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
+  const fetchClients = useCallback(
+    async (searchTerm?: string) => {
+      try {
+        setLoading(true);
+        const queryParams = new URLSearchParams({
+          page: currentPage.toString(),
+          limit: "20",
+          ...Object.fromEntries(
+            Object.entries({
+              ...filters,
+              search: searchTerm !== undefined ? searchTerm : filters.search,
+            }).filter(([, value]) => value)
+          ),
+        });
+
+        const response = await fetch(
+          `http://localhost/events-api/admin.php?operation=getClients&${queryParams}`
+        );
+        const data = await response.json();
+
+        if (data.status === "success") {
+          setClients(data.clients || []);
+          setTotalPages(data.pagination?.total_pages || 1);
+        } else {
+          console.error("API Error:", data.message);
+          setError(data.message || "Failed to fetch clients");
+        }
+      } catch (error) {
+        console.error("Error fetching clients:", error);
+        setError("Failed to fetch clients");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [currentPage, filters.status, filters.activity_level]
+  );
+
+  // Effect for filters (immediate)
+  useEffect(() => {
+    if (filters.status || filters.activity_level) {
+      fetchClients();
+    }
+  }, [filters.status, filters.activity_level, fetchClients]);
+
+  // Effect for pagination
   useEffect(() => {
     fetchClients();
-  }, [currentPage, filters]);
+  }, [currentPage, fetchClients]);
 
-  const fetchClients = async () => {
-    try {
-      setLoading(true);
-      const queryParams = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: "20",
-        ...Object.fromEntries(
-          Object.entries(filters).filter(([, value]) => value)
-        ),
-      });
+  // Manual search function
+  const handleSearch = () => {
+    setCurrentPage(1);
+    fetchClients(filters.search);
+  };
 
-      const response = await fetch(
-        `http://localhost/events-api/admin.php?operation=getClients&${queryParams}`
-      );
-      const data = await response.json();
-
-      if (data.status === "success") {
-        setClients(data.clients || []);
-        setTotalPages(data.pagination?.total_pages || 1);
-      } else {
-        console.error("API Error:", data.message);
-        setError(data.message || "Failed to fetch clients");
-      }
-    } catch (error) {
-      console.error("Error fetching clients:", error);
-      setError("Failed to fetch clients");
-    } finally {
-      setLoading(false);
+  // Handle Enter key in search input
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleSearch();
     }
   };
 
   // Filter handlers
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
-    setCurrentPage(1);
+    if (key !== "search") {
+      setCurrentPage(1);
+    }
   };
 
   const clearFilters = () => {
@@ -170,12 +178,65 @@ export default function ClientsPage() {
     setCurrentPage(page);
   };
 
+  // Checkbox handlers
+  const handleSelectAll = (checked: boolean | string) => {
+    const isChecked = checked === true;
+    setSelectAll(isChecked);
+    if (isChecked) {
+      setSelectedClients(clients.map((client) => client.user_id));
+    } else {
+      setSelectedClients([]);
+    }
+  };
+
+  const handleSelectClient = (clientId: number, checked: boolean | string) => {
+    const isChecked = checked === true;
+    if (isChecked) {
+      setSelectedClients((prev) => [...prev, clientId]);
+    } else {
+      setSelectedClients((prev) => prev.filter((id) => id !== clientId));
+    }
+  };
+
+  // Bulk actions
+  const handleBulkDelete = () => {
+    if (selectedClients.length === 0) {
+      toast({
+        title: "No clients selected",
+        description: "Please select clients to delete",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Implement bulk delete logic here
+    toast({
+      title: "Bulk delete",
+      description: `Deleting ${selectedClients.length} clients...`,
+    });
+  };
+
+  const handleBulkExport = () => {
+    if (selectedClients.length === 0) {
+      toast({
+        title: "No clients selected",
+        description: "Please select clients to export",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Implement bulk export logic here
+    toast({
+      title: "Bulk export",
+      description: `Exporting ${selectedClients.length} clients...`,
+    });
+  };
+
   if (loading) {
     return (
-      <div className="container mx-auto py-6">
+      <div className="container mx-auto py-6 max-w-7xl">
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#028A75] mx-auto"></div>
             <p className="mt-2 text-muted-foreground">Loading clients...</p>
           </div>
         </div>
@@ -184,9 +245,9 @@ export default function ClientsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="container mx-auto py-6 max-w-7xl animate-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
             Client Management
@@ -195,14 +256,21 @@ export default function ClientsPage() {
             Manage your event clients and their bookings
           </p>
         </div>
+        <Button
+          onClick={() => fetchClients()}
+          className="bg-[#028A75] hover:bg-[#027a68] text-white"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card className="border">
           <CardContent className="p-4">
             <div className="flex items-center">
-              <Users className="w-8 h-8 text-brand-500" />
+              <Users className="w-8 h-8 text-[#028A75]" />
               <div className="ml-3">
                 <p className="text-sm font-medium text-gray-600">
                   Total Clients
@@ -215,7 +283,7 @@ export default function ClientsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border">
           <CardContent className="p-4">
             <div className="flex items-center">
               <CheckCircle className="w-8 h-8 text-green-500" />
@@ -230,7 +298,7 @@ export default function ClientsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border">
           <CardContent className="p-4">
             <div className="flex items-center">
               <Calendar className="w-8 h-8 text-blue-500" />
@@ -247,7 +315,7 @@ export default function ClientsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border">
           <CardContent className="p-4">
             <div className="flex items-center">
               <DollarSign className="w-8 h-8 text-yellow-500" />
@@ -271,7 +339,7 @@ export default function ClientsPage() {
       </div>
 
       {/* Filters */}
-      <Card>
+      <Card className="border mb-6">
         <CardHeader>
           <CardTitle className="flex items-center">
             <Filter className="w-5 h-5 mr-2" />
@@ -286,10 +354,11 @@ export default function ClientsPage() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="Search clients..."
+                  placeholder="Search clients... (Press Enter)"
                   value={filters.search}
                   onChange={(e) => handleFilterChange("search", e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  onKeyPress={handleSearchKeyPress}
+                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75]"
                 />
               </div>
             </div>
@@ -299,7 +368,7 @@ export default function ClientsPage() {
               <select
                 value={filters.status}
                 onChange={(e) => handleFilterChange("status", e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75]"
               >
                 <option value="">All Status</option>
                 <option value="active">Active</option>
@@ -317,7 +386,7 @@ export default function ClientsPage() {
                 onChange={(e) =>
                   handleFilterChange("activity_level", e.target.value)
                 }
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75]"
               >
                 <option value="">All Levels</option>
                 <option value="high">High (&gt; 5 events)</option>
@@ -338,8 +407,33 @@ export default function ClientsPage() {
         </CardContent>
       </Card>
 
+      {/* Bulk Actions */}
+      {selectedClients.length > 0 && (
+        <Card className="border mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">
+                {selectedClients.length} client(s) selected
+              </span>
+              <div className="flex space-x-2">
+                <Button
+                  onClick={handleBulkExport}
+                  variant="outline"
+                  className="border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
+                >
+                  Export Selected
+                </Button>
+                <Button onClick={handleBulkDelete} variant="destructive">
+                  Delete Selected
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Clients Table */}
-      <Card>
+      <Card className="border">
         <CardHeader>
           <CardTitle>Clients ({clients.length})</CardTitle>
         </CardHeader>
@@ -348,6 +442,12 @@ export default function ClientsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
+                  <th className="text-left py-3 px-4">
+                    <Checkbox
+                      checked={selectAll}
+                      onCheckedChange={handleSelectAll}
+                    />
+                  </th>
                   <th className="text-left py-3 px-4">Profile</th>
                   <th className="text-left py-3 px-4">Name</th>
                   <th className="text-left py-3 px-4">Email</th>
@@ -365,6 +465,14 @@ export default function ClientsPage() {
                     key={client.user_id}
                     className="border-b hover:bg-gray-50"
                   >
+                    <td className="py-3 px-4">
+                      <Checkbox
+                        checked={selectedClients.includes(client.user_id)}
+                        onCheckedChange={(checked: boolean | string) =>
+                          handleSelectClient(client.user_id, checked)
+                        }
+                      />
+                    </td>
                     <td className="py-3 px-4">
                       <Avatar className="h-10 w-10">
                         <AvatarImage
@@ -407,30 +515,33 @@ export default function ClientsPage() {
                       {formatDate(client.registration_date)}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => {
-                            setSelectedClient(client);
-                            setShowClientDetails(true);
-                          }}
-                          className="text-blue-600 hover:text-blue-800"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          className="text-green-600 hover:text-green-800"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          className="text-red-600 hover:text-red-800"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedClient(client);
+                              setShowClientDetails(true);
+                            }}
+                          >
+                            <Eye className="mr-2 h-4 w-4" />
+                            View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-red-600">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                 ))}
@@ -445,7 +556,7 @@ export default function ClientsPage() {
                 <button
                   onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
+                  className="px-3 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
                 >
                   Previous
                 </button>
@@ -457,7 +568,7 @@ export default function ClientsPage() {
                     setCurrentPage(Math.min(totalPages, currentPage + 1))
                   }
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
+                  className="px-3 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
                 >
                   Next
                 </button>
@@ -541,7 +652,7 @@ export default function ClientsPage() {
               </div>
 
               <div className="grid grid-cols-3 gap-4">
-                <Card>
+                <Card className="border">
                   <CardContent className="pt-6 text-center">
                     <div className="text-2xl font-bold">
                       {selectedClient.total_events}
@@ -551,7 +662,7 @@ export default function ClientsPage() {
                     </div>
                   </CardContent>
                 </Card>
-                <Card>
+                <Card className="border">
                   <CardContent className="pt-6 text-center">
                     <div className="text-2xl font-bold">
                       {selectedClient.total_bookings}
@@ -561,7 +672,7 @@ export default function ClientsPage() {
                     </div>
                   </CardContent>
                 </Card>
-                <Card>
+                <Card className="border">
                   <CardContent className="pt-6 text-center">
                     <div className="text-2xl font-bold">
                       {formatCurrency(

@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { toast } from "@/hooks/use-toast";
+import { CardTitle } from "@/components/ui/card";
+import { CheckCircle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -11,7 +14,25 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Package, Users, Gift, Loader } from "lucide-react";
+import {
+  Check,
+  Package,
+  Users,
+  Gift,
+  Loader,
+  X,
+  MapPin,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { formatCurrency } from "@/lib/utils";
 import { weddingPackages } from "@/data/wedding-packages";
 
@@ -36,7 +57,11 @@ interface DbPackage {
   venue_previews?: Array<{
     venue_id: string;
     venue_title: string;
+    venue_location: string;
+    venue_capacity: number;
+    venue_price: number;
     venue_profile_picture: string | null;
+    venue_cover_photo: string | null;
   }>;
   venue_price_range?: {
     min: number;
@@ -187,7 +212,11 @@ const getVenuePreviews = (
 ): Array<{
   venue_id: string;
   venue_title: string;
+  venue_location: string;
+  venue_capacity: number;
+  venue_price: number;
   venue_profile_picture: string | null;
+  venue_cover_photo: string | null;
 }> => {
   if ("venue_previews" in pkg && pkg.venue_previews) {
     return pkg.venue_previews;
@@ -201,6 +230,26 @@ const getVenueCount = (pkg: Package): number => {
     return pkg.venue_count;
   }
   return 0;
+};
+
+// Helper function to get freebies as displayable items
+const getFreebiesDisplay = (pkg: Package): string[] => {
+  if ("freebies" in pkg && Array.isArray(pkg.freebies)) {
+    if (pkg.freebies.length === 0) return [];
+
+    // If it's a DbPackage (array of strings)
+    if (typeof pkg.freebies[0] === "string") {
+      return pkg.freebies as string[];
+    }
+
+    // If it's a StaticPackage (array of objects with name)
+    const staticFreebies = pkg.freebies as Array<{
+      name: string;
+      description?: string;
+    }>;
+    return staticFreebies.map((f) => f.name);
+  }
+  return [];
 };
 
 interface PackageSelectionProps {
@@ -220,7 +269,18 @@ export function PackageSelection({
   const [packages, setPackages] = useState<DbPackage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isConfirming, setIsConfirming] = useState(false);
+  const [selectedPackageForDetails, setSelectedPackageForDetails] =
+    useState<DbPackage | null>(null);
+  const [isPackageDetailsModalOpen, setIsPackageDetailsModalOpen] =
+    useState(false);
+  const [currentVenueIndex, setCurrentVenueIndex] = useState(0);
+  const [isModalLoading, setIsModalLoading] = useState(false);
+
+  // Helper function to get image URL
+  const getImageUrl = (path: string | null) => {
+    if (!path) return null;
+    return `http://localhost/events-api/${path}`;
+  };
 
   // Map event type strings to event type IDs
   const getEventTypeId = (type: string): number | null => {
@@ -266,7 +326,7 @@ export function PackageSelection({
     return null;
   };
 
-  // Fetch packages by event type
+  // Fetch packages based on event type
   useEffect(() => {
     const fetchPackages = async () => {
       setIsLoading(true);
@@ -276,16 +336,15 @@ export function PackageSelection({
         console.log("Fetching packages for event type:", eventType);
         console.log("Initial package ID:", initialPackageId);
 
-        // Fetch packages by event type first to maintain order
+        // Get event type ID
         const eventTypeId = getEventTypeId(eventType);
         console.log("Event type ID:", eventTypeId);
-        console.log(
-          "API URL will be:",
-          `http://localhost/events-api/admin.php?operation=getPackagesByEventType&event_type_id=${eventTypeId}`
-        );
+
+        let response;
 
         if (eventTypeId) {
-          const response = await axios.get<{
+          // Fetch packages filtered by event type
+          response = await axios.get<{
             status: string;
             packages?: DbPackage[];
             message?: string;
@@ -295,116 +354,127 @@ export function PackageSelection({
               event_type_id: eventTypeId,
             },
           });
+        } else {
+          // If no event type selected or invalid, fetch all packages
+          response = await axios.get<{
+            status: string;
+            packages?: DbPackage[];
+            message?: string;
+          }>("http://localhost/events-api/admin.php", {
+            params: {
+              operation: "getAllPackages",
+            },
+          });
+        }
 
-          console.log("Packages response:", response.data);
-          console.log(
-            "Number of packages returned:",
-            response.data.packages?.length || 0
-          );
+        console.log("API Response:", response);
+        console.log("Response data:", response.data);
 
-          if (response.data.status === "success") {
-            let allPackages = response.data.packages || [];
-            console.log("All packages before processing:", allPackages);
+        console.log("Packages response:", response.data);
 
-            // If we have an initial package ID that's not in the main list, fetch it separately
-            if (
-              initialPackageId &&
-              !allPackages.find((p) => p.package_id === initialPackageId)
-            ) {
-              try {
-                const initialPackageResponse = await axios.get<{
-                  status: string;
-                  package?: DbPackage;
-                  message?: string;
-                }>("http://localhost/events-api/admin.php", {
-                  params: {
-                    operation: "getPackageById",
-                    package_id: initialPackageId,
-                  },
-                });
+        if (response.data.status === "error") {
+          console.error("API Error:", response.data.message);
+          setError(response.data.message || "Unknown error occurred");
+          return;
+        }
 
-                console.log(
-                  "Initial package response:",
-                  initialPackageResponse.data
-                );
+        if (!response.data.packages || response.data.packages.length === 0) {
+          console.log("No packages returned from API");
+          setError("No packages available. Please contact support.");
+          return;
+        }
 
-                if (
-                  initialPackageResponse.data.status === "success" &&
-                  initialPackageResponse.data.package
-                ) {
-                  // Transform single package response to match array format
-                  const pkg = initialPackageResponse.data.package;
-                  const initialPackage: DbPackage = {
-                    ...pkg,
-                    component_count: pkg.components?.length || 0,
-                    freebie_count: pkg.freebies?.length || 0,
-                    venue_count: pkg.venues?.length || 0,
-                    inclusions:
-                      pkg.components?.map((c: any) => c.component_name) || [],
-                    freebies:
-                      pkg.freebies?.map((f: any) => f.freebie_name) || [],
-                    venue_previews:
-                      pkg.venues?.map((v: any) => ({
-                        venue_id: v.venue_id,
-                        venue_title: v.venue_title,
-                        venue_profile_picture: v.venue_profile_picture,
-                      })) || [],
-                  };
+        console.log(
+          "Number of packages returned:",
+          response.data.packages?.length || 0
+        );
+        console.log("Packages:", response.data.packages);
 
-                  // Add the initial package to the end to avoid reordering
-                  allPackages.push(initialPackage);
-                }
-              } catch (error) {
-                console.error("Error fetching initial package:", error);
-              }
-            }
+        if (response.data.status === "success") {
+          let allPackages = response.data.packages || [];
+          console.log("All packages before processing:", allPackages);
 
-            // Deduplicate packages by package_id
-            const uniquePackages = allPackages.reduce(
-              (acc: DbPackage[], current: DbPackage) => {
-                const existing = acc.find(
-                  (pkg) => pkg.package_id === current.package_id
-                );
-                if (!existing) {
-                  acc.push(current);
-                }
-                return acc;
-              },
-              []
-            );
-
-            // Set packages in their natural order
-            setPackages(uniquePackages);
-          } else {
-            console.error("API returned error:", response.data.message);
-            // Fallback: try to get all packages if specific event type fails
+          // If we have an initial package ID that's not in the main list, fetch it separately
+          if (
+            initialPackageId &&
+            !allPackages.find((p) => p.package_id === initialPackageId)
+          ) {
             try {
-              console.log("Trying fallback: get all packages");
-              const fallbackResponse = await axios.get<{
+              const initialPackageResponse = await axios.get<{
                 status: string;
-                packages?: DbPackage[];
+                package?: DbPackage;
                 message?: string;
               }>("http://localhost/events-api/admin.php", {
                 params: {
-                  operation: "getPackagesByEventType",
-                  event_type_id: 0, // 0 = all packages
+                  operation: "getPackageById",
+                  package_id: initialPackageId,
                 },
               });
 
-              if (fallbackResponse.data.status === "success") {
-                console.log("Fallback response:", fallbackResponse.data);
-                setPackages(fallbackResponse.data.packages || []);
-              } else {
-                setError(
-                  "Failed to load packages: " +
-                    (response.data.message || "Unknown error")
-                );
+              console.log(
+                "Initial package response:",
+                initialPackageResponse.data
+              );
+
+              if (
+                initialPackageResponse.data.status === "success" &&
+                initialPackageResponse.data.package
+              ) {
+                // Transform single package response to match array format
+                const pkg = initialPackageResponse.data.package;
+                const initialPackage: DbPackage = {
+                  ...pkg,
+                  component_count: pkg.components?.length || 0,
+                  freebie_count: pkg.freebies?.length || 0,
+                  venue_count: pkg.venues?.length || 0,
+                  inclusions:
+                    pkg.components?.map((c: any) => c.component_name) || [],
+                  freebies: pkg.freebies?.map((f: any) => f.freebie_name) || [],
+                  venue_previews:
+                    pkg.venues?.map((v: any) => {
+                      return {
+                        venue_id: v.venue_id,
+                        venue_title: v.venue_title,
+                        venue_location:
+                          v.venue_location || "Location not specified",
+                        venue_capacity: parseInt(v.venue_capacity) || 0,
+                        venue_price: parseFloat(v.venue_price) || 0,
+                        venue_profile_picture: v.venue_profile_picture,
+                        venue_cover_photo: v.venue_cover_photo,
+                      };
+                    }) || [],
+                };
+
+                // Add the initial package to the end to avoid reordering
+                allPackages.push(initialPackage);
               }
-            } catch (fallbackError) {
-              console.error("Fallback API error:", fallbackError);
-              setError("Failed to connect to server. Please try again later.");
+            } catch (error) {
+              console.error("Error fetching initial package:", error);
             }
           }
+
+          // Deduplicate packages by package_id
+          const uniquePackages = allPackages.reduce(
+            (acc: DbPackage[], current: DbPackage) => {
+              const existing = acc.find(
+                (pkg) => pkg.package_id === current.package_id
+              );
+              if (!existing) {
+                acc.push(current);
+              }
+              return acc;
+            },
+            []
+          );
+
+          // Set packages in their natural order
+          setPackages(uniquePackages);
+        } else {
+          console.error("API returned error:", response.data.message);
+          setError(
+            "Failed to load packages: " +
+              (response.data.message || "Unknown error")
+          );
         }
       } catch (error) {
         console.error("API error:", error);
@@ -415,19 +485,70 @@ export function PackageSelection({
     };
 
     fetchPackages();
-  }, [eventType, initialPackageId]);
+  }, [initialPackageId, eventType]);
 
   const handleSelect = (packageId: string) => {
     console.log("Selecting package:", packageId);
     setSelectedPackage(packageId);
+
+    // Call onSelect but don't automatically proceed
+    onSelect(packageId).catch((error) => {
+      console.error("Error selecting package:", error);
+    });
   };
 
-  const handleConfirmSelection = async (packageId: string) => {
-    setIsConfirming(true);
+  const handleViewDetails = async (pkg: DbPackage) => {
+    setIsModalLoading(true);
     try {
-      await onSelect(packageId);
+      // Fetch complete package details to ensure we have all venue data
+      const response = await axios.get<{
+        status: string;
+        package?: DbPackage;
+        message?: string;
+      }>("http://localhost/events-api/admin.php", {
+        params: {
+          operation: "getPackageById",
+          package_id: pkg.package_id,
+        },
+      });
+
+      if (response.data.status === "success" && response.data.package) {
+        const completePackage = response.data.package;
+        const enhancedPackage: DbPackage = {
+          ...completePackage,
+          component_count: completePackage.components?.length || 0,
+          freebie_count: completePackage.freebies?.length || 0,
+          venue_count: completePackage.venues?.length || 0,
+          inclusions: completePackage.components?.map((c: any) => c.component_name) || [],
+          freebies: completePackage.freebies?.map((f: any) => f.freebie_name) || [],
+          venue_previews: completePackage.venues?.map((v: any) => ({
+            venue_id: v.venue_id,
+            venue_title: v.venue_title,
+            venue_location: v.venue_location || "Location not specified",
+            venue_capacity: parseInt(v.venue_capacity) || 0,
+            venue_price: parseFloat(v.venue_price) || 0,
+            venue_profile_picture: v.venue_profile_picture,
+            venue_cover_photo: v.venue_cover_photo,
+          })) || [],
+        };
+
+        setSelectedPackageForDetails(enhancedPackage);
+        setCurrentVenueIndex(0);
+        setIsPackageDetailsModalOpen(true);
+      } else {
+        // Fallback to original package if API call fails
+        setSelectedPackageForDetails(pkg);
+        setCurrentVenueIndex(0);
+        setIsPackageDetailsModalOpen(true);
+      }
+    } catch (error) {
+      console.error("Error fetching package details:", error);
+      // Fallback to original package if API call fails
+      setSelectedPackageForDetails(pkg);
+      setCurrentVenueIndex(0);
+      setIsPackageDetailsModalOpen(true);
     } finally {
-      setIsConfirming(false);
+      setIsModalLoading(false);
     }
   };
 
@@ -445,11 +566,9 @@ export function PackageSelection({
   if (packages.length === 0) {
     return (
       <div className="rounded-lg bg-yellow-50 p-6 text-center">
-        <p className="text-yellow-800 mb-4">
-          No packages available for {eventType} events.
-        </p>
+        <p className="text-yellow-800 mb-4">No packages available.</p>
         <p className="text-sm text-yellow-600">
-          Please select a different event type or contact support.
+          Please contact support to add packages.
         </p>
       </div>
     );
@@ -470,181 +589,406 @@ export function PackageSelection({
   // Render packages
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row gap-4">
-        {/* Package Cards Grid */}
-        <div className="w-full md:w-2/3">
-          <div className="mb-4">
-            <h2 className="text-2xl font-bold">Select a Package</h2>
-            <p className="text-muted-foreground">
-              Choose a package for your {eventType} event.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {packages.map((pkg) => {
-              const isSelected = selectedPackage === pkg.package_id;
-              return (
-                <Card
-                  key={getPackageId(pkg)}
-                  className={`overflow-hidden cursor-pointer transition-all duration-200 h-full flex flex-col p-4 border border-gray-200 bg-white ${
-                    isSelected
-                      ? "ring-2 ring-green-500 shadow-lg border-green-200"
-                      : "hover:shadow-md"
-                  }`}
-                  onClick={() => handleSelect(getPackageId(pkg))}
-                >
-                  <div className="flex flex-col gap-2 flex-1">
-                    <div className="mb-2">
-                      <h3 className="text-lg font-bold text-gray-900 mb-1 truncate">
-                        {getPackageTitle(pkg)}
-                      </h3>
-                      <p className="text-sm text-gray-600 truncate">
-                        {getPackageDescription(pkg)}
-                      </p>
-                    </div>
-                    <div className="mb-4 flex items-center gap-4">
-                      <span className="text-2xl font-bold text-brand-600">
-                        {formatCurrency(getPackagePrice(pkg))}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        up to {getGuestCapacity(pkg)} guests
-                      </span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {packages.map((pkg, index) => {
+          const isSelected = selectedPackage === getPackageId(pkg);
+          return (
+            <Card
+              key={getPackageId(pkg)}
+              className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
+                isSelected ? "ring-2 ring-[#028A75] border-[#028A75]" : ""
+              }`}
+              onClick={() => handleSelect(getPackageId(pkg))}
+            >
+              <CardHeader className="pb-2">
+                <div className="flex justify-between items-start">
+                  <CardTitle className="text-lg">
+                    {getPackageTitle(pkg)}
+                  </CardTitle>
+                  {isSelected && (
+                    <CheckCircle className="h-5 w-5 text-[#028A75]" />
+                  )}
+                </div>
+                <p className="text-sm text-gray-600 line-clamp-2">
+                  {getPackageDescription(pkg)}
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-2xl font-bold text-[#028A75]">
+                      {formatCurrency(getPackagePrice(pkg))}
+                    </span>
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Users className="h-4 w-4 mr-1" />
+                      {getGuestCapacity(pkg)} guests
                     </div>
                   </div>
-                  <div className="mt-auto">
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>{getInclusionItems(pkg).length} components</span>
+                    <span>{getFreebiesDisplay(pkg).length} freebies</span>
+                  </div>
+                  <div className="flex gap-2">
                     <Button
-                      className={`w-full py-2 text-base font-semibold rounded-lg transition-all ${
-                        isSelected
-                          ? "bg-brand-500 hover:bg-brand-600 text-white shadow"
-                          : "border-brand-500 text-brand-500 hover:bg-brand-50"
-                      }`}
-                      variant={isSelected ? "default" : "outline"}
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleSelect(getPackageId(pkg));
                       }}
                     >
-                      {isSelected ? (
-                        <div className="flex items-center gap-2">
-                          <Check className="h-5 w-5" />
-                          Selected
-                        </div>
-                      ) : (
-                        "View Details"
-                      )}
+                      {isSelected ? "Selected" : "Select Package"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleViewDetails(pkg as DbPackage);
+                      }}
+                    >
+                      View Details
                     </Button>
                   </div>
-                </Card>
-              );
-            })}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {selectedPackage && (
+        <div className="mt-6 p-4 bg-[#028A75]/5 rounded-lg border border-[#028A75]/20">
+          <h3 className="font-medium text-[#028A75] mb-2">Selected Package</h3>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-[#028A75]">
+                {(() => {
+                  const selectedPkg = packages.find(
+                    (p) => getPackageId(p) === selectedPackage
+                  );
+                  return selectedPkg
+                    ? getPackageTitle(selectedPkg)
+                    : "Selected Package";
+                })()}
+              </p>
+              <p className="text-sm text-[#028A75]/70">
+                {formatCurrency(
+                  getPackagePrice(
+                    packages.find((p) => getPackageId(p) === selectedPackage) ||
+                      packages[0]
+                  )
+                )}
+              </p>
+            </div>
+            <button
+              onClick={() => setSelectedPackage(null)}
+              className="text-[#028A75] hover:text-[#028A75]/80"
+            >
+              Change
+            </button>
           </div>
         </div>
+      )}
 
-        {/* Detail Panel */}
-        <div className="w-full md:w-1/3">
-          {selectedPackage &&
-            (() => {
-              const pkg = packages.find(
-                (p) => getPackageId(p) === selectedPackage
-              );
-              if (!pkg) return null;
-              const inclusions = getInclusionItems(pkg);
-              const venues = getVenuePreviews(pkg);
-              const freebies = pkg.freebies || [];
-              return (
-                <Card className="sticky top-4 border-green-200">
-                  <CardHeader className="bg-green-50">
-                    <h3 className="text-green-800 text-xl font-bold">
-                      {getPackageTitle(pkg)}
-                    </h3>
-                    <CardDescription className="text-green-600">
-                      {getPackageDescription(pkg)}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4 pt-6">
-                    <div className="flex items-center gap-4">
-                      <span className="text-2xl font-bold text-brand-600">
-                        {formatCurrency(getPackagePrice(pkg))}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        up to {getGuestCapacity(pkg)} guests
-                      </span>
-                    </div>
-                    {/* Inclusions */}
-                    <div>
-                      <div className="font-medium text-green-800 mb-1">
-                        Inclusions
-                      </div>
-                      <ul className="text-sm text-gray-700 list-disc list-inside pl-2 max-h-32 overflow-y-auto">
-                        {inclusions.length > 0 ? (
-                          inclusions.map((item, i) => (
-                            <li key={i} className="truncate">
-                              {item}
-                            </li>
-                          ))
-                        ) : (
-                          <li className="italic text-gray-400">
-                            No inclusions specified
-                          </li>
-                        )}
-                      </ul>
-                    </div>
-                    {/* Venues */}
-                    {venues.length > 0 && (
-                      <div>
-                        <div className="font-medium text-green-800 mb-1">
-                          Venues
-                        </div>
-                        <ul className="text-sm text-gray-700 list-disc list-inside pl-2 max-h-24 overflow-y-auto">
-                          {venues.map((venue, i) => (
-                            <li key={i} className="truncate">
-                              {venue.venue_title}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {/* Freebies */}
-                    {freebies.length > 0 && (
-                      <div>
-                        <div className="font-medium text-green-800 mb-1">
-                          Freebies
-                        </div>
-                        <ul className="text-sm text-gray-700 list-disc list-inside pl-2 max-h-24 overflow-y-auto">
-                          {freebies.map((freebie, i) => (
-                            <li key={i} className="truncate">
-                              {typeof freebie === "string"
-                                ? freebie
-                                : freebie.name}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </CardContent>
-                  <CardFooter>
-                    <Button
-                      className="w-full bg-brand-500 hover:bg-brand-600 text-white"
-                      disabled={isConfirming}
-                      onClick={() => handleConfirmSelection(getPackageId(pkg))}
-                    >
-                      {isConfirming ? (
-                        <>
-                          <Loader className="h-4 w-4 mr-2 animate-spin" />
-                          Confirming...
-                        </>
-                      ) : (
-                        <>
-                          <Check className="h-4 w-4 mr-2" />
-                          Confirm Package Selection
-                        </>
+      {/* Package Details Modal */}
+      <Dialog
+        open={isPackageDetailsModalOpen}
+        onOpenChange={setIsPackageDetailsModalOpen}
+      >
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0">
+          {/* Header Section */}
+          <div className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+            <DialogHeader className="space-y-1">
+              <DialogTitle className="text-2xl font-semibold text-gray-900">
+                {selectedPackageForDetails?.package_title}
+              </DialogTitle>
+              <DialogDescription className="text-base text-gray-600">
+                {selectedPackageForDetails?.package_description}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto px-6 py-6 min-h-0">
+            {isModalLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <Loader className="h-8 w-8 animate-spin text-[#028A75] mx-auto mb-4" />
+                  <p className="text-gray-600">Loading package details...</p>
+                </div>
+              </div>
+            ) : selectedPackageForDetails ? (
+              <div className="space-y-8">
+                {/* Package Overview */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="text-center p-6 bg-[#028A75]/10 rounded-xl">
+                    <div className="text-2xl sm:text-3xl font-bold text-[#028A75]">
+                      {formatCurrency(
+                        parseFloat(selectedPackageForDetails.package_price)
                       )}
-                    </Button>
-                  </CardFooter>
-                </Card>
-              );
-            })()}
-        </div>
-      </div>
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">
+                      Total Package Price
+                    </div>
+                  </div>
+                  <div className="text-center p-6 bg-green-50 rounded-xl">
+                    <div className="text-2xl sm:text-3xl font-bold text-green-600">
+                      {selectedPackageForDetails.guest_capacity}
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">
+                      Maximum Guests
+                    </div>
+                  </div>
+                  <div className="text-center p-6 bg-purple-50 rounded-xl">
+                    <div className="text-2xl sm:text-3xl font-bold text-purple-600">
+                      {selectedPackageForDetails.freebie_count || 0}
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">Free Items</div>
+                  </div>
+                </div>
+
+                {/* Package Inclusions */}
+                <div>
+                  <h4 className="text-xl font-semibold mb-4 flex items-center">
+                    <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
+                    What's Included
+                  </h4>
+                  <div className="space-y-3">
+                    {selectedPackageForDetails.inclusions &&
+                    selectedPackageForDetails.inclusions.length > 0 ? (
+                      selectedPackageForDetails.inclusions.map(
+                        (inclusion, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center p-4 bg-white border rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            <CheckCircle className="h-4 w-4 mr-3 text-green-500" />
+                            <h5 className="font-medium text-gray-900">
+                              {inclusion}
+                            </h5>
+                          </div>
+                        )
+                      )
+                    ) : (
+                      <div className="text-gray-500 text-center p-4">
+                        No inclusions available
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Freebies */}
+                {selectedPackageForDetails.freebies &&
+                  selectedPackageForDetails.freebies.length > 0 && (
+                    <div>
+                      <h4 className="text-xl font-semibold mb-4 flex items-center">
+                        <Gift className="h-5 w-5 mr-2 text-orange-600" />
+                        Free Bonuses
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {selectedPackageForDetails.freebies.map(
+                          (freebie, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-start p-4 bg-orange-50 rounded-lg"
+                            >
+                              <Gift className="h-5 w-5 mr-3 text-orange-600 flex-shrink-0 mt-0.5" />
+                              <div className="min-w-0">
+                                <p className="font-medium text-gray-900">
+                                  {freebie}
+                                </p>
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                {/* Venue Choices */}
+                {selectedPackageForDetails.venue_previews &&
+                  selectedPackageForDetails.venue_previews.length > 0 && (
+                    <div>
+                      <h4 className="text-xl font-semibold mb-4 flex items-center">
+                        <MapPin className="h-5 w-5 mr-2 text-[#028A75]" />
+                        Available Venues
+                      </h4>
+                      <div className="relative">
+                        <div className="overflow-hidden rounded-xl">
+                          {/* Carousel Container */}
+                          <div
+                            className="relative"
+                            style={{
+                              transform: `translateX(-${currentVenueIndex * 100}%)`,
+                              transition: "transform 0.5s ease-in-out",
+                              display: "flex",
+                              width: `${selectedPackageForDetails.venue_previews.length * 100}%`,
+                            }}
+                          >
+                            {selectedPackageForDetails.venue_previews.map(
+                              (venue, idx) => (
+                                <div
+                                  key={venue.venue_id}
+                                  className="w-full flex-shrink-0"
+                                >
+                                  {/* Cover Photo Container */}
+                                  <div className="relative w-full h-[300px]">
+                                    <img
+                                      src={
+                                        getImageUrl(venue.venue_cover_photo) ||
+                                        "/placeholder.jpg"
+                                      }
+                                      alt={`${venue.venue_title} cover`}
+                                      className="w-full h-full object-cover rounded-t-lg"
+                                      onError={(e) => {
+                                        const target =
+                                          e.target as HTMLImageElement;
+                                        target.src = "/placeholder.jpg";
+                                      }}
+                                    />
+                                    {/* Profile Picture Overlay */}
+                                    <div className="absolute -bottom-5 left-4">
+                                      <div className="w-16 h-16 rounded-full border-4 border-white overflow-hidden">
+                                        <img
+                                          src={
+                                            getImageUrl(
+                                              venue.venue_profile_picture
+                                            ) || "/default_pfp.png"
+                                          }
+                                          alt={venue.venue_title}
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => {
+                                            const target =
+                                              e.target as HTMLImageElement;
+                                            target.src = "/default_pfp.png";
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {/* Venue Details */}
+                                  <div className="pt-7 pb-4 px-4 bg-white rounded-b-lg">
+                                    <h3 className="text-lg font-semibold text-gray-900 line-clamp-1">
+                                      {venue.venue_title}
+                                    </h3>
+                                    <p className="text-sm text-gray-600 mt-1 line-clamp-1">
+                                      {venue.venue_location}
+                                    </p>
+                                    <div className="flex items-center justify-between mt-3">
+                                      <span className="text-sm text-gray-600 flex items-center">
+                                        <Users className="h-4 w-4 mr-1" />
+                                        Up to {venue.venue_capacity} guests
+                                      </span>
+                                      <span className="font-medium text-[#028A75]">
+                                        ₱
+                                        {Number(
+                                          venue.venue_price
+                                        ).toLocaleString("en-PH", {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2,
+                                        })}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            )}
+                          </div>
+                          {/* Navigation Arrows */}
+                          {selectedPackageForDetails.venue_previews &&
+                            selectedPackageForDetails.venue_previews.length >
+                              1 && (
+                              <>
+                                <button
+                                  onClick={() =>
+                                    setCurrentVenueIndex((prev) =>
+                                      Math.max(0, prev - 1)
+                                    )
+                                  }
+                                  className={`absolute top-1/2 left-2 transform -translate-y-1/2 p-2 rounded-full bg-white/80 backdrop-blur-sm transition-opacity ${
+                                    currentVenueIndex === 0
+                                      ? "opacity-50 cursor-not-allowed"
+                                      : "opacity-100 hover:bg-white"
+                                  }`}
+                                  disabled={currentVenueIndex === 0}
+                                >
+                                  <ChevronLeft className="h-5 w-5 text-gray-700" />
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    setCurrentVenueIndex((prev) =>
+                                      Math.min(
+                                        (selectedPackageForDetails
+                                          .venue_previews?.length ?? 1) - 1,
+                                        prev + 1
+                                      )
+                                    )
+                                  }
+                                  className={`absolute top-1/2 right-2 transform -translate-y-1/2 p-2 rounded-full bg-white/80 backdrop-blur-sm transition-opacity ${
+                                    currentVenueIndex ===
+                                    (selectedPackageForDetails.venue_previews
+                                      ?.length ?? 1) -
+                                      1
+                                      ? "opacity-50 cursor-not-allowed"
+                                      : "opacity-100 hover:bg-white"
+                                  }`}
+                                  disabled={
+                                    currentVenueIndex ===
+                                    (selectedPackageForDetails.venue_previews
+                                      ?.length ?? 1) -
+                                      1
+                                  }
+                                >
+                                  <ChevronRight className="h-5 w-5 text-gray-700" />
+                                </button>
+                              </>
+                            )}
+                        </div>
+                        {/* Dots Navigation */}
+                        {selectedPackageForDetails.venue_previews &&
+                          selectedPackageForDetails.venue_previews.length >
+                            1 && (
+                            <div className="flex justify-center gap-2 mt-4">
+                              {selectedPackageForDetails.venue_previews.map(
+                                (_, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={() => setCurrentVenueIndex(idx)}
+                                    className={`h-2 rounded-full transition-all duration-300 ${
+                                      idx === currentVenueIndex
+                                        ? "w-8 bg-[#028A75]"
+                                        : "w-2 bg-gray-300"
+                                    }`}
+                                  />
+                                )
+                              )}
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  )}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Footer with Action Button */}
+          <div className="px-6 py-4 border-t bg-gray-50 flex-shrink-0">
+            <Button
+              onClick={() => {
+                if (selectedPackageForDetails) {
+                  handleSelect(selectedPackageForDetails.package_id);
+                  setIsPackageDetailsModalOpen(false);
+                }
+              }}
+              className="w-full bg-[#028A75] hover:bg-[#027A65] text-white"
+            >
+              Select This Package
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

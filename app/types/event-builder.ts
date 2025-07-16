@@ -166,7 +166,8 @@ export interface PackageSelectionFallbackProps {
 export interface ComponentCustomizationProps {
   components: DataPackageComponent[];
   onUpdate: (updatedComponents: DataPackageComponent[]) => void;
-  onNext: () => void;
+  onNext?: () => void;
+  eventDetails?: EventDetails;
 }
 
 export interface TimelineStepProps {

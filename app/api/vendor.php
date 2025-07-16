@@ -345,6 +345,7 @@ class Venue {
                         venue_status,
                         venue_capacity,
                         venue_price,
+                        extra_pax_rate,
                         venue_type,
                         venue_profile_picture,
                         venue_cover_photo
@@ -358,6 +359,7 @@ class Venue {
                         :venueStatus,
                         :venueCapacity,
                         :venuePrice,
+                        :extraPaxRate,
                         :venueType,
                         :venueProfilePicture,
                         :venueCoverPhoto

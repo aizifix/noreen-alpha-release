@@ -68,40 +68,40 @@ class Admin {
 
             // Validate foreign key references before insertion
             // Check if user exists
-            $userCheck = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_id = ?");
+            $userCheck = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_id = ? LIMIT 1");
             $userCheck->execute([$data['user_id']]);
-            if (!$userCheck->fetch()) {
+            if (!$userCheck->fetch(PDO::FETCH_ASSOC)) {
                 return json_encode(["status" => "error", "message" => "Invalid user_id: User does not exist"]);
             }
 
             // Check if admin exists
-            $adminCheck = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_id = ? AND user_role = 'admin'");
+            $adminCheck = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_id = ? AND user_role = 'admin' LIMIT 1");
             $adminCheck->execute([$data['admin_id']]);
-            if (!$adminCheck->fetch()) {
+            if (!$adminCheck->fetch(PDO::FETCH_ASSOC)) {
                 return json_encode(["status" => "error", "message" => "Invalid admin_id: Admin user does not exist"]);
             }
 
             // Check if event type exists
-            $eventTypeCheck = $this->conn->prepare("SELECT event_type_id FROM tbl_event_type WHERE event_type_id = ?");
+            $eventTypeCheck = $this->conn->prepare("SELECT event_type_id FROM tbl_event_type WHERE event_type_id = ? LIMIT 1");
             $eventTypeCheck->execute([$data['event_type_id']]);
-            if (!$eventTypeCheck->fetch()) {
+            if (!$eventTypeCheck->fetch(PDO::FETCH_ASSOC)) {
                 return json_encode(["status" => "error", "message" => "Invalid event_type_id: Event type does not exist. Available types: 1=Wedding, 2=Anniversary, 3=Birthday, 4=Corporate, 5=Others"]);
             }
 
             // Check if package exists (if provided)
             if (!empty($data['package_id'])) {
-                $packageCheck = $this->conn->prepare("SELECT package_id FROM tbl_packages WHERE package_id = ?");
+                $packageCheck = $this->conn->prepare("SELECT package_id FROM tbl_packages WHERE package_id = ? LIMIT 1");
                 $packageCheck->execute([$data['package_id']]);
-                if (!$packageCheck->fetch()) {
+                if (!$packageCheck->fetch(PDO::FETCH_ASSOC)) {
                     return json_encode(["status" => "error", "message" => "Invalid package_id: Package does not exist"]);
                 }
             }
 
             // Check if venue exists (if provided)
             if (!empty($data['venue_id'])) {
-                $venueCheck = $this->conn->prepare("SELECT venue_id FROM tbl_venue WHERE venue_id = ?");
+                $venueCheck = $this->conn->prepare("SELECT venue_id FROM tbl_venue WHERE venue_id = ? LIMIT 1");
                 $venueCheck->execute([$data['venue_id']]);
-                if (!$venueCheck->fetch()) {
+                if (!$venueCheck->fetch(PDO::FETCH_ASSOC)) {
                     return json_encode(["status" => "error", "message" => "Invalid venue_id: Venue does not exist"]);
                 }
             }
@@ -115,9 +115,10 @@ class Admin {
                     WHERE event_date = ?
                     AND event_type_id = 1
                     AND event_status NOT IN ('cancelled', 'completed')
+                    LIMIT 1
                 ");
                 $weddingCheck->execute([$data['event_date']]);
-                $existingWedding = $weddingCheck->fetch();
+                $existingWedding = $weddingCheck->fetch(PDO::FETCH_ASSOC);
 
                 if ($existingWedding) {
                     return json_encode([
@@ -152,9 +153,10 @@ class Admin {
                     WHERE event_date = ?
                     AND event_type_id = 1
                     AND event_status NOT IN ('cancelled', 'completed')
+                    LIMIT 1
                 ");
                 $weddingCheck->execute([$data['event_date']]);
-                $existingWedding = $weddingCheck->fetch();
+                $existingWedding = $weddingCheck->fetch(PDO::FETCH_ASSOC);
 
                 if ($existingWedding) {
                     return json_encode([
@@ -518,14 +520,14 @@ class Admin {
             // Check for duplicate business name or email
             $checkStmt = $this->conn->prepare("SELECT supplier_id FROM tbl_suppliers WHERE (business_name = ? OR contact_email = ?) AND is_active = 1");
             $checkStmt->execute([$data['business_name'], $data['contact_email']]);
-            if ($checkStmt->fetch()) {
+            if ($checkStmt->fetch(PDO::FETCH_ASSOC)) {
                 throw new Exception("A supplier with this business name or email already exists");
             }
 
             // Check if email already exists in users table
             $userEmailCheck = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_email = ?");
             $userEmailCheck->execute([$data['contact_email']]);
-            if ($userEmailCheck->fetch()) {
+            if ($userEmailCheck->fetch(PDO::FETCH_ASSOC)) {
                 throw new Exception("An account with this email already exists");
             }
 
@@ -1209,6 +1211,125 @@ This is an automated message. Please do not reply.
         }
     }
 
+    // New method specifically for event builder supplier selection
+    public function getSuppliersForEventBuilder($page = 1, $limit = 100, $filters = []) {
+        try {
+            $offset = ($page - 1) * $limit;
+
+            $whereClauses = ["s.is_active = 1", "s.is_verified = 1"];
+            $params = [];
+
+            // Apply filters
+            if (!empty($filters['specialty_category'])) {
+                $whereClauses[] = "s.specialty_category = ?";
+                $params[] = $filters['specialty_category'];
+            }
+
+            if (!empty($filters['search'])) {
+                $whereClauses[] = "(s.business_name LIKE ? OR s.contact_person LIKE ? OR s.contact_email LIKE ?)";
+                $searchTerm = "%" . $filters['search'] . "%";
+                $params[] = $searchTerm;
+                $params[] = $searchTerm;
+                $params[] = $searchTerm;
+            }
+
+            $whereSQL = "WHERE " . implode(" AND ", $whereClauses);
+
+            // Get total count
+            $countSql = "SELECT COUNT(*) as total FROM tbl_suppliers s $whereSQL";
+            $countStmt = $this->conn->prepare($countSql);
+            $countStmt->execute($params);
+            $totalResult = $countStmt->fetch();
+            $total = $totalResult['total'];
+
+            // Get suppliers with offers for pricing tiers
+            $sql = "SELECT
+                        s.supplier_id,
+                        s.business_name,
+                        s.specialty_category,
+                        s.contact_email,
+                        s.contact_number,
+                        s.contact_person,
+                        s.business_description,
+                        s.rating_average,
+                        s.total_ratings,
+                        s.is_active,
+                        s.is_verified,
+                        s.created_at,
+                        s.updated_at
+                    FROM tbl_suppliers s
+                    $whereSQL
+                    ORDER BY s.business_name ASC
+                    LIMIT ? OFFSET ?";
+
+            $stmt = $this->conn->prepare($sql);
+            $params[] = $limit;
+            $params[] = $offset;
+            $stmt->execute($params);
+
+            $suppliers = [];
+            while ($row = $stmt->fetch()) {
+                // Get pricing tiers from offers
+                $offersSql = "SELECT
+                                offer_title,
+                                price_min,
+                                price_max,
+                                service_category,
+                                package_size
+                              FROM tbl_supplier_offers
+                              WHERE supplier_id = ? AND is_active = 1
+                              ORDER BY price_min ASC";
+
+                $offersStmt = $this->conn->prepare($offersSql);
+                $offersStmt->execute([$row['supplier_id']]);
+                $offers = $offersStmt->fetchAll();
+
+                // Format pricing tiers
+                $pricingTiers = [];
+                foreach ($offers as $offer) {
+                    $pricingTiers[] = [
+                        'tier_name' => $offer['offer_title'],
+                        'tier_price' => (float)$offer['price_min'],
+                        'tier_description' => $offer['service_category'] . ' - ' . $offer['package_size']
+                    ];
+                }
+
+                // Format supplier data for frontend
+                $formattedSupplier = [
+                    'supplier_id' => $row['supplier_id'],
+                    'supplier_name' => $row['business_name'],
+                    'supplier_category' => $row['specialty_category'],
+                    'supplier_email' => $row['contact_email'],
+                    'supplier_phone' => $row['contact_number'],
+                    'supplier_status' => $row['is_active'] ? 'active' : 'inactive',
+                    'pricing_tiers' => $pricingTiers,
+                    'rating_average' => (float)$row['rating_average'],
+                    'total_ratings' => (int)$row['total_ratings'],
+                    'business_description' => $row['business_description'],
+                    'contact_person' => $row['contact_person']
+                ];
+
+                $suppliers[] = $formattedSupplier;
+            }
+
+            return json_encode([
+                "status" => "success",
+                "data" => [
+                    "suppliers" => $suppliers,
+                    "pagination" => [
+                        "current_page" => $page,
+                        "total_pages" => ceil($total / $limit),
+                        "total_records" => $total,
+                        "per_page" => $limit
+                    ]
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode(["status" => "error", "message" => "Error fetching suppliers: " . $e->getMessage()]);
+        }
+    }
+
     // Get supplier by ID with complete details (Admin view)
     public function getSupplierById($supplierId) {
         try {
@@ -1220,7 +1341,7 @@ This is an automated message. Please do not reply.
 
             $stmt = $this->conn->prepare($sql);
             $stmt->execute([$supplierId]);
-            $supplier = $stmt->fetch();
+            $supplier = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$supplier) {
                 return json_encode(["status" => "error", "message" => "Supplier not found"]);
@@ -1325,7 +1446,7 @@ This is an automated message. Please do not reply.
             // Check if supplier exists
             $checkStmt = $this->conn->prepare("SELECT user_id FROM tbl_suppliers WHERE supplier_id = ? AND is_active = 1");
             $checkStmt->execute([$supplierId]);
-            $supplierData = $checkStmt->fetch();
+            $supplierData = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$supplierData) {
                 throw new Exception("Supplier not found");
@@ -2246,7 +2367,7 @@ This is an automated message. Please do not reply.
             $checkStmt = $this->conn->prepare($checkSql);
             $checkStmt->execute([':package_id' => $packageId]);
 
-            if (!$checkStmt->fetch()) {
+            if (!$checkStmt->fetch(PDO::FETCH_ASSOC)) {
                 return json_encode(["status" => "error", "message" => "Package not found"]);
             }
 
@@ -2373,13 +2494,15 @@ This is an automated message. Please do not reply.
                 $package['freebies'] = $freebieNames;
 
                 // Get venue previews with pricing
-                $venuesSql = "SELECT v.venue_id, v.venue_title, v.venue_profile_picture, v.venue_price,
+                $venuesSql = "SELECT v.venue_id, v.venue_title, v.venue_location, v.venue_capacity,
+                                    v.venue_profile_picture, v.venue_cover_photo, v.venue_price,
                                     COALESCE(SUM(vi.inclusion_price), 0) as inclusions_total
                              FROM tbl_package_venues pv
                              JOIN tbl_venue v ON pv.venue_id = v.venue_id
                              LEFT JOIN tbl_venue_inclusions vi ON v.venue_id = vi.venue_id AND vi.is_active = 1
                              WHERE pv.package_id = ? AND v.venue_status = 'available'
-                             GROUP BY v.venue_id, v.venue_title, v.venue_profile_picture, v.venue_price
+                             GROUP BY v.venue_id, v.venue_title, v.venue_location, v.venue_capacity,
+                                      v.venue_profile_picture, v.venue_cover_photo, v.venue_price
                              ORDER BY v.venue_title";
                 $venuesStmt = $this->conn->prepare($venuesSql);
                 $venuesStmt->execute([$packageId]);
@@ -2393,7 +2516,11 @@ This is an automated message. Please do not reply.
                     $package['venue_previews'][] = [
                         'venue_id' => $venue['venue_id'],
                         'venue_title' => $venue['venue_title'],
-                        'venue_profile_picture' => $venue['venue_profile_picture']
+                        'venue_location' => $venue['venue_location'],
+                        'venue_capacity' => intval($venue['venue_capacity']),
+                        'venue_profile_picture' => $venue['venue_profile_picture'],
+                        'venue_cover_photo' => $venue['venue_cover_photo'],
+                        'venue_price' => floatval($venue['venue_price'])
                     ];
 
                     // Calculate total venue price (base + inclusions)
@@ -2414,6 +2541,10 @@ This is an automated message. Please do not reply.
                             return [
                                 'venue_id' => $venue['venue_id'],
                                 'venue_title' => $venue['venue_title'],
+                                'venue_location' => $venue['venue_location'],
+                                'venue_capacity' => intval($venue['venue_capacity']),
+                                'venue_profile_picture' => $venue['venue_profile_picture'],
+                                'venue_cover_photo' => $venue['venue_cover_photo'],
                                 'venue_price' => $venue['venue_price'],
                                 'inclusions_total' => $venue['inclusions_total'],
                                 'total_venue_price' => strval(floatval($venue['venue_price']) + floatval($venue['inclusions_total']))
@@ -3325,12 +3456,12 @@ This is an automated message. Please do not reply.
             // Insert venue with all required fields
             $sql = "INSERT INTO tbl_venue (
                 venue_title, venue_details, venue_location, venue_contact,
-                venue_type, venue_capacity, venue_price, is_active,
+                venue_type, venue_capacity, venue_price, extra_pax_rate, is_active,
                 venue_profile_picture, venue_cover_photo, user_id, venue_owner,
                 venue_status
             ) VALUES (
                 :venue_title, :venue_details, :venue_location, :venue_contact,
-                :venue_type, :venue_capacity, :venue_price, :is_active,
+                :venue_type, :venue_capacity, :venue_price, :extra_pax_rate, :is_active,
                 :venue_profile_picture, :venue_cover_photo, :user_id, :venue_owner,
                 :venue_status
             )";
@@ -3344,6 +3475,7 @@ This is an automated message. Please do not reply.
                 'venue_type' => $venueType,
                 'venue_capacity' => $_POST['venue_capacity'],
                 'venue_price' => $_POST['venue_price'],
+                'extra_pax_rate' => isset($_POST['extra_pax_rate']) ? $_POST['extra_pax_rate'] : 0.00,
                 'is_active' => isset($_POST['is_active']) ? $_POST['is_active'] : 1,
                 'venue_profile_picture' => $profilePicture,
                 'venue_cover_photo' => $coverPhoto,
@@ -3414,6 +3546,117 @@ This is an automated message. Please do not reply.
             ]);
         }
     }
+    public function checkAndFixVenuePaxRates() {
+        try {
+            // First, let's see what venues we have
+            $sql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate FROM tbl_venue WHERE is_active = 1";
+            $stmt = $this->conn->query($sql);
+            $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $results = [];
+            $updates = [];
+
+            foreach ($venues as $venue) {
+                $venueTitle = $venue['venue_title'];
+                $currentPaxRate = floatval($venue['extra_pax_rate']);
+
+                // Define expected pax rates based on venue names
+                $expectedPaxRate = 0;
+                if (stripos($venueTitle, 'Pearlmont Hotel') !== false && stripos($venueTitle, 'Package 2') !== false) {
+                    $expectedPaxRate = 300.00;
+                } elseif (stripos($venueTitle, 'Pearlmont Hotel') !== false) {
+                    $expectedPaxRate = 350.00;
+                } elseif (stripos($venueTitle, 'Demiren') !== false) {
+                    $expectedPaxRate = 200.00;
+                }
+
+                $results[] = [
+                    'venue_id' => $venue['venue_id'],
+                    'venue_title' => $venueTitle,
+                    'current_pax_rate' => $currentPaxRate,
+                    'expected_pax_rate' => $expectedPaxRate,
+                    'needs_update' => $expectedPaxRate > 0 && $currentPaxRate != $expectedPaxRate
+                ];
+
+                // Update if needed
+                if ($expectedPaxRate > 0 && $currentPaxRate != $expectedPaxRate) {
+                    $updateSql = "UPDATE tbl_venue SET extra_pax_rate = ? WHERE venue_id = ?";
+                    $updateStmt = $this->conn->prepare($updateSql);
+                    $updateStmt->execute([$expectedPaxRate, $venue['venue_id']]);
+
+                    $updates[] = [
+                        'venue_id' => $venue['venue_id'],
+                        'venue_title' => $venueTitle,
+                        'old_rate' => $currentPaxRate,
+                        'new_rate' => $expectedPaxRate
+                    ];
+                }
+            }
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Venue pax rates checked and updated",
+                "venues" => $results,
+                "updates" => $updates,
+                "total_venues" => count($venues),
+                "updated_count" => count($updates)
+            ]);
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function setVenuePaxRate($venueId, $paxRate) {
+        try {
+            $sql = "UPDATE tbl_venue SET extra_pax_rate = ? WHERE venue_id = ?";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$paxRate, $venueId]);
+
+            // Get the updated venue data
+            $getSql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate FROM tbl_venue WHERE venue_id = ?";
+            $getStmt = $this->conn->prepare($getSql);
+            $getStmt->execute([$venueId]);
+            $venue = $getStmt->fetch(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Venue pax rate updated successfully",
+                "venue" => $venue
+            ]);
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function testVenueData() {
+        try {
+            $sql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate FROM tbl_venue WHERE is_active = 1 LIMIT 5";
+            $stmt = $this->conn->query($sql);
+            $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Venue data test",
+                "venues" => $venues,
+                "total_venues" => count($venues),
+                "venues_with_pax_rates" => array_filter($venues, function($venue) {
+                    return floatval($venue['extra_pax_rate']) > 0;
+                })
+            ]);
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
     public function getAllVenues() {
         try {
             $sql = "SELECT v.*,
@@ -3432,6 +3675,11 @@ This is an automated message. Please do not reply.
                 $venue['components'] = $venue['components'] ? explode(',', $venue['components']) : [];
                 $venue['inclusions'] = $venue['inclusions'] ? explode(',', $venue['inclusions']) : [];
                 $venue['is_active'] = (bool)$venue['is_active'];
+
+                // Add pax rate information
+                $venue['extra_pax_rate'] = floatval($venue['extra_pax_rate'] ?? 0);
+                $venue['has_pax_rate'] = $venue['extra_pax_rate'] > 0;
+                $venue['base_capacity'] = 100; // Base capacity for pax rate calculation
             }
 
             return json_encode([
@@ -3473,6 +3721,11 @@ This is an automated message. Please do not reply.
 
             $venue['inclusions'] = $inclusions;
 
+            // Add pax rate information
+            $venue['extra_pax_rate'] = floatval($venue['extra_pax_rate'] ?? 0);
+            $venue['has_pax_rate'] = $venue['extra_pax_rate'] > 0;
+            $venue['base_capacity'] = 100; // Base capacity for pax rate calculation
+
             return json_encode([
                 "status" => "success",
                 "venue" => $venue
@@ -3497,6 +3750,7 @@ This is an automated message. Please do not reply.
                     venue_status = ?,
                     venue_capacity = ?,
                     venue_price = ?,
+                    extra_pax_rate = ?,
                     venue_type = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE venue_id = ?
@@ -3511,6 +3765,7 @@ This is an automated message. Please do not reply.
                 $data['venue_status'] ?? 'available',
                 $data['venue_capacity'],
                 $data['venue_price'],
+                $data['extra_pax_rate'] ?? 0.00,
                 $data['venue_type'] ?? 'indoor',
                 $data['venue_id']
             ]);
@@ -3534,7 +3789,8 @@ This is an automated message. Please do not reply.
             $sql = "SELECT v.*,
                     GROUP_CONCAT(DISTINCT vc.component_name) as components,
                     GROUP_CONCAT(DISTINCT vi.inclusion_name) as inclusions,
-                    COALESCE(v.venue_price, 0) as total_price
+                    COALESCE(v.venue_price, 0) as total_price,
+                    COALESCE(v.extra_pax_rate, 0) as extra_pax_rate
                     FROM tbl_venue v
                     LEFT JOIN tbl_venue_inclusions vi ON v.venue_id = vi.venue_id
                     LEFT JOIN tbl_venue_components vc ON vi.inclusion_id = vc.inclusion_id
@@ -3549,6 +3805,11 @@ This is an automated message. Please do not reply.
                 $venue['components'] = $venue['components'] ? explode(',', $venue['components']) : [];
                 $venue['inclusions'] = $venue['inclusions'] ? explode(',', $venue['inclusions']) : [];
                 $venue['total_price'] = floatval($venue['total_price']);
+                $venue['extra_pax_rate'] = floatval($venue['extra_pax_rate']);
+
+                // Add pax rate information
+                $venue['has_pax_rate'] = $venue['extra_pax_rate'] > 0;
+                $venue['base_capacity'] = 100; // Base capacity for pax rate calculation
             }
 
             return json_encode([
@@ -3562,6 +3823,55 @@ This is an automated message. Please do not reply.
             ]);
         }
     }
+    public function calculateVenuePricing($venueId, $guestCount) {
+        try {
+            // Get venue details
+            $sql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate, venue_capacity
+                    FROM tbl_venue
+                    WHERE venue_id = :venue_id AND is_active = 1";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([':venue_id' => $venueId]);
+            $venue = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$venue) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Venue not found"
+                ]);
+            }
+
+            $basePrice = floatval($venue['venue_price']);
+            $extraPaxRate = floatval($venue['extra_pax_rate']);
+            $baseCapacity = 100; // Base capacity for pax rate calculation
+
+            // Calculate overflow charges
+            $extraGuests = max(0, $guestCount - $baseCapacity);
+            $overflowCharge = $extraGuests * $extraPaxRate;
+            $totalPrice = $basePrice + $overflowCharge;
+
+            return json_encode([
+                "status" => "success",
+                "venue_id" => $venueId,
+                "venue_title" => $venue['venue_title'],
+                "guest_count" => $guestCount,
+                "base_price" => $basePrice,
+                "extra_pax_rate" => $extraPaxRate,
+                "base_capacity" => $baseCapacity,
+                "extra_guests" => $extraGuests,
+                "overflow_charge" => $overflowCharge,
+                "total_price" => $totalPrice,
+                "has_overflow" => $extraGuests > 0
+            ]);
+
+        } catch (PDOException $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
     public function createPackageWithVenues($data) {
         try {
             $this->conn->beginTransaction();
@@ -5555,8 +5865,8 @@ This is an automated message. Please do not reply.
         } catch (Exception $e) {
             error_log("getReportsData error: " . $e->getMessage());
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
-                  }
-      }
+        }
+    }
 
     // New method to associate payment proof with a specific payment
     public function attachPaymentProof($paymentId, $file, $description, $proofType) {
@@ -6216,7 +6526,7 @@ This is an automated message. Please do not reply.
             $checkStmt = $this->pdo->prepare($checkSql);
             $checkStmt->execute([$eventId, $venueId]);
 
-            if (!$checkStmt->fetch()) {
+            if (!$checkStmt->fetch(PDO::FETCH_ASSOC)) {
                 return json_encode([
                     "status" => "error",
                     "message" => "Selected venue is not available for this package"
@@ -6485,7 +6795,7 @@ This is an automated message. Please do not reply.
             // Check for duplicate email or username
             $checkStmt = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_email = ? OR user_username = ?");
             $checkStmt->execute([$data['email'], $data['username']]);
-            if ($checkStmt->fetch()) {
+            if ($checkStmt->fetch(PDO::FETCH_ASSOC)) {
                 throw new Exception("An account with this email or username already exists");
             }
 
@@ -7205,6 +7515,17 @@ switch ($operation) {
     case "createVenue":
         echo $admin->createVenue();
         break;
+    case "setVenuePaxRate":
+        $venueId = $_GET['venue_id'] ?? ($data['venue_id'] ?? 0);
+        $paxRate = $_GET['pax_rate'] ?? ($data['pax_rate'] ?? 0);
+        echo $admin->setVenuePaxRate($venueId, $paxRate);
+        break;
+    case "checkAndFixVenuePaxRates":
+        echo $admin->checkAndFixVenuePaxRates();
+        break;
+    case "testVenueData":
+        echo $admin->testVenueData();
+        break;
     case "getAllVenues":
         echo $admin->getAllVenues();
         break;
@@ -7217,6 +7538,11 @@ switch ($operation) {
         break;
     case "getVenuesForPackage":
         echo $admin->getVenuesForPackage();
+        break;
+    case "calculateVenuePricing":
+        $venueId = $_GET['venue_id'] ?? ($data['venue_id'] ?? 0);
+        $guestCount = $_GET['guest_count'] ?? ($data['guest_count'] ?? 100);
+        echo $admin->calculateVenuePricing($venueId, $guestCount);
         break;
     case "createPackageWithVenues":
         echo $admin->createPackageWithVenues($data);
@@ -7548,6 +7874,15 @@ switch ($operation) {
         ];
         echo $admin->getAllSuppliers($page, $limit, $filters);
         break;
+    case "getSuppliersForEventBuilder":
+        $page = (int)($_GET['page'] ?? ($data['page'] ?? 1));
+        $limit = (int)($_GET['limit'] ?? ($data['limit'] ?? 100));
+        $filters = [
+            'specialty_category' => $_GET['specialty_category'] ?? ($data['specialty_category'] ?? ''),
+            'search' => $_GET['search'] ?? ($data['search'] ?? '')
+        ];
+        echo $admin->getSuppliersForEventBuilder($page, $limit, $filters);
+        break;
     case "getSupplierById":
         $supplierId = (int)($_GET['supplier_id'] ?? 0);
         if ($supplierId <= 0) {
@@ -7638,6 +7973,16 @@ switch ($operation) {
             echo json_encode(["status" => "error", "message" => "Valid organizer ID required"]);
         } else {
             echo $admin->deleteOrganizer($organizerId);
+        }
+        break;
+
+    // File upload operations
+    case "upload":
+        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            echo json_encode(["status" => "error", "message" => "No file uploaded or upload error"]);
+        } else {
+            $fileType = $_POST['type'] ?? 'misc';
+            echo $admin->uploadFile($_FILES['file'], $fileType);
         }
         break;
 

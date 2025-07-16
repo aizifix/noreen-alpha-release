@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
 import { toast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,28 +19,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Search,
   Plus,
@@ -66,6 +51,7 @@ import {
   MoreVertical,
   Star,
   CheckCircle,
+  RefreshCw,
 } from "lucide-react";
 
 // Types
@@ -139,6 +125,8 @@ export default function OrganizersPage() {
   const [showOrganizerDetails, setShowOrganizerDetails] = useState(false);
   const [currentProfilePicture, setCurrentProfilePicture] =
     useState<string>("");
+  const [selectedOrganizers, setSelectedOrganizers] = useState<number[]>([]);
+  const [selectAll, setSelectAll] = useState(false);
 
   // Filters and pagination
   const [filters, setFilters] = useState<FilterState>({
@@ -175,15 +163,74 @@ export default function OrganizersPage() {
   const resumeInputRef = useRef<HTMLInputElement>(null);
   const certificationInputRef = useRef<HTMLInputElement>(null);
 
-  // Load organizers on component mount
+  const fetchOrganizers = useCallback(
+    async (searchTerm?: string) => {
+      try {
+        setLoading(true);
+        const queryParams = new URLSearchParams({
+          page: currentPage.toString(),
+          limit: "20",
+          ...Object.fromEntries(
+            Object.entries({
+              ...filters,
+              search: searchTerm !== undefined ? searchTerm : filters.search,
+            }).filter(([, value]) => value)
+          ),
+        });
+
+        const response = await fetch(
+          `${API_URL}/admin.php?operation=getAllOrganizers&${queryParams}`
+        );
+        const data = await response.json();
+
+        if (data.status === "success") {
+          setOrganizers(data.data?.organizers || []);
+          setTotalPages(data.data?.pagination?.total_pages || 1);
+        } else {
+          console.error("API Error:", data.message);
+          setError(data.message || "Failed to fetch organizers");
+        }
+      } catch (error) {
+        console.error("Error fetching organizers:", error);
+        setError("Failed to fetch organizers");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [currentPage, filters.status, filters.experience_level]
+  );
+
+  // Effect for filters (immediate)
+  useEffect(() => {
+    if (filters.status || filters.experience_level) {
+      fetchOrganizers();
+    }
+  }, [filters.status, filters.experience_level, fetchOrganizers]);
+
+  // Effect for pagination
   useEffect(() => {
     fetchOrganizers();
-  }, [currentPage, filters]);
+  }, [currentPage, fetchOrganizers]);
+
+  // Manual search function
+  const handleSearch = () => {
+    setCurrentPage(1);
+    fetchOrganizers(filters.search);
+  };
+
+  // Handle Enter key in search input
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleSearch();
+    }
+  };
 
   // Filter handlers
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
-    setCurrentPage(1);
+    if (key !== "search") {
+      setCurrentPage(1);
+    }
   };
 
   const clearFilters = () => {
@@ -195,10 +242,72 @@ export default function OrganizersPage() {
     setCurrentPage(1);
   };
 
+  // Checkbox handlers
+  const handleSelectAll = (checked: boolean | string) => {
+    const isChecked = checked === true;
+    setSelectAll(isChecked);
+    if (isChecked) {
+      setSelectedOrganizers(
+        organizers.map((organizer) => organizer.organizer_id)
+      );
+    } else {
+      setSelectedOrganizers([]);
+    }
+  };
+
+  const handleSelectOrganizer = (
+    organizerId: number,
+    checked: boolean | string
+  ) => {
+    const isChecked = checked === true;
+    if (isChecked) {
+      setSelectedOrganizers((prev) => [...prev, organizerId]);
+    } else {
+      setSelectedOrganizers((prev) => prev.filter((id) => id !== organizerId));
+    }
+  };
+
+  // Bulk actions
+  const handleBulkDelete = () => {
+    if (selectedOrganizers.length === 0) {
+      toast({
+        title: "No organizers selected",
+        description: "Please select organizers to delete",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Implement bulk delete logic here
+    toast({
+      title: "Bulk delete",
+      description: `Deleting ${selectedOrganizers.length} organizers...`,
+    });
+  };
+
+  const handleBulkExport = () => {
+    if (selectedOrganizers.length === 0) {
+      toast({
+        title: "No organizers selected",
+        description: "Please select organizers to export",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Implement bulk export logic here
+    toast({
+      title: "Bulk export",
+      description: `Exporting ${selectedOrganizers.length} organizers...`,
+    });
+  };
+
   // Auto-generate username when name changes
   useEffect(() => {
     if (formData.first_name && formData.last_name) {
-      const username = `${formData.first_name.toLowerCase()}.${formData.last_name.toLowerCase()}${Math.floor(Math.random() * 100)}`;
+      const username =
+        `${formData.first_name.toLowerCase()}.${formData.last_name.toLowerCase()}`.replace(
+          /[^a-z0-9.]/g,
+          ""
+        );
       setFormData((prev) => ({ ...prev, username }));
     }
   }, [formData.first_name, formData.last_name]);
@@ -212,76 +321,43 @@ export default function OrganizersPage() {
   };
 
   const getOrganizerStatusColor = (organizer: Organizer) => {
-    if (organizer.is_active) {
-      return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
-    }
-    return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
+    return organizer.is_active
+      ? "bg-green-100 text-green-800"
+      : "bg-gray-100 text-gray-800";
   };
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
   };
 
-  // Generate secure password
   const generatePassword = () => {
-    const charset =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
-    const password = Array.from(crypto.getRandomValues(new Uint8Array(12)))
-      .map((byte) => charset[byte % charset.length])
-      .join("");
+    const chars =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+    let password = "";
+    for (let i = 0; i < 12; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
     setFormData((prev) => ({ ...prev, password }));
   };
 
-  // Copy to clipboard
   const copyToClipboard = (text: string, type: string) => {
     navigator.clipboard.writeText(text);
     toast({
-      title: "Copied",
+      title: "Copied!",
       description: `${type} copied to clipboard`,
     });
   };
 
-  // Fetch organizers
-  const fetchOrganizers = async () => {
-    try {
-      setLoading(true);
-      const queryParams = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: "20",
-        ...Object.fromEntries(
-          Object.entries(filters).filter(([, value]) => value)
-        ),
-      });
-
-      const response = await fetch(
-        `${API_URL}/admin.php?operation=getAllOrganizers&${queryParams}`
-      );
-      const data = await response.json();
-
-      if (data.status === "success") {
-        setOrganizers(data.data.organizers || []);
-        setTotalPages(data.data.pagination?.total_pages || 1);
-      } else {
-        console.error("API Error:", data.message);
-        setError(data.message || "Failed to fetch organizers");
-      }
-    } catch (error) {
-      console.error("Error fetching organizers:", error);
-      setError("Failed to fetch organizers");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // File upload handlers
   const uploadFile = async (file: File, fileType: string): Promise<string> => {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("operation", "uploadFile");
-    formData.append("fileType", fileType);
+    formData.append("type", fileType);
+    formData.append("operation", "upload");
 
     const response = await axios.post(`${API_URL}/admin.php`, formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
     });
 
     if (response.data.status === "success") {
@@ -298,13 +374,31 @@ export default function OrganizersPage() {
     if (!files || files.length === 0) return;
 
     const file = files[0];
+    const maxSize = 5 * 1024 * 1024; // 5MB
 
-    // File validation
-    const maxSize = type === "profile" ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
     if (file.size > maxSize) {
       toast({
-        title: "File Too Large",
-        description: `File size must be less than ${type === "profile" ? "5MB" : "10MB"}`,
+        title: "File too large",
+        description: "Please select a file smaller than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const allowedTypes = {
+      profile: ["image/jpeg", "image/png", "image/gif"],
+      resume: [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ],
+      certification: ["application/pdf", "image/jpeg", "image/png"],
+    };
+
+    if (!allowedTypes[type].includes(file.type)) {
+      toast({
+        title: "Invalid file type",
+        description: `Please select a valid ${type} file`,
         variant: "destructive",
       });
       return;
@@ -315,58 +409,56 @@ export default function OrganizersPage() {
       name: file.name,
       size: file.size,
       type: file.type,
-      uploading: false,
+      uploading: true,
       progress: 0,
-      uploaded: false,
     };
 
-    // Generate preview for images
-    if (file.type.startsWith("image/")) {
+    if (type === "profile") {
+      // Create preview for image
       const reader = new FileReader();
-      reader.onload = async (e) => {
-        filePreview.preview = e.target?.result as string;
-
-        // For profile pictures, upload immediately
-        if (type === "profile") {
-          filePreview.uploading = true;
-          setProfilePictureFile({ ...filePreview });
-
-          try {
-            const uploadedPath = await uploadFile(file, "profile_picture");
-            filePreview.uploaded = true;
-            filePreview.uploading = false;
-            filePreview.url = uploadedPath;
-            setCurrentProfilePicture(uploadedPath);
-            setProfilePictureFile({ ...filePreview });
-
-            toast({
-              title: "Success",
-              description: "Profile picture uploaded successfully",
-            });
-          } catch (error: any) {
-            filePreview.uploading = false;
-            setProfilePictureFile({ ...filePreview });
-
-            toast({
-              title: "Upload Failed",
-              description: error.message || "Failed to upload profile picture",
-              variant: "destructive",
-            });
-          }
-        }
+      reader.onload = (e) => {
+        setProfilePictureFile({
+          ...filePreview,
+          preview: e.target?.result as string,
+        });
       };
       reader.readAsDataURL(file);
-    }
-
-    // Set file based on type
-    if (type === "profile") {
-      if (!file.type.startsWith("image/")) {
-        setProfilePictureFile(filePreview);
-      }
     } else if (type === "resume") {
       setResumeFile(filePreview);
     } else if (type === "certification") {
       setCertificationFiles((prev) => [...prev, filePreview]);
+    }
+
+    try {
+      const filePath = await uploadFile(file, type);
+
+      if (type === "profile") {
+        setProfilePictureFile((prev) =>
+          prev ? { ...prev, uploaded: true, url: filePath } : null
+        );
+      } else if (type === "resume") {
+        setResumeFile((prev) =>
+          prev ? { ...prev, uploaded: true, url: filePath } : null
+        );
+      } else if (type === "certification") {
+        setCertificationFiles((prev) =>
+          prev.map((f) =>
+            f.file === file ? { ...f, uploaded: true, url: filePath } : f
+          )
+        );
+      }
+
+      toast({
+        title: "Upload successful",
+        description: `${type} uploaded successfully`,
+      });
+    } catch (error) {
+      console.error("Upload error:", error);
+      toast({
+        title: "Upload failed",
+        description: "Failed to upload file. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -376,7 +468,6 @@ export default function OrganizersPage() {
   ) => {
     if (type === "profile") {
       setProfilePictureFile(null);
-      setCurrentProfilePicture("");
     } else if (type === "resume") {
       setResumeFile(null);
     } else if (type === "certification" && index !== undefined) {
@@ -384,41 +475,46 @@ export default function OrganizersPage() {
     }
   };
 
-  // Phone number formatting
   const formatPhoneNumber = (value: string) => {
-    const cleaned = value.replace(/[^\d+]/g, "");
-    if (!cleaned.startsWith("+63")) {
+    // Remove all non-digits
+    const cleaned = value.replace(/\D/g, "");
+
+    // If empty, return +63
+    if (cleaned.length === 0) {
       return "+63";
     }
-    if (cleaned.length > 13) {
-      return cleaned.slice(0, 13);
+
+    // Format as +63 xxx xxx xxxx
+    const match = cleaned.match(/^(\d{0,2})(\d{0,3})(\d{0,3})(\d{0,4})$/);
+    if (match) {
+      const parts = ["+63", match[1], match[2], match[3], match[4]].filter(
+        Boolean
+      );
+      return parts.join(" ");
     }
-    return cleaned;
+
+    // If doesn't match pattern, just return +63 + digits
+    return "+63 " + cleaned;
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatPhoneNumber(e.target.value);
+    const inputValue = e.target.value;
+    const formatted = formatPhoneNumber(inputValue);
     setFormData((prev) => ({ ...prev, phone: formatted }));
   };
 
-  // Form handlers
   const openModal = (mode: "add" | "edit" | "view", organizer?: Organizer) => {
     setModalMode(mode);
-    setSelectedOrganizer(organizer || null);
+    setIsModalOpen(true);
 
-    if (mode === "add") {
-      resetForm();
-      generatePassword();
-    } else if (organizer) {
+    if (mode === "edit" && organizer) {
+      setSelectedOrganizer(organizer);
       setFormData({
         first_name: organizer.first_name,
         last_name: organizer.last_name,
         email: organizer.email,
         phone: organizer.contact_number,
-        address:
-          organizer.experience_summary
-            ?.split("\n")[1]
-            ?.replace("Address: ", "") || "",
+        address: organizer.availability || "",
         date_of_birth: organizer.birthdate,
         years_of_experience: parseInt(
           organizer.experience_summary?.match(
@@ -427,13 +523,17 @@ export default function OrganizersPage() {
         ),
         portfolio_link: organizer.portfolio_link || "",
         admin_remarks: organizer.remarks || "",
-        username: organizer.username || "",
+        username: organizer.username,
         password: "",
       });
       setCurrentProfilePicture(organizer.profile_picture || "");
+    } else if (mode === "view" && organizer) {
+      setSelectedOrganizer(organizer);
+      setShowOrganizerDetails(true);
+      return;
+    } else {
+      resetForm();
     }
-
-    setIsModalOpen(true);
   };
 
   const resetForm = () => {
@@ -454,6 +554,7 @@ export default function OrganizersPage() {
     setResumeFile(null);
     setCertificationFiles([]);
     setCurrentProfilePicture("");
+    setSelectedOrganizer(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -461,93 +562,46 @@ export default function OrganizersPage() {
     setIsSubmitting(true);
 
     try {
-      // Validate required fields
-      if (!formData.first_name.trim()) {
-        throw new Error("First name is required");
-      }
-      if (!formData.last_name.trim()) {
-        throw new Error("Last name is required");
-      }
-      if (!formData.email.trim()) {
-        throw new Error("Email is required");
-      }
-      if (!formData.phone.trim() || formData.phone === "+63") {
-        throw new Error("Phone number is required");
-      }
-
-      // Upload files first
-      let profilePicturePath = currentProfilePicture;
-      let resumePath = "";
-      const certificationPaths: string[] = [];
-
-      // Upload resume
-      if (resumeFile && !resumeFile.uploaded) {
-        try {
-          resumePath = await uploadFile(resumeFile.file, "resume");
-        } catch (error) {
-          console.error("Resume upload failed:", error);
-        }
-      }
-
-      // Upload certifications
-      for (const cert of certificationFiles) {
-        if (!cert.uploaded) {
-          try {
-            const path = await uploadFile(cert.file, "certification");
-            certificationPaths.push(path);
-          } catch (error) {
-            console.error("Certification upload failed:", error);
-          }
-        }
-      }
-
-      // Prepare API data
-      const apiData = {
-        operation: modalMode === "edit" ? "updateOrganizer" : "createOrganizer",
-        ...(modalMode === "edit" && {
-          organizer_id: selectedOrganizer?.organizer_id,
-        }),
-        first_name: formData.first_name.trim(),
-        last_name: formData.last_name.trim(),
-        email: formData.email.trim(),
-        phone: formData.phone.trim(),
-        address: formData.address.trim(),
-        date_of_birth: formData.date_of_birth,
-        years_of_experience: formData.years_of_experience,
-        certification_files: certificationPaths,
-        resume_path: resumePath,
-        portfolio_link: formData.portfolio_link.trim(),
-        profile_picture: profilePicturePath,
-        admin_remarks: formData.admin_remarks.trim(),
-        username: formData.username.trim(),
-        ...(modalMode === "add" && { password: formData.password }),
+      const submitData = {
+        ...formData,
+        profile_picture: profilePictureFile?.url || currentProfilePicture,
+        resume_path: resumeFile?.url || "",
+        certification_files: certificationFiles
+          .map((f) => f.url)
+          .filter(Boolean),
       };
 
-      const response = await axios.post(`${API_URL}/admin.php`, apiData, {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      const url =
+        modalMode === "add"
+          ? `${API_URL}/admin.php?operation=createOrganizer`
+          : `${API_URL}/admin.php?operation=updateOrganizer&organizer_id=${selectedOrganizer?.organizer_id}`;
 
-      if (response.data.status === "success") {
+      const response = await axios.post(url, submitData);
+      const data = response.data;
+
+      if (data.status === "success") {
         toast({
-          title: "Success",
+          title: "Success!",
           description:
-            modalMode === "edit"
-              ? "Organizer updated successfully"
-              : "Organizer created successfully",
+            modalMode === "add"
+              ? "Organizer added successfully"
+              : "Organizer updated successfully",
         });
         setIsModalOpen(false);
         resetForm();
         fetchOrganizers();
       } else {
-        throw new Error(response.data.message || "Operation failed");
+        toast({
+          title: "Error",
+          description: data.message || "Operation failed",
+          variant: "destructive",
+        });
       }
-    } catch (error: any) {
-      console.error("Error:", error);
+    } catch (error) {
+      console.error("Submit error:", error);
       toast({
         title: "Error",
-        description: error.message || "Operation failed",
+        description: "An error occurred. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -556,35 +610,35 @@ export default function OrganizersPage() {
   };
 
   const handleDelete = async (organizerId: number) => {
-    if (!confirm("Are you sure you want to delete this organizer?")) return;
+    if (!confirm("Are you sure you want to delete this organizer?")) {
+      return;
+    }
 
     try {
       const response = await axios.post(
-        `${API_URL}/admin.php`,
-        {
-          operation: "deleteOrganizer",
-          organizer_id: organizerId,
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
+        `${API_URL}/admin.php?operation=deleteOrganizer`,
+        { organizer_id: organizerId }
       );
+      const data = response.data;
 
-      if (response.data.status === "success") {
+      if (data.status === "success") {
         toast({
-          title: "Success",
+          title: "Success!",
           description: "Organizer deleted successfully",
         });
         fetchOrganizers();
       } else {
-        throw new Error(response.data.message);
+        toast({
+          title: "Error",
+          description: data.message || "Delete failed",
+          variant: "destructive",
+        });
       }
-    } catch (error: any) {
+    } catch (error) {
+      console.error("Delete error:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to delete organizer",
+        description: "An error occurred. Please try again.",
         variant: "destructive",
       });
     }
@@ -600,10 +654,10 @@ export default function OrganizersPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto py-6">
+      <div className="container mx-auto py-6 max-w-7xl">
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#028A75] mx-auto"></div>
             <p className="mt-2 text-muted-foreground">Loading organizers...</p>
           </div>
         </div>
@@ -612,16 +666,23 @@ export default function OrganizersPage() {
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="container mx-auto py-6 max-w-7xl animate-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">Organizer Management</h1>
         <div className="flex items-center gap-2">
-          <Button variant="outline">
-            <Filter className="h-4 w-4 mr-2" />
-            Filter
+          <Button
+            onClick={() => fetchOrganizers()}
+            variant="outline"
+            className="bg-white border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
           </Button>
-          <Button onClick={() => openModal("add")}>
+          <Button
+            onClick={() => openModal("add")}
+            className="bg-[#028A75] hover:bg-[#027a68] text-white"
+          >
             <Plus className="h-4 w-4 mr-2" />
             Add Organizer
           </Button>
@@ -629,25 +690,25 @@ export default function OrganizersPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <Card className="border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Total Organizers
             </CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <Users className="h-4 w-4 text-[#028A75]" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{organizers.length}</div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Active Organizers
             </CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <Calendar className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -656,12 +717,12 @@ export default function OrganizersPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Average Experience
             </CardTitle>
-            <Briefcase className="h-4 w-4 text-muted-foreground" />
+            <Briefcase className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -682,7 +743,7 @@ export default function OrganizersPage() {
       </div>
 
       {/* Filters */}
-      <Card>
+      <Card className="border mb-6">
         <CardHeader>
           <CardTitle className="flex items-center">
             <Filter className="w-5 h-5 mr-2" />
@@ -690,17 +751,18 @@ export default function OrganizersPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Search</label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="Search organizers..."
+                  placeholder="Search organizers... (Press Enter)"
                   value={filters.search}
                   onChange={(e) => handleFilterChange("search", e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  onKeyPress={handleSearchKeyPress}
+                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75]"
                 />
               </div>
             </div>
@@ -709,28 +771,11 @@ export default function OrganizersPage() {
               <select
                 value={filters.status}
                 onChange={(e) => handleFilterChange("status", e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75]"
               >
                 <option value="">All Status</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Experience Level
-              </label>
-              <select
-                value={filters.experience_level}
-                onChange={(e) =>
-                  handleFilterChange("experience_level", e.target.value)
-                }
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-              >
-                <option value="">All Levels</option>
-                <option value="junior">Junior (&lt; 3 years)</option>
-                <option value="mid">Mid (3-7 years)</option>
-                <option value="senior">Senior (&gt; 7 years)</option>
               </select>
             </div>
             <div className="flex items-end">
@@ -745,8 +790,33 @@ export default function OrganizersPage() {
         </CardContent>
       </Card>
 
+      {/* Bulk Actions */}
+      {selectedOrganizers.length > 0 && (
+        <Card className="border mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">
+                {selectedOrganizers.length} organizer(s) selected
+              </span>
+              <div className="flex space-x-2">
+                <Button
+                  onClick={handleBulkExport}
+                  variant="outline"
+                  className="border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
+                >
+                  Export Selected
+                </Button>
+                <Button onClick={handleBulkDelete} variant="destructive">
+                  Delete Selected
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Organizers Table */}
-      <Card>
+      <Card className="border">
         <CardHeader>
           <CardTitle>Organizers ({organizers.length})</CardTitle>
         </CardHeader>
@@ -755,6 +825,12 @@ export default function OrganizersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
+                  <th className="text-left py-3 px-4">
+                    <Checkbox
+                      checked={selectAll}
+                      onCheckedChange={handleSelectAll}
+                    />
+                  </th>
                   <th className="text-left py-3 px-4">Profile</th>
                   <th className="text-left py-3 px-4">Name</th>
                   <th className="text-left py-3 px-4">Email</th>
@@ -771,6 +847,16 @@ export default function OrganizersPage() {
                     key={organizer.organizer_id}
                     className="border-b hover:bg-gray-50"
                   >
+                    <td className="py-3 px-4">
+                      <Checkbox
+                        checked={selectedOrganizers.includes(
+                          organizer.organizer_id
+                        )}
+                        onCheckedChange={(checked: boolean | string) =>
+                          handleSelectOrganizer(organizer.organizer_id, checked)
+                        }
+                      />
+                    </td>
                     <td className="py-3 px-4">
                       <Avatar className="h-10 w-10">
                         <AvatarImage
@@ -818,32 +904,38 @@ export default function OrganizersPage() {
                       {formatDate(organizer.created_at)}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => {
-                            setSelectedOrganizer(organizer);
-                            setShowOrganizerDetails(true);
-                          }}
-                          className="text-blue-600 hover:text-blue-800"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => openModal("edit", organizer)}
-                          className="text-green-600 hover:text-green-800"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(organizer.organizer_id)}
-                          className="text-red-600 hover:text-red-800"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedOrganizer(organizer);
+                              setShowOrganizerDetails(true);
+                            }}
+                          >
+                            <Eye className="mr-2 h-4 w-4" />
+                            View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => openModal("edit", organizer)}
+                          >
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-red-600"
+                            onClick={() => handleDelete(organizer.organizer_id)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                 ))}
@@ -857,7 +949,7 @@ export default function OrganizersPage() {
                 <button
                   onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
+                  className="px-3 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
                 >
                   Previous
                 </button>
@@ -869,7 +961,7 @@ export default function OrganizersPage() {
                     setCurrentPage(Math.min(totalPages, currentPage + 1))
                   }
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
+                  className="px-3 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
                 >
                   Next
                 </button>
@@ -881,7 +973,7 @@ export default function OrganizersPage() {
 
       {/* Add/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto backdrop-blur-sm bg-white/95">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <User className="w-5 h-5" />
@@ -923,7 +1015,7 @@ export default function OrganizersPage() {
                   <Button
                     type="button"
                     size="sm"
-                    className="absolute bottom-0 right-0 rounded-full w-8 h-8 p-0"
+                    className="absolute bottom-0 right-0 rounded-full w-8 h-8 p-0 bg-[#028A75] hover:bg-[#027a68] text-white"
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <Camera className="w-4 h-4" />
@@ -1033,7 +1125,7 @@ export default function OrganizersPage() {
                       onClick={() =>
                         copyToClipboard(formData.username, "Username")
                       }
-                      className="rounded-l-none border-l-0"
+                      className="rounded-l-none border-l-0 border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
                     >
                       <Copy className="w-4 h-4" />
                     </Button>
@@ -1061,7 +1153,7 @@ export default function OrganizersPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="rounded-none border-l-0 border-r-0"
+                      className="rounded-none border-l-0 border-r-0 border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
                     >
                       {showPassword ? (
                         <EyeOff className="w-4 h-4" />
@@ -1076,7 +1168,7 @@ export default function OrganizersPage() {
                       onClick={() =>
                         copyToClipboard(formData.password, "Password")
                       }
-                      className="rounded-l-none border-l-0"
+                      className="rounded-l-none border-l-0 border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
                     >
                       <Copy className="w-4 h-4" />
                     </Button>
@@ -1086,7 +1178,7 @@ export default function OrganizersPage() {
                     variant="link"
                     size="sm"
                     onClick={generatePassword}
-                    className="p-0 h-auto text-xs mt-1"
+                    className="p-0 h-auto text-xs mt-1 text-[#028A75] hover:text-[#027a68]"
                   >
                     Generate New Password
                   </Button>
@@ -1177,7 +1269,7 @@ export default function OrganizersPage() {
                   type="button"
                   variant="outline"
                   onClick={() => resumeInputRef.current?.click()}
-                  className="w-full mt-2"
+                  className="w-full mt-2 border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
                 >
                   <Upload className="w-4 h-4 mr-2" />
                   Upload Resume
@@ -1219,7 +1311,7 @@ export default function OrganizersPage() {
                   type="button"
                   variant="outline"
                   onClick={() => certificationInputRef.current?.click()}
-                  className="w-full mt-2"
+                  className="w-full mt-2 border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
                 >
                   <Upload className="w-4 h-4 mr-2" />
                   Upload Certifications
@@ -1271,10 +1363,15 @@ export default function OrganizersPage() {
                 type="button"
                 variant="outline"
                 onClick={() => setIsModalOpen(false)}
+                className="border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                className="bg-[#028A75] hover:bg-[#027a68] text-white"
+              >
                 {isSubmitting ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
@@ -1299,7 +1396,7 @@ export default function OrganizersPage() {
         open={showOrganizerDetails}
         onOpenChange={setShowOrganizerDetails}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl bg-white/95">
           <DialogHeader>
             <DialogTitle>Organizer Details</DialogTitle>
             <DialogDescription>

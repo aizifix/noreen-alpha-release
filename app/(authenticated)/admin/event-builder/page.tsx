@@ -8,11 +8,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { MultiStepWizard } from "@/app/components/admin/event-builder/multi-step-wizard";
 import { ClientDetailsStep } from "@/app/components/admin/event-builder/client-details-step";
 import { EventDetailsStep } from "@/app/components/admin/event-builder/event-details-step";
 import { PackageSelection } from "@/app/components/admin/event-builder/package-selection";
-import { PackageSelectionFallback } from "@/app/components/admin/event-builder/package-selection-fallback";
+
 import { PackageDetails } from "@/app/components/admin/event-builder/package-details";
 import { VenueSelection } from "@/app/components/admin/event-builder/venue-selection";
 import { ComponentCustomization } from "@/app/components/admin/event-builder/components-customization";
@@ -52,13 +59,24 @@ import WeddingFormStep from "@/app/components/admin/event-builder/wedding-form-s
 import AttachmentsStep from "@/app/components/admin/event-builder/attachments-step";
 import { DraftHandler } from "@/app/components/admin/event-builder/draft-handler";
 import { ClearFormModal } from "@/app/components/admin/event-builder/clear-form-modal";
+import { LocalStorageRecoveryModal } from "@/app/components/admin/event-builder/localstorage-recovery-modal";
 
 // Function to format currency
 const formatCurrency = (amount: number) => {
+  // Ensure amount is a valid number and handle edge cases
+  if (isNaN(amount) || amount === null || amount === undefined) {
+    return "₱0.00";
+  }
+
+  // Convert to number and round to 2 decimal places to avoid floating point issues
+  const cleanAmount = Math.round(parseFloat(amount.toString()) * 100) / 100;
+
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "PHP",
-  }).format(amount);
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(cleanAmount);
 };
 
 // Define types for our data structures
@@ -82,6 +100,7 @@ interface FileAttachment {
 interface EnhancedEventDetails extends EventDetails {
   theme?: string;
   description?: string;
+  bookingReference?: string;
   isRecurring?: boolean;
   recurrenceRule?: {
     frequency: "daily" | "weekly" | "monthly" | "yearly";
@@ -231,15 +250,47 @@ export default function EventBuilderPage() {
     setShowClearFormModal(true);
   };
 
+  // LocalStorage recovery handlers
+  const handleLocalStorageSave = () => {
+    const savedData = loadFromLocalStorage();
+    if (savedData) {
+      handleLoadDraft(savedData);
+    }
+    setShowLocalStorageRecoveryModal(false);
+    setHasUnsavedData(false);
+  };
+
+  const handleLocalStorageDiscard = () => {
+    clearLocalStorage();
+    clearForm();
+    setShowLocalStorageRecoveryModal(false);
+    setHasUnsavedData(false);
+    // Reset to step 1 after discarding
+    setCurrentStep(1);
+  };
+
+  const handleLocalStorageCancel = () => {
+    setShowLocalStorageRecoveryModal(false);
+  };
+
   // Add current step state
   const [currentStep, setCurrentStep] = useState(() => {
     const saved = loadFromLocalStorage();
-    return saved?.currentStep || 1;
+    return Math.max(1, saved?.currentStep || 1);
   });
 
   // Use refs to track initialization state
   const initializedRef = useRef(false);
   const packageVenuesInitializedRef = useRef<string | null>(null);
+
+  // Check for localStorage recovery on mount
+  useEffect(() => {
+    const savedData = loadFromLocalStorage();
+    if (savedData && Object.keys(savedData).length > 0) {
+      setHasUnsavedData(true);
+      setShowLocalStorageRecoveryModal(true);
+    }
+  }, []);
 
   // State for booking reference lookup
   const [bookingReference, setBookingReference] = useState<string>(
@@ -248,7 +299,6 @@ export default function EventBuilderPage() {
   const [lookupLoading, setLookupLoading] = useState<boolean>(false);
 
   // State to track if wedding packages are available
-  const [packagesAvailable, setPackagesAvailable] = useState(true);
 
   const [clientData, setClientData] = useState<ClientData>(() => {
     const saved = loadFromLocalStorage();
@@ -286,6 +336,7 @@ export default function EventBuilderPage() {
       package: "",
       theme: "",
       description: "",
+      bookingReference: "",
       isRecurring: false,
       recurrenceRule: {
         frequency: "monthly",
@@ -332,6 +383,21 @@ export default function EventBuilderPage() {
     const saved = loadFromLocalStorage();
     return saved?.selectedOrganizers || [];
   });
+  const [organizerData, setOrganizerData] = useState<
+    Array<{
+      organizer_id: string;
+      organizer_name: string;
+      organizer_role: string;
+      organizer_email: string;
+      organizer_phone: string;
+      organizer_specialties: string;
+      organizer_status: string;
+      organizer_profile_picture?: string;
+    }>
+  >(() => {
+    const saved = loadFromLocalStorage();
+    return saved?.organizerData || [];
+  });
   const [paymentData, setPaymentData] = useState<PaymentData>(() => {
     const saved = loadFromLocalStorage();
     return (
@@ -355,10 +421,16 @@ export default function EventBuilderPage() {
     return saved?.timelineData || [];
   });
   const [showMissingRefDialog, setShowMissingRefDialog] = useState(false);
+  const [showBookingLookupModal, setShowBookingLookupModal] = useState(false);
+  const [bookingSearchResults, setBookingSearchResults] = useState<any[]>([]);
+  const [bookingSearchLoading, setBookingSearchLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showClearFormModal, setShowClearFormModal] = useState(false);
   const [isFormDirty, setIsFormDirty] = useState(false);
+  const [showLocalStorageRecoveryModal, setShowLocalStorageRecoveryModal] =
+    useState(false);
+  const [hasUnsavedData, setHasUnsavedData] = useState(false);
   const [weddingFormData, setWeddingFormData] = useState<WeddingFormData>(
     () => {
       const saved = loadFromLocalStorage();
@@ -435,6 +507,10 @@ export default function EventBuilderPage() {
     }
   );
   const [currentEventId, setCurrentEventId] = useState<number | null>(null);
+  const [eventTypes, setEventTypes] = useState<
+    Array<{ event_type_id: number; event_name: string }>
+  >([]);
+  const [selectedEventType, setSelectedEventType] = useState<string>("");
   const [eventData, setEventData] = useState<EventData>({
     eventTitle: "",
     eventDate: "",
@@ -542,11 +618,19 @@ export default function EventBuilderPage() {
         "http://localhost/events-api/admin.php?operation=getAllVenues"
       );
       if (response.data.status === "success") {
-        console.log("Loaded all venues:", response.data.venues);
-        setAllVenues(response.data.venues);
+        const venues = response.data.data || [];
+        console.log(`Loaded ${venues.length} venues from API`);
+
+        // Debug: Check each venue's pax rate
+        venues.forEach((venue: any) => {
+          console.log(`Venue: ${venue.venue_title} - ID: ${venue.venue_id} - Price: ${venue.venue_price} - Pax Rate: ${venue.extra_pax_rate}`);
+        });
+
+        setAllVenues(venues);
       }
     } catch (error) {
       console.error("Error loading all venues:", error);
+      setAllVenues([]);
     }
   };
 
@@ -555,12 +639,24 @@ export default function EventBuilderPage() {
     loadAllVenues();
   }, []);
 
-  // Check if wedding packages are available
+  // Packages are now fetched dynamically from API, so we don't need to check static data
+  // The PackageSelection component will handle its own loading and error states
+
+  // Fetch event types
   useEffect(() => {
-    if (!weddingPackages || weddingPackages.length === 0) {
-      setPackagesAvailable(false);
-      console.error("Wedding packages data is not available");
-    }
+    const fetchEventTypes = async () => {
+      try {
+        const response = await axios.get(
+          "http://localhost/events-api/admin.php?operation=getEventTypes"
+        );
+        if (response.data.status === "success") {
+          setEventTypes(response.data.event_types || []);
+        }
+      } catch (error) {
+        console.error("Error fetching event types:", error);
+      }
+    };
+    fetchEventTypes();
   }, []);
 
   // Auto-load booking data if booking_ref is provided in URL
@@ -583,6 +679,7 @@ export default function EventBuilderPage() {
       components,
       originalPackagePrice,
       selectedOrganizers,
+      organizerData,
       paymentData,
       timelineData,
       weddingFormData,
@@ -598,6 +695,7 @@ export default function EventBuilderPage() {
     components,
     originalPackagePrice,
     selectedOrganizers,
+    organizerData,
     paymentData,
     timelineData,
     weddingFormData,
@@ -641,21 +739,56 @@ export default function EventBuilderPage() {
 
   // Note: Draft restoration notifications are now handled by DraftHandler component
 
-  // Calculate total budget based on package, venue, guest count, and extras
+  // Calculate total budget based on actual components and their prices
   const getTotalBudget = () => {
-    // Fixed pricing based on selected package - venues are included in the bundle
-    if (originalPackagePrice !== null && originalPackagePrice > 0) {
-      // Return the package price as the fixed total - venues are bundled
-      return originalPackagePrice;
-    }
-
-    // Fallback to component-based calculation if no package price is available
     let total = 0;
 
-    components.forEach((component: DataPackageComponent) => {
-      total += component.price || 0;
+    console.log("Calculating total budget...");
+    console.log("Components:", components);
+    console.log("Selected venue:", selectedVenue);
+
+    // Calculate from all components (package components, venue inclusions, custom components)
+    components.forEach((component: any) => {
+      if (component.included !== false) {
+        // Use supplier price if assigned, otherwise use component price
+        const componentPrice = component.supplierPrice || component.price || 0;
+        total += componentPrice;
+        console.log(`Component ${component.name}: ${componentPrice} (total: ${total})`);
+      }
     });
 
+    // Add venue price if selected (including overflow charges)
+    if (selectedVenue && selectedVenue.venue_price) {
+      const baseVenuePrice = parseFloat(selectedVenue.venue_price) || 0;
+      const extraPaxRate = parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
+      const guestCount = eventDetails.capacity || 100;
+      const overflowCharge = guestCount > 100 ? Math.max(0, guestCount - 100) * extraPaxRate : 0;
+      const totalVenuePrice = baseVenuePrice + overflowCharge;
+
+      console.log("Venue pricing:", {
+        basePrice: baseVenuePrice,
+        extraPaxRate: extraPaxRate,
+        guestCount: guestCount,
+        overflowCharge: overflowCharge,
+        totalVenuePrice: totalVenuePrice
+      });
+
+      // Only add venue price if it's not already included in components
+      const venueComponent = components.find(comp =>
+        comp.category === "venue" && comp.isVenueInclusion
+      );
+
+      if (!venueComponent) {
+        total += totalVenuePrice;
+        console.log(`Adding venue price directly: ${totalVenuePrice} (total: ${total})`);
+      } else {
+        // Update the venue component price to include overflow charges
+        venueComponent.price = totalVenuePrice;
+        console.log(`Updated venue component price: ${totalVenuePrice}`);
+      }
+    }
+
+    console.log("Final total budget:", total);
     return total;
   };
 
@@ -745,72 +878,108 @@ export default function EventBuilderPage() {
             packageVenuesInitializedRef.current !== packageId
           ) {
             console.log("Loading venues from package:", packageData.venues);
+
+            // Debug: Check if package venues have pax rates
+            packageData.venues.forEach((venue: any) => {
+              console.log(`Package Venue: ${venue.venue_title} - ID: ${venue.venue_id} - Price: ${venue.venue_price} - Pax Rate: ${venue.extra_pax_rate || 'MISSING'}`);
+            });
+
             setPackageVenues(packageData.venues);
             packageVenuesInitializedRef.current = packageId;
+          }
 
-            // If we have a venue ID from booking, try to auto-select it
-            if (selectedVenueId) {
+          // If we have a venue ID from booking, try to auto-select it
+          if (selectedVenueId) {
+            console.log(
+              "Looking for venue with ID:",
+              selectedVenueId,
+              "in venues:",
+              packageData.venues
+            );
+            const matchingVenue = packageData.venues.find(
+              (venue: any) =>
+                String(venue.venue_id) === String(selectedVenueId)
+            );
+
+            console.log("Matching venue found:", matchingVenue);
+
+            if (matchingVenue) {
               console.log(
-                "Looking for venue with ID:",
-                selectedVenueId,
-                "in venues:",
-                packageData.venues
+                "Auto-selecting venue from booking:",
+                matchingVenue.venue_title
               );
-              const matchingVenue = packageData.venues.find(
-                (venue: any) =>
-                  String(venue.venue_id) === String(selectedVenueId)
+              setSelectedVenue(matchingVenue);
+
+              // Add venue as a single component (not broken down into inclusions)
+              const venueComponent: DataPackageComponent = {
+                id: `venue-${matchingVenue.venue_id}`,
+                name: matchingVenue.venue_title || matchingVenue.venue_name,
+                description: `Venue: ${matchingVenue.venue_title || matchingVenue.venue_name}`,
+                price: parseFloat(matchingVenue.venue_price) || 0,
+                category: "venue",
+                included: true,
+                isVenueInclusion: true,
+                isRemovable: false,
+                isExpanded: false,
+              };
+
+              console.log(
+                "Adding venue component:",
+                venueComponent.name,
+                "with ID:",
+                venueComponent.id
               );
 
-              console.log("Matching venue found:", matchingVenue);
-
-              if (matchingVenue) {
-                console.log(
-                  "Auto-selecting venue from booking:",
-                  matchingVenue.venue_title
+              // Replace all previous venue components with the new one
+              setComponents((prev) => {
+                // Check if this venue is already in the components array
+                const existingVenue = prev.find(
+                  (comp) =>
+                    comp.category === "venue" &&
+                    comp.isVenueInclusion &&
+                    comp.id === venueComponent.id
                 );
-                setSelectedVenue(matchingVenue);
 
-                // Add venue inclusions if they exist
-                if (matchingVenue.inclusions) {
-                  const venueInclusions = (matchingVenue.inclusions || []).map(
-                    (inclusion: any, idx: number) => ({
-                      id: `venue-inclusion-${inclusion.inclusion_id || `${matchingVenue.venue_id}-${idx}-${Date.now()}`}`,
-                      name: inclusion.inclusion_name,
-                      price: parseFloat(inclusion.inclusion_price) || 0,
-                      category: "venue",
-                      included: true,
-                      isVenueInclusion: true,
-                      isRemovable: false,
-                      isExpanded: false,
-                    })
+                if (existingVenue) {
+                  console.log(
+                    "Venue already exists in components, skipping duplicate"
                   );
-
-                  // Add venue inclusions to existing package components
-                  setComponents((prev) => [
-                    ...prev.filter(
-                      (comp) =>
-                        !(comp.category === "venue" && comp.isVenueInclusion)
-                    ),
-                    ...venueInclusions,
-                  ]);
+                  return prev; // Don't add duplicate
                 }
 
-                // Update event details with venue name
-                setEventDetails((prev: EventDetails) => ({
-                  ...prev,
-                  venue: matchingVenue.venue_title || "",
-                }));
+                // Remove all existing venue components and add the new one
+                const nonVenue = prev.filter(
+                  (comp) =>
+                    !(comp.category === "venue" && comp.isVenueInclusion)
+                );
 
-                // Skip venue selection step and go to components
-                console.log("Auto-selected venue, skipping to components step");
-                setCurrentStep(5);
-                return;
-              } else {
-                console.log("No matching venue found in package venues");
-              }
+                console.log(
+                  "Adding venue component:",
+                  venueComponent.name,
+                  "with ID:",
+                  venueComponent.id
+                );
+                console.log("Previous components count:", prev.length);
+                console.log("Non-venue components count:", nonVenue.length);
+                console.log("Final components count:", nonVenue.length + 1);
+
+                return [...nonVenue, venueComponent];
+              });
+
+              // Update event details with venue name
+              setEventDetails((prev: EventDetails) => ({
+                ...prev,
+                venue: matchingVenue.venue_title || "",
+              }));
+
+              // Don't auto-skip - let user manually proceed
+              console.log(
+                "Auto-selected venue, ready for manual progression"
+              );
+              return;
+            } else {
+              console.log("No matching venue found in package venues");
             }
-          } else {
-            console.log("No venues in package or already initialized");
           }
 
           // Merge all inclusions (package and venue) as generic components
@@ -858,8 +1027,10 @@ export default function EventBuilderPage() {
             capacity: packageData.guest_capacity,
           }));
 
-          // Move to venue selection step
-          setCurrentStep(4);
+          // Don't automatically move to next step - user must click Next button
+          console.log("Package selected, ready to proceed to next step");
+        } else {
+          console.log("No venues in package or already initialized");
         }
       } catch (error) {
         console.error("Error fetching package details:", error);
@@ -870,13 +1041,7 @@ export default function EventBuilderPage() {
         });
       }
     },
-    [
-      selectedVenueId,
-      setSelectedVenue,
-      setComponents,
-      setEventDetails,
-      setCurrentStep,
-    ]
+    [selectedVenueId]
   );
 
   // Helper function to load static package data
@@ -945,10 +1110,103 @@ export default function EventBuilderPage() {
     }
   };
 
-  // Handle venue selection
-  const handleVenueSelect = useCallback((venueId: string) => {
+  // Handle venue selection with stable reference
+  const handleVenueSelection = useCallback(async (venueId: string, packageId: string, guestCount: number) => {
+    // Add a small delay to show loading state
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     setSelectedVenueId(venueId);
-  }, []);
+    // Look for venue in the appropriate list
+    const venueList = packageVenues.length > 0 ? packageVenues : allVenues;
+
+    console.log("🔍 Venue Selection Debug:");
+    console.log("Selected venue ID:", venueId);
+    console.log("Using venue list:", packageVenues.length > 0 ? "packageVenues" : "allVenues");
+    console.log("Package venues count:", packageVenues.length);
+    console.log("All venues count:", allVenues.length);
+
+    const venue = venueList.find(
+      (v) => String(v.venue_id) === String(venueId)
+    );
+
+    console.log("Found venue:", venue);
+    setSelectedVenue(venue || null);
+
+    // Update event details with venue name and guest count
+    setEventDetails((prev: EventDetails) => ({
+      ...prev,
+      venue: venue?.venue_title || "",
+      capacity: guestCount,
+    }));
+
+    // Add venue as a component to ensure it's included in the budget
+    if (venue) {
+      console.log("Adding venue to components:", {
+        venue_id: venue.venue_id,
+        venue_title: venue.venue_title,
+        venue_price: venue.venue_price,
+        extra_pax_rate: venue.extra_pax_rate,
+        guest_count: guestCount
+      });
+
+      // Debug: Check if this is the Demiren Hotel
+      if (venue.venue_title && venue.venue_title.includes('Demiren')) {
+        console.log("🚨 DEMIREN HOTEL DETECTED - Current pax rate:", venue.extra_pax_rate);
+        console.log("Expected pax rate should be 200.00");
+      }
+
+      const venueComponent: DataPackageComponent = {
+        id: `venue-${venue.venue_id}`,
+        name: venue.venue_title || venue.venue_name,
+        description: `Venue: ${venue.venue_title || venue.venue_name}`,
+        price: parseFloat(venue.venue_price) || 0,
+        category: "venue",
+        included: true,
+        isVenueInclusion: true,
+        isRemovable: false,
+        isExpanded: false,
+      };
+
+      console.log("Created venue component:", venueComponent);
+
+      // Replace all previous venue components with the new one
+      setComponents((prev) => {
+        // Check if this venue is already in the components array
+        const existingVenue = prev.find(
+          (comp) =>
+            comp.category === "venue" &&
+            comp.isVenueInclusion &&
+            comp.id === venueComponent.id
+        );
+
+        if (existingVenue) {
+          console.log("Venue already exists in components, skipping duplicate");
+          return prev; // Don't add duplicate
+        }
+
+        // Remove all existing venue components and add the new one
+        const nonVenue = prev.filter(
+          (comp) =>
+            !(comp.category === "venue" && comp.isVenueInclusion)
+        );
+
+        console.log("Adding venue component to budget calculation");
+        return [...nonVenue, venueComponent];
+      });
+    } else {
+      console.log("No venue found for ID:", venueId);
+    }
+
+    console.log(
+      "Venue selected:",
+      venue?.venue_title,
+      "Guest count:",
+      guestCount
+    );
+
+    // Don't auto-skip - let user manually proceed
+    console.log("Venue selected, ready for manual progression");
+  }, [packageVenues, allVenues]);
 
   // Handle component updates
   const handleComponentsUpdate = useCallback(
@@ -998,13 +1256,28 @@ export default function EventBuilderPage() {
 
   // Get organizer names from IDs
   const getOrganizerNames = () => {
-    if (selectedOrganizers.length === 0) {
-      return ["Noreen Lagdamin (Default)"];
+    if (!selectedOrganizers || selectedOrganizers.length === 0) {
+      return [];
     }
 
-    return selectedOrganizers.map((id) => {
-      const organizer = organizers.find((org) => org.id === id);
-      return organizer ? organizer.name : "Unknown Organizer";
+    // Map organizer IDs to names using the organizer data or static organizers
+    return selectedOrganizers.map((organizerId) => {
+      // First try to find in the fetched organizer data
+      const apiOrganizer = organizerData.find(
+        (org) => org.organizer_id === organizerId
+      );
+      if (apiOrganizer) {
+        return apiOrganizer.organizer_name;
+      }
+
+      // Then try to find in static organizers
+      const staticOrganizer = organizers.find((org) => org.id === organizerId);
+      if (staticOrganizer) {
+        return staticOrganizer.name;
+      }
+
+      // If not found in either, return a fallback
+      return `Organizer ${organizerId}`;
     });
   };
 
@@ -1018,7 +1291,11 @@ export default function EventBuilderPage() {
 
     // Then check event packages
     const eventPkg = eventPackages?.find((p) => p.id === selectedPackageId);
-    return eventPkg ? eventPkg.name : "Custom Package";
+    if (eventPkg) return eventPkg.name;
+
+    // If not found in static packages, it might be an API package
+    // We'll return a generic name since we don't have access to the API packages here
+    return "Selected Package";
   };
 
   const getSelectedVenueName = () => {
@@ -1647,6 +1924,116 @@ export default function EventBuilderPage() {
     }
   };
 
+  const searchBookings = async (searchTerm: string) => {
+    if (!searchTerm.trim()) {
+      setBookingSearchResults([]);
+      return;
+    }
+
+    setBookingSearchLoading(true);
+    try {
+      const response = await axios.get(
+        `http://localhost/events-api/admin.php?operation=searchBookings&search=${encodeURIComponent(
+          searchTerm.trim()
+        )}`
+      );
+
+      if (response.data.status === "success") {
+        setBookingSearchResults(response.data.bookings || []);
+      } else {
+        setBookingSearchResults([]);
+      }
+    } catch (error) {
+      console.error("Error searching bookings:", error);
+      setBookingSearchResults([]);
+    } finally {
+      setBookingSearchLoading(false);
+    }
+  };
+
+  const loadBookingData = (booking: any) => {
+    // Parse the booking data and populate the form
+    const parseTime = (timeStr: string) => {
+      if (!timeStr) return "10:00";
+      const time = new Date(`2000-01-01T${timeStr}`);
+      return time.toTimeString().slice(0, 5);
+    };
+
+    const mapEventType = (eventTypeName: string): string => {
+      const typeMap: { [key: string]: string } = {
+        wedding: "wedding",
+        birthday: "birthday",
+        corporate: "corporate",
+        christening: "christening",
+        debut: "debut",
+        funeral: "funeral",
+        other: "other",
+      };
+      return typeMap[eventTypeName.toLowerCase()] || "other";
+    };
+
+    // Populate client data
+    setClientData({
+      id: booking.client_id || "",
+      name: booking.client_name || "",
+      email: booking.client_email || "",
+      phone: booking.client_phone || "",
+      address: booking.client_address || "",
+    });
+
+    // Populate event details
+    setEventDetails({
+      title: booking.event_title || "",
+      type: mapEventType(booking.event_type_name || ""),
+      date: booking.event_date || "",
+      startTime: parseTime(booking.start_time),
+      endTime: parseTime(booking.end_time),
+      capacity: booking.guest_count || 100,
+      notes: booking.notes || "",
+      venue: booking.venue_name || "",
+      package: booking.package_name || "",
+      theme: booking.theme || "",
+      description: booking.description || "",
+      bookingReference: booking.booking_reference || "",
+      isRecurring: false,
+      recurrenceRule: {
+        frequency: "monthly",
+        interval: 1,
+      },
+    });
+
+    // Set package and venue IDs if available
+    if (booking.package_id) {
+      setSelectedPackageId(booking.package_id.toString());
+    }
+    if (booking.venue_id) {
+      setSelectedVenueId(booking.venue_id.toString());
+    }
+
+    // Set payment data
+    setPaymentData({
+      total: booking.total_budget || 0,
+      paymentType: "half",
+      downPayment: booking.down_payment || 0,
+      balance: booking.remaining_balance || 0,
+      customPercentage: 50,
+      downPaymentMethod: booking.payment_method || "gcash",
+      referenceNumber: booking.payment_reference || "",
+      notes: booking.payment_notes || "",
+      cashBondRequired: booking.cash_bond_required || false,
+      cashBondStatus: booking.cash_bond_status || "pending",
+      scheduleTypeId: 2,
+    });
+
+    toast({
+      title: "Booking Loaded!",
+      description: `Successfully loaded booking: ${booking.event_title}`,
+    });
+
+    setShowBookingLookupModal(false);
+    setCurrentStep(2);
+  };
+
   // Add logic for venue selection step to enforce venue budget
   // Calculate total inclusion/component cost
   const totalInclusionCost = components
@@ -1656,7 +2043,81 @@ export default function EventBuilderPage() {
   const remainingBudget = packagePrice - totalInclusionCost;
 
   // Update the steps array with proper typing
-  const steps: Step[] = [
+  const baseSteps: Step[] = [
+    {
+      id: "package-selection",
+      title: "Package Selection",
+      description: "Choose a package for your event",
+      component: (
+        <div className="space-y-6">
+          {/* Header with booking lookup */}
+          <div className="flex items-center justify-end">
+            <Button
+              variant="outline"
+              onClick={() => {
+                // Show booking lookup modal
+                setShowBookingLookupModal(true);
+              }}
+            >
+              Look Up Existing Booking
+            </Button>
+          </div>
+
+          {/* Event Type Selection */}
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="event-type" className="text-base font-medium">
+                Event Type *
+              </Label>
+              <Select
+                value={selectedEventType}
+                onValueChange={(value) => {
+                  setSelectedEventType(value);
+                  setEventDetails((prev) => ({ ...prev, type: value }));
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select event type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {eventTypes.map((type) => (
+                    <SelectItem
+                      key={type.event_type_id}
+                      value={type.event_name}
+                    >
+                      {type.event_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <PackageSelection
+            eventType={selectedEventType || eventDetails.type}
+            onSelect={handlePackageSelect}
+            initialPackageId={selectedPackageId}
+          />
+
+          {/* Action buttons */}
+          <div className="flex items-center justify-center pt-6">
+            <Button
+              variant="outline"
+              className="px-6 py-3 border-2 border-dashed hover:bg-gray-50"
+              onClick={() => {
+                // Handle "Start from Scratch" option
+                setSelectedPackageId(null);
+                setComponents([]);
+                setOriginalPackagePrice(null);
+                setCurrentStep(2); // Go to Client Details
+              }}
+            >
+              Skip - Start from Scratch
+            </Button>
+          </div>
+        </div>
+      ),
+    },
     {
       id: "client-details",
       title: "Client Details",
@@ -1669,23 +2130,54 @@ export default function EventBuilderPage() {
             if (eventDetails) {
               console.log("Received event details from booking:", eventDetails);
               handleEventDetailsUpdate(eventDetails);
-
-              // If coming from a booking with a package, skip event details step and go to package selection
-              if (eventDetails.package) {
-                console.log(
-                  "Booking has package, skipping to package selection"
-                );
-                setCurrentStep(3);
-              } else {
-                setCurrentStep(2);
-              }
-            } else {
-              setCurrentStep(2);
             }
+            // Don't auto-skip - let user manually proceed
+            console.log(
+              "Client details completed, ready for manual progression"
+            );
           }}
         />
       ),
     },
+    // Wedding Form Step (only for wedding events) - Inserted as Step 3
+    ...(selectedEventType === "wedding" ||
+    eventDetails.type === "wedding" ||
+    getEventTypeIdFromName(selectedEventType || eventDetails.type) === 1
+      ? [
+          {
+            id: "wedding-form",
+            title: "Wedding Details",
+            description: "Wedding-specific information",
+            component: (
+              <WeddingFormStep
+                eventId={currentEventId || undefined}
+                initialData={weddingFormData}
+                onUpdate={(data) =>
+                  setWeddingFormData((prev) => ({ ...prev, ...data }))
+                }
+                onNext={() => {
+                  // Validate wedding form data before proceeding
+                  if (
+                    !weddingFormData.bride_name ||
+                    !weddingFormData.groom_name
+                  ) {
+                    toast({
+                      title: "Validation Error",
+                      description: "Bride and groom names are required",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+
+                  console.log(
+                    "Wedding form completed, ready for manual progression"
+                  );
+                }}
+              />
+            ),
+          },
+        ]
+      : []),
     {
       id: "event-details",
       title: "Event Details",
@@ -1764,50 +2256,11 @@ export default function EventBuilderPage() {
               return;
             }
 
-            // Check if this is a wedding event and insert wedding form step
-            if (eventDetails.type === "wedding") {
-              setCurrentStep(3); // Go to wedding form step
-            } else {
-              setCurrentStep(4); // Skip wedding form for non-wedding events
-            }
+            // Don't auto-skip - let user manually proceed
+            console.log(
+              "Event details completed, ready for manual progression"
+            );
           }}
-        />
-      ),
-    },
-    // Wedding Form Step (only for wedding events)
-    ...(eventDetails.type === "wedding"
-      ? [
-          {
-            id: "wedding-form",
-            title: "Wedding Details",
-            description: "Wedding-specific information",
-            component: (
-              <WeddingFormStep
-                eventId={currentEventId || undefined}
-                initialData={weddingFormData}
-                onUpdate={(data) =>
-                  setWeddingFormData((prev) => ({ ...prev, ...data }))
-                }
-                onNext={() => setCurrentStep(4)}
-              />
-            ),
-          },
-        ]
-      : []),
-    {
-      id: "package-selection",
-      title: "Package Selection",
-      description: "Choose a package",
-      component: packagesAvailable ? (
-        <PackageSelection
-          eventType={eventDetails.type}
-          onSelect={handlePackageSelect}
-          initialPackageId={selectedPackageId}
-        />
-      ) : (
-        <PackageSelectionFallback
-          onSelect={handlePackageSelect}
-          initialPackageId={selectedPackageId}
         />
       ),
     },
@@ -1820,37 +2273,8 @@ export default function EventBuilderPage() {
           eventType={eventDetails.type}
           venues={packageVenues.length > 0 ? packageVenues : allVenues}
           initialVenueId={selectedVenueId || undefined}
-          onSelect={async (venueId, packageId, guestCount) => {
-            // Add a small delay to show loading state
-            await new Promise((resolve) => setTimeout(resolve, 500));
-
-            setSelectedVenueId(venueId);
-            // Look for venue in the appropriate list
-            const venueList =
-              packageVenues.length > 0 ? packageVenues : allVenues;
-            const venue = venueList.find(
-              (v) => String(v.venue_id) === String(venueId)
-            );
-            setSelectedVenue(venue || null);
-
-            // Update event details with venue name and guest count
-            setEventDetails((prev: EventDetails) => ({
-              ...prev,
-              venue: venue?.venue_title || "",
-              capacity: guestCount,
-            }));
-
-            console.log(
-              "Venue selected:",
-              venue?.venue_title,
-              "Guest count:",
-              guestCount
-            );
-
-            // Move to next step after selection
-            const nextStep = eventDetails.type === "wedding" ? 6 : 5;
-            setCurrentStep(nextStep);
-          }}
+          currentGuestCount={eventDetails.capacity}
+          onSelect={handleVenueSelection}
         />
       ),
     },
@@ -1860,13 +2284,17 @@ export default function EventBuilderPage() {
       description: "Customize components",
       component: (
         <ComponentCustomization
-          components={components}
+          components={components.filter(
+            (component, index, self) =>
+              index ===
+              self.findIndex(
+                (c) =>
+                  c.id === component.id && c.category === component.category
+              )
+          )}
           selectedVenue={selectedVenue}
           onUpdate={handleComponentsUpdate}
-          onNext={() => {
-            const nextStep = eventDetails.type === "wedding" ? 7 : 6;
-            setCurrentStep(nextStep);
-          }}
+          eventDetails={eventDetails}
         />
       ),
     },
@@ -1878,13 +2306,16 @@ export default function EventBuilderPage() {
         <TimelineStep
           data={timelineData}
           eventDate={eventDetails.date}
-          components={components}
+          components={components.filter(
+            (component, index, self) =>
+              index ===
+              self.findIndex(
+                (c) =>
+                  c.id === component.id && c.category === component.category
+              )
+          )}
           suppliers={{}}
           updateData={handleTimelineUpdate}
-          onNext={() => {
-            const nextStep = eventDetails.type === "wedding" ? 9 : 8;
-            setCurrentStep(nextStep);
-          }}
         />
       ),
     },
@@ -1896,10 +2327,7 @@ export default function EventBuilderPage() {
         <OrganizerSelection
           selectedIds={selectedOrganizers}
           onSelect={setSelectedOrganizers}
-          onNext={() => {
-            const nextStep = eventDetails.type === "wedding" ? 10 : 9;
-            setCurrentStep(nextStep);
-          }}
+          onOrganizerDataUpdate={setOrganizerData}
         />
       ),
     },
@@ -2067,12 +2495,31 @@ export default function EventBuilderPage() {
                       </div>
                     ) : (
                       selectedOrganizers.map((organizerId) => {
+                        // First try to find in the fetched organizer data
+                        const apiOrganizer = organizerData.find(
+                          (org) => org.organizer_id === organizerId
+                        );
+                        if (apiOrganizer) {
+                          return (
+                            <div
+                              key={`organizer-${organizerId}`}
+                              className="flex items-center mb-2"
+                            >
+                              <span className="w-2 h-2 bg-brand-500 rounded-full mr-2"></span>
+                              <span className="font-medium">
+                                {apiOrganizer.organizer_name}
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        // Then try to find in static organizers
                         const organizer = organizers.find(
                           (org) => org.id === organizerId
                         );
                         const name = organizer
                           ? organizer.name
-                          : "Unknown Organizer";
+                          : `Organizer ${organizerId}`;
                         return (
                           <div
                             key={`organizer-${organizerId}`}
@@ -2145,6 +2592,18 @@ export default function EventBuilderPage() {
     },
   ];
 
+  // Defensive filtering: ensure all steps are valid and have proper IDs
+  const steps: Step[] = baseSteps.filter(
+    (step) => step && step.id && step.title && step.component
+  );
+
+  // Ensure currentStep is always valid when steps change
+  useEffect(() => {
+    if (steps.length > 0 && currentStep > steps.length) {
+      setCurrentStep(steps.length);
+    }
+  }, [steps.length, currentStep]);
+
   const clearForm = () => {
     // Clear local storage
     clearLocalStorage();
@@ -2173,6 +2632,7 @@ export default function EventBuilderPage() {
       package: "",
       theme: "",
       description: "",
+      bookingReference: "",
       isRecurring: false,
       recurrenceRule: {
         frequency: "monthly",
@@ -2186,6 +2646,7 @@ export default function EventBuilderPage() {
     setComponents([]);
     setOriginalPackagePrice(null);
     setSelectedOrganizers([]);
+    setOrganizerData([]);
 
     setPaymentData({
       total: 0,
@@ -2268,7 +2729,7 @@ export default function EventBuilderPage() {
     });
 
     // Reset step to first step
-    // Note: This would need to be passed from MultiStepWizard if we want to reset steps
+    setCurrentStep(1);
   };
 
   return (
@@ -2311,7 +2772,18 @@ export default function EventBuilderPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
-          <MultiStepWizard steps={steps} onComplete={handleComplete} />
+          <MultiStepWizard
+            steps={steps}
+            onComplete={handleComplete}
+            currentStepIndex={Math.max(
+              0,
+              Math.min(currentStep - 1, steps.length - 1)
+            )}
+            onStepChange={(index) =>
+              setCurrentStep(Math.max(1, Math.min(index + 1, steps.length)))
+            }
+            disableNext={currentStep === 1 && !selectedPackageId}
+          />
         </div>
 
         <div className="lg:col-span-1">
@@ -2382,23 +2854,15 @@ export default function EventBuilderPage() {
                         Noreen Lagdamin (Default)
                       </div>
                     ) : (
-                      selectedOrganizers.map((organizerId) => {
-                        const organizer = organizers.find(
-                          (org) => org.id === organizerId
-                        );
-                        const name = organizer
-                          ? organizer.name
-                          : "Unknown Organizer";
-                        return (
-                          <div
-                            key={`summary-organizer-${organizerId}`}
-                            className="flex items-center"
-                          >
-                            <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                            {name}
-                          </div>
-                        );
-                      })
+                      getOrganizerNames().map((organizerName, index) => (
+                        <div
+                          key={`summary-organizer-${index}`}
+                          className="flex items-center"
+                        >
+                          <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                          {organizerName}
+                        </div>
+                      ))
                     )}
                   </div>
                 </div>
@@ -2483,6 +2947,125 @@ export default function EventBuilderPage() {
           </div>
         </div>
       </div>
+
+      {/* Booking Lookup Modal */}
+      <Dialog
+        open={showBookingLookupModal}
+        onOpenChange={setShowBookingLookupModal}
+      >
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Look Up Existing Booking</DialogTitle>
+            <DialogDescription>
+              Search for an existing booking to load its data into the event
+              builder.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Search Input */}
+            <div className="space-y-2">
+              <Label htmlFor="booking-search">
+                Search by client name, event title, or booking reference
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="booking-search"
+                  placeholder="Enter search term..."
+                  onChange={(e) => {
+                    const searchTerm = e.target.value;
+                    if (searchTerm.length >= 2) {
+                      searchBookings(searchTerm);
+                    } else {
+                      setBookingSearchResults([]);
+                    }
+                  }}
+                />
+                {bookingSearchLoading && (
+                  <div className="flex items-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Search Results */}
+            <div className="max-h-[400px] overflow-y-auto">
+              {bookingSearchResults.length > 0 ? (
+                <div className="space-y-3">
+                  {bookingSearchResults.map((booking) => (
+                    <Card
+                      key={booking.booking_id}
+                      className="p-4 hover:bg-gray-50 cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <h4 className="font-medium">
+                            {booking.event_title || booking.event_name}
+                          </h4>
+                          <p className="text-sm text-gray-600">
+                            Client:{" "}
+                            {booking.client_name ||
+                              `${booking.user_firstName} ${booking.user_lastName}`}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            Date: {booking.event_date} | Type:{" "}
+                            {booking.event_type_name}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            Reference:{" "}
+                            {booking.booking_reference ||
+                              booking.reference_number}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            Status:{" "}
+                            <span
+                              className={`px-2 py-1 rounded text-xs ${
+                                booking.booking_status === "confirmed"
+                                  ? "bg-green-100 text-green-800"
+                                  : "bg-yellow-100 text-yellow-800"
+                              }`}
+                            >
+                              {booking.booking_status}
+                            </span>
+                          </p>
+                        </div>
+                        <Button
+                          onClick={() => loadBookingData(booking)}
+                          disabled={booking.booking_status !== "confirmed"}
+                          size="sm"
+                        >
+                          Load Booking
+                        </Button>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  {bookingSearchLoading ? (
+                    <div className="flex items-center justify-center space-x-2">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
+                      <span>Searching...</span>
+                    </div>
+                  ) : (
+                    <p>No bookings found. Try a different search term.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowBookingLookupModal(false)}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Missing Reference Number Dialog */}
       <Dialog
@@ -2600,6 +3183,15 @@ export default function EventBuilderPage() {
         open={showClearFormModal}
         onOpenChange={setShowClearFormModal}
         onConfirm={handleClearDraft}
+      />
+
+      {/* LocalStorage Recovery Modal */}
+      <LocalStorageRecoveryModal
+        isOpen={showLocalStorageRecoveryModal}
+        onSave={handleLocalStorageSave}
+        onDiscard={handleLocalStorageDiscard}
+        onCancel={handleLocalStorageCancel}
+        currentStep={currentStep}
       />
     </div>
   );

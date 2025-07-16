@@ -2,40 +2,19 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import {
-  MapPin,
-  Check,
-  Phone,
-  MapPinned,
-  Users,
-  Calendar,
-  DollarSign,
-  Grid3X3,
-  List,
-  Loader,
-} from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { MapPin, Check, Users, X } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { formatCurrency } from "@/lib/utils";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface VenueSelectionProps {
   venues: any[];
@@ -43,6 +22,7 @@ interface VenueSelectionProps {
   initialVenueId?: string;
   initialPackageId?: string;
   initialGuestCount?: number;
+  currentGuestCount?: number;
   onSelect: (
     venueId: string,
     packageId: string,
@@ -56,6 +36,7 @@ export function VenueSelection({
   initialVenueId,
   initialPackageId,
   initialGuestCount = 100,
+  currentGuestCount,
   onSelect,
 }: VenueSelectionProps) {
   const [selectedVenueId, setSelectedVenueId] = useState<string>(
@@ -64,15 +45,49 @@ export function VenueSelection({
   const [selectedPackageId, setSelectedPackageId] = useState<string>(
     initialPackageId || ""
   );
-  const [guestCount, setGuestCount] = useState<number>(initialGuestCount);
+  const [guestCount, setGuestCount] = useState<number>(
+    currentGuestCount || initialGuestCount
+  );
+  const [guestCountInput, setGuestCountInput] = useState<string>(
+    String(currentGuestCount || initialGuestCount)
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredVenues, setFilteredVenues] = useState<any[]>([]);
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [selectedVenue, setSelectedVenue] = useState<any | null>(null);
-  const [isConfirming, setIsConfirming] = useState(false);
+  const [showVenueDetailsModal, setShowVenueDetailsModal] = useState(false);
+  const [selectedVenueForModal, setSelectedVenueForModal] = useState<
+    any | null
+  >(null);
+
+  // Update guest count when currentGuestCount prop changes
+  useEffect(() => {
+    if (currentGuestCount && currentGuestCount !== guestCount) {
+      setGuestCount(currentGuestCount);
+      setGuestCountInput(String(currentGuestCount));
+    }
+  }, [currentGuestCount, guestCount]);
+
+  // Only update selection when venue changes, not on every guest count change
+  useEffect(() => {
+    if (selectedVenueId && guestCount > 0) {
+      onSelect(selectedVenueId, selectedPackageId, guestCount);
+    }
+  }, [selectedVenueId, selectedPackageId, onSelect]);
 
   // Filter venues based on search query
   useEffect(() => {
+    if (!venues || !Array.isArray(venues)) {
+      setFilteredVenues([]);
+      return;
+    }
+
+    // Check if venues have pax rate data
+    const venuesWithPaxRates = venues.filter(
+      (venue: any) => parseFloat(venue.extra_pax_rate || 0) > 0
+    );
+    if (venuesWithPaxRates.length > 0) {
+      console.log(`Found ${venuesWithPaxRates.length} venues with pax rates`);
+    }
+
     const venuesFilteredBySearch = venues.filter(
       (venue: any) =>
         venue.venue_title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -81,95 +96,46 @@ export function VenueSelection({
     setFilteredVenues(venuesFilteredBySearch);
   }, [searchQuery, venues]);
 
-  // Update selected venue when ID changes
-  useEffect(() => {
-    if (selectedVenueId) {
-      const venue = filteredVenues.find(
-        (v: any) => String(v.venue_id) === String(selectedVenueId)
-      );
-      setSelectedVenue(venue || null);
-    } else {
-      setSelectedVenue(null);
-    }
-  }, [selectedVenueId, filteredVenues]);
-
   // Handle venue selection
-  const handleVenueSelect = (venueId: string) => {
+  const handleVenueSelect = async (venueId: string) => {
     setSelectedVenueId(venueId);
-    // Do NOT call onSelect here
+    // Automatically call onSelect when venue is selected with current guest count
+    await onSelect(venueId, selectedPackageId, guestCount);
   };
 
-  // Handle venue confirmation
-  const handleConfirmSelection = async () => {
-    if (!selectedVenueId) return;
-
-    setIsConfirming(true);
-    try {
-      await onSelect(selectedVenueId, selectedPackageId, guestCount);
-    } finally {
-      setIsConfirming(false);
-    }
-  };
-
-  // Handle guest count change
+  // Handle guest count input changes
   const handleGuestCountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const count = Number.parseInt(e.target.value);
-    if (!isNaN(count) && count > 0) {
-      setGuestCount(count);
-      if (selectedVenueId && selectedPackageId) {
-        onSelect(selectedVenueId, selectedPackageId, count);
-      }
+    const inputValue = e.target.value;
+    setGuestCountInput(inputValue);
+  };
+
+  // Handle guest count input blur (when user finishes typing)
+  const handleGuestCountBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value) || 100;
+    const clampedValue = Math.max(1, Math.min(1000, value));
+    setGuestCount(clampedValue);
+    setGuestCountInput(String(clampedValue));
+
+    // Only call onSelect if we have a selected venue
+    if (selectedVenueId) {
+      onSelect(selectedVenueId, selectedPackageId, clampedValue);
     }
   };
 
-  // Calculate total venue cost including inclusions
-  const calculateVenueCost = () => {
-    if (!selectedVenue) return 0;
-
-    // Use the calculated total_venue_price if available from backend
-    if (selectedVenue.total_venue_price) {
-      return parseFloat(selectedVenue.total_venue_price);
+  // Handle Enter key press
+  const handleGuestCountKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (e.key === "Enter") {
+      e.currentTarget.blur();
     }
-
-    // Fallback to manual calculation
-    let total = 0;
-
-    // Add base venue price if it exists
-    if (selectedVenue.venue_price) {
-      total += parseFloat(selectedVenue.venue_price) || 0;
-    }
-
-    // Add cost of venue inclusions
-    if (selectedVenue.inclusions && Array.isArray(selectedVenue.inclusions)) {
-      total += selectedVenue.inclusions.reduce(
-        (sum: number, inclusion: any) => {
-          const price = parseFloat(inclusion?.inclusion_price) || 0;
-          return sum + price;
-        },
-        0
-      );
-    }
-
-    return total;
   };
 
-  // Calculate base venue price and inclusions total separately
-  const getVenueBasePricing = () => {
-    if (!selectedVenue) return { basePrice: 0, inclusionsTotal: 0 };
-
-    const basePrice = parseFloat(selectedVenue.venue_price) || 0;
-
-    // Use calculated inclusions_total if available from backend
-    const inclusionsTotal = selectedVenue.inclusions_total
-      ? parseFloat(selectedVenue.inclusions_total)
-      : (selectedVenue.inclusions || []).reduce(
-          (sum: number, inclusion: any) => {
-            return sum + (parseFloat(inclusion?.inclusion_price) || 0);
-          },
-          0
-        );
-
-    return { basePrice, inclusionsTotal };
+  // Handle venue details modal
+  const handleVenueDetailsClick = (venue: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedVenueForModal(venue);
+    setShowVenueDetailsModal(true);
   };
 
   // Function to get proper image URL
@@ -187,340 +153,668 @@ export function VenueSelection({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Select a Venue</h2>
-        <p className="text-muted-foreground">
-          Choose a venue from the available options for your {eventType} event.
+      {/* Step Header */}
+      <div className="text-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          Venue Selection
+        </h2>
+        <p className="text-gray-600">
+          Choose a venue and set your expected guest count to see overflow
+          charges
         </p>
       </div>
 
-      <Alert className="border-green-200 bg-green-50">
-        <AlertDescription className="flex items-center text-green-800">
-          <Users className="h-4 w-4 mr-2" />
-          <span>
-            The number of guests affects the total cost. Please ensure the venue
-            can accommodate your guest count.
-          </span>
-        </AlertDescription>
-      </Alert>
-
-      <div className="flex flex-col md:flex-row gap-4">
-        <div className="w-full md:w-2/3">
-          <div className="mb-4 flex items-center justify-between">
-            <Input
-              type="search"
-              placeholder="Search venues..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="max-w-sm focus:ring-green-500 focus:border-green-500"
-            />
-            <div className="flex items-center space-x-2">
-              <Button
-                variant={viewMode === "grid" ? "default" : "outline"}
-                size="icon"
-                onClick={() => setViewMode("grid")}
-                className={`h-8 w-8 ${
-                  viewMode === "grid"
-                    ? "bg-brand-500 hover:bg-brand-600 text-white"
-                    : "border-brand-500 text-brand-500 hover:bg-brand-50"
-                }`}
-              >
-                <Grid3X3 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant={viewMode === "list" ? "default" : "outline"}
-                size="icon"
-                onClick={() => setViewMode("list")}
-                className={`h-8 w-8 ${
-                  viewMode === "list"
-                    ? "bg-brand-500 hover:bg-brand-600 text-white"
-                    : "border-brand-500 text-brand-500 hover:bg-brand-50"
-                }`}
-              >
-                <List className="h-4 w-4" />
-              </Button>
+      {/* Guest Count Input */}
+      <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-blue-900 mb-2">
+              Expected Guest Count
+            </label>
+            <div className="flex items-center space-x-4">
+              <Input
+                type="number"
+                min="1"
+                max="1000"
+                value={guestCountInput}
+                onChange={handleGuestCountChange}
+                onBlur={handleGuestCountBlur}
+                onKeyDown={handleGuestCountKeyDown}
+                className="w-32"
+                placeholder="100"
+              />
+              <span className="text-sm text-blue-700">guests</span>
             </div>
+            <p className="text-xs text-blue-600 mt-1">
+              This will be used to calculate overflow charges for venues with
+              extra guest rates
+            </p>
           </div>
 
-          {filteredVenues.length > 0 ? (
-            <div
-              className={
-                viewMode === "grid"
-                  ? "grid grid-cols-1 lg:grid-cols-2 gap-4"
-                  : "space-y-4"
-              }
-            >
-              {filteredVenues.map((venue: any) => (
-                <Card
-                  key={venue.venue_id}
-                  className={`overflow-hidden cursor-pointer transition-all duration-200 h-full flex flex-col ${
-                    selectedVenueId === String(venue.venue_id)
-                      ? "ring-2 ring-green-500 shadow-lg"
-                      : "hover:shadow-md"
-                  }`}
-                  onClick={() => handleVenueSelect(String(venue.venue_id))}
-                >
-                  <div className="relative h-24 bg-gradient-to-r from-brand-50 to-brand-100 flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="text-3xl font-bold text-brand-600 mb-1">
-                        {filteredVenues.indexOf(venue) + 1}
-                      </div>
-                      <div className="text-sm text-brand-500 font-medium">
-                        Venue Option
-                      </div>
+          {/* Overflow Charge Preview */}
+          {selectedVenueId && guestCount > 100 && (
+            <div className="text-right">
+              <div className="text-sm text-blue-700">
+                Selected venue overflow:
+              </div>
+              <div className="text-lg font-bold text-blue-900">
+                {(() => {
+                  const selectedVenue = venues.find(
+                    (v) => String(v.venue_id) === selectedVenueId
+                  );
+
+                  if (
+                    selectedVenue &&
+                    parseFloat(selectedVenue.extra_pax_rate || 0) > 0
+                  ) {
+                    const extraGuests = Math.max(0, guestCount - 100);
+                    const overflowCharge =
+                      extraGuests *
+                      parseFloat(selectedVenue.extra_pax_rate || 0);
+                    return formatCurrency(overflowCharge);
+                  }
+                  return "₱0.00";
+                })()}
+              </div>
+              <div className="text-xs text-blue-600">
+                for {guestCount - 100} extra guests
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Search Input */}
+      <div className="flex items-center justify-between">
+        <Input
+          type="search"
+          placeholder="Search venues..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="max-w-sm"
+        />
+      </div>
+
+      {/* Selected Venue Pricing Summary */}
+      {selectedVenueId &&
+        (() => {
+          const selectedVenue = venues.find(
+            (v) => String(v.venue_id) === selectedVenueId
+          );
+          if (!selectedVenue) return null;
+
+          const basePrice = parseFloat(selectedVenue.venue_price) || 0;
+          const extraPaxRate =
+            parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
+          const overflowCharge =
+            guestCount > 100 ? Math.max(0, guestCount - 100) * extraPaxRate : 0;
+          const totalPrice = basePrice + overflowCharge;
+
+          return (
+            <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-green-900">
+                    Selected: {selectedVenue.venue_title}
+                  </h3>
+                  <p className="text-sm text-green-700">
+                    Guest count: {guestCount} • Base capacity: 100
+                  </p>
+                  {extraPaxRate > 0 && (
+                    <p className="text-xs text-blue-700 mt-1">
+                      Extra guest rate: {formatCurrency(extraPaxRate)} per guest
+                    </p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-green-700">
+                    Base price: {formatCurrency(basePrice)}
+                  </div>
+                  {overflowCharge > 0 && (
+                    <div className="text-sm text-blue-700">
+                      Overflow: +{formatCurrency(overflowCharge)}
                     </div>
-                    {selectedVenueId === String(venue.venue_id) && (
-                      <div className="absolute top-2 right-2 h-6 w-6 flex items-center justify-center rounded-full bg-brand-500 text-white">
-                        <Check className="h-4 w-4" />
-                      </div>
-                    )}
-                    <div className="absolute bottom-2 left-2">
-                      <Badge
-                        variant="secondary"
-                        className="bg-white/90 text-black"
-                      >
+                  )}
+                  <div className="text-xl font-bold text-green-900">
+                    Total: {formatCurrency(totalPrice)}
+                  </div>
+                  {extraPaxRate > 0 && guestCount > 100 && (
+                    <div className="text-xs text-blue-600 mt-1">
+                      Formula: {guestCount} guests ×{" "}
+                      {formatCurrency(extraPaxRate)} ={" "}
+                      {formatCurrency(overflowCharge)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+      {/* Venue Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {filteredVenues.map((venue: any) => {
+          const isSelected = selectedVenueId === String(venue.venue_id);
+
+          return (
+            <Card
+              key={venue.venue_id}
+              className={`cursor-pointer transition-all duration-200 ${
+                isSelected ? "ring-2 ring-[#028A75] border-[#028A75]" : ""
+              }`}
+              onClick={() => handleVenueSelect(String(venue.venue_id))}
+            >
+              {/* Cover Photo */}
+              <div className="relative h-48 bg-gray-200">
+                {venue.venue_cover_photo ? (
+                  <Image
+                    src={getImageUrl(venue.venue_cover_photo)}
+                    alt={`${venue.venue_title} cover`}
+                    fill
+                    className="object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = "/default_pfp.png";
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
+                    <MapPin className="h-12 w-12 text-gray-400" />
+                  </div>
+                )}
+
+                {/* Profile Picture Overlay */}
+                <div className="absolute -bottom-5 left-4">
+                  <div className="w-16 h-16 rounded-full border-4 border-white overflow-hidden">
+                    <Image
+                      src={getImageUrl(venue.venue_profile_picture)}
+                      alt={venue.venue_title}
+                      width={64}
+                      height={64}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = "/default_pfp.png";
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Selection Indicator */}
+                {isSelected && (
+                  <div className="absolute top-2 right-2 h-6 w-6 flex items-center justify-center rounded-full bg-[#028A75] text-white">
+                    <Check className="h-4 w-4" />
+                  </div>
+                )}
+              </div>
+
+              <CardHeader className="pt-7 pb-2">
+                <div className="flex justify-between items-start">
+                  <CardTitle className="text-lg">{venue.venue_title}</CardTitle>
+                  {isSelected && <Check className="h-5 w-5 text-[#028A75]" />}
+                </div>
+                <div className="flex items-center text-sm text-gray-600 mt-1">
+                  <MapPin className="h-4 w-4 mr-1" />
+                  <span className="truncate">{venue.venue_location}</span>
+                </div>
+              </CardHeader>
+
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <div className="flex flex-col">
+                      <span className="text-2xl font-bold text-[#028A75]">
                         {formatCurrency(parseFloat(venue.venue_price) || 0)}
-                      </Badge>
+                      </span>
+                      {parseFloat(venue.extra_pax_rate || 0) > 0 && (
+                        <span className="text-xs text-blue-600">
+                          +{" "}
+                          {formatCurrency(
+                            parseFloat(venue.extra_pax_rate || 0)
+                          )}{" "}
+                          per extra guest
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Users className="h-4 w-4 mr-1" />
+                      {venue.venue_capacity || 0} guests
                     </div>
                   </div>
-                  <CardHeader className="flex-none">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1 min-w-0">
-                        <CardTitle className="truncate">
-                          {venue.venue_title}
-                        </CardTitle>
-                        <div className="flex items-center text-sm text-muted-foreground mt-1">
-                          <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
-                          <span className="truncate">
-                            {venue.venue_location}
-                          </span>
-                        </div>
-                        {venue.venue_capacity && (
-                          <div className="flex items-center text-sm text-muted-foreground mt-1">
-                            <Users className="h-3 w-3 mr-1" />
-                            <span>Capacity: {venue.venue_capacity} guests</span>
-                          </div>
-                        )}
+
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>{venue.inclusions?.length || 0} add-ons</span>
+                    <span>Available</span>
+                  </div>
+
+                  {/* Pricing Formula Display */}
+                  {parseFloat(venue.extra_pax_rate || 0) > 0 && (
+                    <div className="bg-yellow-50 p-2 rounded border border-yellow-200">
+                      <div className="text-xs text-yellow-800 font-medium mb-1">
+                        Pricing Formula:
                       </div>
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="flex-1">
-                    <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-                      {venue.venue_details || "No description available"}
-                    </p>
-
-                    {venue.inclusions && venue.inclusions.length > 0 && (
-                      <div className="space-y-3">
-                        <h3 className="text-sm font-medium text-green-800">
-                          Available Add-ons:
-                        </h3>
-                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                          {venue.inclusions
-                            .slice(0, 2)
-                            .map((inclusion: any) => (
-                              <div
-                                key={`${venue.venue_id}-inclusion-${inclusion.inclusion_id}`}
-                                className="p-3 bg-green-50 rounded-lg border border-green-200"
-                              >
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="font-medium text-green-800">
-                                    {inclusion.inclusion_name}
-                                  </span>
-                                  <Badge
-                                    variant="outline"
-                                    className="border-green-500 text-green-600"
-                                  >
-                                    {formatCurrency(
-                                      parseFloat(inclusion?.inclusion_price) ||
-                                        0
-                                    )}
-                                  </Badge>
-                                </div>
-                                {inclusion.components &&
-                                  inclusion.components.length > 0 && (
-                                    <div className="space-y-1">
-                                      <p className="text-xs text-green-700 font-medium">
-                                        Includes:
-                                      </p>
-                                      <div className="grid grid-cols-1 gap-1">
-                                        {inclusion.components
-                                          .slice(0, 3)
-                                          .map(
-                                            (component: any, index: number) => (
-                                              <div
-                                                key={`${venue.venue_id}-${inclusion.inclusion_id}-${component.component_id}-${index}`}
-                                                className="flex items-center space-x-1 text-xs text-green-600"
-                                              >
-                                                <Check className="h-3 w-3 text-green-500 flex-shrink-0" />
-                                                <span className="truncate">
-                                                  {component.component_name}
-                                                </span>
-                                              </div>
-                                            )
-                                          )}
-                                        {inclusion.components.length > 3 && (
-                                          <p className="text-xs text-green-600 italic">
-                                            +{inclusion.components.length - 3}{" "}
-                                            more items
-                                          </p>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                              </div>
-                            ))}
-                          {venue.inclusions.length > 2 && (
-                            <p className="text-xs text-muted-foreground text-center italic">
-                              +{venue.inclusions.length - 2} more add-ons
-                              available
-                            </p>
+                      <div className="text-xs text-yellow-700">
+                        Base: {formatCurrency(parseFloat(venue.venue_price))}{" "}
+                        (100 guests)
+                      </div>
+                      <div className="text-xs text-yellow-700">
+                        Extra:{" "}
+                        {formatCurrency(parseFloat(venue.extra_pax_rate || 0))}{" "}
+                        per guest beyond 100
+                      </div>
+                      {guestCount > 100 && (
+                        <div className="text-xs text-yellow-900 font-medium mt-1">
+                          Your event: {guestCount} ×{" "}
+                          {formatCurrency(
+                            parseFloat(venue.extra_pax_rate || 0)
+                          )}{" "}
+                          ={" "}
+                          {formatCurrency(
+                            Math.max(0, guestCount - 100) *
+                              parseFloat(venue.extra_pax_rate || 0)
                           )}
                         </div>
-                      </div>
-                    )}
-                  </CardContent>
+                      )}
+                    </div>
+                  )}
 
-                  <CardFooter className="mt-auto">
+                  {/* Pax Rate Information */}
+                  {parseFloat(venue.extra_pax_rate || 0) > 0 && (
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-blue-700 font-medium text-sm">
+                          Extra Guest Rate:
+                        </span>
+                        <span className="text-blue-800 font-bold text-sm">
+                          {formatCurrency(
+                            parseFloat(venue.extra_pax_rate || 0)
+                          )}{" "}
+                          per guest
+                        </span>
+                      </div>
+                      <div className="text-xs text-blue-600 mb-2">
+                        Base: 100 guests • Extra:{" "}
+                        {formatCurrency(parseFloat(venue.extra_pax_rate || 0))}{" "}
+                        each
+                      </div>
+
+                      {/* Overflow Charge for Current Guest Count */}
+                      {guestCount > 100 && (
+                        <div className="bg-white p-2 rounded border border-blue-300">
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="text-blue-700 font-medium">
+                              Overflow charge ({guestCount} guests):
+                            </span>
+                            <span className="text-blue-900 font-bold">
+                              {formatCurrency(
+                                Math.max(0, guestCount - 100) *
+                                  parseFloat(venue.extra_pax_rate || 0)
+                              )}
+                            </span>
+                          </div>
+                          <div className="text-xs text-blue-600">
+                            <strong>
+                              Total:{" "}
+                              {formatCurrency(parseFloat(venue.venue_price))} +{" "}
+                              {formatCurrency(
+                                Math.max(0, guestCount - 100) *
+                                  parseFloat(venue.extra_pax_rate || 0)
+                              )}{" "}
+                              ={" "}
+                              {formatCurrency(
+                                parseFloat(venue.venue_price) +
+                                  Math.max(0, guestCount - 100) *
+                                    parseFloat(venue.extra_pax_rate || 0)
+                              )}
+                            </strong>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
                     <Button
-                      className={`w-full ${
-                        selectedVenueId === String(venue.venue_id)
-                          ? "bg-green-500 hover:bg-green-600 text-white"
-                          : "border-green-500 text-green-500 hover:bg-green-50"
-                      }`}
-                      variant={
-                        selectedVenueId === String(venue.venue_id)
-                          ? "default"
-                          : "outline"
-                      }
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleVenueSelect(String(venue.venue_id));
                       }}
                     >
-                      {selectedVenueId === String(venue.venue_id) ? (
-                        <>
-                          <Check className="h-4 w-4 mr-2" />
-                          Selected
-                        </>
-                      ) : (
-                        "Select Venue"
-                      )}
+                      {isSelected ? "Selected" : "Select Venue"}
                     </Button>
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12 border rounded-lg border-green-200">
-              <div className="mx-auto h-12 w-12 text-green-500 mb-4">
-                <MapPin className="h-12 w-12" />
-              </div>
-              <p className="text-muted-foreground mb-2">
-                No venues found matching your search.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Please adjust your search or contact the administrator.
-              </p>
-            </div>
-          )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleVenueDetailsClick(venue, e);
+                      }}
+                    >
+                      View Details
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {filteredVenues.length === 0 && (
+        <div className="text-center py-12 border rounded-lg border-gray-200">
+          <div className="mx-auto h-12 w-12 text-gray-400 mb-4">
+            <MapPin className="h-12 w-12" />
+          </div>
+          <p className="text-muted-foreground mb-2">
+            No venues found matching your search.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Please adjust your search or contact the administrator.
+          </p>
         </div>
+      )}
 
-        <div className="w-full md:w-1/3">
-          <Card className="sticky top-4 border-green-200">
-            <CardHeader className="bg-green-50">
-              <CardTitle className="text-green-800">Venue Details</CardTitle>
-              <CardDescription className="text-green-600">
-                Configure your venue selection
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-6">
-              <div className="space-y-2">
-                <Label
-                  htmlFor="guest-count"
-                  className="flex items-center font-medium"
-                >
-                  <Users className="h-4 w-4 mr-2 text-green-500" />
-                  Number of Guests
-                </Label>
-                <Input
-                  id="guest-count"
-                  type="number"
-                  min="1"
-                  value={guestCount}
-                  onChange={handleGuestCountChange}
-                  className={`focus:ring-green-500 focus:border-green-500 ${
-                    selectedVenue && guestCount > selectedVenue.venue_capacity
-                      ? "border-amber-500"
-                      : ""
-                  }`}
-                />
-                {selectedVenue && guestCount > selectedVenue.venue_capacity && (
-                  <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                    ⚠️ This exceeds the venue's capacity of{" "}
-                    {selectedVenue.venue_capacity} guests.
-                  </p>
-                )}
-              </div>
+      {/* Venue Details Modal */}
+      <Dialog
+        open={showVenueDetailsModal}
+        onOpenChange={setShowVenueDetailsModal}
+      >
+        <DialogContent className="max-w-3xl h-[85vh] mx-auto fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex flex-col p-0 gap-0 bg-white rounded-lg">
+          {/* Close Button - Top Right */}
+          <button
+            onClick={() => setShowVenueDetailsModal(false)}
+            className="absolute top-4 right-4 z-10 p-2 hover:bg-gray-100 rounded-full transition-colors"
+            aria-label="Close modal"
+          >
+            <X className="h-5 w-5" />
+          </button>
 
-              {selectedVenue && (
-                <div className="space-y-4 pt-4 border-t border-green-200">
-                  <h4 className="font-medium text-green-800">Selected Venue</h4>
+          {/* Main Content Container */}
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Header Section */}
+            <div className="px-6 pt-6 pb-4">
+              <DialogHeader className="space-y-1">
+                <DialogTitle className="text-2xl font-semibold text-gray-900">
+                  {selectedVenueForModal?.venue_title}
+                </DialogTitle>
+                <DialogDescription className="text-base text-gray-600">
+                  {selectedVenueForModal?.venue_location}
+                </DialogDescription>
+              </DialogHeader>
+            </div>
 
-                  <div className="space-y-3">
-                    <div className="relative h-24 rounded-lg overflow-hidden">
-                      <Image
-                        src={getImageUrl(selectedVenue.venue_profile_picture)}
-                        alt={selectedVenue.venue_title}
-                        fill
-                        className="object-cover"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = "/default_pfp.png";
-                        }}
-                      />
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto px-6">
+              {selectedVenueForModal && (
+                <div className="space-y-8 pb-6">
+                  {/* Venue Overview */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div className="text-center p-6 bg-[#028A75]/10 rounded-xl">
+                      <div className="text-2xl sm:text-3xl font-bold text-[#028A75]">
+                        {formatCurrency(
+                          parseFloat(selectedVenueForModal.venue_price) || 0
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Base Venue Price
+                      </div>
                     </div>
-
-                    <div className="space-y-1">
-                      <div className="font-medium text-green-800">
-                        {selectedVenue.venue_title}
+                    <div className="text-center p-6 bg-green-50 rounded-xl">
+                      <div className="text-2xl sm:text-3xl font-bold text-green-600">
+                        {selectedVenueForModal.venue_capacity || 0}
                       </div>
-                      <div className="text-sm text-muted-foreground flex items-center">
-                        <MapPin className="h-3 w-3 mr-1" />
-                        {selectedVenue.venue_location}
+                      <div className="text-sm text-gray-600 mt-1">
+                        Maximum Guests
                       </div>
-                      {selectedVenue.venue_capacity && (
-                        <div className="text-sm text-muted-foreground flex items-center">
-                          <Users className="h-3 w-3 mr-1" />
-                          Capacity: {selectedVenue.venue_capacity} guests
-                        </div>
-                      )}
+                    </div>
+                    <div className="text-center p-6 bg-blue-50 rounded-xl">
+                      <div className="text-2xl sm:text-3xl font-bold text-blue-600">
+                        {formatCurrency(
+                          parseFloat(selectedVenueForModal.extra_pax_rate) || 0
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Extra Guest Rate
+                      </div>
+                    </div>
+                    <div className="text-center p-6 bg-purple-50 rounded-xl">
+                      <div className="text-2xl sm:text-3xl font-bold text-purple-600">
+                        {selectedVenueForModal.inclusions?.length || 0}
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Available Add-ons
+                      </div>
                     </div>
                   </div>
 
-                  {selectedVenue.inclusions &&
-                    selectedVenue.inclusions.length > 0 && (
-                      <Accordion type="single" collapsible className="w-full">
-                        <AccordionItem
-                          value="inclusions"
-                          className="border-green-200"
-                        >
-                          <AccordionTrigger className="text-green-800 hover:text-green-900">
-                            Venue Add-ons ({selectedVenue.inclusions.length})
-                          </AccordionTrigger>
-                          <AccordionContent className="space-y-3 pt-2">
-                            {selectedVenue.inclusions.map((inclusion: any) => (
+                  {/* Venue Description */}
+                  {selectedVenueForModal.venue_details && (
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900 mb-3">
+                        About This Venue
+                      </h4>
+                      <p className="text-gray-700 leading-relaxed">
+                        {selectedVenueForModal.venue_details}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Pax Rate Information */}
+                  {parseFloat(selectedVenueForModal.extra_pax_rate) > 0 && (
+                    <div className="bg-blue-50 border border-blue-200 p-6 rounded-xl">
+                      <h4 className="text-lg font-semibold text-blue-900 mb-3 flex items-center">
+                        <Users className="h-5 w-5 mr-2" />
+                        Guest Overflow Charges
+                      </h4>
+                      <div className="space-y-3">
+                        <p className="text-blue-800">
+                          This venue supports a base capacity of{" "}
+                          <strong>100 guests</strong>. Additional guests beyond
+                          this limit will incur an extra charge.
+                        </p>
+                        <div className="bg-white p-4 rounded-lg border border-blue-300">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-blue-900 font-medium">
+                              Extra Guest Rate:
+                            </span>
+                            <span className="text-blue-900 font-bold">
+                              {formatCurrency(
+                                parseFloat(selectedVenueForModal.extra_pax_rate)
+                              )}{" "}
+                              per guest
+                            </span>
+                          </div>
+                          <div className="text-sm text-blue-700">
+                            <p>
+                              • Base capacity: 100 guests (included in venue
+                              price)
+                            </p>
+                            <p>
+                              • Additional guests:{" "}
+                              {formatCurrency(
+                                parseFloat(selectedVenueForModal.extra_pax_rate)
+                              )}{" "}
+                              each
+                            </p>
+                            <p>
+                              • Example: 150 guests = 50 extra ×{" "}
+                              {formatCurrency(
+                                parseFloat(selectedVenueForModal.extra_pax_rate)
+                              )}{" "}
+                              ={" "}
+                              {formatCurrency(
+                                50 *
+                                  parseFloat(
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
+                              )}{" "}
+                              additional charge
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Current Guest Count Calculation */}
+                        {currentGuestCount && currentGuestCount > 100 && (
+                          <div className="bg-green-50 p-4 rounded-lg border border-green-300">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-green-900 font-medium">
+                                Your Event ({currentGuestCount} guests):
+                              </span>
+                              <span className="text-green-900 font-bold">
+                                {formatCurrency(
+                                  (currentGuestCount - 100) *
+                                    parseFloat(
+                                      selectedVenueForModal.extra_pax_rate
+                                    )
+                                )}{" "}
+                                additional charge
+                              </span>
+                            </div>
+                            <div className="text-sm text-green-700">
+                              <p>
+                                • Extra guests: {currentGuestCount - 100} ×{" "}
+                                {formatCurrency(
+                                  parseFloat(
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
+                                )}
+                              </p>
+                              <p>
+                                • Total venue cost:{" "}
+                                {formatCurrency(
+                                  parseFloat(selectedVenueForModal.venue_price)
+                                )}{" "}
+                                +{" "}
+                                {formatCurrency(
+                                  (currentGuestCount - 100) *
+                                    parseFloat(
+                                      selectedVenueForModal.extra_pax_rate
+                                    )
+                                )}{" "}
+                                ={" "}
+                                {formatCurrency(
+                                  parseFloat(
+                                    selectedVenueForModal.venue_price
+                                  ) +
+                                    (currentGuestCount - 100) *
+                                      parseFloat(
+                                        selectedVenueForModal.extra_pax_rate
+                                      )
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Step-by-step calculation */}
+                        <div className="bg-blue-50 p-4 rounded-lg border border-blue-300 mt-3">
+                          <h5 className="text-blue-900 font-medium mb-2">
+                            Step-by-step Calculation:
+                          </h5>
+                          <div className="text-sm text-blue-800 space-y-1">
+                            <p>
+                              1. Base venue price:{" "}
+                              {formatCurrency(
+                                parseFloat(selectedVenueForModal.venue_price)
+                              )}{" "}
+                              (includes 100 guests)
+                            </p>
+                            <p>
+                              2. Extra guest rate:{" "}
+                              {formatCurrency(
+                                parseFloat(selectedVenueForModal.extra_pax_rate)
+                              )}{" "}
+                              per guest
+                            </p>
+                            <p>
+                              3. Your guest count:{" "}
+                              {currentGuestCount || guestCount} guests
+                            </p>
+                            <p>
+                              4. Extra guests:{" "}
+                              {Math.max(
+                                0,
+                                (currentGuestCount || guestCount) - 100
+                              )}
+                            </p>
+                            <p>
+                              5. Overflow charge:{" "}
+                              {Math.max(
+                                0,
+                                (currentGuestCount || guestCount) - 100
+                              )}{" "}
+                              ×{" "}
+                              {formatCurrency(
+                                parseFloat(selectedVenueForModal.extra_pax_rate)
+                              )}{" "}
+                              ={" "}
+                              {formatCurrency(
+                                Math.max(
+                                  0,
+                                  (currentGuestCount || guestCount) - 100
+                                ) *
+                                  parseFloat(
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
+                              )}
+                            </p>
+                            <p className="font-bold">
+                              6. Total:{" "}
+                              {formatCurrency(
+                                parseFloat(selectedVenueForModal.venue_price)
+                              )}{" "}
+                              +{" "}
+                              {formatCurrency(
+                                Math.max(
+                                  0,
+                                  (currentGuestCount || guestCount) - 100
+                                ) *
+                                  parseFloat(
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
+                              )}{" "}
+                              ={" "}
+                              {formatCurrency(
+                                parseFloat(selectedVenueForModal.venue_price) +
+                                  Math.max(
+                                    0,
+                                    (currentGuestCount || guestCount) - 100
+                                  ) *
+                                    parseFloat(
+                                      selectedVenueForModal.extra_pax_rate
+                                    )
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Venue Inclusions */}
+                  {selectedVenueForModal.inclusions &&
+                    selectedVenueForModal.inclusions.length > 0 && (
+                      <div>
+                        <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                          Available Add-ons & Inclusions
+                        </h4>
+                        <div className="grid grid-cols-1 gap-4">
+                          {selectedVenueForModal.inclusions.map(
+                            (inclusion: any) => (
                               <div
-                                key={`${selectedVenue.venue_id}-sidebar-inclusion-${inclusion.inclusion_id}`}
-                                className="p-3 bg-green-50 rounded-lg border border-green-200"
+                                key={`modal-${selectedVenueForModal.venue_id}-inclusion-${inclusion.inclusion_id}`}
+                                className="p-6 bg-white border border-gray-200 rounded-xl shadow-sm"
                               >
-                                <div className="flex justify-between items-start mb-2">
-                                  <span className="font-medium text-green-800">
+                                <div className="flex items-center justify-between mb-4">
+                                  <h5 className="text-lg font-semibold text-gray-900">
                                     {inclusion.inclusion_name}
-                                  </span>
+                                  </h5>
                                   <Badge
                                     variant="outline"
-                                    className="border-green-500 text-green-600 ml-2"
+                                    className="border-[#028A75] text-[#028A75] px-3 py-1"
                                   >
                                     {formatCurrency(
                                       parseFloat(inclusion?.inclusion_price) ||
@@ -528,20 +822,21 @@ export function VenueSelection({
                                     )}
                                   </Badge>
                                 </div>
+
                                 {inclusion.components &&
                                   inclusion.components.length > 0 && (
-                                    <div className="space-y-1">
-                                      <p className="text-xs text-green-700 font-medium">
+                                    <div className="space-y-3">
+                                      <p className="text-sm font-medium text-gray-700">
                                         What's included:
                                       </p>
-                                      <div className="grid grid-cols-1 gap-1">
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         {inclusion.components.map(
                                           (component: any, index: number) => (
                                             <div
-                                              key={`${selectedVenue.venue_id}-${inclusion.inclusion_id}-${component.component_id}-${index}`}
-                                              className="flex items-center space-x-1 text-xs text-green-600"
+                                              key={`modal-${selectedVenueForModal.venue_id}-${inclusion.inclusion_id}-${component.component_id}-${index}`}
+                                              className="flex items-center space-x-2 text-sm text-gray-600"
                                             >
-                                              <Check className="h-3 w-3 text-green-500 flex-shrink-0" />
+                                              <Check className="h-4 w-4 text-[#028A75] flex-shrink-0" />
                                               <span>
                                                 {component.component_name}
                                               </span>
@@ -552,71 +847,183 @@ export function VenueSelection({
                                     </div>
                                   )}
                               </div>
-                            ))}
-                          </AccordionContent>
-                        </AccordionItem>
-                      </Accordion>
+                            )
+                          )}
+                        </div>
+                      </div>
                     )}
 
-                  <div className="pt-4 space-y-2">
-                    {(() => {
-                      const { basePrice, inclusionsTotal } =
-                        getVenueBasePricing();
-                      return (
-                        <>
-                          <div className="flex justify-between text-sm">
-                            <span>Base Venue Price:</span>
-                            <span>{formatCurrency(basePrice)}</span>
-                          </div>
-                          {inclusionsTotal > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span>Inclusions Total:</span>
-                              <span>{formatCurrency(inclusionsTotal)}</span>
-                            </div>
+                  {/* Pricing Summary */}
+                  <div className="bg-gray-50 p-6 rounded-xl">
+                    <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                      Pricing Summary
+                    </h4>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Base Venue Price:</span>
+                        <span className="font-semibold text-gray-900">
+                          {formatCurrency(
+                            parseFloat(selectedVenueForModal.venue_price) || 0
                           )}
-                          <div className="flex justify-between font-semibold text-green-800 pt-2 border-t border-green-200">
-                            <span>Total Venue Cost:</span>
-                            <span>{formatCurrency(calculateVenueCost())}</span>
+                        </span>
+                      </div>
+
+                      {/* Overflow Charge Calculation */}
+                      {parseFloat(selectedVenueForModal.extra_pax_rate) > 0 && (
+                        <>
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-600">
+                              Extra Guest Rate:
+                            </span>
+                            <span className="font-semibold text-blue-600">
+                              {formatCurrency(
+                                parseFloat(selectedVenueForModal.extra_pax_rate)
+                              )}{" "}
+                              per guest
+                            </span>
                           </div>
-                          {selectedVenue.inclusions &&
-                            selectedVenue.inclusions.length > 0 && (
-                              <div className="text-xs text-muted-foreground pt-1">
-                                * Includes {selectedVenue.inclusions.length}{" "}
-                                add-on package
-                                {selectedVenue.inclusions.length > 1 ? "s" : ""}
-                              </div>
-                            )}
+                          <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                            <div className="text-sm text-blue-800 space-y-1">
+                              <p>
+                                <strong>Overflow Charge Examples:</strong>
+                              </p>
+                              <p>
+                                • 120 guests: 20 extra ×{" "}
+                                {formatCurrency(
+                                  parseFloat(
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
+                                )}{" "}
+                                ={" "}
+                                {formatCurrency(
+                                  20 *
+                                    parseFloat(
+                                      selectedVenueForModal.extra_pax_rate
+                                    )
+                                )}
+                              </p>
+                              <p>
+                                • 150 guests: 50 extra ×{" "}
+                                {formatCurrency(
+                                  parseFloat(
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
+                                )}{" "}
+                                ={" "}
+                                {formatCurrency(
+                                  50 *
+                                    parseFloat(
+                                      selectedVenueForModal.extra_pax_rate
+                                    )
+                                )}
+                              </p>
+                              <p>
+                                • 200 guests: 100 extra ×{" "}
+                                {formatCurrency(
+                                  parseFloat(
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
+                                )}{" "}
+                                ={" "}
+                                {formatCurrency(
+                                  100 *
+                                    parseFloat(
+                                      selectedVenueForModal.extra_pax_rate
+                                    )
+                                )}
+                              </p>
+                            </div>
+                          </div>
                         </>
-                      );
-                    })()}
+                      )}
+
+                      {selectedVenueForModal.inclusions &&
+                        selectedVenueForModal.inclusions.length > 0 && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-600">
+                              Inclusions Total:
+                            </span>
+                            <span className="font-semibold text-gray-900">
+                              {formatCurrency(
+                                selectedVenueForModal.inclusions.reduce(
+                                  (sum: number, inclusion: any) => {
+                                    return (
+                                      sum +
+                                      (parseFloat(inclusion?.inclusion_price) ||
+                                        0)
+                                    );
+                                  },
+                                  0
+                                )
+                              )}
+                            </span>
+                          </div>
+                        )}
+
+                      {/* Overflow Charge for Current Guest Count */}
+                      {currentGuestCount &&
+                        currentGuestCount > 100 &&
+                        parseFloat(selectedVenueForModal.extra_pax_rate) >
+                          0 && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-600">
+                              Overflow Charge ({currentGuestCount - 100} extra
+                              guests):
+                            </span>
+                            <span className="font-semibold text-blue-600">
+                              {formatCurrency(
+                                Math.max(0, currentGuestCount - 100) *
+                                  parseFloat(
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
+                              )}
+                            </span>
+                          </div>
+                        )}
+
+                      <div className="flex justify-between items-center pt-3 border-t border-gray-300">
+                        <span className="text-lg font-bold text-gray-900">
+                          Total Venue Cost:
+                        </span>
+                        <span className="text-xl font-bold text-[#028A75]">
+                          {formatCurrency(
+                            (parseFloat(selectedVenueForModal.venue_price) ||
+                              0) +
+                              (currentGuestCount &&
+                              currentGuestCount > 100 &&
+                              parseFloat(selectedVenueForModal.extra_pax_rate) >
+                                0
+                                ? Math.max(0, currentGuestCount - 100) *
+                                  parseFloat(
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
+                                : 0) +
+                              (selectedVenueForModal.inclusions?.reduce(
+                                (sum: number, inclusion: any) => {
+                                  return (
+                                    sum +
+                                    (parseFloat(inclusion?.inclusion_price) ||
+                                      0)
+                                  );
+                                },
+                                0
+                              ) || 0)
+                          )}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        {currentGuestCount && currentGuestCount > 100
+                          ? `* Total includes overflow charge for ${currentGuestCount} guests`
+                          : "* Final venue cost will be calculated based on your actual guest count during event creation"}
+                      </p>
+                    </div>
                   </div>
                 </div>
               )}
-            </CardContent>
-            <CardFooter>
-              <Button
-                className="w-full bg-brand-500 hover:bg-brand-600 text-white"
-                disabled={!selectedVenueId || isConfirming}
-                onClick={handleConfirmSelection}
-              >
-                {isConfirming ? (
-                  <>
-                    <Loader className="h-4 w-4 mr-2 animate-spin" />
-                    Confirming...
-                  </>
-                ) : selectedVenueId ? (
-                  <>
-                    <Check className="h-4 w-4 mr-2" />
-                    Confirm Venue Selection
-                  </>
-                ) : (
-                  "Select a Venue First"
-                )}
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
-      </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

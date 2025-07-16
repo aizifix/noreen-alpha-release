@@ -874,6 +874,24 @@ export function WeddingFormStep({
           </div>
         </CardContent>
       </Card>
+
+      {/* Action Buttons */}
+      <div className="flex justify-end space-x-4 pt-6">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            // Save wedding details without proceeding
+            saveWeddingDetails();
+          }}
+          disabled={loading}
+        >
+          {loading ? "Saving..." : "Save Draft"}
+        </Button>
+        <Button type="button" onClick={handleNext} disabled={loading}>
+          {loading ? "Saving..." : "Next Step"}
+        </Button>
+      </div>
     </div>
   );
 }

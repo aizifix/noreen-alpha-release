@@ -265,11 +265,7 @@ export function ClientDetailsStep({
   onNext,
 }: ClientDetailsStepProps) {
   const [open, setOpen] = useState(false);
-  const [bookingModalOpen, setBookingModalOpen] = useState(false);
-  const [bookingSearchQuery, setBookingSearchQuery] = useState("");
   const [bookings, setBookings] = useState<BookingData[]>([]);
-  const [filteredBookings, setFilteredBookings] = useState<BookingData[]>([]);
-  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const [isNewClient, setIsNewClient] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -326,58 +322,6 @@ export function ClientDetailsStep({
   }, []);
 
   // Fetch all bookings
-  const fetchBookings = async () => {
-    try {
-      setIsLoadingBookings(true);
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "getAvailableBookings", // Use new endpoint that excludes converted bookings
-        }
-      );
-
-      if (response.data.status === "success") {
-        console.log("Event builder fetched bookings:", response.data.bookings);
-        setBookings(response.data.bookings);
-        setFilteredBookings(response.data.bookings);
-      } else {
-        // Show error in UI instead of console
-        toast({
-          title: "Error",
-          description: response.data.message || "Failed to fetch bookings",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      // Show error in UI
-      toast({
-        title: "Error",
-        description: "Failed to fetch bookings. Please try again.",
-        variant: "destructive",
-      });
-      console.error("Error fetching bookings:", error);
-    } finally {
-      setIsLoadingBookings(false);
-    }
-  };
-
-  // Filter bookings based on search query
-  useEffect(() => {
-    if (!bookingSearchQuery.trim()) {
-      setFilteredBookings(bookings);
-      return;
-    }
-
-    const query = bookingSearchQuery.toLowerCase();
-    const filtered = bookings.filter(
-      (booking) =>
-        booking.booking_reference.toLowerCase().includes(query) ||
-        booking.client_name.toLowerCase().includes(query) ||
-        booking.client_email.toLowerCase().includes(query) ||
-        booking.event_type_name.toLowerCase().includes(query)
-    );
-    setFilteredBookings(filtered);
-  }, [bookingSearchQuery, bookings]);
 
   // Helper function to map event type names from database to dropdown values
   const mapEventType = (eventTypeName: string): string => {
@@ -479,7 +423,6 @@ export function ClientDetailsStep({
     });
 
     onNext(eventDetails);
-    setBookingModalOpen(false);
   };
 
   // Handle client selection
@@ -544,57 +487,6 @@ export function ClientDetailsStep({
       {/* Client Selection or Creation */}
       {!bookingData && (
         <>
-          <div className="flex justify-between items-center mb-4">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setBookingModalOpen(true);
-                fetchBookings();
-              }}
-            >
-              Enter Booking
-            </Button>
-          </div>
-
-          {/* Bookings Modal */}
-          <Dialog open={bookingModalOpen} onOpenChange={setBookingModalOpen}>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
-              <DialogHeader>
-                <DialogTitle>Booking List</DialogTitle>
-              </DialogHeader>
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                <Input
-                  placeholder="Search bookings by reference, client name, or event type..."
-                  value={bookingSearchQuery}
-                  onChange={(e) => setBookingSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <ScrollArea className="flex-1 max-h-[60vh] px-1">
-                {isLoadingBookings ? (
-                  <div className="flex items-center justify-center py-8">
-                    <RefreshCw className="h-6 w-6 animate-spin" />
-                  </div>
-                ) : filteredBookings.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No bookings found
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {filteredBookings.map((booking) => (
-                      <BookingListItem
-                        key={booking.booking_id}
-                        booking={booking}
-                        onAccept={handleBookingSelect}
-                      />
-                    ))}
-                  </div>
-                )}
-              </ScrollArea>
-            </DialogContent>
-          </Dialog>
-
           <div className="space-y-2">
             <Label htmlFor="client-name">Client Name</Label>
             <Popover open={open} onOpenChange={setOpen}>
@@ -710,7 +602,6 @@ export function ClientDetailsStep({
                       size="sm"
                       onClick={() => {
                         setBookingData(null);
-                        setBookingSearchQuery("");
                       }}
                     >
                       <X className="h-4 w-4 mr-2" />
@@ -943,7 +834,6 @@ export function ClientDetailsStep({
                   size="sm"
                   onClick={() => {
                     setBookingData(null);
-                    setBookingSearchQuery("");
                   }}
                 >
                   <X className="h-4 w-4 mr-2" />

@@ -48,13 +48,24 @@ export function TimelineStep({
   components,
   suppliers,
   updateData,
-  onNext,
-}: TimelineStepProps) {
+}: Omit<TimelineStepProps, "onNext">) {
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>(
     data || []
   );
   const [eventDateObj, setEventDateObj] = useState<Date | null>(null);
   const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
+
+  // Debug logging
+  console.log("TimelineStep Debug:", {
+    hasData: !!data,
+    dataLength: data?.length || 0,
+    hasEventDate: !!eventDate,
+    eventDate,
+    hasComponents: !!components,
+    componentsLength: components?.length || 0,
+    hasUpdateData: !!updateData,
+    timelineItemsLength: timelineItems.length,
+  });
 
   // Parse event date string to Date object
   useEffect(() => {
@@ -66,23 +77,50 @@ export function TimelineStep({
 
   // Initialize timeline items if empty
   useEffect(() => {
+    console.log("Timeline initialization check:", {
+      componentsLength: components?.length || 0,
+      timelineItemsLength: timelineItems.length,
+      hasEventDate: !!eventDateObj,
+      hasUpdateData: !!updateData,
+      components: components,
+    });
+
     if (
       components?.length > 0 &&
       timelineItems.length === 0 &&
       eventDateObj &&
       updateData
     ) {
-      const initialItems = components.map((component, index) => {
+      console.log("Initializing timeline with components:", components);
+
+      // Deduplicate components to prevent duplicate timeline items
+      const uniqueComponents = components.filter(
+        (component, index, self) =>
+          index ===
+          self.findIndex(
+            (c) => c.id === component.id && c.category === component.category
+          )
+      );
+
+      console.log(
+        "Deduplicated components:",
+        uniqueComponents.length,
+        "from",
+        components.length
+      );
+
+      const initialItems = uniqueComponents.map((component, index) => {
         // Create a time 2 hours apart for each component, starting from 8 AM
         const startTime = addHours(
           new Date(eventDateObj).setHours(8, 0, 0, 0),
           index * 2
         );
 
-        return {
-          id: `timeline-${Date.now()}-${index}`,
+        const timelineItem = {
+          id: `timeline-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
           componentId: component.id || "",
-          componentName: component.name,
+          componentName:
+            component.name || component.title || "Unknown Component",
           category: component.category || "",
           date: new Date(eventDateObj),
           startTime: format(startTime, "HH:mm"),
@@ -96,12 +134,18 @@ export function TimelineStep({
           assignedTo: "",
           dependencies: [],
         };
+
+        console.log("Created timeline item:", timelineItem);
+        return timelineItem;
       });
 
+      console.log("Setting timeline items:", initialItems);
       setTimelineItems(initialItems);
       updateData(initialItems);
+    } else if (components?.length === 0 && timelineItems.length === 0) {
+      console.log("No components available for timeline initialization");
     }
-  }, [components?.length, timelineItems.length, eventDateObj, updateData]);
+  }, [components, timelineItems.length, eventDateObj, updateData]);
 
   // Update a timeline item
   const updateTimelineItem = (
@@ -151,7 +195,7 @@ export function TimelineStep({
     const endTime = addHours(startTime, 1);
 
     const newItem: TimelineItem = {
-      id: `timeline-${Date.now()}`,
+      id: `timeline-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       componentId: "",
       componentName: "",
       category: "",
@@ -292,20 +336,138 @@ export function TimelineStep({
     );
   }
 
+  if (!components || components.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <div className="text-center">
+          <p className="text-lg font-medium text-gray-900 mb-2">
+            No Components Available
+          </p>
+          <p className="text-gray-600 mb-4">
+            Please select a package first to populate the timeline with
+            activities.
+          </p>
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                // Create a basic timeline item to allow progression
+                const basicTimelineItem: TimelineItem = {
+                  id: `timeline-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                  componentId: "manual",
+                  componentName: "Manual Activity",
+                  category: "general",
+                  date: eventDateObj || new Date(),
+                  startTime: "09:00",
+                  endTime: "10:00",
+                  location: "",
+                  notes: "Add your event activities here",
+                  supplierId: "",
+                  supplierName: "",
+                  status: "pending",
+                  priority: "medium",
+                  assignedTo: "",
+                  dependencies: [],
+                };
+
+                setTimelineItems([basicTimelineItem]);
+                if (updateData) {
+                  updateData([basicTimelineItem]);
+                }
+              }}
+            >
+              Add Basic Timeline
+            </Button>
+            <div className="text-sm text-gray-500">
+              Or click "Next" to skip timeline planning
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-medium">Event Timeline</h3>
-          <p className="text-sm text-muted-foreground">
-            Schedule the activities for your event on{" "}
-            {new Date(eventDate).toLocaleDateString()}
+          <h2 className="text-2xl font-bold">Event Timeline</h2>
+          <p className="text-muted-foreground">
+            Plan and organize the schedule for your event
           </p>
         </div>
-        <Button onClick={addTimelineItem}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Activity
-        </Button>
+        <div className="flex gap-2">
+          {components?.length > 0 && timelineItems.length === 0 && (
+            <Button
+              onClick={() => {
+                if (components?.length > 0 && eventDateObj && updateData) {
+                  console.log(
+                    "Manually populating timeline with components:",
+                    components
+                  );
+
+                  // Deduplicate components to prevent duplicate timeline items
+                  const uniqueComponents = components.filter(
+                    (component, index, self) =>
+                      index ===
+                      self.findIndex(
+                        (c) =>
+                          c.id === component.id &&
+                          c.category === component.category
+                      )
+                  );
+
+                  console.log(
+                    "Deduplicated components for manual population:",
+                    uniqueComponents.length,
+                    "from",
+                    components.length
+                  );
+
+                  const initialItems = uniqueComponents.map(
+                    (component, index) => {
+                      const startTime = addHours(
+                        new Date(eventDateObj).setHours(8, 0, 0, 0),
+                        index * 2
+                      );
+
+                      return {
+                        id: `timeline-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
+                        componentId: component.id || "",
+                        componentName:
+                          component.name ||
+                          component.title ||
+                          "Unknown Component",
+                        category: component.category || "",
+                        date: new Date(eventDateObj),
+                        startTime: format(startTime, "HH:mm"),
+                        endTime: format(addHours(startTime, 1), "HH:mm"),
+                        location: "",
+                        notes: "",
+                        supplierId: "",
+                        supplierName: "",
+                        status: "pending",
+                        priority: "medium",
+                        assignedTo: "",
+                        dependencies: [],
+                      };
+                    }
+                  );
+
+                  setTimelineItems(initialItems);
+                  updateData(initialItems);
+                }
+              }}
+              className="bg-[#028A75] hover:bg-[#027A65] text-white"
+            >
+              Populate with Package Components
+            </Button>
+          )}
+          <Button onClick={addTimelineItem} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Add Activity
+          </Button>
+        </div>
       </div>
 
       {conflicts.length > 0 && (
@@ -391,7 +553,10 @@ export function TimelineStep({
                     </SelectTrigger>
                     <SelectContent>
                       {components.map((component) => (
-                        <SelectItem key={component.id} value={component.id}>
+                        <SelectItem
+                          key={`${component.id}-${component.category}`}
+                          value={component.id}
+                        >
                           {component.name}
                         </SelectItem>
                       ))}
@@ -545,6 +710,32 @@ export function TimelineStep({
             ))}
         </div>
       </div>
+
+      {/* Debug information */}
+      {process.env.NODE_ENV === "development" && (
+        <div className="bg-blue-50 p-4 rounded-lg">
+          <h4 className="font-medium mb-2 text-blue-800">Debug Information</h4>
+          <div className="text-sm text-blue-700 space-y-1">
+            <p>Components available: {components?.length || 0}</p>
+            <p>Timeline items: {timelineItems.length}</p>
+            <p>Event date: {eventDate || "Not set"}</p>
+            <p>Update function: {updateData ? "Available" : "Not available"}</p>
+            {components && components.length > 0 && (
+              <div>
+                <p className="font-medium">Available components:</p>
+                <ul className="list-disc list-inside ml-2">
+                  {components.map((comp, index) => (
+                    <li key={index}>
+                      {comp.name || comp.title || "Unknown"} (
+                      {comp.category || "No category"})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

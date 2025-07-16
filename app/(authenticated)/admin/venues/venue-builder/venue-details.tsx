@@ -115,6 +115,23 @@ export function VenueDetails({ data, onChange }: VenueDetailsProps) {
           </p>
         </div>
 
+        {/* Extra Pax Rate */}
+        <div className="space-y-2">
+          <Label htmlFor="extra_pax_rate">Extra Guest Rate (₱)</Label>
+          <Input
+            id="extra_pax_rate"
+            type="number"
+            value={data.extra_pax_rate}
+            onChange={(e) =>
+              onChange({ extra_pax_rate: parseFloat(e.target.value) || 0 })
+            }
+            placeholder="Enter rate per additional guest"
+          />
+          <p className="text-sm text-gray-500">
+            Additional charge per guest beyond 100 pax baseline
+          </p>
+        </div>
+
         {/* Description */}
         <div className="space-y-2 md:col-span-2">
           <Label htmlFor="venue_details">Description</Label>

@@ -45,6 +45,12 @@ export function VenueReview({ data }: VenueReviewProps) {
               ₱{data.venue_price?.toLocaleString() || "0"}
             </p>
           </div>
+          <div>
+            <label className="font-medium">Extra Guest Rate</label>
+            <p className="text-lg font-semibold text-blue-600">
+              ₱{data.extra_pax_rate?.toLocaleString() || "0"} per guest
+            </p>
+          </div>
           <div className="md:col-span-2">
             <label className="font-medium">Description</label>
             <p className="text-gray-600">{data.venue_details}</p>

@@ -98,9 +98,9 @@ const revenueData = [
 // Helper function to format large numbers
 const formatNumber = (num: number): string => {
   if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M';
+    return (num / 1000000).toFixed(1) + "M";
   } else if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K';
+    return (num / 1000).toFixed(1) + "K";
   }
   return num.toString();
 };
@@ -168,7 +168,10 @@ function AnalyticsContent() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {analyticsData?.eventTypes?.map((type: any, index: number) => (
-              <div key={index} className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+              <div
+                key={index}
+                className="bg-gray-50 p-4 rounded-lg border border-gray-100"
+              >
                 <h4 className="font-medium">{type.event_name}</h4>
                 <p className="text-2xl font-bold text-[#028A75]">
                   {type.count}
@@ -190,7 +193,10 @@ function AnalyticsContent() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {analyticsData?.paymentStatus?.map((status: any, index: number) => (
-              <div key={index} className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+              <div
+                key={index}
+                className="bg-gray-50 p-4 rounded-lg border border-gray-100"
+              >
                 <h4 className="font-medium capitalize">
                   {status.payment_status}
                 </h4>
@@ -386,7 +392,9 @@ function ReportsContent() {
           <div className="space-y-4">
             {reportsData ? (
               <div className="text-gray-600">
-                <p>Report data will be displayed here based on the selected type.</p>
+                <p>
+                  Report data will be displayed here based on the selected type.
+                </p>
               </div>
             ) : (
               <div className="text-gray-500 text-center py-8">
@@ -419,30 +427,46 @@ function QuickCalendar({ events }: { events: CalendarEvent[] }) {
   const { daysInMonth, startingDay } = getDaysInMonth(currentDate);
 
   const getEventsForDate = (day: number) => {
-    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return events.filter(event => event.date === dateStr);
+    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    return events.filter((event) => event.date === dateStr);
   };
 
   const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   const prevMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+    setCurrentDate(
+      new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1)
+    );
   };
 
   const nextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+    setCurrentDate(
+      new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
+    );
   };
 
   return (
     <Card className="border-0 bg-white">
       <CardContent className="p-4">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Event Calendar</h3>
+          <h3 className="text-lg font-semibold text-gray-900">
+            Event Calendar
+          </h3>
           <div className="flex gap-2">
             <button
               onClick={prevMonth}
@@ -463,8 +487,11 @@ function QuickCalendar({ events }: { events: CalendarEvent[] }) {
         </div>
 
         <div className="grid grid-cols-7 gap-1 text-xs">
-          {dayNames.map(day => (
-            <div key={day} className="p-2 text-center font-medium text-gray-500">
+          {dayNames.map((day) => (
+            <div
+              key={day}
+              className="p-2 text-center font-medium text-gray-500"
+            >
               {day}
             </div>
           ))}
@@ -476,16 +503,24 @@ function QuickCalendar({ events }: { events: CalendarEvent[] }) {
           {Array.from({ length: daysInMonth }, (_, i) => {
             const day = i + 1;
             const dayEvents = getEventsForDate(day);
-            const isToday = new Date().toDateString() === new Date(currentDate.getFullYear(), currentDate.getMonth(), day).toDateString();
+            const isToday =
+              new Date().toDateString() ===
+              new Date(
+                currentDate.getFullYear(),
+                currentDate.getMonth(),
+                day
+              ).toDateString();
 
             return (
               <div
                 key={day}
                 className={`p-2 text-center border border-gray-100 min-h-[60px] relative ${
-                  isToday ? 'bg-[#028A75]/10 border-[#028A75]' : ''
+                  isToday ? "bg-[#028A75]/10 border-[#028A75]" : ""
                 }`}
               >
-                <span className={`text-sm ${isToday ? 'font-bold text-[#028A75]' : 'text-gray-700'}`}>
+                <span
+                  className={`text-sm ${isToday ? "font-bold text-[#028A75]" : "text-gray-700"}`}
+                >
                   {day}
                 </span>
                 {dayEvents.length > 0 && (
@@ -498,7 +533,9 @@ function QuickCalendar({ events }: { events: CalendarEvent[] }) {
                       />
                     ))}
                     {dayEvents.length > 2 && (
-                      <div className="text-xs text-gray-500">+{dayEvents.length - 2}</div>
+                      <div className="text-xs text-gray-500">
+                        +{dayEvents.length - 2}
+                      </div>
                     )}
                   </div>
                 )}
@@ -709,7 +746,9 @@ export default function AdminDashboard() {
             disabled={isRefreshing}
             className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+            />
             Refresh
           </button>
           <button
@@ -754,7 +793,10 @@ export default function AdminDashboard() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="mt-8 space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+        <TabsContent
+          value="overview"
+          className="mt-8 space-y-8 animate-in slide-in-from-bottom-4 duration-500"
+        >
           {/* Metrics Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <Card className="border-0 bg-white hover:bg-gray-50 transition-colors duration-200">
@@ -848,25 +890,28 @@ export default function AdminDashboard() {
             <Card className="border-0 bg-white lg:col-span-2">
               <CardContent className="p-6">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Revenue Trend</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Revenue Trend
+                  </h3>
                   <p className="text-sm text-gray-500">Monthly overview</p>
                 </div>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={revenueData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis
-                        dataKey="month"
-                        stroke="#6b7280"
-                        fontSize={11}
-                      />
+                      <XAxis dataKey="month" stroke="#6b7280" fontSize={11} />
                       <YAxis
                         stroke="#6b7280"
                         fontSize={11}
-                        tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`}
+                        tickFormatter={(value) =>
+                          `₱${(value / 1000).toFixed(0)}k`
+                        }
                       />
                       <Tooltip
-                        formatter={(value: any) => [`₱${value.toLocaleString()}`, "Revenue"]}
+                        formatter={(value: any) => [
+                          `₱${value.toLocaleString()}`,
+                          "Revenue",
+                        ]}
                         labelStyle={{ color: "#374151" }}
                         contentStyle={{
                           backgroundColor: "white",
@@ -901,7 +946,9 @@ export default function AdminDashboard() {
               <CardContent className="p-6">
                 <div className="flex justify-between items-center mb-6">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Upcoming Events</h3>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Upcoming Events
+                    </h3>
                     <p className="text-sm text-gray-500">
                       You have {upcomingEvents.length} upcoming events
                     </p>
@@ -922,7 +969,9 @@ export default function AdminDashboard() {
                       className="border-b border-gray-100 pb-4 last:border-0 last:pb-0"
                     >
                       <div className="flex justify-between items-start mb-2">
-                        <h4 className="font-medium text-gray-900">{event.title}</h4>
+                        <h4 className="font-medium text-gray-900">
+                          {event.title}
+                        </h4>
                         <Badge
                           className={
                             event.status.toLowerCase() === "confirmed"
@@ -958,7 +1007,9 @@ export default function AdminDashboard() {
               <CardContent className="p-6">
                 <div className="flex justify-between items-center mb-6">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Recent Payments</h3>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Recent Payments
+                    </h3>
                     <p className="text-sm text-gray-500">
                       Latest payment transactions
                     </p>
@@ -979,7 +1030,9 @@ export default function AdminDashboard() {
                       className="flex justify-between items-center border-b border-gray-100 pb-4 last:border-0 last:pb-0"
                     >
                       <div>
-                        <h4 className="font-medium text-gray-900">{payment.event}</h4>
+                        <h4 className="font-medium text-gray-900">
+                          {payment.event}
+                        </h4>
                         <p className="text-sm text-gray-500">
                           {new Date(payment.date).toLocaleDateString()} •{" "}
                           {payment.type}

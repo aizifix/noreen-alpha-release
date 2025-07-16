@@ -24,6 +24,7 @@ import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -530,282 +531,315 @@ export default function AdminBookingsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Booking Management</h1>
-        <Button onClick={fetchBookings} variant="outline">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
-      </div>
+    <div className="min-h-screen p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold text-gray-900">
+              Booking Management
+            </h1>
+            <Button onClick={fetchBookings} variant="outline">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4 bg-white p-4 rounded-lg border">
-        <div className="flex-1">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search by reference, client name, or event..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border rounded-lg text-sm"
-          >
-            <option key="all" value="all">
-              All Status
-            </option>
-            <option key="pending" value="pending">
-              Pending
-            </option>
-            <option key="confirmed" value="confirmed">
-              Confirmed
-            </option>
-            <option key="converted" value="converted">
-              Converted
-            </option>
-            <option key="completed" value="completed">
-              Completed
-            </option>
-            <option key="cancelled" value="cancelled">
-              Cancelled
-            </option>
-          </select>
-        </div>
-      </div>
+          {/* Search and Filters Section */}
+          <div className="animate-slide-up-delay-2 mb-8">
+            <Card className="bg-white border-0">
+              <CardContent className="p-6">
+                <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+                  {/* Search Bar */}
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                    <Input
+                      placeholder="Search by reference, client name, or event..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 pr-4 py-3 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                    />
+                  </div>
 
-      {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg border">
-          <div className="text-2xl font-bold text-yellow-600">
-            {bookings.filter((b) => b.booking_status === "pending").length}
-          </div>
-          <div className="text-sm text-gray-600">Pending</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg border">
-          <div className="text-2xl font-bold text-blue-600">
-            {bookings.filter((b) => b.booking_status === "confirmed").length}
-          </div>
-          <div className="text-sm text-gray-600">Confirmed</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg border">
-          <div className="text-2xl font-bold text-blue-600">
-            {bookings.filter((b) => b.booking_status === "converted").length}
-          </div>
-          <div className="text-sm text-gray-600">Converted</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg border">
-          <div className="text-2xl font-bold text-red-600">
-            {bookings.filter((b) => b.booking_status === "cancelled").length}
-          </div>
-          <div className="text-sm text-gray-600">Cancelled</div>
-        </div>
-      </div>
-
-      {/* Bookings List */}
-      <div className="space-y-4">
-        {isLoading ? (
-          <div className="flex justify-center items-center py-12 bg-white rounded-lg border">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <span className="ml-2 text-gray-600">Loading bookings...</span>
-          </div>
-        ) : filteredBookings.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-lg border">
-            {bookings.length === 0 ? (
-              <div className="space-y-4">
-                <div className="text-6xl">📋</div>
-                <h3 className="text-xl font-semibold text-gray-700">
-                  No Bookings Yet
-                </h3>
-                <p className="text-gray-500 max-w-md mx-auto">
-                  No client bookings have been submitted yet. When clients
-                  create bookings, they will appear here for you to review and
-                  approve.
-                </p>
-                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <p className="text-sm text-blue-700">
-                    💡 <strong>Tip:</strong> Clients can create bookings from
-                    the client portal. Once submitted, you can accept or reject
-                    them here.
-                  </p>
+                  {/* Filter Toggle */}
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#028A75] focus:border-transparent text-sm"
+                    >
+                      <option key="all" value="all">
+                        All Status
+                      </option>
+                      <option key="pending" value="pending">
+                        Pending
+                      </option>
+                      <option key="confirmed" value="confirmed">
+                        Confirmed
+                      </option>
+                      <option key="converted" value="converted">
+                        Converted
+                      </option>
+                      <option key="completed" value="completed">
+                        Completed
+                      </option>
+                      <option key="cancelled" value="cancelled">
+                        Cancelled
+                      </option>
+                    </select>
+                  </div>
                 </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Statistics */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-lg border">
+              <div className="text-2xl font-bold text-yellow-600">
+                {bookings.filter((b) => b.booking_status === "pending").length}
+              </div>
+              <div className="text-sm text-gray-600">Pending</div>
+            </div>
+            <div className="bg-white p-4 rounded-lg border">
+              <div className="text-2xl font-bold text-blue-600">
+                {
+                  bookings.filter((b) => b.booking_status === "confirmed")
+                    .length
+                }
+              </div>
+              <div className="text-sm text-gray-600">Confirmed</div>
+            </div>
+            <div className="bg-white p-4 rounded-lg border">
+              <div className="text-2xl font-bold text-blue-600">
+                {
+                  bookings.filter((b) => b.booking_status === "converted")
+                    .length
+                }
+              </div>
+              <div className="text-sm text-gray-600">Converted</div>
+            </div>
+            <div className="bg-white p-4 rounded-lg border">
+              <div className="text-2xl font-bold text-red-600">
+                {
+                  bookings.filter((b) => b.booking_status === "cancelled")
+                    .length
+                }
+              </div>
+              <div className="text-sm text-gray-600">Cancelled</div>
+            </div>
+          </div>
+
+          {/* Bookings List */}
+          <div className="space-y-4">
+            {isLoading ? (
+              <div className="flex justify-center items-center py-12 bg-white rounded-lg border">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <span className="ml-2 text-gray-600">Loading bookings...</span>
+              </div>
+            ) : filteredBookings.length === 0 ? (
+              <div className="text-center py-12 bg-white rounded-lg border">
+                {bookings.length === 0 ? (
+                  <div className="space-y-4">
+                    <div className="text-6xl">📋</div>
+                    <h3 className="text-xl font-semibold text-gray-700">
+                      No Bookings Yet
+                    </h3>
+                    <p className="text-gray-500 max-w-md mx-auto">
+                      No client bookings have been submitted yet. When clients
+                      create bookings, they will appear here for you to review
+                      and approve.
+                    </p>
+                    <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <p className="text-sm text-blue-700">
+                        💡 <strong>Tip:</strong> Clients can create bookings
+                        from the client portal. Once submitted, you can accept
+                        or reject them here.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="text-4xl">🔍</div>
+                    <h3 className="text-lg font-semibold text-gray-700">
+                      No Results Found
+                    </h3>
+                    <p className="text-gray-500">
+                      No bookings match your current search criteria or filters.
+                    </p>
+                    <p className="text-sm text-gray-400 mt-2">
+                      Try adjusting your search term or filter settings.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="space-y-4">
-                <div className="text-4xl">🔍</div>
-                <h3 className="text-lg font-semibold text-gray-700">
-                  No Results Found
-                </h3>
-                <p className="text-gray-500">
-                  No bookings match your current search criteria or filters.
-                </p>
-                <p className="text-sm text-gray-400 mt-2">
-                  Try adjusting your search term or filter settings.
-                </p>
+              <div className="grid gap-4">
+                {filteredBookings.map((booking) => (
+                  <BookingCard
+                    key={booking.booking_reference}
+                    booking={booking}
+                  />
+                ))}
               </div>
             )}
           </div>
-        ) : (
-          <div className="grid gap-4">
-            {filteredBookings.map((booking) => (
-              <BookingCard key={booking.booking_reference} booking={booking} />
-            ))}
-          </div>
-        )}
-      </div>
 
-      {/* Booking Details Modal */}
-      <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Booking Details</DialogTitle>
-            <DialogDescription>
-              {selectedBooking?.booking_reference}
-            </DialogDescription>
-          </DialogHeader>
+          {/* Booking Details Modal */}
+          <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
+            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Booking Details</DialogTitle>
+                <DialogDescription>
+                  {selectedBooking?.booking_reference}
+                </DialogDescription>
+              </DialogHeader>
 
-          {selectedBooking && (
-            <div className="space-y-6">
-              {/* Status and Actions */}
-              <div className="flex items-center justify-between">
-                <Badge
-                  className={`${getStatusColor(selectedBooking.booking_status)} flex items-center gap-1`}
-                >
-                  {getStatusIcon(selectedBooking.booking_status)}
-                  {selectedBooking.booking_status}
-                </Badge>
-                <div className="flex gap-2">
-                  {selectedBooking.booking_status === "pending" && (
-                    <>
-                      <Button
-                        key="modal-confirm-btn"
-                        size="sm"
-                        onClick={() =>
-                          handleUpdateBookingStatus(
-                            selectedBooking.booking_id,
-                            "confirmed"
-                          )
-                        }
-                      >
-                        Confirm
-                      </Button>
-                      <Button
-                        key="modal-cancel-btn"
-                        size="sm"
-                        variant="destructive"
-                        onClick={() =>
-                          handleUpdateBookingStatus(
-                            selectedBooking.booking_id,
-                            "cancelled"
-                          )
-                        }
-                      >
-                        Cancel
-                      </Button>
-                    </>
-                  )}
-                  {selectedBooking.booking_status === "pending" && (
-                    <Button
-                      key="modal-convert-btn"
-                      size="sm"
-                      className="bg-green-600 hover:bg-green-700"
-                      onClick={() => handleConvertToEvent(selectedBooking)}
+              {selectedBooking && (
+                <div className="space-y-6">
+                  {/* Status and Actions */}
+                  <div className="flex items-center justify-between">
+                    <Badge
+                      className={`${getStatusColor(selectedBooking.booking_status)} flex items-center gap-1`}
                     >
-                      Convert to Event
-                    </Button>
-                  )}
-                </div>
-              </div>
+                      {getStatusIcon(selectedBooking.booking_status)}
+                      {selectedBooking.booking_status}
+                    </Badge>
+                    <div className="flex gap-2">
+                      {selectedBooking.booking_status === "pending" && (
+                        <>
+                          <Button
+                            key="modal-confirm-btn"
+                            size="sm"
+                            onClick={() =>
+                              handleUpdateBookingStatus(
+                                selectedBooking.booking_id,
+                                "confirmed"
+                              )
+                            }
+                          >
+                            Confirm
+                          </Button>
+                          <Button
+                            key="modal-cancel-btn"
+                            size="sm"
+                            variant="destructive"
+                            onClick={() =>
+                              handleUpdateBookingStatus(
+                                selectedBooking.booking_id,
+                                "cancelled"
+                              )
+                            }
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      )}
+                      {selectedBooking.booking_status === "pending" && (
+                        <Button
+                          key="modal-convert-btn"
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700"
+                          onClick={() => handleConvertToEvent(selectedBooking)}
+                        >
+                          Convert to Event
+                        </Button>
+                      )}
+                    </div>
+                  </div>
 
-              {/* Client Information */}
-              <div>
-                <h4 className="font-semibold mb-2">Client Information</h4>
-                <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                  {/* Client Information */}
                   <div>
-                    <strong>Name:</strong> {selectedBooking.client_name}
+                    <h4 className="font-semibold mb-2">Client Information</h4>
+                    <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                      <div>
+                        <strong>Name:</strong> {selectedBooking.client_name}
+                      </div>
+                      <div>
+                        <strong>Email:</strong> {selectedBooking.client_email}
+                      </div>
+                      <div>
+                        <strong>Phone:</strong> {selectedBooking.client_phone}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <strong>Email:</strong> {selectedBooking.client_email}
-                  </div>
-                  <div>
-                    <strong>Phone:</strong> {selectedBooking.client_phone}
-                  </div>
-                </div>
-              </div>
 
-              {/* Event Information */}
-              <div>
-                <h4 className="font-semibold mb-2">Event Information</h4>
-                <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                  {/* Event Information */}
                   <div>
-                    <strong>Event Name:</strong> {selectedBooking.event_name}
-                  </div>
-                  <div>
-                    <strong>Event Type:</strong>{" "}
-                    {selectedBooking.event_type_name}
-                  </div>
-                  <div>
-                    <strong>Date:</strong>{" "}
-                    {new Date(selectedBooking.event_date).toLocaleDateString()}
-                  </div>
-                  <div>
-                    <strong>Time:</strong> {selectedBooking.event_time}
-                  </div>
-                  <div>
-                    <strong>Guest Count:</strong> {selectedBooking.guest_count}
-                  </div>
-                  {selectedBooking.venue_name && (
-                    <div>
-                      <strong>Venue:</strong> {selectedBooking.venue_name}
+                    <h4 className="font-semibold mb-2">Event Information</h4>
+                    <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                      <div>
+                        <strong>Event Name:</strong>{" "}
+                        {selectedBooking.event_name}
+                      </div>
+                      <div>
+                        <strong>Event Type:</strong>{" "}
+                        {selectedBooking.event_type_name}
+                      </div>
+                      <div>
+                        <strong>Date:</strong>{" "}
+                        {new Date(
+                          selectedBooking.event_date
+                        ).toLocaleDateString()}
+                      </div>
+                      <div>
+                        <strong>Time:</strong> {selectedBooking.event_time}
+                      </div>
+                      <div>
+                        <strong>Guest Count:</strong>{" "}
+                        {selectedBooking.guest_count}
+                      </div>
+                      {selectedBooking.venue_name && (
+                        <div>
+                          <strong>Venue:</strong> {selectedBooking.venue_name}
+                        </div>
+                      )}
+                      {selectedBooking.package_name && (
+                        <div>
+                          <strong>Package:</strong>{" "}
+                          {selectedBooking.package_name}
+                        </div>
+                      )}
+                      {selectedBooking.notes && (
+                        <div>
+                          <strong>Notes:</strong> {selectedBooking.notes}
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {selectedBooking.package_name && (
-                    <div>
-                      <strong>Package:</strong> {selectedBooking.package_name}
-                    </div>
-                  )}
-                  {selectedBooking.notes && (
-                    <div>
-                      <strong>Notes:</strong> {selectedBooking.notes}
-                    </div>
-                  )}
-                </div>
-              </div>
+                  </div>
 
-              {/* Booking Information */}
-              <div>
-                <h4 className="font-semibold mb-2">Booking Information</h4>
-                <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                  {/* Booking Information */}
                   <div>
-                    <strong>Reference:</strong>{" "}
-                    {selectedBooking.booking_reference}
-                  </div>
-                  <div>
-                    <strong>Created:</strong>{" "}
-                    {new Date(selectedBooking.created_at).toLocaleDateString()}
-                  </div>
-                  <div>
-                    <strong>Status:</strong> {selectedBooking.booking_status}
-                  </div>
-                  {selectedBooking.converted_event_id && (
-                    <div>
-                      <strong>Event ID:</strong>{" "}
-                      {selectedBooking.converted_event_id}
+                    <h4 className="font-semibold mb-2">Booking Information</h4>
+                    <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                      <div>
+                        <strong>Reference:</strong>{" "}
+                        {selectedBooking.booking_reference}
+                      </div>
+                      <div>
+                        <strong>Created:</strong>{" "}
+                        {new Date(
+                          selectedBooking.created_at
+                        ).toLocaleDateString()}
+                      </div>
+                      <div>
+                        <strong>Status:</strong>{" "}
+                        {selectedBooking.booking_status}
+                      </div>
+                      {selectedBooking.converted_event_id && (
+                        <div>
+                          <strong>Event ID:</strong>{" "}
+                          {selectedBooking.converted_event_id}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+              )}
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
     </div>
   );
 }

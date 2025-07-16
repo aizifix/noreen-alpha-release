@@ -20,6 +20,8 @@ import {
   Eye,
   Edit,
   Trash2,
+  Star,
+  CheckCircle,
 } from "lucide-react";
 import { secureStorage } from "@/app/utils/encryption";
 import { toast } from "@/components/ui/use-toast";
@@ -72,69 +74,76 @@ interface Client {
   last_event_date: string;
 }
 
+interface FilterState {
+  search: string;
+  status: string;
+  activity_level: string;
+}
+
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
-  const [filteredClients, setFilteredClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [showClientDetails, setShowClientDetails] = useState(false);
-  const [selectedClients, setSelectedClients] = useState<number[]>([]);
+
+  // Filters and pagination
+  const [filters, setFilters] = useState<FilterState>({
+    search: "",
+    status: "",
+    activity_level: "",
+  });
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     fetchClients();
-  }, []);
-
-  useEffect(() => {
-    filterClients();
-  }, [searchTerm, clients]);
+  }, [currentPage, filters]);
 
   const fetchClients = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(
-        "http://localhost/events-api/admin.php?operation=getClients"
-      );
+      const queryParams = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: "20",
+        ...Object.fromEntries(
+          Object.entries(filters).filter(([, value]) => value)
+        ),
+      });
 
-      if (response.data.status === "success") {
-        setClients(response.data.clients);
+      const response = await fetch(
+        `http://localhost/events-api/admin.php?operation=getClients&${queryParams}`
+      );
+      const data = await response.json();
+
+      if (data.status === "success") {
+        setClients(data.clients || []);
+        setTotalPages(data.pagination?.total_pages || 1);
       } else {
-        toast({
-          title: "Error",
-          description: response.data.message || "Failed to fetch clients",
-          variant: "destructive",
-        });
+        console.error("API Error:", data.message);
+        setError(data.message || "Failed to fetch clients");
       }
     } catch (error) {
       console.error("Error fetching clients:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load client information",
-        variant: "destructive",
-      });
+      setError("Failed to fetch clients");
     } finally {
       setLoading(false);
     }
   };
 
-  const filterClients = () => {
-    if (!searchTerm) {
-      setFilteredClients(clients);
-      return;
-    }
+  // Filter handlers
+  const handleFilterChange = (key: keyof FilterState, value: string) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setCurrentPage(1);
+  };
 
-    const filtered = clients.filter(
-      (client) =>
-        client.user_firstName
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        client.user_lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.user_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.user_contact.includes(searchTerm)
-    );
-    setFilteredClients(filtered);
+  const clearFilters = () => {
+    setFilters({
+      search: "",
+      status: "",
+      activity_level: "",
+    });
+    setCurrentPage(1);
   };
 
   const getClientStatusColor = (client: Client) => {
@@ -157,27 +166,6 @@ export default function ClientsPage() {
     return new Date(dateString).toLocaleDateString();
   };
 
-  const toggleSelectAll = () => {
-    if (selectedClients.length === filteredClients.length) {
-      setSelectedClients([]);
-    } else {
-      setSelectedClients(filteredClients.map((client) => client.user_id));
-    }
-  };
-
-  const toggleSelectClient = (clientId: number) => {
-    setSelectedClients((prev) =>
-      prev.includes(clientId)
-        ? prev.filter((id) => id !== clientId)
-        : [...prev, clientId]
-    );
-  };
-
-  const totalPages = Math.ceil(filteredClients.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentClients = filteredClients.slice(startIndex, endIndex);
-
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
   };
@@ -196,265 +184,288 @@ export default function ClientsPage() {
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Client Management</h1>
-        <div className="flex items-center gap-2">
-          {selectedClients.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" className="text-red-500">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete Selected
-              </Button>
-              <Button variant="outline">
-                <Mail className="h-4 w-4 mr-2" />
-                Email Selected
-              </Button>
-            </div>
-          )}
-          <Button variant="outline">
-            <Filter className="h-4 w-4 mr-2" />
-            Filter
-          </Button>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Client Management
+          </h1>
+          <p className="text-gray-600">
+            Manage your event clients and their bookings
+          </p>
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{clients.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Active Clients
-            </CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {clients.filter((client) => client.total_events > 0).length}
+          <CardContent className="p-4">
+            <div className="flex items-center">
+              <Users className="w-8 h-8 text-brand-500" />
+              <div className="ml-3">
+                <p className="text-sm font-medium text-gray-600">
+                  Total Clients
+                </p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {clients.length || 0}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(
-                clients.reduce(
-                  (sum, client) =>
-                    sum + parseFloat(client.total_payments.toString()),
-                  0
-                )
-              )}
+          <CardContent className="p-4">
+            <div className="flex items-center">
+              <CheckCircle className="w-8 h-8 text-green-500" />
+              <div className="ml-3">
+                <p className="text-sm font-medium text-gray-600">Active</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {clients.filter((client) => client.total_events > 0).length ||
+                    0}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center">
+              <Calendar className="w-8 h-8 text-blue-500" />
+              <div className="ml-3">
+                <p className="text-sm font-medium text-gray-600">Pending</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {clients.filter(
+                    (client) =>
+                      client.total_bookings > 0 && client.total_events === 0
+                  ).length || 0}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center">
+              <DollarSign className="w-8 h-8 text-yellow-500" />
+              <div className="ml-3">
+                <p className="text-sm font-medium text-gray-600">
+                  Total Revenue
+                </p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {formatCurrency(
+                    clients.reduce(
+                      (sum, client) =>
+                        sum + parseFloat(client.total_payments.toString()),
+                      0
+                    )
+                  )}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Search Bar */}
-      <div className="flex items-center space-x-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground bg-slate-50 dark:bg-slate-900" />
-          <Input
-            placeholder="Search clients by name, email, or phone..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-8"
-          />
-        </div>
-      </div>
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Filter className="w-5 h-5 mr-2" />
+            Filters
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Search</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search clients..."
+                  value={filters.search}
+                  onChange={(e) => handleFilterChange("search", e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Status</label>
+              <select
+                value={filters.status}
+                onChange={(e) => handleFilterChange("status", e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="pending">Pending</option>
+                <option value="new">New</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Activity Level
+              </label>
+              <select
+                value={filters.activity_level}
+                onChange={(e) =>
+                  handleFilterChange("activity_level", e.target.value)
+                }
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">All Levels</option>
+                <option value="high">High (&gt; 5 events)</option>
+                <option value="medium">Medium (2-5 events)</option>
+                <option value="low">Low (1 event)</option>
+              </select>
+            </div>
+
+            <div className="flex items-end">
+              <button
+                onClick={clearFilters}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Clients Table */}
-      <div className="rounded-md border bg-slate-50 dark:bg-slate-900 p-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12">
-                <Checkbox
-                  checked={
-                    selectedClients.length === filteredClients.length &&
-                    filteredClients.length > 0
-                  }
-                  onCheckedChange={toggleSelectAll}
-                />
-              </TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Events</TableHead>
-              <TableHead>Bookings</TableHead>
-              <TableHead>Total Paid</TableHead>
-              <TableHead>Registration Date</TableHead>
-              <TableHead className="w-12"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {currentClients.map((client) => (
-              <TableRow key={client.user_id}>
-                <TableCell>
-                  <Checkbox
-                    checked={selectedClients.includes(client.user_id)}
-                    onCheckedChange={() => toggleSelectClient(client.user_id)}
-                  />
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <Avatar>
-                      <AvatarImage
-                        src={
-                          client.user_pfp
-                            ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(client.user_pfp)}`
-                            : undefined
-                        }
-                        alt={`${client.user_firstName} ${client.user_lastName}`}
-                      />
-                      <AvatarFallback>
-                        {getInitials(
-                          client.user_firstName,
-                          client.user_lastName
-                        )}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Clients ({clients.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-3 px-4">Profile</th>
+                  <th className="text-left py-3 px-4">Name</th>
+                  <th className="text-left py-3 px-4">Email</th>
+                  <th className="text-left py-3 px-4">Phone</th>
+                  <th className="text-left py-3 px-4">Status</th>
+                  <th className="text-left py-3 px-4">Events</th>
+                  <th className="text-left py-3 px-4">Revenue</th>
+                  <th className="text-left py-3 px-4">Registered</th>
+                  <th className="text-left py-3 px-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clients.map((client) => (
+                  <tr
+                    key={client.user_id}
+                    className="border-b hover:bg-gray-50"
+                  >
+                    <td className="py-3 px-4">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage
+                          src={
+                            client.user_pfp
+                              ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(client.user_pfp)}`
+                              : undefined
+                          }
+                          alt={`${client.user_firstName} ${client.user_lastName}`}
+                        />
+                        <AvatarFallback>
+                          {getInitials(
+                            client.user_firstName,
+                            client.user_lastName
+                          )}
+                        </AvatarFallback>
+                      </Avatar>
+                    </td>
+                    <td className="py-3 px-4">
                       <div className="font-medium">
                         {client.user_firstName} {client.user_lastName}
                       </div>
-                      <div className="text-sm text-muted-foreground">
-                        {client.user_email}
+                    </td>
+                    <td className="py-3 px-4">{client.user_email}</td>
+                    <td className="py-3 px-4">{client.user_contact}</td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs ${getClientStatusColor(client)}`}
+                      >
+                        {getClientStatus(client)}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">{client.total_events}</td>
+                    <td className="py-3 px-4">
+                      {formatCurrency(
+                        parseFloat(client.total_payments.toString())
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {formatDate(client.registration_date)}
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => {
+                            setSelectedClient(client);
+                            setShowClientDetails(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="View Details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          className="text-green-600 hover:text-green-800"
+                          title="Edit"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          className="text-red-600 hover:text-red-800"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="text-sm">{client.user_contact}</div>
-                </TableCell>
-                <TableCell>
-                  <Badge className={getClientStatusColor(client)}>
-                    {getClientStatus(client)}
-                  </Badge>
-                </TableCell>
-                <TableCell>{client.total_events}</TableCell>
-                <TableCell>{client.total_bookings}</TableCell>
-                <TableCell>
-                  {formatCurrency(parseFloat(client.total_payments.toString()))}
-                </TableCell>
-                <TableCell>{formatDate(client.registration_date)}</TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setSelectedClient(client);
-                          setShowClientDetails(true);
-                        }}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        View Details
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Client
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Mail className="h-4 w-4 mr-2" />
-                        Send Email
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Phone className="h-4 w-4 mr-2" />
-                        Call Client
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem className="text-red-600">
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete Client
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-        {/* Pagination */}
-        <div className="mt-4">
-          <Pagination>
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (currentPage > 1) handlePageChange(currentPage - 1);
-                  }}
-                />
-              </PaginationItem>
-              {[...Array(totalPages)].map((_, i) => {
-                const page = i + 1;
-                // Show first page, last page, and pages around current page
-                if (
-                  page === 1 ||
-                  page === totalPages ||
-                  (page >= currentPage - 2 && page <= currentPage + 2)
-                ) {
-                  return (
-                    <PaginationItem key={page}>
-                      <PaginationLink
-                        href="#"
-                        isActive={page === currentPage}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handlePageChange(page);
-                        }}
-                      >
-                        {page}
-                      </PaginationLink>
-                    </PaginationItem>
-                  );
-                } else if (
-                  page === currentPage - 3 ||
-                  page === currentPage + 3
-                ) {
-                  return (
-                    <PaginationItem key={page}>
-                      <PaginationEllipsis />
-                    </PaginationItem>
-                  );
-                }
-                return null;
-              })}
-              <PaginationItem>
-                <PaginationNext
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (currentPage < totalPages)
-                      handlePageChange(currentPage + 1);
-                  }}
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
-        </div>
-      </div>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center mt-4">
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="px-3 py-1">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() =>
+                    setCurrentPage(Math.min(totalPages, currentPage + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Client Details Dialog */}
       <Dialog open={showClientDetails} onOpenChange={setShowClientDetails}>
@@ -568,14 +579,12 @@ export default function ClientsPage() {
         </DialogContent>
       </Dialog>
 
-      {filteredClients.length === 0 && !loading && (
+      {clients.length === 0 && !loading && (
         <div className="text-center py-12">
           <User className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No clients found</h3>
           <p className="text-muted-foreground">
-            {searchTerm
-              ? "No clients match your search criteria."
-              : "No clients have been registered yet."}
+            No clients have been registered yet.
           </p>
         </div>
       )}

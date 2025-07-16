@@ -33,7 +33,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Pagination,
   PaginationContent,
@@ -65,6 +64,8 @@ import {
   Calendar,
   Filter,
   MoreVertical,
+  Star,
+  CheckCircle,
 } from "lucide-react";
 
 // Types
@@ -74,18 +75,19 @@ interface Organizer {
   first_name: string;
   last_name: string;
   email: string;
-  phone: string;
-  address: string;
-  date_of_birth: string;
-  years_of_experience: number;
-  certification_files: string[];
+  contact_number: string;
+  suffix?: string;
+  birthdate: string;
+  experience_summary: string;
+  certifications: string;
   resume_path: string;
   portfolio_link: string;
   profile_picture: string;
-  status: "active" | "inactive";
-  admin_remarks: string;
+  is_active: boolean;
+  availability: string;
+  remarks: string;
   created_at: string;
-  username?: string;
+  username: string;
 }
 
 interface FilePreview {
@@ -114,16 +116,19 @@ interface FormData {
   password: string;
 }
 
+interface FilterState {
+  search: string;
+  status: string;
+  experience_level: string;
+}
+
 const API_URL = "http://localhost/events-api";
 
 export default function OrganizersPage() {
   // State management
   const [organizers, setOrganizers] = useState<Organizer[]>([]);
-  const [filteredOrganizers, setFilteredOrganizers] = useState<Organizer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedOrganizers, setSelectedOrganizers] = useState<number[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedOrganizer, setSelectedOrganizer] = useState<Organizer | null>(
     null
@@ -134,6 +139,15 @@ export default function OrganizersPage() {
   const [showOrganizerDetails, setShowOrganizerDetails] = useState(false);
   const [currentProfilePicture, setCurrentProfilePicture] =
     useState<string>("");
+
+  // Filters and pagination
+  const [filters, setFilters] = useState<FilterState>({
+    search: "",
+    status: "",
+    experience_level: "",
+  });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Form data
   const [formData, setFormData] = useState<FormData>({
@@ -161,22 +175,25 @@ export default function OrganizersPage() {
   const resumeInputRef = useRef<HTMLInputElement>(null);
   const certificationInputRef = useRef<HTMLInputElement>(null);
 
-  const itemsPerPage = 10;
-  const totalPages = Math.ceil(filteredOrganizers.length / itemsPerPage);
-  const currentOrganizers = filteredOrganizers.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
-
   // Load organizers on component mount
   useEffect(() => {
     fetchOrganizers();
-  }, []);
+  }, [currentPage, filters]);
 
-  // Filter organizers
-  useEffect(() => {
-    filterOrganizers();
-  }, [searchTerm, organizers]);
+  // Filter handlers
+  const handleFilterChange = (key: keyof FilterState, value: string) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setCurrentPage(1);
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      search: "",
+      status: "",
+      experience_level: "",
+    });
+    setCurrentPage(1);
+  };
 
   // Auto-generate username when name changes
   useEffect(() => {
@@ -185,23 +202,6 @@ export default function OrganizersPage() {
       setFormData((prev) => ({ ...prev, username }));
     }
   }, [formData.first_name, formData.last_name]);
-
-  const filterOrganizers = () => {
-    if (!searchTerm) {
-      setFilteredOrganizers(organizers);
-      return;
-    }
-
-    const filtered = organizers.filter(
-      (organizer) =>
-        organizer.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        organizer.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        organizer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        organizer.phone.includes(searchTerm)
-    );
-    setFilteredOrganizers(filtered);
-    setCurrentPage(1);
-  };
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
@@ -212,26 +212,10 @@ export default function OrganizersPage() {
   };
 
   const getOrganizerStatusColor = (organizer: Organizer) => {
-    if (organizer.status === "active") {
+    if (organizer.is_active) {
       return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
     }
     return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedOrganizers.length === filteredOrganizers.length) {
-      setSelectedOrganizers([]);
-    } else {
-      setSelectedOrganizers(filteredOrganizers.map((org) => org.organizer_id));
-    }
-  };
-
-  const toggleSelectOrganizer = (organizerId: number) => {
-    setSelectedOrganizers((prev) =>
-      prev.includes(organizerId)
-        ? prev.filter((id) => id !== organizerId)
-        : [...prev, organizerId]
-    );
   };
 
   const handlePageChange = (page: number) => {
@@ -261,27 +245,29 @@ export default function OrganizersPage() {
   const fetchOrganizers = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/admin.php`, {
-        params: {
-          operation: "getAllOrganizers",
-          page: 1,
-          limit: 100,
-        },
+      const queryParams = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: "20",
+        ...Object.fromEntries(
+          Object.entries(filters).filter(([, value]) => value)
+        ),
       });
 
-      if (response.data.status === "success") {
-        setOrganizers(response.data.data.organizers || []);
-        setFilteredOrganizers(response.data.data.organizers || []);
+      const response = await fetch(
+        `${API_URL}/admin.php?operation=getAllOrganizers&${queryParams}`
+      );
+      const data = await response.json();
+
+      if (data.status === "success") {
+        setOrganizers(data.data.organizers || []);
+        setTotalPages(data.data.pagination?.total_pages || 1);
       } else {
-        throw new Error(response.data.message);
+        console.error("API Error:", data.message);
+        setError(data.message || "Failed to fetch organizers");
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error fetching organizers:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to fetch organizers",
-        variant: "destructive",
-      });
+      setError("Failed to fetch organizers");
     } finally {
       setLoading(false);
     }
@@ -428,12 +414,19 @@ export default function OrganizersPage() {
         first_name: organizer.first_name,
         last_name: organizer.last_name,
         email: organizer.email,
-        phone: organizer.phone,
-        address: organizer.address,
-        date_of_birth: organizer.date_of_birth,
-        years_of_experience: organizer.years_of_experience,
+        phone: organizer.contact_number,
+        address:
+          organizer.experience_summary
+            ?.split("\n")[1]
+            ?.replace("Address: ", "") || "",
+        date_of_birth: organizer.birthdate,
+        years_of_experience: parseInt(
+          organizer.experience_summary?.match(
+            /Years of Experience: (\d+)/
+          )?.[1] || "0"
+        ),
         portfolio_link: organizer.portfolio_link || "",
-        admin_remarks: organizer.admin_remarks || "",
+        admin_remarks: organizer.remarks || "",
         username: organizer.username || "",
         password: "",
       });
@@ -624,18 +617,6 @@ export default function OrganizersPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Organizer Management</h1>
         <div className="flex items-center gap-2">
-          {selectedOrganizers.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" className="text-red-500">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete Selected
-              </Button>
-              <Button variant="outline">
-                <Mail className="h-4 w-4 mr-2" />
-                Email Selected
-              </Button>
-            </div>
-          )}
           <Button variant="outline">
             <Filter className="h-4 w-4 mr-2" />
             Filter
@@ -670,7 +651,7 @@ export default function OrganizersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {organizers.filter((org) => org.status === "active").length}
+              {organizers.filter((org) => org.is_active).length}
             </div>
           </CardContent>
         </Card>
@@ -686,10 +667,12 @@ export default function OrganizersPage() {
             <div className="text-2xl font-bold">
               {organizers.length > 0
                 ? Math.round(
-                    organizers.reduce(
-                      (sum, org) => sum + org.years_of_experience,
-                      0
-                    ) / organizers.length
+                    organizers.reduce((sum, org) => {
+                      const expMatch = org.experience_summary?.match(
+                        /Years of Experience: (\d+)/
+                      );
+                      return sum + (expMatch ? parseInt(expMatch[1]) : 0);
+                    }, 0) / organizers.length
                   )
                 : 0}{" "}
               years
@@ -698,190 +681,203 @@ export default function OrganizersPage() {
         </Card>
       </div>
 
-      {/* Search Bar */}
-      <div className="flex items-center space-x-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search organizers by name, email, or phone..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-8"
-          />
-        </div>
-      </div>
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Filter className="w-5 h-5 mr-2" />
+            Filters
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Search</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search organizers..."
+                  value={filters.search}
+                  onChange={(e) => handleFilterChange("search", e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Status</label>
+              <select
+                value={filters.status}
+                onChange={(e) => handleFilterChange("status", e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Experience Level
+              </label>
+              <select
+                value={filters.experience_level}
+                onChange={(e) =>
+                  handleFilterChange("experience_level", e.target.value)
+                }
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">All Levels</option>
+                <option value="junior">Junior (&lt; 3 years)</option>
+                <option value="mid">Mid (3-7 years)</option>
+                <option value="senior">Senior (&gt; 7 years)</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={clearFilters}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Organizers Table */}
-      <div className="rounded-md border bg-slate-50 dark:bg-slate-900 p-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12">
-                <Checkbox
-                  checked={
-                    selectedOrganizers.length === filteredOrganizers.length &&
-                    filteredOrganizers.length > 0
-                  }
-                  onCheckedChange={toggleSelectAll}
-                />
-              </TableHead>
-              <TableHead>Organizer</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Experience</TableHead>
-              <TableHead>Registration Date</TableHead>
-              <TableHead className="w-12"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {currentOrganizers.map((organizer) => (
-              <TableRow key={organizer.organizer_id}>
-                <TableCell>
-                  <Checkbox
-                    checked={selectedOrganizers.includes(
-                      organizer.organizer_id
-                    )}
-                    onCheckedChange={() =>
-                      toggleSelectOrganizer(organizer.organizer_id)
-                    }
-                  />
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <Avatar>
-                      <AvatarImage
-                        src={
-                          organizer.profile_picture
-                            ? `${API_URL}/serve-image.php?path=${encodeURIComponent(organizer.profile_picture)}`
-                            : undefined
-                        }
-                        alt={`${organizer.first_name} ${organizer.last_name}`}
-                      />
-                      <AvatarFallback>
-                        {getInitials(organizer.first_name, organizer.last_name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Organizers ({organizers.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-3 px-4">Profile</th>
+                  <th className="text-left py-3 px-4">Name</th>
+                  <th className="text-left py-3 px-4">Email</th>
+                  <th className="text-left py-3 px-4">Phone</th>
+                  <th className="text-left py-3 px-4">Status</th>
+                  <th className="text-left py-3 px-4">Experience</th>
+                  <th className="text-left py-3 px-4">Registered</th>
+                  <th className="text-left py-3 px-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {organizers.map((organizer) => (
+                  <tr
+                    key={organizer.organizer_id}
+                    className="border-b hover:bg-gray-50"
+                  >
+                    <td className="py-3 px-4">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage
+                          src={
+                            organizer.profile_picture
+                              ? `${API_URL}/serve-image.php?path=${encodeURIComponent(organizer.profile_picture)}`
+                              : undefined
+                          }
+                          alt={`${organizer.first_name} ${organizer.last_name}`}
+                        />
+                        <AvatarFallback>
+                          {getInitials(
+                            organizer.first_name,
+                            organizer.last_name
+                          )}
+                        </AvatarFallback>
+                      </Avatar>
+                    </td>
+                    <td className="py-3 px-4">
                       <div className="font-medium">
                         {organizer.first_name} {organizer.last_name}
                       </div>
-                      <div className="text-sm text-muted-foreground">
+                      <div className="text-gray-500 text-xs">
                         @{organizer.username}
                       </div>
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="text-sm">{organizer.email}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {organizer.phone}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge className={getOrganizerStatusColor(organizer)}>
-                    {organizer.status}
-                  </Badge>
-                </TableCell>
-                <TableCell>{organizer.years_of_experience} years</TableCell>
-                <TableCell>{formatDate(organizer.created_at)}</TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setSelectedOrganizer(organizer);
-                          setShowOrganizerDetails(true);
-                        }}
+                    </td>
+                    <td className="py-3 px-4">{organizer.email}</td>
+                    <td className="py-3 px-4">{organizer.contact_number}</td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs ${organizer.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}`}
                       >
-                        <Eye className="h-4 w-4 mr-2" />
-                        View Details
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => openModal("edit", organizer)}
-                      >
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Organizer
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Mail className="h-4 w-4 mr-2" />
-                        Send Email
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Phone className="h-4 w-4 mr-2" />
-                        Call Organizer
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-red-600"
-                        onClick={() => handleDelete(organizer.organizer_id)}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete Organizer
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-
-        {/* Pagination */}
-        <div className="mt-4">
-          <Pagination>
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (currentPage > 1) handlePageChange(currentPage - 1);
-                  }}
-                />
-              </PaginationItem>
-              {[...Array(totalPages)].map((_, i) => {
-                const page = i + 1;
-                if (
-                  page === 1 ||
-                  page === totalPages ||
-                  (page >= currentPage - 2 && page <= currentPage + 2)
-                ) {
-                  return (
-                    <PaginationItem key={page}>
-                      <PaginationLink
-                        href="#"
-                        isActive={page === currentPage}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handlePageChange(page);
-                        }}
-                      >
-                        {page}
-                      </PaginationLink>
-                    </PaginationItem>
-                  );
-                }
-                return null;
-              })}
-              <PaginationItem>
-                <PaginationNext
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (currentPage < totalPages)
-                      handlePageChange(currentPage + 1);
-                  }}
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
-        </div>
-      </div>
+                        {organizer.is_active ? "active" : "inactive"}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      {organizer.experience_summary
+                        ? organizer.experience_summary
+                            .split("\n")[0]
+                            .replace("Years of Experience: ", "")
+                        : "0"}{" "}
+                      years
+                    </td>
+                    <td className="py-3 px-4">
+                      {formatDate(organizer.created_at)}
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => {
+                            setSelectedOrganizer(organizer);
+                            setShowOrganizerDetails(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="View Details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => openModal("edit", organizer)}
+                          className="text-green-600 hover:text-green-800"
+                          title="Edit"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(organizer.organizer_id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center mt-4">
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="px-3 py-1">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() =>
+                    setCurrentPage(Math.min(totalPages, currentPage + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Add/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
@@ -1335,7 +1331,7 @@ export default function OrganizersPage() {
                     {selectedOrganizer.first_name} {selectedOrganizer.last_name}
                   </h3>
                   <Badge className={getOrganizerStatusColor(selectedOrganizer)}>
-                    {selectedOrganizer.status}
+                    {selectedOrganizer.is_active ? "active" : "inactive"}
                   </Badge>
                 </div>
               </div>
@@ -1351,14 +1347,17 @@ export default function OrganizersPage() {
                   <label className="text-sm font-medium text-muted-foreground">
                     Phone
                   </label>
-                  <p className="text-sm">{selectedOrganizer.phone}</p>
+                  <p className="text-sm">{selectedOrganizer.contact_number}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">
                     Experience
                   </label>
                   <p className="text-sm">
-                    {selectedOrganizer.years_of_experience} years
+                    {selectedOrganizer.experience_summary
+                      ?.split("\n")[0]
+                      ?.replace("Years of Experience: ", "") || "0"}{" "}
+                    years
                   </p>
                 </div>
                 <div>
@@ -1386,20 +1385,24 @@ export default function OrganizersPage() {
                     </p>
                   </div>
                 )}
-                {selectedOrganizer.address && (
+                {selectedOrganizer.experience_summary?.split("\n")[1] && (
                   <div className="col-span-2">
                     <label className="text-sm font-medium text-muted-foreground">
                       Address
                     </label>
-                    <p className="text-sm">{selectedOrganizer.address}</p>
+                    <p className="text-sm">
+                      {selectedOrganizer.experience_summary
+                        .split("\n")[1]
+                        .replace("Address: ", "")}
+                    </p>
                   </div>
                 )}
-                {selectedOrganizer.admin_remarks && (
+                {selectedOrganizer.remarks && (
                   <div className="col-span-2">
                     <label className="text-sm font-medium text-muted-foreground">
                       Admin Remarks
                     </label>
-                    <p className="text-sm">{selectedOrganizer.admin_remarks}</p>
+                    <p className="text-sm">{selectedOrganizer.remarks}</p>
                   </div>
                 )}
               </div>
@@ -1408,14 +1411,12 @@ export default function OrganizersPage() {
         </DialogContent>
       </Dialog>
 
-      {filteredOrganizers.length === 0 && !loading && (
+      {organizers.length === 0 && !loading && (
         <div className="text-center py-12">
           <User className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No organizers found</h3>
           <p className="text-muted-foreground">
-            {searchTerm
-              ? "No organizers match your search criteria."
-              : "No organizers have been registered yet."}
+            No organizers have been registered yet.
           </p>
         </div>
       )}

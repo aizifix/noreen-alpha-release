@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jul 16, 2025 at 07:32 PM
+-- Generation Time: Jul 17, 2025 at 05:05 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -229,8 +229,8 @@ CREATE TABLE `tbl_bookings` (
 --
 
 INSERT INTO `tbl_bookings` (`booking_id`, `booking_reference`, `user_id`, `event_type_id`, `event_name`, `event_date`, `event_time`, `start_time`, `end_time`, `guest_count`, `venue_id`, `package_id`, `notes`, `booking_status`, `created_at`, `updated_at`) VALUES
-(0, 'BK-20250715-3121', 21, 5, 'TRest', '2025-07-15', '10:00:00', '10:00:00', NULL, 100, 30, 15, '', 'cancelled', '2025-07-14 22:18:11', '2025-07-16 05:32:51'),
-(0, 'BK-20250715-7783', 21, 2, 'Test', '2025-07-26', '10:00:00', '10:00:00', NULL, 100, 34, 20, '', 'cancelled', '2025-07-14 22:19:35', '2025-07-16 05:32:51');
+(1, 'BK-20250717-1160', 20, 5, 'Morcillos Anniversary Party', '2025-07-23', '10:00:00', '10:00:00', NULL, 100, 30, 14, '', 'pending', '2025-07-16 20:55:08', '2025-07-17 02:55:08'),
+(2, 'BK-20250717-5172', 23, 5, 'Wedding Package ', '2025-07-22', '10:00:00', '10:00:00', NULL, 100, 30, 15, '', 'confirmed', '2025-07-16 20:56:45', '2025-07-17 02:59:31');
 
 --
 -- Triggers `tbl_bookings`
@@ -403,7 +403,8 @@ CREATE TABLE `tbl_email_logs` (
 INSERT INTO `tbl_email_logs` (`email_log_id`, `recipient_email`, `recipient_name`, `email_type`, `subject`, `email_content`, `sent_status`, `sent_at`, `error_message`, `related_user_id`, `related_supplier_id`, `metadata`, `created_at`) VALUES
 (1, 'lasi.anches.coc@phinmaed.com', 'Boss Zata', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 1, NULL, '2025-07-14 23:17:17'),
 (2, 'lasi.anches.coc@phinmaed.com', 'Boss Zata', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 2, NULL, '2025-07-14 23:23:14'),
-(3, 'lasi.anches.coc@phinmaed.com', 'Boss Zata', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 3, NULL, '2025-07-14 23:24:43');
+(3, 'lasi.anches.coc@phinmaed.com', 'Boss Zata', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 3, NULL, '2025-07-14 23:24:43'),
+(4, 'rendon@gmail.com', 'Rendon Labrabis', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 4, NULL, '2025-07-17 02:32:00');
 
 -- --------------------------------------------------------
 
@@ -457,7 +458,8 @@ CREATE TABLE `tbl_events` (
 --
 
 INSERT INTO `tbl_events` (`event_id`, `original_booking_reference`, `user_id`, `admin_id`, `organizer_id`, `event_title`, `event_theme`, `event_description`, `event_type_id`, `guest_count`, `event_date`, `start_time`, `end_time`, `payment_status`, `package_id`, `venue_id`, `total_budget`, `down_payment`, `payment_method`, `payment_schedule_type_id`, `reference_number`, `additional_notes`, `event_status`, `booking_date`, `booking_time`, `created_by`, `updated_by`, `created_at`, `updated_at`, `event_attachments`, `wedding_details_completed`, `event_feedback_id`, `event_wedding_form_id`, `is_recurring`, `recurrence_rule`, `cancellation_reason`, `finalized_at`, `client_signature`) VALUES
-(1, NULL, 20, 7, 3, 'AAA Type of wedding v5', 'color-coordinated', NULL, 1, 100, '2025-07-18', '10:00:00', '18:00:00', 'partial', 15, 29, 219000.00, 153300.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-16 16:37:10', '2025-07-16 16:37:10', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752683814_6877d526720af.docx\",\"file_path\":\"uploads/event_attachments/1752683814_6877d526720af.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T16:36:54.473Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-16 16:37:10', NULL);
+(1, NULL, 20, 7, 3, 'AAA Type of wedding v5', 'color-coordinated', NULL, 1, 100, '2025-07-18', '10:00:00', '18:00:00', 'partial', 15, 29, 219000.00, 153300.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-16 16:37:10', '2025-07-16 16:37:10', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752683814_6877d526720af.docx\",\"file_path\":\"uploads/event_attachments/1752683814_6877d526720af.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T16:36:54.473Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-16 16:37:10', NULL),
+(2, NULL, 23, 7, NULL, 'AAA Type of wedding new', 'cultural-traditional', NULL, 5, 100, '2025-07-19', '10:00:00', '18:00:00', 'partial', 20, 34, 297000.00, 282150.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-16 18:19:46', '2025-07-16 18:19:46', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752689964_6877ed2cab38e.docx\",\"file_path\":\"uploads/event_attachments/1752689964_6877ed2cab38e.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T18:19:24.724Z\"},{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752689968_6877ed30539c7.docx\",\"file_path\":\"uploads/event_attachments/1752689968_6877ed30539c7.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T18:19:28.364Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-16 18:19:46', NULL);
 
 --
 -- Triggers `tbl_events`
@@ -902,7 +904,14 @@ INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`
 (207, 1, 'Inclusions', 0.00, '', 0, 1, 205, 9),
 (208, 1, 'Elegant Catering Services', 25000.00, 'Elegant Catering Services - Catering', 1, 1, NULL, 10),
 (209, 1, 'Purple Yam', 0.00, 'Purple Yam - Catering', 1, 1, NULL, 11),
-(210, 1, 'My own photography service', 35000.00, 'My own photography service', 1, 1, NULL, 12);
+(210, 1, 'My own photography service', 35000.00, 'My own photography service', 1, 1, NULL, 12),
+(211, 2, 'Demiren Hotel', 20000.00, 'Venue: Demiren Hotel', 0, 1, NULL, 0),
+(212, 2, 'sample_inclusion', 12000.00, '', 0, 1, 287, 1),
+(213, 2, 'sample_inclusion 2', 20000.00, '', 0, 1, 288, 2),
+(214, 2, 'Elegant Catering Services', 25000.00, 'Elegant Catering Services - Catering', 1, 1, NULL, 3),
+(215, 2, 'Blooming Gardens Florals', 8000.00, 'Blooming Gardens Florals - Floral Design', 1, 1, NULL, 4),
+(216, 2, 'EventCorp AV Solutions', 12000.00, 'EventCorp AV Solutions - Audio Visual', 1, 1, NULL, 5),
+(217, 2, 'Sample rate ', 200000.00, 'Sample rate ', 1, 1, NULL, 6);
 
 -- --------------------------------------------------------
 
@@ -1196,7 +1205,14 @@ INSERT INTO `tbl_event_timeline` (`timeline_id`, `event_id`, `component_id`, `ac
 (0, 1, NULL, 'Wedding Cake', '2025-07-18', '16:00:00', '17:00:00', '', '', NULL, 'pending', 9),
 (0, 1, NULL, 'Transport & Floral Decor ', '2025-07-18', '18:00:00', '19:00:00', '', '', NULL, 'pending', 10),
 (0, 1, NULL, 'Emcee & Program Flow', '2025-07-18', '20:00:00', '21:00:00', '', '', NULL, 'pending', 11),
-(0, 1, NULL, 'Photography & Videography', '2025-07-18', '22:00:00', '23:00:00', '', '', NULL, 'pending', 12);
+(0, 1, NULL, 'Photography & Videography', '2025-07-18', '22:00:00', '23:00:00', '', '', NULL, 'pending', 12),
+(0, 2, NULL, 'Demiren Hotel', '2025-07-19', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 2, NULL, 'sample_inclusion', '2025-07-19', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 2, NULL, 'sample_inclusion 2', '2025-07-19', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(0, 2, NULL, 'Elegant Catering Services', '2025-07-19', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
+(0, 2, NULL, 'Blooming Gardens Florals', '2025-07-19', '16:00:00', '17:00:00', '', '', NULL, 'pending', 4),
+(0, 2, NULL, 'EventCorp AV Solutions', '2025-07-19', '18:00:00', '19:00:00', '', '', NULL, 'pending', 5),
+(0, 2, NULL, 'Sample rate ', '2025-07-19', '20:00:00', '21:00:00', '', '', NULL, 'pending', 6);
 
 -- --------------------------------------------------------
 
@@ -1334,7 +1350,25 @@ INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venu
 (0, 20, 1, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱153,300.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/23', '2025-07-18 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
 (0, 7, 1, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱153,300.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/23', '2025-07-19 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
 (0, 20, 1, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱153,300.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/23', '2025-07-18 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
-(0, 7, 1, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱153,300.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/23', '2025-07-19 16:37:10', NULL, 'unread', '2025-07-16 16:37:10');
+(0, 7, 1, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱153,300.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/23', '2025-07-19 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
+(0, 23, 2, 34, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding new\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/2', '2025-07-19 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
+(0, 23, 2, 34, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding new\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/2', '2025-07-19 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
+(0, 23, 2, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱282,150.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/24', '2025-07-18 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
+(0, 7, 2, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱282,150.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/24', '2025-07-19 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
+(0, 23, 2, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱282,150.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/24', '2025-07-18 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
+(0, 7, 2, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱282,150.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/24', '2025-07-19 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
+(0, 7, NULL, 29, NULL, NULL, 0, NULL, 'New booking BK-20250716-6612 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/0', '2025-07-19 18:32:45', NULL, 'unread', '2025-07-16 18:32:45'),
+(0, 7, NULL, NULL, NULL, NULL, 0, NULL, 'New booking created: BK-20250716-6612', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-16 18:32:45'),
+(0, 21, NULL, 30, NULL, NULL, 0, NULL, 'Your booking BK-20250715-3121 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/0', '2025-07-23 18:33:08', NULL, 'unread', '2025-07-16 18:33:08'),
+(0, 21, NULL, 34, NULL, NULL, 0, NULL, 'Your booking BK-20250715-7783 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/0', '2025-07-23 18:33:08', NULL, 'unread', '2025-07-16 18:33:08'),
+(0, 20, NULL, 29, NULL, NULL, 0, NULL, 'Your booking BK-20250716-6612 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/0', '2025-07-23 18:33:08', NULL, 'unread', '2025-07-16 18:33:08'),
+(0, 21, NULL, NULL, NULL, NULL, 0, NULL, 'Your booking BK-20250715-3121 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-16 18:33:08'),
+(0, 7, NULL, 30, NULL, NULL, 1, NULL, 'New booking BK-20250717-1160 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/1', '2025-07-20 02:55:08', NULL, 'unread', '2025-07-17 02:55:08'),
+(0, 7, NULL, NULL, NULL, NULL, 1, NULL, 'New booking created: BK-20250717-1160', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 02:55:08'),
+(0, 7, NULL, 30, NULL, NULL, 2, NULL, 'New booking BK-20250717-5172 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/2', '2025-07-20 02:56:45', NULL, 'unread', '2025-07-17 02:56:45'),
+(0, 7, NULL, NULL, NULL, NULL, 2, NULL, 'New booking created: BK-20250717-5172', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 02:56:45'),
+(0, 23, NULL, 30, NULL, NULL, 2, NULL, 'Your booking BK-20250717-5172 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/2', '2025-07-24 02:59:31', NULL, 'unread', '2025-07-17 02:59:31'),
+(0, 23, NULL, NULL, NULL, NULL, 2, NULL, 'Your booking BK-20250717-5172 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 02:59:31');
 
 -- --------------------------------------------------------
 
@@ -1360,7 +1394,8 @@ CREATE TABLE `tbl_organizer` (
 --
 
 INSERT INTO `tbl_organizer` (`organizer_id`, `user_id`, `organizer_experience`, `organizer_certifications`, `organizer_resume_path`, `organizer_portfolio_link`, `organizer_availability`, `remarks`, `created_at`, `updated_at`) VALUES
-(3, 27, 'Years of Experience: 3\nAddress: CDO', '[\"uploads\\/certifications\\/1752506681_687521399564d.pdf\"]', 'uploads/resumes/1752506681_6875213991ce7.docx', '', 'flexible', '', '2025-07-14 15:24:41', '2025-07-14 15:24:41');
+(3, 27, 'Years of Experience: 3\nAddress: CDO', '[\"uploads\\/certifications\\/1752506681_687521399564d.pdf\"]', 'uploads/resumes/1752506681_6875213991ce7.docx', '', 'flexible', '', '2025-07-14 15:24:41', '2025-07-14 15:24:41'),
+(4, 28, 'Years of Experience: 3\nAddress: ligan City', '[\"uploads\\/certifications\\/1752690715_6877f01bc3dc2.pdf\"]', 'uploads/resumes/1752690714_6877f01a83e0e.pdf', '', 'flexible', '', '2025-07-16 18:31:57', '2025-07-16 18:31:57');
 
 -- --------------------------------------------------------
 
@@ -1383,7 +1418,8 @@ CREATE TABLE `tbl_organizer_activity_logs` (
 --
 
 INSERT INTO `tbl_organizer_activity_logs` (`log_id`, `organizer_id`, `activity_type`, `description`, `related_id`, `metadata`, `created_at`) VALUES
-(3, 3, 'created', 'Organizer account created', 27, 'null', '2025-07-14 15:24:43');
+(3, 3, 'created', 'Organizer account created', 27, 'null', '2025-07-14 15:24:43'),
+(4, 4, 'created', 'Organizer account created', 28, 'null', '2025-07-16 18:32:00');
 
 -- --------------------------------------------------------
 
@@ -1687,7 +1723,8 @@ INSERT INTO `tbl_payments` (`payment_id`, `event_id`, `schedule_id`, `client_id`
 (20, 48, NULL, 20, 'cash', 37500.00, '', NULL, 'completed', '2025-07-09', '', '2025-07-09 12:25:24', '2025-07-09 12:25:24', '[{\"filename\":\"1752063924_686e5fb42951a.docx\",\"original_name\":\"Document1.docx\",\"description\":\"\",\"file_size\":409700,\"file_type\":\"docx\",\"uploaded_at\":\"2025-07-09 14:25:24\"}]'),
 (21, 57, NULL, 15, 'cash', 125000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-10', NULL, '2025-07-10 17:42:14', '2025-07-10 17:42:14', '[{\"file_name\":\"1752169333_686ffb7540559.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752169333_686ffb7540559.pdf\",\"file_size\":3191,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-10 19:42:14\"}]'),
 (22, 58, NULL, 20, 'bank-transfer', 400000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-11', '1231231231231231231231', '2025-07-11 03:45:10', '2025-07-11 03:45:10', '[{\"file_name\":\"1752205501_687088bd8db11.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752205501_687088bd8db11.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for bank-transfer payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-11 05:45:10\"}]'),
-(23, 1, NULL, 20, 'cash', 153300.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-16', NULL, '2025-07-16 16:37:10', '2025-07-16 16:37:10', '[{\"file_name\":\"1752683822_6877d52e06bbb.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752683822_6877d52e06bbb.pdf\",\"file_size\":3191,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-16 18:37:10\"}]');
+(23, 1, NULL, 20, 'cash', 153300.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-16', NULL, '2025-07-16 16:37:10', '2025-07-16 16:37:10', '[{\"file_name\":\"1752683822_6877d52e06bbb.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752683822_6877d52e06bbb.pdf\",\"file_size\":3191,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-16 18:37:10\"}]'),
+(24, 2, NULL, 23, 'cash', 282150.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-16', NULL, '2025-07-16 18:19:46', '2025-07-16 18:19:46', '[{\"file_name\":\"1752689982_6877ed3ec5d9f.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752689982_6877ed3ec5d9f.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-16 20:19:46\"}]');
 
 --
 -- Triggers `tbl_payments`
@@ -1994,7 +2031,8 @@ INSERT INTO `tbl_payment_logs` (`log_id`, `event_id`, `schedule_id`, `payment_id
 (0, 0, NULL, 0, 20, NULL, 'payment_received', 16000.00, NULL, 'Initial down payment for event creation', '2025-07-14 15:40:28'),
 (0, 0, NULL, 0, 21, NULL, 'payment_received', 84000.00, NULL, 'Initial down payment for event creation', '2025-07-16 15:46:39'),
 (0, 2, NULL, 0, 21, NULL, 'payment_received', 145600.00, NULL, 'Initial down payment for event creation', '2025-07-16 16:02:04'),
-(0, 1, NULL, 23, 20, NULL, 'payment_received', 153300.00, NULL, 'Initial down payment for event creation', '2025-07-16 16:37:10');
+(0, 1, NULL, 23, 20, NULL, 'payment_received', 153300.00, NULL, 'Initial down payment for event creation', '2025-07-16 16:37:10'),
+(0, 2, NULL, 24, 23, NULL, 'payment_received', 282150.00, NULL, 'Initial down payment for event creation', '2025-07-16 18:19:46');
 
 -- --------------------------------------------------------
 
@@ -2422,11 +2460,12 @@ CREATE TABLE `tbl_users` (
 
 INSERT INTO `tbl_users` (`user_id`, `user_firstName`, `user_lastName`, `user_suffix`, `user_birthdate`, `user_email`, `user_contact`, `user_username`, `user_pwd`, `force_password_change`, `last_login`, `account_status`, `user_pfp`, `user_role`, `is_verified`, `email_verified_at`, `created_at`) VALUES
 (5, 'test', 'test', 'III', '1995-10-20', 'test@gmail.com', '0909090990', 'test', '$2y$10$kINW0dn.gMncgts2MHlwAeuJluo1eotovACTt.z5TUhZ5rf2Ewhhm', 0, NULL, 'active', 'uploads/user_profile/sample.jpg', 'client', 1, NULL, '2025-02-25 12:43:54'),
-(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 0, '2025-07-16 19:49:44', 'active', 'uploads/profile_pictures/profile_7_1752471808.jpg', 'admin', 1, NULL, '2025-02-25 16:41:22'),
-(20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 0, '2025-07-16 17:02:10', 'active', 'uploads/profile_pictures/profile_20_1752461113.jpg', 'client', 1, NULL, '2025-07-09 12:04:49'),
+(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 0, '2025-07-17 10:20:31', 'active', 'uploads/profile_pictures/profile_7_1752471808.jpg', 'admin', 1, NULL, '2025-02-25 16:41:22'),
+(20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 0, '2025-07-17 10:35:01', 'active', 'uploads/profile_pictures/profile_20_1752461113.jpg', 'client', 1, NULL, '2025-07-09 12:04:49'),
 (21, 'Richard', 'Gamon', NULL, '1995-01-01', 'contact.aizworks@gmail.com', '+630995059950', 'richardq20', '$2y$10$iSf.6ZlAVsOR0Gcuwazw4uHeGggmQetB2raODfOzAjhz8qqxjopaW', 0, '2025-07-15 11:19:41', 'active', 'uploads/profile_pictures/profile_21_1752549645.jpg', 'client', 1, '2025-07-14 14:03:53', '2025-07-14 06:03:28'),
-(23, 'Christine', 'Bacsarsa', NULL, '2003-07-26', 'chis.bacsarsa.coc@phinmaed.com', '+639059490590', 'christinegrace', '$2y$10$c82pB7cRnWdV2.GoMCBVqe.kHzB..MjSJy1EjMi1w0CmIkbO.XlM.', 0, '2025-07-14 14:21:23', 'active', 'uploads/profile_pictures/profile_23_1752474108.jpg', 'client', 1, '2025-07-14 14:20:03', '2025-07-14 06:19:38'),
-(27, 'Boss', 'Zata', NULL, '1998-12-12', 'lasi.anches.coc@phinmaed.com', '+639055455544', 'boss.zata22', '$2y$10$m0xfTZ0docbytsrYxzaHceDJgiwPZuDALih4KeVUZcy3ypexVOShK', 0, NULL, 'active', 'uploads/profile_pictures/1752506654_6875211e813a4.png', 'organizer', 1, NULL, '2025-07-14 15:24:41');
+(23, 'Christine', 'Bacsarsa', NULL, '2003-07-26', 'chis.bacsarsa.coc@phinmaed.com', '+639059490590', 'christinegrace', '$2y$10$c82pB7cRnWdV2.GoMCBVqe.kHzB..MjSJy1EjMi1w0CmIkbO.XlM.', 0, '2025-07-17 10:56:17', 'active', 'uploads/profile_pictures/profile_23_1752474108.jpg', 'client', 1, '2025-07-14 14:20:03', '2025-07-14 06:19:38'),
+(27, 'Boss', 'Zata', NULL, '1998-12-12', 'lasi.anches.coc@phinmaed.com', '+639055455544', 'boss.zata22', '$2y$10$m0xfTZ0docbytsrYxzaHceDJgiwPZuDALih4KeVUZcy3ypexVOShK', 0, NULL, 'active', 'uploads/profile_pictures/1752506654_6875211e813a4.png', 'organizer', 1, NULL, '2025-07-14 15:24:41'),
+(28, 'Rendon', 'Labrabis', NULL, '1995-12-12', 'rendon@gmail.com', '+63 63 905 190 3994', 'rendon.labrabis', '$2y$10$5gfBKZ1ZevsTrvtUJ8nmVe53K4jQVorO1o4fkjN9RYV6ZtrICAMze', 0, '2025-07-17 02:33:46', 'active', NULL, 'organizer', 1, NULL, '2025-07-16 18:31:57');
 
 -- --------------------------------------------------------
 
@@ -2651,6 +2690,12 @@ CREATE TABLE `tbl_wedding_details` (
 --
 
 --
+-- Indexes for table `tbl_bookings`
+--
+ALTER TABLE `tbl_bookings`
+  ADD PRIMARY KEY (`booking_id`);
+
+--
 -- Indexes for table `tbl_document_types`
 --
 ALTER TABLE `tbl_document_types`
@@ -2791,6 +2836,12 @@ ALTER TABLE `tbl_users`
 --
 
 --
+-- AUTO_INCREMENT for table `tbl_bookings`
+--
+ALTER TABLE `tbl_bookings`
+  MODIFY `booking_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+
+--
 -- AUTO_INCREMENT for table `tbl_document_types`
 --
 ALTER TABLE `tbl_document_types`
@@ -2800,37 +2851,37 @@ ALTER TABLE `tbl_document_types`
 -- AUTO_INCREMENT for table `tbl_email_logs`
 --
 ALTER TABLE `tbl_email_logs`
-  MODIFY `email_log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `email_log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT for table `tbl_events`
 --
 ALTER TABLE `tbl_events`
-  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_components`
 --
 ALTER TABLE `tbl_event_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=211;
+  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=218;
 
 --
 -- AUTO_INCREMENT for table `tbl_organizer`
 --
 ALTER TABLE `tbl_organizer`
-  MODIFY `organizer_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `organizer_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT for table `tbl_organizer_activity_logs`
 --
 ALTER TABLE `tbl_organizer_activity_logs`
-  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT for table `tbl_payments`
 --
 ALTER TABLE `tbl_payments`
-  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=24;
+  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=25;
 
 --
 -- AUTO_INCREMENT for table `tbl_signup_otp`
@@ -2884,7 +2935,7 @@ ALTER TABLE `tbl_supplier_verification_requests`
 -- AUTO_INCREMENT for table `tbl_users`
 --
 ALTER TABLE `tbl_users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=28;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
 
 --
 -- Constraints for dumped tables

@@ -1,46 +1,14 @@
 Identity:
-You are a senior-developer with a top 1 certification and a highly recommended developer around the world!
+You are a senior-developer with a top 1 certification and a highly recommended developer around the world! You are also need to act like Claude-4-Opus-Max
 
 Task
-- Error that needs to be fixed:
-Debug Information
-Components available: 19
+- When client books, the usually creates booking and its booking referrence, then reflects in the admin, and the client waits for confirmation
 
-Timeline items: 19
-
-Event date: 2025-07-17
-
-Update function: Available
-
-Available components:
-
-Pearlmont Hotel (venue)
-Pearlmont Hotel (venue)
-Pearlmont Hotel (venue)
-Pearlmont Hotel (venue)
-Pearlmont Hotel (venue)
-Pearlmont Hotel (venue)
-Pearlmont Hotel (venue)
-Full Wedding Coordination (package)
-Attire (package)
-Hair and Makeup (package)
-Wedding Cake (package)
-Transport & Floral Decor (package)
-Emcee & Program Flow (package)
-Photography & Videography (package)
-Remaining Buffer (package)
-Inclusions (package)
-EventCorp AV Solutions (Audio Visual)
-Perfect Shots Photography (Photography)
-Test (extras)
-
-- console: 114 intercept-console-error.ts:40 Encountered two children with the same key, `venue-29`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
-
-- Note that only 1 venue should be chosen, meaning that in the timeline part in the event builder it will represent as unique 1 venue, with lock inclusion (these inclusion are for display and are together with the venue)
-
-- the problem here is that the venue has been called multiple times, In the event builder
-
-
+Problem that needs to be fix
+- When accepting one booking, all other bookings gets accepted in the booking management page in the admin side.
+- booking that are ACCEPTED should appear in the event creation when the admin "Look Up Existing Booking", a modal appears and the search button will appear, or when the admin search for the booking reference number or name of the one who books. Card with those details shows up, with the button "Create an Event". Once they click the details from that booking will "partially" populate the event builder - package choice, title, event type, and etc.,
+- booking management page, when booking gets accepted only "View" and "Convert to event" button.
+- change "Convert to event" button in to "Create an Event"
 
 Rules
 - FOCUS on the task I gave you

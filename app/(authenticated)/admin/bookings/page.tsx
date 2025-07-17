@@ -464,9 +464,9 @@ export default function AdminBookingsPage() {
             )}
 
             {/* Show Convert to Event button for confirmed bookings */}
-            {canConvert && (
+            {isConfirmed && (
               <Button
-                key="convert-button"
+                key="create-event-button"
                 size="sm"
                 onClick={() => handleConvertToEvent(booking)}
                 disabled={convertingBookingId === booking.booking_id}
@@ -477,11 +477,12 @@ export default function AdminBookingsPage() {
                 ) : (
                   <ArrowRight className="h-4 w-4 mr-1" />
                 )}
-                Convert to Event
+                Create an Event
               </Button>
             )}
 
-            {(isConfirmed || isConverted) && (
+            {/* Show View Event button for converted bookings only */}
+            {isConverted && (
               <Button
                 key="view-event-button"
                 variant="outline"
@@ -491,11 +492,7 @@ export default function AdminBookingsPage() {
                     `/admin/events?booking_ref=${booking.booking_reference}`
                   );
                 }}
-                className={
-                  isConverted
-                    ? "border-blue-200 text-blue-700 hover:bg-blue-50"
-                    : "border-green-200 text-green-700 hover:bg-green-50"
-                }
+                className="border-blue-200 text-blue-700 hover:bg-blue-50"
               >
                 View Event
               </Button>
@@ -735,14 +732,29 @@ export default function AdminBookingsPage() {
                           </Button>
                         </>
                       )}
-                      {selectedBooking.booking_status === "pending" && (
+                      {selectedBooking.booking_status === "confirmed" && (
                         <Button
-                          key="modal-convert-btn"
+                          key="modal-create-event-btn"
                           size="sm"
-                          className="bg-green-600 hover:bg-green-700"
+                          className="bg-blue-600 hover:bg-blue-700"
                           onClick={() => handleConvertToEvent(selectedBooking)}
                         >
-                          Convert to Event
+                          Create an Event
+                        </Button>
+                      )}
+                      {selectedBooking.booking_status === "converted" && (
+                        <Button
+                          key="modal-view-event-btn"
+                          size="sm"
+                          variant="outline"
+                          className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                          onClick={() => {
+                            router.push(
+                              `/admin/events?booking_ref=${selectedBooking.booking_reference}`
+                            );
+                          }}
+                        >
+                          View Event
                         </Button>
                       )}
                     </div>

@@ -229,11 +229,11 @@ class Admin {
                     $sql = "INSERT INTO tbl_event_components (
                                 event_id, component_name, component_description,
                                 component_price, is_custom, is_included,
-                                original_package_component_id, display_order
+                                original_package_component_id, supplier_id, offer_id, display_order
                             ) VALUES (
                                 :event_id, :name, :description,
                                 :price, :is_custom, :is_included,
-                                :original_package_component_id, :display_order
+                                :original_package_component_id, :supplier_id, :offer_id, :display_order
                             )";
 
                     $stmt = $this->conn->prepare($sql);
@@ -245,6 +245,8 @@ class Admin {
                         ':is_custom' => $component['is_custom'] ?? false,
                         ':is_included' => $component['is_included'] ?? true,
                         ':original_package_component_id' => $component['original_package_component_id'] ?? null,
+                        ':supplier_id' => $component['supplier_id'] ?? null,
+                        ':offer_id' => $component['offer_id'] ?? null,
                         ':display_order' => $index
                     ]);
                 }
@@ -374,6 +376,91 @@ class Admin {
             error_log("createEvent error: " . $e->getMessage());
             error_log("createEvent stack trace: " . $e->getTraceAsString());
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
+    public function createCustomizedPackage($data) {
+        try {
+            $this->conn->beginTransaction();
+
+            // Validate required fields
+            $required = ['admin_id', 'package_title', 'event_type_id', 'guest_capacity', 'components'];
+            foreach ($required as $field) {
+                if (empty($data[$field])) {
+                    return json_encode(["status" => "error", "message" => "$field is required"]);
+                }
+            }
+
+            // Calculate total package price from components
+            $totalPrice = 0;
+            foreach ($data['components'] as $component) {
+                $totalPrice += floatval($component['component_price'] || 0);
+            }
+
+            // Create the customized package
+            $sql = "INSERT INTO tbl_packages (
+                        package_title, package_description, package_price, guest_capacity,
+                        created_by, is_active, original_price, is_price_locked, price_lock_date,
+                        customized_package
+                    ) VALUES (
+                        :package_title, :package_description, :package_price, :guest_capacity,
+                        :created_by, 1, :original_price, 0, NULL, 1
+                    )";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([
+                ':package_title' => $data['package_title'],
+                ':package_description' => $data['package_description'] ?? 'Customized package created from event builder',
+                ':package_price' => $totalPrice,
+                ':guest_capacity' => $data['guest_capacity'],
+                ':created_by' => $data['admin_id'],
+                ':original_price' => $totalPrice
+            ]);
+
+            $packageId = $this->conn->lastInsertId();
+
+            // Link package to event types
+            $eventTypeSql = "INSERT INTO tbl_package_event_types (package_id, event_type_id) VALUES (?, ?)";
+            $eventTypeStmt = $this->conn->prepare($eventTypeSql);
+            $eventTypeStmt->execute([$packageId, $data['event_type_id']]);
+
+            // Add components to the package
+            foreach ($data['components'] as $index => $component) {
+                $componentSql = "INSERT INTO tbl_package_components (
+                                    package_id, component_name, component_description,
+                                    component_price, display_order
+                                ) VALUES (?, ?, ?, ?, ?)";
+
+                $componentStmt = $this->conn->prepare($componentSql);
+                $componentStmt->execute([
+                    $packageId,
+                    $component['component_name'],
+                    $component['component_description'] ?? '',
+                    $component['component_price'],
+                    $index
+                ]);
+            }
+
+            // Link venue if provided
+            if (!empty($data['venue_id'])) {
+                $venueSql = "INSERT INTO tbl_package_venues (package_id, venue_id) VALUES (?, ?)";
+                $venueStmt = $this->conn->prepare($venueSql);
+                $venueStmt->execute([$packageId, $data['venue_id']]);
+            }
+
+            $this->conn->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Customized package created successfully",
+                "package_id" => $packageId,
+                "package_price" => $totalPrice
+            ]);
+
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            error_log("createCustomizedPackage error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Failed to create customized package: " . $e->getMessage()]);
         }
     }
 
@@ -3880,6 +3967,37 @@ This is an automated message. Please do not reply.
             ]);
         }
     }
+
+    // Get all available venues for "start from scratch" events
+    public function getAllAvailableVenues() {
+        try {
+            $sql = "SELECT v.*,
+                           COALESCE(v.venue_price, 0) as venue_price,
+                           COALESCE(v.extra_pax_rate, 0) as extra_pax_rate,
+                           v.venue_capacity,
+                           v.venue_type,
+                           v.venue_profile_picture,
+                           v.venue_cover_photo
+                    FROM tbl_venue v
+                    WHERE v.is_active = 1 AND v.venue_status = 'available'
+                    ORDER BY v.venue_title ASC";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute();
+            $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "venues" => $venues
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $e->getMessage()
+            ]);
+        }
+    }
+
     public function calculateVenuePricing($venueId, $guestCount) {
         try {
             // Get venue details
@@ -6399,11 +6517,11 @@ This is an automated message. Please do not reply.
             $sql = "INSERT INTO tbl_event_components (
                         event_id, component_name, component_description,
                         component_price, is_custom, is_included,
-                        original_package_component_id, display_order
+                        original_package_component_id, supplier_id, offer_id, display_order
                     ) VALUES (
                         :event_id, :name, :description,
                         :price, :is_custom, :is_included,
-                        :original_package_component_id, :display_order
+                        :original_package_component_id, :supplier_id, :offer_id, :display_order
                     )";
 
             $stmt = $this->conn->prepare($sql);
@@ -6415,6 +6533,8 @@ This is an automated message. Please do not reply.
                 ':is_custom' => $data['is_custom'] ?? true,
                 ':is_included' => $data['is_included'] ?? true,
                 ':original_package_component_id' => $data['original_package_component_id'] ?? null,
+                ':supplier_id' => $data['supplier_id'] ?? null,
+                ':offer_id' => $data['offer_id'] ?? null,
                 ':display_order' => $data['display_order'] ?? 0
             ]);
 
@@ -7600,6 +7720,9 @@ switch ($operation) {
     case "getVenuesForPackage":
         echo $admin->getVenuesForPackage();
         break;
+    case "getAllAvailableVenues":
+        echo $admin->getAllAvailableVenues();
+        break;
     case "calculateVenuePricing":
         $venueId = $_GET['venue_id'] ?? ($data['venue_id'] ?? 0);
         $guestCount = $_GET['guest_count'] ?? ($data['guest_count'] ?? 100);
@@ -8035,6 +8158,11 @@ switch ($operation) {
         } else {
             echo $admin->deleteOrganizer($organizerId);
         }
+        break;
+
+    // Customized Package operations
+    case "createCustomizedPackage":
+        echo $admin->createCustomizedPackage($data);
         break;
 
     // File upload operations

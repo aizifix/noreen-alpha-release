@@ -19,9 +19,14 @@ import {
   BarChart3,
   FileText,
   Settings,
+  Heart,
+  AlertTriangle,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -38,6 +43,15 @@ import {
   Pie,
   Cell,
 } from "recharts";
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  isSameDay,
+  addMonths,
+  subMonths,
+} from "date-fns";
 
 // Types for our dashboard data
 interface DashboardMetrics {
@@ -77,9 +91,24 @@ interface CalendarEvent {
   title: string;
   date: string;
   status: string;
+  event_type_id?: number;
+  event_type_name?: string;
 }
 
-// Mock data for the revenue chart
+interface CalendarConflictData {
+  [date: string]: {
+    hasWedding: boolean;
+    hasOtherEvents: boolean;
+    eventCount: number;
+    events: Array<{
+      event_type_id: number;
+      event_type_name: string;
+      count: number;
+    }>;
+  };
+}
+
+// Mock data for the revenue chart (will be moved to analytics)
 const revenueData = [
   { month: "Jan", revenue: 45000 },
   { month: "Feb", revenue: 52000 },
@@ -118,7 +147,287 @@ const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
-// Analytics Component
+// Enhanced Calendar Component with Event Builder Style
+function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [calendarConflictData, setCalendarConflictData] =
+    useState<CalendarConflictData>({});
+
+  // Load calendar conflict data
+  const loadCalendarConflictData = async (date: Date = currentDate) => {
+    try {
+      const startDate = format(startOfMonth(date), "yyyy-MM-dd");
+      const endDate = format(endOfMonth(date), "yyyy-MM-dd");
+
+      const userData = secureStorage.getItem("user");
+      const response = await axios.get(
+        "http://localhost/events-api/admin.php",
+        {
+          params: {
+            operation: "getCalendarConflictData",
+            admin_id: userData?.user_id,
+            start_date: startDate,
+            end_date: endDate,
+          },
+        }
+      );
+
+      if (response.data.status === "success") {
+        setCalendarConflictData(response.data.calendarData || {});
+      }
+    } catch (error) {
+      console.error("Error loading calendar data:", error);
+      // Generate sample data for demonstration
+      generateSampleCalendarData(date);
+    }
+  };
+
+  // Generate sample calendar data for demonstration
+  const generateSampleCalendarData = (date: Date) => {
+    const sampleData: CalendarConflictData = {};
+    const daysInMonth = new Date(
+      date.getFullYear(),
+      date.getMonth() + 1,
+      0
+    ).getDate();
+
+    // Sample data for current month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateString = format(
+        new Date(date.getFullYear(), date.getMonth(), day),
+        "yyyy-MM-dd"
+      );
+
+      // Random event distribution
+      const hasEvent = Math.random() > 0.7;
+      if (hasEvent) {
+        const eventCount = Math.floor(Math.random() * 3) + 1;
+        const hasWedding = Math.random() > 0.8;
+
+        sampleData[dateString] = {
+          hasWedding,
+          hasOtherEvents: !hasWedding,
+          eventCount,
+          events: hasWedding
+            ? [{ event_type_id: 1, event_type_name: "Wedding", count: 1 }]
+            : [
+                {
+                  event_type_id: 2,
+                  event_type_name: "Other",
+                  count: eventCount,
+                },
+              ],
+        };
+      }
+    }
+
+    setCalendarConflictData(sampleData);
+  };
+
+  useEffect(() => {
+    loadCalendarConflictData(currentDate);
+  }, [currentDate]);
+
+  const getDaysInMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  };
+
+  const getStartingDay = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  };
+
+  const getEventsForDate = (day: number) => {
+    const dateString = format(
+      new Date(currentDate.getFullYear(), currentDate.getMonth(), day),
+      "yyyy-MM-dd"
+    );
+    return events.filter((event) => event.date === dateString);
+  };
+
+  const prevMonth = () => {
+    setCurrentDate(subMonths(currentDate, 1));
+  };
+
+  const nextMonth = () => {
+    setCurrentDate(addMonths(currentDate, 1));
+  };
+
+  const daysInMonth = getDaysInMonth(currentDate);
+  const startingDay = getStartingDay(currentDate);
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  // Get heat map color based on event count (same as event builder)
+  const getHeatMapColor = (eventCount: number, hasWedding: boolean) => {
+    if (hasWedding) {
+      return "bg-red-500 text-white"; // Wedding - always red and blocked
+    }
+
+    if (eventCount === 0) {
+      return "bg-white text-gray-900 hover:bg-gray-50"; // No events
+    } else if (eventCount === 1) {
+      return "bg-yellow-200 text-gray-900"; // One event - light yellow
+    } else if (eventCount === 2) {
+      return "bg-orange-300 text-gray-900"; // Two events - orange
+    } else if (eventCount >= 3) {
+      return "bg-red-300 text-gray-900"; // Three or more events - light red
+    }
+
+    return "bg-gray-50 text-gray-900"; // Default
+  };
+
+  return (
+    <Card className="border-0 bg-white shadow-sm">
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-semibold text-gray-900">
+            Event Calendar
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={prevMonth}
+              className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-sm font-medium text-gray-700 min-w-[100px] text-center">
+              {format(currentDate, "MMMM yyyy")}
+            </span>
+            <button
+              onClick={nextMonth}
+              className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-4">
+        {/* Heat Map Guide */}
+        <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+          <h4 className="text-xs font-medium text-gray-700 mb-2">
+            Event Heat Map:
+          </h4>
+          <div className="flex items-center gap-3 text-xs flex-wrap">
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-white border rounded"></div>
+              <span>Available</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-yellow-200 border rounded"></div>
+              <span>1 Event</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-orange-300 border rounded"></div>
+              <span>2 Events</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-red-300 border rounded"></div>
+              <span>3+ Events</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-red-500 border rounded relative">
+                <Heart className="h-2 w-2 text-white fill-white absolute inset-0 m-auto" />
+              </div>
+              <span>Wedding</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Calendar Grid */}
+        <div className="grid grid-cols-7 gap-1 text-xs">
+          {dayNames.map((day) => (
+            <div
+              key={day}
+              className="p-2 text-center font-medium text-gray-500 text-xs"
+            >
+              {day}
+            </div>
+          ))}
+
+          {Array.from({ length: startingDay }, (_, i) => (
+            <div key={`empty-${i}`} className="p-2"></div>
+          ))}
+
+          {Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1;
+            const dateString = format(
+              new Date(currentDate.getFullYear(), currentDate.getMonth(), day),
+              "yyyy-MM-dd"
+            );
+            const dayData = calendarConflictData[dateString];
+            const dayEvents = getEventsForDate(day);
+            const isToday = isSameDay(
+              new Date(currentDate.getFullYear(), currentDate.getMonth(), day),
+              new Date()
+            );
+
+            const eventCount = dayData?.eventCount || dayEvents.length;
+            const hasWedding = dayData?.hasWedding || false;
+            const heatMapColor = getHeatMapColor(eventCount, hasWedding);
+
+            return (
+              <div
+                key={day}
+                className={`p-2 text-center border border-gray-100 min-h-[60px] relative transition-all duration-200 ${
+                  isToday ? "ring-2 ring-[#028A75] ring-offset-1" : ""
+                }`}
+              >
+                <span
+                  className={`text-sm font-medium ${
+                    isToday ? "text-[#028A75]" : "text-gray-700"
+                  }`}
+                >
+                  {day}
+                </span>
+
+                {/* Event indicators with colored plots */}
+                {eventCount > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {dayEvents.slice(0, 2).map((event, index) => (
+                      <div
+                        key={index}
+                        className={`w-full h-1.5 rounded-full mx-auto ${
+                          event.status === "confirmed"
+                            ? "bg-green-500"
+                            : event.status === "planning"
+                              ? "bg-yellow-500"
+                              : event.status === "ongoing"
+                                ? "bg-blue-500"
+                                : event.status === "done"
+                                  ? "bg-purple-500"
+                                  : event.status === "cancelled"
+                                    ? "bg-red-500"
+                                    : "bg-gray-400"
+                        }`}
+                        title={`${event.title} - ${event.status}`}
+                      />
+                    ))}
+                    {dayEvents.length > 2 && (
+                      <div className="text-xs text-gray-500">
+                        +{dayEvents.length - 2}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Event count badge for multiple events */}
+                {eventCount > 1 && (
+                  <div className="absolute -top-1 -right-1 z-10">
+                    <div className="text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold shadow-sm border border-white bg-[#028A75] text-white">
+                      {eventCount}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Analytics Component with Revenue Trend
 function AnalyticsContent() {
   const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -160,8 +469,53 @@ function AnalyticsContent() {
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+      {/* Revenue Trend Chart - Moved from Overview */}
+      <Card className="border-0 bg-white shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold text-gray-900">
+            Revenue Trend
+          </CardTitle>
+          <p className="text-sm text-gray-500">Monthly revenue overview</p>
+        </CardHeader>
+        <CardContent>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={revenueData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="month" stroke="#6b7280" fontSize={12} />
+                <YAxis
+                  stroke="#6b7280"
+                  fontSize={12}
+                  tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`}
+                />
+                <Tooltip
+                  formatter={(value: any) => [
+                    `₱${value.toLocaleString()}`,
+                    "Revenue",
+                  ]}
+                  labelStyle={{ color: "#374151" }}
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "8px",
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#028A75"
+                  strokeWidth={3}
+                  dot={{ fill: "#028A75", strokeWidth: 2, r: 4 }}
+                  activeDot={{ r: 6, stroke: "#028A75", strokeWidth: 2 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Event Types Distribution */}
-      <Card className="border-0 bg-white">
+      <Card className="border-0 bg-white shadow-sm">
         <CardContent className="p-6">
           <h3 className="text-lg font-semibold mb-4">
             Event Types Distribution
@@ -170,7 +524,7 @@ function AnalyticsContent() {
             {analyticsData?.eventTypes?.map((type: any, index: number) => (
               <div
                 key={index}
-                className="bg-gray-50 p-4 rounded-lg border border-gray-100"
+                className="bg-gray-50 p-4 rounded-lg border border-gray-100 hover:shadow-md transition-shadow"
               >
                 <h4 className="font-medium">{type.event_name}</h4>
                 <p className="text-2xl font-bold text-[#028A75]">
@@ -186,7 +540,7 @@ function AnalyticsContent() {
       </Card>
 
       {/* Payment Status Breakdown */}
-      <Card className="border-0 bg-white">
+      <Card className="border-0 bg-white shadow-sm">
         <CardContent className="p-6">
           <h3 className="text-lg font-semibold mb-4">
             Payment Status Overview
@@ -195,7 +549,7 @@ function AnalyticsContent() {
             {analyticsData?.paymentStatus?.map((status: any, index: number) => (
               <div
                 key={index}
-                className="bg-gray-50 p-4 rounded-lg border border-gray-100"
+                className="bg-gray-50 p-4 rounded-lg border border-gray-100 hover:shadow-md transition-shadow"
               >
                 <h4 className="font-medium capitalize">
                   {status.payment_status}
@@ -212,9 +566,9 @@ function AnalyticsContent() {
         </CardContent>
       </Card>
 
-      {/* Top Venues */}
+      {/* Top Venues and Packages */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="border-0 bg-white">
+        <Card className="border-0 bg-white shadow-sm">
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold mb-4">Top Venues</h3>
             <div className="space-y-3">
@@ -223,7 +577,7 @@ function AnalyticsContent() {
                 .map((venue: any, index: number) => (
                   <div
                     key={index}
-                    className="flex justify-between items-center"
+                    className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <div>
                       <p className="font-medium">{venue.venue_title}</p>
@@ -240,8 +594,7 @@ function AnalyticsContent() {
           </CardContent>
         </Card>
 
-        {/* Top Packages */}
-        <Card className="border-0 bg-white">
+        <Card className="border-0 bg-white shadow-sm">
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold mb-4">Top Packages</h3>
             <div className="space-y-3">
@@ -250,12 +603,12 @@ function AnalyticsContent() {
                 .map((pkg: any, index: number) => (
                   <div
                     key={index}
-                    className="flex justify-between items-center"
+                    className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <div>
-                      <p className="font-medium">{pkg.package_title}</p>
+                      <p className="font-medium">{pkg.package_name}</p>
                       <p className="text-sm text-gray-500">
-                        {pkg.events_count} events
+                        {pkg.bookings_count} bookings
                       </p>
                     </div>
                     <p className="font-bold text-[#028A75]">
@@ -267,41 +620,6 @@ function AnalyticsContent() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Top Clients */}
-      <Card className="border-0 bg-white">
-        <CardContent className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Top Clients by Revenue</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left p-2">Client Name</th>
-                  <th className="text-left p-2">Events</th>
-                  <th className="text-left p-2">Total Spent</th>
-                  <th className="text-left p-2">Last Event</th>
-                </tr>
-              </thead>
-              <tbody>
-                {analyticsData?.topClients
-                  ?.slice(0, 5)
-                  .map((client: any, index: number) => (
-                    <tr key={index} className="border-b">
-                      <td className="p-2">{client.client_name}</td>
-                      <td className="p-2">{client.events_count}</td>
-                      <td className="p-2 font-bold text-[#028A75]">
-                        {formatCurrency(parseFloat(client.total_spent))}
-                      </td>
-                      <td className="p-2">
-                        {new Date(client.last_event_date).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
@@ -309,18 +627,17 @@ function AnalyticsContent() {
 // Reports Component
 function ReportsContent() {
   const [reportsData, setReportsData] = useState<any>(null);
-  const [reportType, setReportType] = useState("summary");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
   const fetchReports = async (type: string) => {
-    setIsLoading(true);
     try {
+      setIsLoading(true);
       const userData = secureStorage.getItem("user");
       const response = await axios.get(
         "http://localhost/events-api/admin.php",
         {
           params: {
-            operation: "getReportsData",
+            operation: "getReports",
             admin_id: userData?.user_id,
             report_type: type,
           },
@@ -332,219 +649,64 @@ function ReportsContent() {
       }
     } catch (error) {
       console.error("Error fetching reports:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load reports. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchReports(reportType);
-  }, [reportType]);
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-      <div className="flex gap-2 mb-6">
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button
-          onClick={() => setReportType("summary")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            reportType === "summary"
-              ? "bg-[#028A75] text-white"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+          onClick={() => fetchReports("events")}
+          className="p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow text-left"
         >
-          Summary
+          <Calendar className="h-8 w-8 text-[#028A75] mb-2" />
+          <h3 className="font-semibold text-gray-900">Events Report</h3>
+          <p className="text-sm text-gray-500">Detailed event analysis</p>
         </button>
+
         <button
-          onClick={() => setReportType("detailed")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            reportType === "detailed"
-              ? "bg-[#028A75] text-white"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+          onClick={() => fetchReports("revenue")}
+          className="p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow text-left"
         >
-          Detailed
+          <DollarSign className="h-8 w-8 text-[#028A75] mb-2" />
+          <h3 className="font-semibold text-gray-900">Revenue Report</h3>
+          <p className="text-sm text-gray-500">Financial performance</p>
         </button>
+
         <button
-          onClick={() => setReportType("financial")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            reportType === "financial"
-              ? "bg-[#028A75] text-white"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+          onClick={() => fetchReports("clients")}
+          className="p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow text-left"
         >
-          Financial
+          <Users className="h-8 w-8 text-[#028A75] mb-2" />
+          <h3 className="font-semibold text-gray-900">Clients Report</h3>
+          <p className="text-sm text-gray-500">Client engagement metrics</p>
         </button>
       </div>
 
-      <Card className="border-0 bg-white">
-        <CardContent className="p-6">
-          <h3 className="text-lg font-semibold mb-4">
-            {reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report
-          </h3>
-          <div className="space-y-4">
-            {reportsData ? (
-              <div className="text-gray-600">
-                <p>
-                  Report data will be displayed here based on the selected type.
-                </p>
-              </div>
-            ) : (
-              <div className="text-gray-500 text-center py-8">
-                <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>No report data available</p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {isLoading && (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      )}
+
+      {reportsData && (
+        <Card className="border-0 bg-white shadow-sm">
+          <CardContent className="p-6">
+            <h3 className="text-lg font-semibold mb-4">Report Results</h3>
+            <pre className="bg-gray-50 p-4 rounded-lg overflow-auto text-sm">
+              {JSON.stringify(reportsData, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
-  );
-}
-
-// Calendar Component
-function QuickCalendar({ events }: { events: CalendarEvent[] }) {
-  const [currentDate, setCurrentDate] = useState(new Date());
-
-  const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    const startingDay = firstDay.getDay();
-
-    return { daysInMonth, startingDay };
-  };
-
-  const { daysInMonth, startingDay } = getDaysInMonth(currentDate);
-
-  const getEventsForDate = (day: number) => {
-    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    return events.filter((event) => event.date === dateStr);
-  };
-
-  const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
-
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-  const prevMonth = () => {
-    setCurrentDate(
-      new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1)
-    );
-  };
-
-  const nextMonth = () => {
-    setCurrentDate(
-      new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
-    );
-  };
-
-  return (
-    <Card className="border-0 bg-white">
-      <CardContent className="p-4">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Event Calendar
-          </h3>
-          <div className="flex gap-2">
-            <button
-              onClick={prevMonth}
-              className="p-1 hover:bg-gray-100 rounded"
-            >
-              ←
-            </button>
-            <span className="font-medium">
-              {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-            </span>
-            <button
-              onClick={nextMonth}
-              className="p-1 hover:bg-gray-100 rounded"
-            >
-              →
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-7 gap-1 text-xs">
-          {dayNames.map((day) => (
-            <div
-              key={day}
-              className="p-2 text-center font-medium text-gray-500"
-            >
-              {day}
-            </div>
-          ))}
-
-          {Array.from({ length: startingDay }, (_, i) => (
-            <div key={`empty-${i}`} className="p-2"></div>
-          ))}
-
-          {Array.from({ length: daysInMonth }, (_, i) => {
-            const day = i + 1;
-            const dayEvents = getEventsForDate(day);
-            const isToday =
-              new Date().toDateString() ===
-              new Date(
-                currentDate.getFullYear(),
-                currentDate.getMonth(),
-                day
-              ).toDateString();
-
-            return (
-              <div
-                key={day}
-                className={`p-2 text-center border border-gray-100 min-h-[60px] relative ${
-                  isToday ? "bg-[#028A75]/10 border-[#028A75]" : ""
-                }`}
-              >
-                <span
-                  className={`text-sm ${isToday ? "font-bold text-[#028A75]" : "text-gray-700"}`}
-                >
-                  {day}
-                </span>
-                {dayEvents.length > 0 && (
-                  <div className="mt-1">
-                    {dayEvents.slice(0, 2).map((event, index) => (
-                      <div
-                        key={index}
-                        className="w-2 h-2 bg-[#028A75] rounded-full mx-auto mb-1"
-                        title={event.title}
-                      />
-                    ))}
-                    {dayEvents.length > 2 && (
-                      <div className="text-xs text-gray-500">
-                        +{dayEvents.length - 2}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -664,6 +826,8 @@ export default function AdminDashboard() {
           title: event.event_title,
           date: event.event_date,
           status: event.event_status,
+          event_type_id: event.event_type_id,
+          event_type_name: event.event_type_name,
         }));
         setCalendarEvents(calendarData);
       }
@@ -701,319 +865,276 @@ export default function AdminDashboard() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-[#028A75] mx-auto mb-4" />
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in slide-in-from-bottom-4 duration-700">
-      {/* Header Section */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
-        <div className="space-y-2">
-          <h1 className="text-4xl font-bold text-gray-900">
-            Hello, {userFirstName || "Admin"}
-          </h1>
-          <div className="flex items-center gap-4 text-sm text-gray-600">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              <span>
-                {currentDateTime.toLocaleDateString("en-US", {
-                  weekday: "long",
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
-              </span>
+    <div className="min-h-screen">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header Section */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold text-gray-900">
+              Welcome back, {userFirstName || "Admin"}!
+            </h1>
+            <div className="flex items-center gap-4 text-sm text-gray-600">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                <span>
+                  {currentDateTime.toLocaleDateString("en-US", {
+                    weekday: "long",
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                <span>
+                  {currentDateTime.toLocaleTimeString("en-US", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              <span>
-                {currentDateTime.toLocaleTimeString("en-US", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                })}
-              </span>
-            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 border border-gray-200 shadow-sm"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </button>
+            <button
+              onClick={() => router.push("/admin/event-builder")}
+              className="flex items-center gap-2 px-6 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              Create Event
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </button>
-          <button
-            onClick={() => router.push("/admin/event-builder")}
-            className="flex items-center gap-2 px-6 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Create Event
-          </button>
-        </div>
-      </div>
+        {/* Enhanced Tabs */}
+        <Tabs defaultValue="overview" className="w-full">
+          <TabsList className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm">
+            <TabsTrigger
+              value="overview"
+              className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200"
+            >
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4" />
+                Overview
+              </div>
+            </TabsTrigger>
+            <TabsTrigger
+              value="analytics"
+              className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200"
+            >
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4" />
+                Analytics
+              </div>
+            </TabsTrigger>
+            <TabsTrigger
+              value="reports"
+              className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200"
+            >
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Reports
+              </div>
+            </TabsTrigger>
+          </TabsList>
 
-      {/* Enhanced Tabs */}
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="bg-gray-100 p-1 rounded-lg border-0">
-          <TabsTrigger
+          <TabsContent
             value="overview"
-            className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200"
+            className="mt-8 space-y-8 animate-in slide-in-from-bottom-4 duration-500"
           >
-            <div className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              Overview
+            {/* Metrics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">
+                        Total Events
+                      </p>
+                      <h3 className="text-3xl font-bold mt-2 text-gray-900">
+                        {formatNumber(metrics.totalEvents)}
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatPercentage(metrics.monthlyGrowth.events)} from
+                        last month
+                      </p>
+                    </div>
+                    <div className="p-3 bg-[#028A75]/10 rounded-lg">
+                      <Calendar className="h-6 w-6 text-[#028A75]" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">
+                        Revenue
+                      </p>
+                      <h3 className="text-3xl font-bold mt-2 text-gray-900">
+                        {formatCurrency(metrics.totalRevenue)}
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatPercentage(metrics.monthlyGrowth.revenue)} from
+                        last month
+                      </p>
+                    </div>
+                    <div className="p-3 bg-[#028A75]/10 rounded-lg">
+                      <DollarSign className="h-6 w-6 text-[#028A75]" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">
+                        Clients
+                      </p>
+                      <h3 className="text-3xl font-bold mt-2 text-gray-900">
+                        {formatNumber(metrics.totalClients)}
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatPercentage(metrics.monthlyGrowth.clients)} from
+                        last month
+                      </p>
+                    </div>
+                    <div className="p-3 bg-[#028A75]/10 rounded-lg">
+                      <Users className="h-6 w-6 text-[#028A75]" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">
+                        Completed Events
+                      </p>
+                      <h3 className="text-3xl font-bold mt-2 text-gray-900">
+                        {formatNumber(metrics.completedEvents)}
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatPercentage(metrics.monthlyGrowth.completed)} from
+                        last month
+                      </p>
+                    </div>
+                    <div className="p-3 bg-[#028A75]/10 rounded-lg">
+                      <CheckCircle className="h-6 w-6 text-[#028A75]" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </TabsTrigger>
-          <TabsTrigger
-            value="analytics"
-            className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200"
-          >
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              Analytics
-            </div>
-          </TabsTrigger>
-          <TabsTrigger
-            value="reports"
-            className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200"
-          >
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Reports
-            </div>
-          </TabsTrigger>
-        </TabsList>
 
-        <TabsContent
-          value="overview"
-          className="mt-8 space-y-8 animate-in slide-in-from-bottom-4 duration-500"
-        >
-          {/* Metrics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="border-0 bg-white hover:bg-gray-50 transition-colors duration-200">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-sm font-medium text-gray-500">
-                      Total Events
-                    </p>
-                    <h3 className="text-3xl font-bold mt-2 text-gray-900">
-                      {formatNumber(metrics.totalEvents)}
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formatPercentage(metrics.monthlyGrowth.events)} from last
-                      month
-                    </p>
-                  </div>
-                  <div className="p-3 bg-[#028A75]/10 rounded-lg">
-                    <Calendar className="h-6 w-6 text-[#028A75]" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Calendar and Events Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Enhanced Calendar */}
+              <div className="lg:col-span-2">
+                <EnhancedCalendar events={calendarEvents} />
+              </div>
 
-            <Card className="border-0 bg-white hover:bg-gray-50 transition-colors duration-200">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-sm font-medium text-gray-500">Revenue</p>
-                    <h3 className="text-3xl font-bold mt-2 text-gray-900">
-                      {formatCurrency(metrics.totalRevenue)}
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formatPercentage(metrics.monthlyGrowth.revenue)} from
-                      last month
-                    </p>
-                  </div>
-                  <div className="p-3 bg-[#028A75]/10 rounded-lg">
-                    <DollarSign className="h-6 w-6 text-[#028A75]" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-0 bg-white hover:bg-gray-50 transition-colors duration-200">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-sm font-medium text-gray-500">Clients</p>
-                    <h3 className="text-3xl font-bold mt-2 text-gray-900">
-                      {formatNumber(metrics.totalClients)}
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formatPercentage(metrics.monthlyGrowth.clients)} from
-                      last month
-                    </p>
-                  </div>
-                  <div className="p-3 bg-[#028A75]/10 rounded-lg">
-                    <Users className="h-6 w-6 text-[#028A75]" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-0 bg-white hover:bg-gray-50 transition-colors duration-200">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-sm font-medium text-gray-500">
-                      Completed Events
-                    </p>
-                    <h3 className="text-3xl font-bold mt-2 text-gray-900">
-                      {formatNumber(metrics.completedEvents)}
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formatPercentage(metrics.monthlyGrowth.completed)} from
-                      last month
-                    </p>
-                  </div>
-                  <div className="p-3 bg-[#028A75]/10 rounded-lg">
-                    <CheckCircle className="h-6 w-6 text-[#028A75]" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Revenue Chart and Calendar Side by Side */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Revenue Chart - Smaller */}
-            <Card className="border-0 bg-white lg:col-span-2">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    Revenue Trend
-                  </h3>
-                  <p className="text-sm text-gray-500">Monthly overview</p>
-                </div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={revenueData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey="month" stroke="#6b7280" fontSize={11} />
-                      <YAxis
-                        stroke="#6b7280"
-                        fontSize={11}
-                        tickFormatter={(value) =>
-                          `₱${(value / 1000).toFixed(0)}k`
-                        }
-                      />
-                      <Tooltip
-                        formatter={(value: any) => [
-                          `₱${value.toLocaleString()}`,
-                          "Revenue",
-                        ]}
-                        labelStyle={{ color: "#374151" }}
-                        contentStyle={{
-                          backgroundColor: "white",
-                          border: "1px solid #e5e7eb",
-                          borderRadius: "8px",
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="revenue"
-                        stroke="#028A75"
-                        strokeWidth={2}
-                        dot={{ fill: "#028A75", strokeWidth: 2, r: 3 }}
-                        activeDot={{ r: 5, stroke: "#028A75", strokeWidth: 2 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Calendar */}
-            <div className="lg:col-span-1">
-              <QuickCalendar events={calendarEvents} />
-            </div>
-          </div>
-
-          {/* Upcoming Events and Recent Payments */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Upcoming Events */}
-            <Card className="border-0 bg-white">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      Upcoming Events
-                    </h3>
+              {/* Upcoming Events */}
+              <div className="lg:col-span-1">
+                <Card className="border-0 bg-white shadow-sm h-full">
+                  <CardHeader>
+                    <div className="flex justify-between items-center">
+                      <CardTitle className="text-lg font-semibold text-gray-900">
+                        Upcoming Events
+                      </CardTitle>
+                      <button
+                        className="flex items-center text-sm text-[#028A75] hover:text-[#027a65] font-medium"
+                        onClick={() => router.push("/admin/events")}
+                      >
+                        View All
+                        <ArrowRight className="ml-1 h-4 w-4" />
+                      </button>
+                    </div>
                     <p className="text-sm text-gray-500">
                       You have {upcomingEvents.length} upcoming events
                     </p>
-                  </div>
-                  <button
-                    className="flex items-center text-sm text-[#028A75] hover:text-[#027a65] font-medium"
-                    onClick={() => router.push("/admin/events")}
-                  >
-                    View All
-                    <ArrowRight className="ml-1 h-4 w-4" />
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  {upcomingEvents.map((event, index) => (
-                    <div
-                      key={event.id}
-                      className="border-b border-gray-100 pb-4 last:border-0 last:pb-0"
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <h4 className="font-medium text-gray-900">
-                          {event.title}
-                        </h4>
-                        <Badge
-                          className={
-                            event.status.toLowerCase() === "confirmed"
-                              ? "bg-green-100 text-green-800 border-green-200"
-                              : "bg-blue-100 text-blue-800 border-blue-200"
-                          }
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    <div className="space-y-4">
+                      {upcomingEvents.map((event, index) => (
+                        <div
+                          key={event.id}
+                          className="border-b border-gray-100 pb-4 last:border-0 last:pb-0"
                         >
-                          {event.status}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-gray-500 mb-1">
-                        {new Date(event.date).toLocaleDateString()} •{" "}
-                        {event.venue}
-                      </p>
-                      <p className="text-sm text-gray-500 mb-2">
-                        Client: {event.client} • Budget:{" "}
-                        {formatCurrency(event.budget)}
-                      </p>
-                      <button
-                        className="flex items-center text-sm text-[#028A75] hover:text-[#027a65] font-medium"
-                        onClick={() => router.push(`/admin/events/${event.id}`)}
-                      >
-                        <Eye className="h-4 w-4 mr-1" /> View Details
-                      </button>
+                          <div className="flex justify-between items-start mb-2">
+                            <h4 className="font-medium text-gray-900 line-clamp-2">
+                              {event.title}
+                            </h4>
+                            <Badge
+                              className={
+                                event.status.toLowerCase() === "confirmed"
+                                  ? "bg-green-100 text-green-800 border-green-200"
+                                  : "bg-blue-100 text-blue-800 border-blue-200"
+                              }
+                            >
+                              {event.status}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-500 mb-1">
+                            {new Date(event.date).toLocaleDateString()} •{" "}
+                            {event.venue}
+                          </p>
+                          <p className="text-sm text-gray-500 mb-2">
+                            Client: {event.client} • Budget:{" "}
+                            {formatCurrency(event.budget)}
+                          </p>
+                          <button
+                            className="flex items-center text-sm text-[#028A75] hover:text-[#027a65] font-medium"
+                            onClick={() =>
+                              router.push(`/admin/events/${event.id}`)
+                            }
+                          >
+                            <Eye className="h-4 w-4 mr-1" /> View Details
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
 
             {/* Recent Payments */}
-            <Card className="border-0 bg-white">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      Recent Payments
-                    </h3>
-                    <p className="text-sm text-gray-500">
-                      Latest payment transactions
-                    </p>
-                  </div>
+            <Card className="border-0 bg-white shadow-sm">
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle className="text-lg font-semibold text-gray-900">
+                    Recent Payments
+                  </CardTitle>
                   <button
                     className="flex items-center text-sm text-[#028A75] hover:text-[#027a65] font-medium"
                     onClick={() => router.push("/admin/payments")}
@@ -1022,12 +1143,16 @@ export default function AdminDashboard() {
                     <ArrowRight className="ml-1 h-4 w-4" />
                   </button>
                 </div>
-
+                <p className="text-sm text-gray-500">
+                  Latest payment transactions
+                </p>
+              </CardHeader>
+              <CardContent className="p-6">
                 <div className="space-y-4">
                   {recentPayments.map((payment) => (
                     <div
                       key={payment.id}
-                      className="flex justify-between items-center border-b border-gray-100 pb-4 last:border-0 last:pb-0"
+                      className="flex justify-between items-center border-b border-gray-100 pb-4 last:border-0 last:pb-0 hover:bg-gray-50 p-3 rounded-lg transition-colors"
                     >
                       <div>
                         <h4 className="font-medium text-gray-900">
@@ -1063,17 +1188,17 @@ export default function AdminDashboard() {
                 </div>
               </CardContent>
             </Card>
-          </div>
-        </TabsContent>
+          </TabsContent>
 
-        <TabsContent value="analytics" className="mt-8">
-          <AnalyticsContent />
-        </TabsContent>
+          <TabsContent value="analytics" className="mt-8">
+            <AnalyticsContent />
+          </TabsContent>
 
-        <TabsContent value="reports" className="mt-8">
-          <ReportsContent />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="reports" className="mt-8">
+            <ReportsContent />
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   );
 }

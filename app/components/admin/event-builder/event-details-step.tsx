@@ -825,7 +825,7 @@ export function EventDetailsStep({
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-4 h-4 bg-red-500 border rounded"></div>
-                <Heart className="h-3 w-3 text-white fill-white absolute" />
+                {/* <Heart className="h-3 w-3 text-white fill-white absolute" /> */}
                 <span>Wedding (Blocked)</span>
               </div>
             </div>
@@ -1000,12 +1000,12 @@ export function EventDetailsStep({
           initialData.date &&
           initialData.startTime &&
           initialData.endTime && (
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg p-6 shadow-lg">
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg p-6">
               <div className="flex items-center gap-4">
                 <div className="flex-shrink-0">
-                  <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center">
+                  {/* <div className="w-12 h-12 bg-[#028A75] rounded-full flex items-center justify-center">
                     <CheckCircle className="h-6 w-6 text-white" />
-                  </div>
+                  </div> */}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
@@ -1034,9 +1034,9 @@ export function EventDetailsStep({
           <div className="bg-gradient-to-r from-red-50 to-pink-50 border-2 border-red-300 rounded-lg p-6 shadow-lg">
             <div className="flex items-start gap-4">
               <div className="flex-shrink-0">
-                <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+                {/* <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
                   <AlertTriangle className="h-6 w-6 text-white" />
-                </div>
+                </div> */}
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-3">

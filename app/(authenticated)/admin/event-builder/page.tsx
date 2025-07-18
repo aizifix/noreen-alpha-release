@@ -614,11 +614,14 @@ export default function EventBuilderPage() {
   // Load all venues as fallback
   const loadAllVenues = async () => {
     try {
-      const response = await axios.get(
-        "http://localhost/events-api/admin.php?operation=getAllVenues"
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "getAllAvailableVenues",
+        }
       );
       if (response.data.status === "success") {
-        const venues = response.data.data || [];
+        const venues = response.data.venues || [];
         console.log(`Loaded ${venues.length} venues from API`);
 
         // Debug: Check each venue's pax rate
@@ -644,7 +647,7 @@ export default function EventBuilderPage() {
   // Packages are now fetched dynamically from API, so we don't need to check static data
   // The PackageSelection component will handle its own loading and error states
 
-  // Fetch event types
+  // Fetch s
   useEffect(() => {
     const fetchEventTypes = async () => {
       try {
@@ -1132,14 +1135,37 @@ export default function EventBuilderPage() {
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       setSelectedVenueId(venueId);
-      // Look for venue in the appropriate list
-      const venueList = packageVenues.length > 0 ? packageVenues : allVenues;
+
+      // Determine which venue list to use based on whether we have a package selected
+      const isStartFromScratch = !selectedPackageId;
+      const venueList = isStartFromScratch
+        ? allVenues
+        : packageVenues.length > 0
+          ? packageVenues
+          : allVenues;
+
+      console.log("🔍 Venue Selection Debug - Start from Scratch Mode:");
+      console.log("Is start from scratch:", isStartFromScratch);
+      console.log("Selected package ID:", selectedPackageId);
+      console.log("All venues count:", allVenues.length);
+      console.log("Package venues count:", packageVenues.length);
+      console.log(
+        "Venue list being used:",
+        isStartFromScratch ? "allVenues" : "packageVenues"
+      );
+      console.log("Venue list length:", venueList.length);
 
       console.log("🔍 Venue Selection Debug:");
       console.log("Selected venue ID:", venueId);
+      console.log("Is start from scratch:", isStartFromScratch);
+      console.log("Selected package ID:", selectedPackageId);
       console.log(
         "Using venue list:",
-        packageVenues.length > 0 ? "packageVenues" : "allVenues"
+        isStartFromScratch
+          ? "allVenues (start from scratch)"
+          : packageVenues.length > 0
+            ? "packageVenues"
+            : "allVenues"
       );
       console.log("Package venues count:", packageVenues.length);
       console.log("All venues count:", allVenues.length);
@@ -1166,6 +1192,7 @@ export default function EventBuilderPage() {
           venue_price: venue.venue_price,
           extra_pax_rate: venue.extra_pax_rate,
           guest_count: guestCount,
+          is_start_from_scratch: isStartFromScratch,
         });
 
         // Debug: Check if this is the Demiren Hotel
@@ -1177,16 +1204,30 @@ export default function EventBuilderPage() {
           console.log("Expected pax rate should be 200.00");
         }
 
+        // Calculate venue price including overflow charges
+        let venuePrice = parseFloat(venue.venue_price) || 0;
+        const extraPaxRate = parseFloat(venue.extra_pax_rate || 0);
+
+        if (extraPaxRate > 0 && guestCount > 100) {
+          const extraGuests = guestCount - 100;
+          const overflowCharge = extraGuests * extraPaxRate;
+          venuePrice += overflowCharge;
+          console.log(
+            `Venue overflow calculation: ${extraGuests} extra guests × ${extraPaxRate} = ${overflowCharge}`
+          );
+        }
+
         const venueComponent: DataPackageComponent = {
           id: `venue-${venue.venue_id}`,
           name: venue.venue_title || venue.venue_name,
-          description: `Venue: ${venue.venue_title || venue.venue_name}`,
-          price: parseFloat(venue.venue_price) || 0,
+          description: `Venue: ${venue.venue_title || venue.venue_name}${extraPaxRate > 0 && guestCount > 100 ? ` (includes overflow for ${guestCount} guests)` : ""}`,
+          price: venuePrice,
           category: "venue",
           included: true,
           isVenueInclusion: true,
           isRemovable: false,
           isExpanded: false,
+          isCustom: isStartFromScratch, // Mark as custom if it's from start from scratch
         };
 
         console.log("Created venue component:", venueComponent);
@@ -1216,6 +1257,15 @@ export default function EventBuilderPage() {
           console.log("Adding venue component to budget calculation");
           return [...nonVenue, venueComponent];
         });
+
+        // If this is a start from scratch event, clear the original package price
+        // since we're now building the event piece by piece
+        if (isStartFromScratch && originalPackagePrice) {
+          console.log(
+            "Clearing original package price for start from scratch event"
+          );
+          setOriginalPackagePrice(null);
+        }
       } else {
         console.log("No venue found for ID:", venueId);
       }
@@ -1224,13 +1274,15 @@ export default function EventBuilderPage() {
         "Venue selected:",
         venue?.venue_title,
         "Guest count:",
-        guestCount
+        guestCount,
+        "Start from scratch:",
+        isStartFromScratch
       );
 
       // Don't auto-skip - let user manually proceed
       console.log("Venue selected, ready for manual progression");
     },
-    [packageVenues, allVenues]
+    [packageVenues, allVenues, selectedPackageId, originalPackagePrice]
   );
 
   // Handle component updates
@@ -1350,6 +1402,21 @@ export default function EventBuilderPage() {
     // Add loading state
     setLoading(true);
 
+    // Get admin user data from secure storage first
+    const userData = secureStorage.getItem("user");
+    console.log("Admin user data:", userData);
+    if (!userData || !userData.user_id) {
+      console.log("❌ Admin user validation failed");
+      toast({
+        title: "Error",
+        description: "Admin user information not found. Please log in again.",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
+    }
+    console.log("✅ Admin user validation passed");
+
     // Debug: Log payment data
     console.log("Payment data before validation:", paymentData);
     console.log("Down payment method:", paymentData.downPaymentMethod);
@@ -1390,15 +1457,13 @@ export default function EventBuilderPage() {
 
     // Validate event details
     console.log("Event details:", eventDetails);
-    if (!eventDetails.title) {
-      console.log("❌ Event title validation failed");
-      toast({
-        title: "Validation Error",
-        description: "Event title is required",
-        variant: "destructive",
-      });
-      setLoading(false);
-      return;
+
+    // Set default title if empty
+    if (!eventDetails.title || eventDetails.title.trim() === "") {
+      const eventTypeName = eventDetails.type || "Event";
+      const defaultTitle = `${eventTypeName.charAt(0).toUpperCase() + eventTypeName.slice(1)} Event`;
+      eventDetails.title = defaultTitle;
+      console.log("✅ Set default event title:", defaultTitle);
     }
 
     if (!eventDetails.date) {
@@ -1436,15 +1501,12 @@ export default function EventBuilderPage() {
       return;
     }
 
-    if (!eventDetails.theme) {
-      console.log("❌ Event theme validation failed");
-      toast({
-        title: "Validation Error",
-        description: "Event theme is required",
-        variant: "destructive",
-      });
-      setLoading(false);
-      return;
+    // Set default theme if empty
+    if (!eventDetails.theme || eventDetails.theme.trim() === "") {
+      const eventTypeName = eventDetails.type || "Event";
+      const defaultTheme = `${eventTypeName.charAt(0).toUpperCase() + eventTypeName.slice(1)} Celebration`;
+      eventDetails.theme = defaultTheme;
+      console.log("✅ Set default event theme:", defaultTheme);
     }
 
     // Check for scheduling conflicts
@@ -1471,40 +1533,27 @@ export default function EventBuilderPage() {
       return;
     }
 
+    // For start from scratch events, NO package is created
+    // All components are stored directly in tbl_event_components
+    console.log("Start from scratch event - no package will be created");
+
     console.log("✅ Event details validation passed");
 
-    // Validate package selection
+    // Validate package selection (only required for package-based events)
     console.log("Selected package ID:", selectedPackageId);
-    if (!selectedPackageId) {
-      console.log("❌ Package selection validation failed");
-      toast({
-        title: "Error",
-        description: "Please select a package for the event.",
-        variant: "destructive",
-      });
-      setLoading(false);
-      return;
-    }
-    console.log("✅ Package selection validation passed");
+    const isStartFromScratch = !selectedPackageId;
 
-    // Get admin user data from secure storage
-    const userData = secureStorage.getItem("user");
-    console.log("Admin user data:", userData);
-    if (!userData || !userData.user_id) {
-      console.log("❌ Admin user validation failed");
-      toast({
-        title: "Error",
-        description: "Admin user information not found. Please log in again.",
-        variant: "destructive",
-      });
-      setLoading(false);
-      return;
+    if (!isStartFromScratch) {
+      // Only validate package if we're not in start from scratch mode
+      console.log("✅ Package-based event - package validation passed");
+    } else {
+      console.log("✅ Start from scratch event - no package required");
     }
-    console.log("✅ Admin user validation passed");
 
     console.log("🚀 All validations passed! Starting event creation...");
 
     try {
+      console.log("📝 Preparing event data for API...");
       // Prepare event data for API with proper field mapping to match backend expectations
       const eventData = {
         operation: "createEvent",
@@ -1529,7 +1578,7 @@ export default function EventBuilderPage() {
         end_time: eventDetails.endTime
           ? eventDetails.endTime + ":00"
           : "18:00:00", // Ensure proper time format
-        package_id: selectedPackageId ? parseInt(selectedPackageId) : null,
+        package_id: selectedPackageId ? parseInt(selectedPackageId) : null, // No package for start from scratch events
         venue_id: selectedVenueId ? parseInt(selectedVenueId) : null,
         total_budget: parseFloat(getTotalBudget().toString()) || 0,
         down_payment: parseFloat(paymentData.downPayment.toString()) || 0,
@@ -1581,6 +1630,8 @@ export default function EventBuilderPage() {
             is_custom: comp.isCustom || false,
             is_included: comp.included !== false,
             original_package_component_id: (comp as any).originalId || null,
+            supplier_id: (comp as any).supplier_id || null,
+            offer_id: (comp as any).offer_id || null,
             display_order: index,
           })) || [],
         // Timeline data
@@ -1602,6 +1653,10 @@ export default function EventBuilderPage() {
       };
 
       console.log("Creating event with data:", eventData);
+      console.log(
+        "Event creation mode:",
+        isStartFromScratch ? "Start from Scratch" : "Package-based"
+      );
       console.log("Payment data being sent:", {
         total_budget: eventData.total_budget,
         down_payment: eventData.down_payment,
@@ -1609,8 +1664,20 @@ export default function EventBuilderPage() {
         reference_number: eventData.reference_number,
         payment_attachments: eventData.payment_attachments,
       });
+      console.log("Components being sent:", eventData.components);
+      console.log("Venue ID being sent:", eventData.venue_id);
+      console.log("Package ID being sent:", eventData.package_id);
+      console.log("Event type ID being sent:", eventData.event_type_id);
+      console.log("Client ID being sent:", eventData.user_id);
+      console.log("Admin ID being sent:", eventData.admin_id);
 
       // Call API to create event - using the same approach as package-builder
+      console.log("🚀 Making API call to create event...");
+      console.log("API URL:", "http://localhost/events-api/admin.php");
+      console.log("Request method: POST");
+      console.log("Request headers:", { "Content-Type": "application/json" });
+      console.log("📤 Sending event data to API...");
+
       const response = await axios.post(
         "http://localhost/events-api/admin.php",
         eventData,
@@ -1620,10 +1687,17 @@ export default function EventBuilderPage() {
           },
         }
       );
+      console.log("📡 API response received:", response);
+      console.log("Response status:", response.status);
+      console.log("Response status text:", response.statusText);
+      console.log("✅ API call completed successfully");
 
       console.log("API Response:", response.data);
       console.log("API Response type:", typeof response.data);
       console.log("API Response keys:", Object.keys(response.data || {}));
+      console.log("Response data status:", response.data?.status);
+      console.log("Response data message:", response.data?.message);
+      console.log("Response data event_id:", response.data?.event_id);
 
       // Enhanced response validation
       if (!response.data) {
@@ -1641,6 +1715,8 @@ export default function EventBuilderPage() {
 
       if (response.data.status === "success") {
         console.log("✅ Event created successfully!");
+        console.log("Response data:", response.data);
+        console.log("Response status check passed");
 
         // Show success UI and confetti
         try {
@@ -1650,6 +1726,7 @@ export default function EventBuilderPage() {
         }
 
         // Show appropriate success message
+        const isStartFromScratch = !selectedPackageId;
         if (bookingReference) {
           toast({
             title: "Event Created & Booking Confirmed",
@@ -1658,7 +1735,9 @@ export default function EventBuilderPage() {
         } else {
           toast({
             title: "Event Created",
-            description: "Event created successfully!",
+            description: isStartFromScratch
+              ? `Custom event "${eventDetails.title}" has been created with ${components.length} components.`
+              : "Event created successfully!",
           });
         }
 
@@ -1702,7 +1781,14 @@ export default function EventBuilderPage() {
         }
 
         // Show completion confirmation modal instead of success modal
+        console.log("✅ Event created successfully, showing completion modal");
+        console.log("Current showCompletionModal state:", showCompletionModal);
         setShowCompletionModal(true);
+        console.log("Set showCompletionModal to true");
+        console.log("Modal should now be visible");
+
+        // Show success modal
+        setShowSuccessModal(true);
 
         // Clear local storage and draft after successful event creation
         clearLocalStorage();
@@ -1732,7 +1818,13 @@ export default function EventBuilderPage() {
         });
       }
     } catch (error: any) {
-      console.error("Event creation error:", error);
+      console.error("❌ Event creation error:", error);
+      console.error("Error details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+      });
 
       // Enhanced error handling similar to package-builder
       if (axios.isAxiosError(error)) {
@@ -2145,9 +2237,21 @@ export default function EventBuilderPage() {
               className="px-6 py-3 border-2 border-dashed hover:bg-gray-50"
               onClick={() => {
                 // Handle "Start from Scratch" option
+                console.log(
+                  "Starting from scratch - clearing package selection"
+                );
                 setSelectedPackageId(null);
                 setComponents([]);
                 setOriginalPackagePrice(null);
+                setPackageVenues([]); // Clear package venues since we'll use all venues
+
+                // Show confirmation toast
+                toast({
+                  title: "Starting from Scratch",
+                  description:
+                    "You can now select any venue and customize your event components individually.",
+                });
+
                 setCurrentStep(2); // Go to Client Details
               }}
             >
@@ -2306,7 +2410,9 @@ export default function EventBuilderPage() {
     {
       id: "venue-selection",
       title: "Venue Selection",
-      description: "Choose a venue",
+      description: selectedPackageId
+        ? "Choose a venue from your selected package"
+        : "Choose any available venue",
       component: (
         <VenueSelection
           eventType={eventDetails.type}
@@ -2314,13 +2420,21 @@ export default function EventBuilderPage() {
           initialVenueId={selectedVenueId || undefined}
           currentGuestCount={eventDetails.capacity}
           onSelect={handleVenueSelection}
+          isStartFromScratch={!selectedPackageId}
+          onVenuesLoaded={(venues) => {
+            if (!selectedPackageId) {
+              setAllVenues(venues);
+            }
+          }}
         />
       ),
     },
     {
       id: "components",
       title: "Components",
-      description: "Customize components",
+      description: selectedPackageId
+        ? "Customize package components"
+        : "Add and customize event components",
       component: (
         <ComponentCustomization
           components={components.filter(
@@ -2334,6 +2448,7 @@ export default function EventBuilderPage() {
           selectedVenue={selectedVenue}
           onUpdate={handleComponentsUpdate}
           eventDetails={eventDetails}
+          isStartFromScratch={!selectedPackageId}
         />
       ),
     },
@@ -2790,25 +2905,6 @@ export default function EventBuilderPage() {
         )}
       </div>
 
-      {/* Add booking reference lookup */}
-      {/* <div className="p-4 bg-muted rounded-lg">
-        <h2 className="text-lg font-semibold mb-2">
-          Look up booking by reference
-        </h2>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="Enter booking reference (e.g., BK-20250521-6340)"
-            value={bookingReference}
-            onChange={(e) => setBookingReference(e.target.value)}
-            className="flex-1 px-3 py-2 border rounded-md"
-          />
-          <Button onClick={lookupBookingByReference} disabled={lookupLoading}>
-            {lookupLoading ? "Searching..." : "Look up"}
-          </Button>
-                    </div>
-      </div> */}
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
           <MultiStepWizard
@@ -2827,8 +2923,10 @@ export default function EventBuilderPage() {
 
         <div className="lg:col-span-1">
           <div className="space-y-6 sticky top-4">
-            <Card className="p-4">
-              <h3 className="text-lg font-medium mb-4">Event Summary</h3>
+            <Card className="p-6">
+              <h3 className="text-lg font-medium mb-4 border-b pb-2">
+                Event Summary
+              </h3>
               <div className="space-y-3">
                 {clientData.name && (
                   <div>
@@ -2952,7 +3050,7 @@ export default function EventBuilderPage() {
                     <p className="text-sm text-muted-foreground">
                       Payment Status
                     </p>
-                    <p className="font-medium capitalize">
+                    <p className="text-md font-medium capitalize">
                       {paymentData.cashBondStatus}
                     </p>
                   </div>
@@ -3049,7 +3147,8 @@ export default function EventBuilderPage() {
                             Client: {booking.client_name}
                           </p>
                           <p className="text-sm text-gray-600">
-                            Date: {booking.event_date} | Type: {booking.event_type_name}
+                            Date: {booking.event_date} | Type:{" "}
+                            {booking.event_type_name}
                           </p>
                           <p className="text-sm text-gray-600">
                             Reference: {booking.booking_reference}
@@ -3071,6 +3170,7 @@ export default function EventBuilderPage() {
                           onClick={() => loadBookingData(booking)}
                           disabled={booking.booking_status !== "confirmed"}
                           size="sm"
+                          className="bg-[#028A75] hover:bg-[#028A75]/80"
                         >
                           Create an Event
                         </Button>
@@ -3086,7 +3186,10 @@ export default function EventBuilderPage() {
                       <span>Searching...</span>
                     </div>
                   ) : (
-                    <p>No confirmed bookings found. Try a different search term or accept some bookings first.</p>
+                    <p>
+                      No confirmed bookings found. Try a different search term
+                      or accept some bookings first.
+                    </p>
                   )}
                 </div>
               )}

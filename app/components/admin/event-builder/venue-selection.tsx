@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { MapPin, Check, Users, X } from "lucide-react";
+import { MapPin, Check, Users, X, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,9 @@ interface VenueSelectionProps {
     packageId: string,
     guestCount: number
   ) => Promise<void>;
+  // New props for handling "start from scratch" scenario
+  isStartFromScratch?: boolean;
+  onVenuesLoaded?: (venues: any[]) => void;
 }
 
 export function VenueSelection({
@@ -38,6 +41,8 @@ export function VenueSelection({
   initialGuestCount = 100,
   currentGuestCount,
   onSelect,
+  isStartFromScratch = false,
+  onVenuesLoaded,
 }: VenueSelectionProps) {
   const [selectedVenueId, setSelectedVenueId] = useState<string>(
     initialVenueId || ""
@@ -58,6 +63,83 @@ export function VenueSelection({
     any | null
   >(null);
 
+  // New state for handling "start from scratch" scenario
+  const [isLoadingVenues, setIsLoadingVenues] = useState(false);
+  const [allVenues, setAllVenues] = useState<any[]>([]);
+  const [venuesError, setVenuesError] = useState<string | null>(null);
+
+  // Fetch all venues when in "start from scratch" mode and no venues are provided
+  useEffect(() => {
+    if (isStartFromScratch && (!venues || venues.length === 0)) {
+      fetchAllVenues();
+    }
+  }, [isStartFromScratch, venues]);
+
+  // Function to fetch all venues from the database
+  const fetchAllVenues = async () => {
+    try {
+      setIsLoadingVenues(true);
+      setVenuesError(null);
+
+      const response = await fetch("http://localhost/events-api/admin.php", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          operation: "getAllAvailableVenues",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.status === "success") {
+        const fetchedVenues = data.venues || [];
+        console.log(
+          `Fetched ${fetchedVenues.length} venues for start from scratch mode`
+        );
+
+        // Process venues to include proper pricing and pax rates
+        const processedVenues = fetchedVenues.map((venue: any) => ({
+          ...venue,
+          venue_id: venue.venue_id,
+          venue_title: venue.venue_title,
+          venue_location: venue.venue_location,
+          venue_price: parseFloat(venue.venue_price || 0),
+          extra_pax_rate: parseFloat(venue.extra_pax_rate || 0),
+          venue_capacity: parseInt(venue.venue_capacity || 100),
+          venue_type: venue.venue_type || "indoor",
+          venue_profile_picture: venue.venue_profile_picture,
+          venue_cover_photo: venue.venue_cover_photo,
+          inclusions: [], // Will be populated if needed
+          is_active: venue.is_active,
+          venue_status: venue.venue_status,
+        }));
+
+        setAllVenues(processedVenues);
+        if (onVenuesLoaded) {
+          onVenuesLoaded(processedVenues);
+        }
+      } else {
+        throw new Error(data.message || "Failed to fetch venues");
+      }
+    } catch (error) {
+      console.error("Error fetching all venues:", error);
+      setVenuesError(
+        error instanceof Error ? error.message : "Failed to fetch venues"
+      );
+    } finally {
+      setIsLoadingVenues(false);
+    }
+  };
+
+  // Determine which venues to use
+  const venuesToUse = venues && venues.length > 0 ? venues : allVenues;
+
   // Update guest count when currentGuestCount prop changes
   useEffect(() => {
     if (currentGuestCount && currentGuestCount !== guestCount) {
@@ -75,26 +157,26 @@ export function VenueSelection({
 
   // Filter venues based on search query
   useEffect(() => {
-    if (!venues || !Array.isArray(venues)) {
+    if (!venuesToUse || !Array.isArray(venuesToUse)) {
       setFilteredVenues([]);
       return;
     }
 
     // Check if venues have pax rate data
-    const venuesWithPaxRates = venues.filter(
+    const venuesWithPaxRates = venuesToUse.filter(
       (venue: any) => parseFloat(venue.extra_pax_rate || 0) > 0
     );
     if (venuesWithPaxRates.length > 0) {
       console.log(`Found ${venuesWithPaxRates.length} venues with pax rates`);
     }
 
-    const venuesFilteredBySearch = venues.filter(
+    const venuesFilteredBySearch = venuesToUse.filter(
       (venue: any) =>
         venue.venue_title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         venue.venue_location?.toLowerCase().includes(searchQuery.toLowerCase())
     );
     setFilteredVenues(venuesFilteredBySearch);
-  }, [searchQuery, venues]);
+  }, [searchQuery, venuesToUse]);
 
   // Handle venue selection
   const handleVenueSelect = async (venueId: string) => {
@@ -151,6 +233,71 @@ export function VenueSelection({
     return `http://localhost/events-api/${imagePath}`;
   };
 
+  // Show loading state
+  if (isLoadingVenues) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Venue Selection
+          </h2>
+          <p className="text-gray-600">
+            {isStartFromScratch
+              ? "Loading all available venues for your custom event..."
+              : "Choose a venue and set your expected guest count to see overflow charges"}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-[#028A75] mx-auto mb-4" />
+            <p className="text-gray-600">Loading venues...</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {isStartFromScratch
+                ? "Fetching all available venues from the database"
+                : "Please wait while we load the venue options"}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (venuesError) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Venue Selection
+          </h2>
+          <p className="text-gray-600">
+            {isStartFromScratch
+              ? "Loading all available venues for your custom event..."
+              : "Choose a venue and set your expected guest count to see overflow charges"}
+          </p>
+        </div>
+
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <div className="text-center">
+            <X className="h-12 w-12 text-red-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-red-900 mb-2">
+              Error Loading Venues
+            </h3>
+            <p className="text-red-700 mb-4">{venuesError}</p>
+            <Button
+              onClick={fetchAllVenues}
+              variant="outline"
+              className="border-red-300 text-red-700 hover:bg-red-50"
+            >
+              Try Again
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Step Header */}
@@ -159,9 +306,19 @@ export function VenueSelection({
           Venue Selection
         </h2>
         <p className="text-gray-600">
-          Choose a venue and set your expected guest count to see overflow
-          charges
+          {isStartFromScratch
+            ? "Choose from all available venues for your custom event"
+            : "Choose a venue and set your expected guest count to see overflow charges"}
         </p>
+        {isStartFromScratch && (
+          <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-sm text-blue-700">
+              <strong>Custom Event Mode:</strong> You're creating an event from
+              scratch. All available venues are shown below. Select any venue
+              that fits your needs.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Guest Count Input */}
@@ -199,7 +356,7 @@ export function VenueSelection({
               </div>
               <div className="text-lg font-bold text-blue-900">
                 {(() => {
-                  const selectedVenue = venues.find(
+                  const selectedVenue = venuesToUse.find(
                     (v) => String(v.venue_id) === selectedVenueId
                   );
 
@@ -238,7 +395,7 @@ export function VenueSelection({
       {/* Selected Venue Pricing Summary */}
       {selectedVenueId &&
         (() => {
-          const selectedVenue = venues.find(
+          const selectedVenue = venuesToUse.find(
             (v) => String(v.venue_id) === selectedVenueId
           );
           if (!selectedVenue) return null;

@@ -168,6 +168,7 @@ export interface ComponentCustomizationProps {
   onUpdate: (updatedComponents: DataPackageComponent[]) => void;
   onNext?: () => void;
   eventDetails?: EventDetails;
+  isStartFromScratch?: boolean;
 }
 
 export interface TimelineStepProps {

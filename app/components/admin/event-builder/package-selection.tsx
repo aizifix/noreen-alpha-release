@@ -380,7 +380,7 @@ export function PackageSelection({
 
         if (!response.data.packages || response.data.packages.length === 0) {
           console.log("No packages returned from API");
-          setError("No packages available. Please contact support.");
+          setError("Please select an event type to select package");
           return;
         }
 
@@ -519,17 +519,20 @@ export function PackageSelection({
           component_count: completePackage.components?.length || 0,
           freebie_count: completePackage.freebies?.length || 0,
           venue_count: completePackage.venues?.length || 0,
-          inclusions: completePackage.components?.map((c: any) => c.component_name) || [],
-          freebies: completePackage.freebies?.map((f: any) => f.freebie_name) || [],
-          venue_previews: completePackage.venues?.map((v: any) => ({
-            venue_id: v.venue_id,
-            venue_title: v.venue_title,
-            venue_location: v.venue_location || "Location not specified",
-            venue_capacity: parseInt(v.venue_capacity) || 0,
-            venue_price: parseFloat(v.venue_price) || 0,
-            venue_profile_picture: v.venue_profile_picture,
-            venue_cover_photo: v.venue_cover_photo,
-          })) || [],
+          inclusions:
+            completePackage.components?.map((c: any) => c.component_name) || [],
+          freebies:
+            completePackage.freebies?.map((f: any) => f.freebie_name) || [],
+          venue_previews:
+            completePackage.venues?.map((v: any) => ({
+              venue_id: v.venue_id,
+              venue_title: v.venue_title,
+              venue_location: v.venue_location || "Location not specified",
+              venue_capacity: parseInt(v.venue_capacity) || 0,
+              venue_price: parseFloat(v.venue_price) || 0,
+              venue_profile_picture: v.venue_profile_picture,
+              venue_cover_photo: v.venue_cover_photo,
+            })) || [],
         };
 
         setSelectedPackageForDetails(enhancedPackage);
@@ -577,11 +580,14 @@ export function PackageSelection({
   // Error state
   if (error) {
     return (
-      <div className="rounded-lg bg-red-50 p-6 text-center">
-        <p className="text-red-600 mb-4">{error}</p>
-        <Button variant="outline" onClick={() => window.location.reload()}>
+      <div className="rounded-lg bg-[#028A75]/10 p-6 text-center border border-[#028A75]/50">
+        <p className="text-[#028A75] text-md font-semibold">
+          No event type selected
+        </p>
+        <p className="text-[#028A75] text-sm">{error}</p>
+        {/* <Button variant="outline" onClick={() => window.location.reload()}>
           Try Again
-        </Button>
+        </Button> */}
       </div>
     );
   }

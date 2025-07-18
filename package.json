@@ -8,7 +8,8 @@
         "start": "next start",
         "lint": "next lint",
         "format": "prettier --write .",
-        "format:check": "prettier --check ."
+        "format:check": "prettier --check .",
+        "clean": "rm -rf .next && npm run dev"
     },
     "dependencies": {
         "@hookform/resolvers": "^5.0.1",

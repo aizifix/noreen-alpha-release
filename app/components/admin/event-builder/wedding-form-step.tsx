@@ -148,7 +148,7 @@ export function WeddingFormStep({
   const loadWeddingDetails = async () => {
     try {
       const response = await fetch(
-        `/app/api/admin.php?operation=getWeddingDetails&event_id=${eventId}`
+        `/api/admin?operation=getWeddingDetails&event_id=${eventId}`
       );
       const data = await response.json();
 
@@ -240,7 +240,7 @@ export function WeddingFormStep({
 
       console.log("📤 Sending payload:", payload);
 
-      const response = await fetch("/app/api/admin.php", {
+      const response = await fetch("/api/admin", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

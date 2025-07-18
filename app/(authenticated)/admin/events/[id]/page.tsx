@@ -974,7 +974,9 @@ function PackageInclusionsManagement({
 
       toast({
         title: "Success",
-        description: "Package inclusions updated successfully",
+        description: event.package_id
+          ? "Package inclusions updated successfully"
+          : "Event components updated successfully",
       });
     } catch (error) {
       console.error("Error saving changes:", error);
@@ -1102,6 +1104,11 @@ function PackageInclusionsManagement({
       component_price: 0,
     });
     setShowAddForm(false);
+
+    // For "from scratch" events, automatically start editing mode when adding the first component
+    if (!event.package_id && components.length === 0) {
+      setIsEditing(true);
+    }
   };
 
   const handleEditComponent = (componentId: number) => {
@@ -1134,10 +1141,6 @@ function PackageInclusionsManagement({
     );
   };
 
-  if (!event.package_id) {
-    return null; // No package selected
-  }
-
   return (
     <>
       <ConfirmationModal
@@ -1164,16 +1167,20 @@ function PackageInclusionsManagement({
             <Package className="h-6 w-6 text-blue-600" />
             <div>
               <h3 className="text-lg font-semibold text-gray-900">
-                Package Inclusions
+                {event.package_id ? "Package Inclusions" : "Event Components"}
               </h3>
               <p className="text-sm text-gray-500">
-                Manage components and pricing for this event
+                {event.package_id
+                  ? "Manage components and pricing for this event package"
+                  : "Manage custom components and pricing for this event"}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-6">
             <div className="text-right min-w-[150px]">
-              <div className="text-sm text-gray-500">Total Inclusions</div>
+              <div className="text-sm text-gray-500">
+                {event.package_id ? "Total Inclusions" : "Total Components"}
+              </div>
               <div className="text-sm font-semibold text-green-600">
                 {components.filter((comp) => comp.is_included).length} items
               </div>
@@ -1240,33 +1247,75 @@ function PackageInclusionsManagement({
         <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
             <div className="text-xs text-gray-500 mb-1">
-              Total Inclusion Cost
+              {event.package_id
+                ? "Total Inclusion Cost"
+                : "Total Components Cost"}
             </div>
             <div className="text-lg font-bold text-green-700">
               ₱{formatCurrency(totalInclusionsPrice)}
             </div>
           </div>
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <div className="text-xs text-gray-500 mb-1">Base Package Price</div>
-            <div className="text-lg font-bold text-blue-700">
-              ₱{formatCurrency(event.total_budget)}
+          {event.package_id ? (
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <div className="text-xs text-gray-500 mb-1">
+                Base Package Price
+              </div>
+              <div className="text-lg font-bold text-blue-700">
+                ₱{formatCurrency(event.total_budget)}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <div className="text-xs text-gray-500 mb-1">
+                Total Event Budget
+              </div>
+              <div className="text-lg font-bold text-blue-700">
+                ₱{formatCurrency(event.total_budget)}
+              </div>
+            </div>
+          )}
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            {totalInclusionsPrice < event.total_budget ? (
+            {event.package_id ? (
+              // Package event logic
+              totalInclusionsPrice < event.total_budget ? (
+                <>
+                  <div className="text-xs text-gray-500 mb-1">
+                    Organizer Fee / Margin
+                  </div>
+                  <div className="text-lg font-bold text-orange-600">
+                    ₱{formatCurrency(event.total_budget - totalInclusionsPrice)}
+                  </div>
+                </>
+              ) : totalInclusionsPrice > event.total_budget ? (
+                <>
+                  <div className="text-xs text-gray-500 mb-1">
+                    Add-on (Payable by Client)
+                  </div>
+                  <div className="text-lg font-bold text-red-600">
+                    ₱{formatCurrency(totalInclusionsPrice - event.total_budget)}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-xs text-gray-500 mb-1">
+                    No Margin / Add-on
+                  </div>
+                  <div className="text-lg font-bold text-gray-700">₱0.00</div>
+                </>
+              )
+            ) : // From scratch event logic
+            totalInclusionsPrice < event.total_budget ? (
               <>
                 <div className="text-xs text-gray-500 mb-1">
-                  Organizer Fee / Margin
+                  Available Budget
                 </div>
-                <div className="text-lg font-bold text-orange-600">
+                <div className="text-lg font-bold text-green-600">
                   ₱{formatCurrency(event.total_budget - totalInclusionsPrice)}
                 </div>
               </>
             ) : totalInclusionsPrice > event.total_budget ? (
               <>
-                <div className="text-xs text-gray-500 mb-1">
-                  Add-on (Payable by Client)
-                </div>
+                <div className="text-xs text-gray-500 mb-1">Budget Overrun</div>
                 <div className="text-lg font-bold text-red-600">
                   ₱{formatCurrency(totalInclusionsPrice - event.total_budget)}
                 </div>
@@ -1274,7 +1323,7 @@ function PackageInclusionsManagement({
             ) : (
               <>
                 <div className="text-xs text-gray-500 mb-1">
-                  No Margin / Add-on
+                  Budget Balanced
                 </div>
                 <div className="text-lg font-bold text-gray-700">₱0.00</div>
               </>
@@ -1341,12 +1390,16 @@ function PackageInclusionsManagement({
           ) : (
             <div className="text-center py-8 text-gray-500">
               <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>No components found for this package</p>
+              <p>
+                {event.package_id
+                  ? "No components found for this package"
+                  : "No components added yet. Start building your custom event by adding components."}
+              </p>
             </div>
           )}
 
           {/* Add New Component Button */}
-          {isEditing && !showAddForm && !isEventFinalized && (
+          {!showAddForm && !isEventFinalized && (
             <div className="text-center">
               <Button
                 onClick={() => setShowAddForm(true)}
@@ -1354,20 +1407,24 @@ function PackageInclusionsManagement({
                 className="border-dashed border-green-300 text-green-700 hover:bg-green-50"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add Custom Component
+                {event.package_id
+                  ? "Add Custom Inclusion"
+                  : "Add Custom Component"}
               </Button>
             </div>
           )}
 
           {/* Add New Component Form */}
-          {isEditing && showAddForm && (
+          {showAddForm && (
             <div className="border-2 border-dashed border-green-300 rounded-lg p-4 bg-green-50">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium text-green-900">
-                  Add Custom Component
+                  {event.package_id
+                    ? "Add Custom Inclusion"
+                    : "Add Custom Component"}
                 </h4>
                 <span className="text-xs text-green-700 bg-green-200 px-2 py-1 rounded">
-                  New Component
+                  {event.package_id ? "New Inclusion" : "New Component"}
                 </span>
               </div>
               <div className="space-y-3">
@@ -1454,7 +1511,7 @@ function PackageInclusionsManagement({
                     ) : (
                       <>
                         <Save className="h-4 w-4 mr-2" />
-                        Add Component
+                        {event.package_id ? "Add Inclusion" : "Add Component"}
                       </>
                     )}
                   </Button>

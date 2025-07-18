@@ -1046,13 +1046,6 @@ const SignUpPage = () => {
 
   return (
     <>
-      <style jsx global>{`
-        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
-        body {
-          font-family: "Inter", sans-serif;
-        }
-      `}</style>
-
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <div className="w-full max-w-4xl">
           {/* Logo */}

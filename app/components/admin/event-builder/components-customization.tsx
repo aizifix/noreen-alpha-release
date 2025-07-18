@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/accordion";
 import { type PackageComponent as AppPackageComponent } from "@/app/types/event-types";
 import type { ComponentCustomizationProps } from "@/app/types/event-builder";
+import { SupplierSelectionModal } from "./supplier-selection-modal";
 
 // Union type to accept both types of PackageComponent
 type AnyPackageComponent = DataPackageComponent | AppPackageComponent;
@@ -83,6 +84,7 @@ interface Supplier {
     tier_name: string;
     tier_price: number;
     tier_description: string;
+    offer_id?: number;
   }>;
 }
 
@@ -90,6 +92,8 @@ interface Supplier {
 interface ComponentWithSupplier extends DataPackageComponent {
   assignedSupplier?: Supplier;
   supplierPrice?: number;
+  supplier_id?: string;
+  offer_id?: number;
 }
 
 export function ComponentCustomization({
@@ -97,6 +101,7 @@ export function ComponentCustomization({
   selectedVenue,
   onUpdate,
   eventDetails,
+  isStartFromScratch = false,
 }: ComponentCustomizationProps & { selectedVenue: any }) {
   const [componentList, setComponentList] = useState<DataPackageComponent[]>(
     initialComponents as DataPackageComponent[]
@@ -123,6 +128,11 @@ export function ComponentCustomization({
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<Set<string>>(
     new Set()
   );
+
+  // Supplier selection modal state
+  const [showSupplierModal, setShowSupplierModal] = useState(false);
+  const [selectedComponentForSupplier, setSelectedComponentForSupplier] =
+    useState<DataPackageComponent | null>(null);
 
   // Ref to track unique ID counter
   const uniqueIdCounter = useRef(0);
@@ -301,22 +311,29 @@ export function ComponentCustomization({
     setNewComponentCategory("extras");
   };
 
-  const addComponentFromSupplier = (supplier: Supplier) => {
+  const addComponentFromSupplier = (supplier: Supplier, selectedTier?: any) => {
     // Check if supplier is already selected
     if (selectedSupplierIds.has(supplier.supplier_id)) {
       return; // Don't add if already selected
     }
 
-    // Use the first pricing tier if available, otherwise use a default price
-    const defaultPrice =
-      supplier.pricing_tiers && supplier.pricing_tiers.length > 0
-        ? supplier.pricing_tiers[0].tier_price
-        : 0;
+    // Use selected tier or first pricing tier if available, otherwise use a default price
+    let selectedTierData = selectedTier;
+    if (
+      !selectedTierData &&
+      supplier.pricing_tiers &&
+      supplier.pricing_tiers.length > 0
+    ) {
+      selectedTierData = supplier.pricing_tiers[0];
+    }
+
+    const defaultPrice = selectedTierData ? selectedTierData.tier_price : 0;
+    const tierName = selectedTierData ? selectedTierData.tier_name : "";
 
     const newComponent: ComponentWithSupplier = {
       id: `supplier-${supplier.supplier_id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: supplier.supplier_name,
-      description: `${supplier.supplier_name} - ${supplier.supplier_category}`,
+      name: `${supplier.supplier_name}${tierName ? ` - ${tierName}` : ""}`,
+      description: `${supplier.supplier_name} - ${supplier.supplier_category}${tierName ? ` (${tierName})` : ""}`,
       price: defaultPrice,
       category: supplier.supplier_category as ComponentCategory,
       included: true,
@@ -325,11 +342,41 @@ export function ComponentCustomization({
       isExpanded: false,
       assignedSupplier: supplier,
       supplierPrice: defaultPrice,
+      supplier_id: supplier.supplier_id,
+      offer_id: selectedTierData ? selectedTierData.offer_id : null,
     };
 
     handleComponentListChange([...componentList, newComponent]);
     setSelectedSupplierIds((prev) => new Set([...prev, supplier.supplier_id]));
     setShowAddDialog(false);
+  };
+
+  const updateSupplierTier = (
+    componentId: string,
+    supplier: Supplier,
+    selectedTier: any
+  ) => {
+    const updatedComponents = componentList.map((component) => {
+      if (component.id === componentId) {
+        const componentWithSupplier = component as ComponentWithSupplier;
+        if (
+          componentWithSupplier.assignedSupplier?.supplier_id ===
+          supplier.supplier_id
+        ) {
+          return {
+            ...componentWithSupplier,
+            name: `${supplier.supplier_name}${selectedTier.tier_name ? ` - ${selectedTier.tier_name}` : ""}`,
+            description: `${supplier.supplier_name} - ${supplier.supplier_category}${selectedTier.tier_name ? ` (${selectedTier.tier_name})` : ""}`,
+            price: selectedTier.tier_price,
+            supplierPrice: selectedTier.tier_price,
+            offer_id: selectedTier.offer_id,
+          };
+        }
+      }
+      return component;
+    });
+
+    handleComponentListChange(updatedComponents);
   };
 
   const deleteComponent = (componentId: string) => {
@@ -442,24 +489,39 @@ export function ComponentCustomization({
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-green-700">
-          Customize Components
+          {isStartFromScratch ? "Add Event Components" : "Customize Components"}
         </h2>
         <p className="text-muted-foreground">
-          Customize the components included in your event package.
+          {isStartFromScratch
+            ? "Add and customize components for your custom event."
+            : "Customize the components included in your event package."}
         </p>
       </div>
 
-      <Alert className="border-green-500 bg-green-50">
-        <AlertDescription className="flex items-center">
-          <Info className="h-4 w-4 mr-2 text-green-600" />
-          <span>
-            <strong>Venue inclusions</strong> are fixed and come with your
-            selected venue package.
-            <strong> Noreen components</strong> can be added, removed, or
-            customized to adjust your total budget.
-          </span>
-        </AlertDescription>
-      </Alert>
+      {isStartFromScratch ? (
+        <Alert className="border-blue-500 bg-blue-50">
+          <AlertDescription className="flex items-center">
+            <Info className="h-4 w-4 mr-2 text-blue-600" />
+            <span>
+              <strong>Custom Event Mode:</strong> You're building your event
+              from scratch. Add components individually to create your perfect
+              event package.
+            </span>
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <Alert className="border-green-500 bg-green-50">
+          <AlertDescription className="flex items-center">
+            <Info className="h-4 w-4 mr-2 text-green-600" />
+            <span>
+              <strong>Venue inclusions</strong> are fixed and come with your
+              selected venue package.
+              <strong> Noreen components</strong> can be added, removed, or
+              customized to adjust your total budget.
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Alert>
         <AlertDescription className="flex items-center">
@@ -476,11 +538,11 @@ export function ComponentCustomization({
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="venue-inclusions">
             <Lock className="h-4 w-4 mr-2 text-green-600" />
-            Venue Inclusions
+            {isStartFromScratch ? "Selected Venue" : "Venue Inclusions"}
           </TabsTrigger>
           <TabsTrigger value="noreen-components">
             <Edit className="h-4 w-4 mr-2 text-green-600" />
-            Noreen Components
+            {isStartFromScratch ? "Event Components" : "Noreen Components"}
           </TabsTrigger>
         </TabsList>
 
@@ -491,7 +553,9 @@ export function ComponentCustomization({
               <Card>
                 <CardHeader>
                   <CardTitle className="flex justify-between">
-                    <span>Venue Package</span>
+                    <span>
+                      {isStartFromScratch ? "Selected Venue" : "Venue Package"}
+                    </span>
                     <span>{formatCurrency(calculateVenuePrice())}</span>
                   </CardTitle>
                 </CardHeader>
@@ -512,6 +576,11 @@ export function ComponentCustomization({
                             </span>
                           )}
                         </div>
+                        {isStartFromScratch && component.description && (
+                          <p className="text-sm text-gray-600 ml-6">
+                            {component.description}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -532,15 +601,27 @@ export function ComponentCustomization({
         <TabsContent value="noreen-components" className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-medium text-green-700">
-              Customizable Components
+              {isStartFromScratch
+                ? "Event Components"
+                : "Customizable Components"}
             </h3>
-            <Button
-              onClick={() => setShowAddDialog(true)}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Component
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => setShowSupplierModal(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={isLoadingSuppliers || suppliers.length === 0}
+              >
+                <User className="h-4 w-4 mr-2" />
+                Add Supplier
+              </Button>
+              <Button
+                onClick={() => setShowAddDialog(true)}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Component
+              </Button>
+            </div>
           </div>
 
           {Object.entries(componentsByCategory).length > 0 ? (
@@ -957,6 +1038,14 @@ export function ComponentCustomization({
           </Tabs>
         </DialogContent>
       </Dialog>
+
+      {/* Supplier Selection Modal */}
+      <SupplierSelectionModal
+        isOpen={showSupplierModal}
+        onClose={() => setShowSupplierModal(false)}
+        suppliers={suppliers.filter((s) => s.supplier_status === "active")}
+        onSelectSupplier={addComponentFromSupplier}
+      />
     </div>
   );
 }

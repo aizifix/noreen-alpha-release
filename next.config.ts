@@ -1,30 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Completely disable source maps
+  // Disable source maps for better performance
   productionBrowserSourceMaps: false,
 
-  // Disable source maps in development
+  // Optimize webpack configuration
   webpack: (config, { dev, isServer }) => {
-    // Completely disable source maps
-    config.devtool = false;
-
-    // Disable source map generation
-    config.optimization = {
-      ...config.optimization,
-      minimize: false,
-    };
-
-    // Disable source map generation in all loaders
-    config.module.rules.forEach((rule: any) => {
-      if (rule.use && Array.isArray(rule.use)) {
-        rule.use.forEach((loader: any) => {
-          if (loader.options && typeof loader.options === "object") {
-            loader.options.sourceMap = false;
-          }
-        });
-      }
-    });
+    // Disable source maps in development
+    if (dev) {
+      config.devtool = false;
+    }
 
     // Optimize module resolution
     config.resolve.fallback = {
@@ -35,19 +20,12 @@ const nextConfig: NextConfig = {
     return config;
   },
 
-  // Optimize development experience
-  swcMinify: true,
-
   // Reduce Fast Refresh rebuilds
   experimental: {
     optimizePackageImports: ["clsx", "lucide-react"],
   },
 
-  // Disable source map generation
-  generateBuildId: async () => {
-    return "build-" + Date.now();
-  },
-
+  // Image configuration
   images: {
     remotePatterns: [
       {
@@ -59,6 +37,8 @@ const nextConfig: NextConfig = {
     ],
     domains: ["localhost"],
   },
+
+  // Security headers
   async headers() {
     return [
       {
@@ -80,7 +60,6 @@ const nextConfig: NextConfig = {
               "http://192.168.0.100:3000/uploads/ http://192.168.0.100/events-api/uploads/; " +
               "frame-src 'self' https://www.google.com/recaptcha/ https://www.recaptcha.net;",
           },
-
           {
             key: "Referrer-Policy",
             value: "strict-origin-when-cross-origin",

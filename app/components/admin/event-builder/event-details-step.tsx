@@ -121,14 +121,13 @@ export function EventDetailsStep({
     }
   }, [initialData.date]);
 
-  // Set default times if not already set - only run once on mount
+  // Set default start time if not already set - only run once on mount
   useEffect(() => {
-    if (!initialData.startTime || !initialData.endTime) {
+    if (!initialData.startTime) {
       const updates: Partial<typeof initialData> = {};
-      if (!initialData.startTime) updates.startTime = "10:00";
-      if (!initialData.endTime) updates.endTime = "18:00";
+      updates.startTime = "10:00";
 
-      console.log("Setting default times:", updates);
+      console.log("Setting default start time:", updates);
       updateFields(updates);
     }
   }, []); // Empty dependency array - only run once
@@ -794,6 +793,41 @@ export function EventDetailsStep({
           </Select>
         </div>
 
+        {/* Church Location for Wedding Events */}
+        {initialData.type === "wedding" && (
+          <div className="space-y-2">
+            <Label htmlFor="church-location">
+              Church Location <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="church-location"
+              value={initialData.churchLocation || ""}
+              onChange={(e) => updateField("churchLocation", e.target.value)}
+              placeholder="Enter church name and address"
+              required
+            />
+          </div>
+        )}
+
+        {/* Church Start Time for Wedding Events */}
+        {initialData.type === "wedding" && (
+          <div className="space-y-2">
+            <Label htmlFor="church-start-time">
+              Church Start Time <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="church-start-time"
+              type="time"
+              value={initialData.churchStartTime || ""}
+              onChange={(e) => updateField("churchStartTime", e.target.value)}
+              required
+            />
+            <p className="text-sm text-muted-foreground">
+              This is the time the wedding ceremony starts at the church
+            </p>
+          </div>
+        )}
+
         {/* Enhanced Date and Time Selection Section with Heat Map Calendar */}
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -831,7 +865,7 @@ export function EventDetailsStep({
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-2">
             {/* Date Selection with Heat Map */}
             <div className="space-y-2">
               <Label htmlFor="event-date">
@@ -919,20 +953,6 @@ export function EventDetailsStep({
                 label={
                   <span>
                     Start Time <span className="text-red-500">*</span>
-                  </span>
-                }
-                hasConflict={hasConflicts}
-              />
-            </div>
-
-            {/* End Time with Circular Picker */}
-            <div className="space-y-2">
-              <CircularTimePicker
-                value={initialData.endTime || "18:00"}
-                onChange={(value) => handleTimeChange("endTime", value)}
-                label={
-                  <span>
-                    End Time <span className="text-red-500">*</span>
                   </span>
                 }
                 hasConflict={hasConflicts}

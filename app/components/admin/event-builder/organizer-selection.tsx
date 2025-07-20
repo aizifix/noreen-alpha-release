@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Check, Search, UserPlus, Loader } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,8 +66,12 @@ export function OrganizerSelection({
   selectedIds,
   onSelect,
   onOrganizerDataUpdate,
+  externalOrganizer,
+  onExternalOrganizerChange,
 }: Omit<OrganizerSelectionProps, "onNext"> & {
   onOrganizerDataUpdate?: (organizers: Organizer[]) => void;
+  externalOrganizer?: string;
+  onExternalOrganizerChange?: (organizer: string) => void;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAvailableOnly, setShowAvailableOnly] = useState(false);
@@ -202,6 +206,27 @@ export function OrganizerSelection({
 
   return (
     <div className="space-y-6">
+      {/* External Organizer Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>External Organizer</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Add an external organizer for this event (optional)
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <Label htmlFor="external-organizer">External Organizer Name</Label>
+            <Input
+              id="external-organizer"
+              placeholder="Enter external organizer name"
+              value={externalOrganizer || ""}
+              onChange={(e) => onExternalOrganizerChange?.(e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
         <div className="relative w-full sm:w-auto">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />

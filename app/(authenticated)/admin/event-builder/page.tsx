@@ -108,6 +108,8 @@ interface EnhancedEventDetails extends EventDetails {
     endDate?: string;
     endAfter?: number;
   };
+  churchLocation?: string;
+  churchStartTime?: string;
 }
 
 interface WeddingFormData {
@@ -354,6 +356,9 @@ export default function EventBuilderPage() {
 
   // Client signature state
   const [clientSignature, setClientSignature] = useState<string>("");
+
+  // External organizer state
+  const [externalOrganizer, setExternalOrganizer] = useState<string>("");
 
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(
     () => {
@@ -1477,13 +1482,24 @@ export default function EventBuilderPage() {
       return;
     }
 
-    if (!eventDetails.startTime || !eventDetails.endTime) {
+    if (!eventDetails.startTime) {
       console.log("❌ Event time validation failed");
       console.log("Start time:", `"${eventDetails.startTime}"`);
-      console.log("End time:", `"${eventDetails.endTime}"`);
       toast({
         title: "Validation Error",
-        description: "Start time and end time are required",
+        description: "Start time is required",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
+    }
+
+    // Validate church start time for wedding events
+    if (eventDetails.type === "wedding" && !eventDetails.churchStartTime) {
+      console.log("❌ Church start time validation failed for wedding");
+      toast({
+        title: "Validation Error",
+        description: "Church start time is required for wedding events",
         variant: "destructive",
       });
       setLoading(false);
@@ -1509,7 +1525,7 @@ export default function EventBuilderPage() {
       console.log("✅ Set default event theme:", defaultTheme);
     }
 
-    // Check for scheduling conflicts
+    // Check for scheduling conflicts (only start time matters since events are whole day)
     if (eventDetails.hasConflicts) {
       console.log("Scheduling conflicts detected");
 
@@ -1566,18 +1582,19 @@ export default function EventBuilderPage() {
               ? parseInt(selectedOrganizers[0])
               : null
             : null,
+        external_organizer: externalOrganizer || null,
         event_title: eventDetails.title || "New Event",
         event_theme: eventDetails.theme || null,
         event_description: eventDetails.description || null,
+        church_location: eventDetails.churchLocation || null,
+        church_start_time: eventDetails.churchStartTime || null,
         event_type_id: getEventTypeIdFromName(eventDetails.type),
         guest_count: parseInt(eventDetails.capacity.toString()) || 100,
         event_date: eventDetails.date,
         start_time: eventDetails.startTime
           ? eventDetails.startTime + ":00"
           : "10:00:00", // Ensure proper time format
-        end_time: eventDetails.endTime
-          ? eventDetails.endTime + ":00"
-          : "18:00:00", // Ensure proper time format
+        end_time: "23:59:00", // All events are whole day events
         package_id: selectedPackageId ? parseInt(selectedPackageId) : null, // No package for start from scratch events
         venue_id: selectedVenueId ? parseInt(selectedVenueId) : null,
         total_budget: parseFloat(getTotalBudget().toString()) || 0,
@@ -2482,6 +2499,8 @@ export default function EventBuilderPage() {
           selectedIds={selectedOrganizers}
           onSelect={setSelectedOrganizers}
           onOrganizerDataUpdate={setOrganizerData}
+          externalOrganizer={externalOrganizer}
+          onExternalOrganizerChange={setExternalOrganizer}
         />
       ),
     },
@@ -2570,13 +2589,20 @@ export default function EventBuilderPage() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600">Time</p>
+                    <p className="text-sm text-gray-600">Start Time</p>
                     <p className="font-medium">
-                      {eventDetails.startTime && eventDetails.endTime
-                        ? `${eventDetails.startTime} - ${eventDetails.endTime}`
-                        : eventDetails.startTime || eventDetails.endTime}
+                      {eventDetails.startTime || "Not set"}
                     </p>
                   </div>
+                  {eventDetails.type === "wedding" &&
+                    eventDetails.churchStartTime && (
+                      <div>
+                        <p className="text-sm text-gray-600">Church Time</p>
+                        <p className="font-medium">
+                          {eventDetails.churchStartTime}
+                        </p>
+                      </div>
+                    )}
                   <div>
                     <p className="text-sm text-gray-600">Guest Count</p>
                     <p className="font-medium">
@@ -2792,6 +2818,8 @@ export default function EventBuilderPage() {
         frequency: "monthly",
         interval: 1,
       },
+      churchLocation: "",
+      churchStartTime: "",
     });
 
     setSelectedPackageId(null);
@@ -2819,6 +2847,7 @@ export default function EventBuilderPage() {
     setTimelineData([]);
     setAttachments([]);
     setClientSignature("");
+    setExternalOrganizer("");
     setWeddingFormData({
       nuptial: "",
       motif: "",
@@ -2954,6 +2983,17 @@ export default function EventBuilderPage() {
                     <p className="font-medium">{eventDetails.theme}</p>
                   </div>
                 )}
+                {eventDetails.type === "wedding" &&
+                  eventDetails.churchStartTime && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">
+                        Church Time
+                      </p>
+                      <p className="font-medium">
+                        {eventDetails.churchStartTime}
+                      </p>
+                    </div>
+                  )}
                 {eventDetails.date && (
                   <div>
                     <p className="text-sm text-muted-foreground">Date</p>

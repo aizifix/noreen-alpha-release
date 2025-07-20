@@ -14,6 +14,7 @@ import {
   Users,
   Shirt,
   Package,
+  Info,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -366,8 +367,19 @@ export function WeddingFormStep({
         <h2 className="text-2xl font-bold mb-2">Wedding Details Form</h2>
         <p className="text-muted-foreground">
           Please fill out the wedding-specific information for proper
-          coordination
+          coordination and attire preparation
         </p>
+        <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="flex items-center gap-2 text-blue-800">
+            <Package className="h-5 w-5" />
+            <span className="font-medium">Important:</span>
+          </div>
+          <p className="text-blue-700 text-sm mt-1">
+            This information helps us prepare the correct attire sizes and
+            coordinate with all wedding party members. Please provide accurate
+            measurements and contact information.
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

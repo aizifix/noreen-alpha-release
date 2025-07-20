@@ -499,80 +499,21 @@ export function TimelineStep({
             </div>
             <CardContent className="p-4 pl-8">
               <div className="grid gap-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor={`startTime-${item.id}`}>Start Time</Label>
-                    <Input
-                      id={`startTime-${item.id}`}
-                      type="time"
-                      value={item.startTime}
-                      onChange={(e) =>
-                        updateTimelineItem(item.id, "startTime", e.target.value)
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`endTime-${item.id}`}>End Time</Label>
-                    <Input
-                      id={`endTime-${item.id}`}
-                      type="time"
-                      value={item.endTime}
-                      onChange={(e) =>
-                        updateTimelineItem(item.id, "endTime", e.target.value)
-                      }
-                    />
-                  </div>
-                </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor={`componentName-${item.id}`}>Activity</Label>
-                  <Select
-                    value={item.componentId}
-                    onValueChange={(value) => {
-                      const component = components.find((c) => c.id === value);
-                      if (component) {
-                        updateTimelineItem(item.id, "componentId", value);
-                        updateTimelineItem(
-                          item.id,
-                          "componentName",
-                          component.name
-                        );
-                        updateTimelineItem(
-                          item.id,
-                          "category",
-                          component.category
-                        );
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue
-                        placeholder="Select an activity"
-                        className="w-full"
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {components.map((component) => (
-                        <SelectItem
-                          key={`${component.id}-${component.category}`}
-                          value={component.id}
-                        >
-                          {component.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor={`location-${item.id}`}>Location</Label>
+                  <Label htmlFor={`componentName-${item.id}`}>
+                    Name of the Component
+                  </Label>
                   <Input
-                    id={`location-${item.id}`}
-                    value={item.location}
+                    id={`componentName-${item.id}`}
+                    value={item.componentName}
                     onChange={(e) =>
-                      updateTimelineItem(item.id, "location", e.target.value)
+                      updateTimelineItem(
+                        item.id,
+                        "componentName",
+                        e.target.value
+                      )
                     }
-                    placeholder="Enter location"
+                    placeholder="Enter component name"
                   />
                 </div>
 
@@ -588,44 +529,25 @@ export function TimelineStep({
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor={`status-${item.id}`}>Status</Label>
-                    <Select
-                      value={item.status}
-                      onValueChange={(value: TimelineItem["status"]) =>
-                        updateTimelineItem(item.id, "status", value)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="confirmed">Confirmed</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor={`priority-${item.id}`}>Priority</Label>
-                    <Select
-                      value={item.priority}
-                      onValueChange={(value: TimelineItem["priority"]) =>
-                        updateTimelineItem(item.id, "priority", value)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`status-${item.id}`}>Status</Label>
+                  <Select
+                    value={item.status}
+                    onValueChange={(value: TimelineItem["status"]) =>
+                      updateTimelineItem(item.id, "status", value)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="confirmed">Confirmed</SelectItem>
+                      <SelectItem value="paid">Paid</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="flex justify-end space-x-2">
@@ -664,50 +586,37 @@ export function TimelineStep({
       <div className="bg-muted/50 rounded-lg p-4">
         <h4 className="font-medium mb-2">Timeline Summary</h4>
         <div className="space-y-2">
-          {timelineItems
-            .sort((a, b) => {
-              const aTime = a.startTime.split(":").map(Number);
-              const bTime = b.startTime.split(":").map(Number);
-
-              if (aTime[0] !== bTime[0]) return aTime[0] - bTime[0];
-              return aTime[1] - bTime[1];
-            })
-            .map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between text-sm"
-              >
-                <div className="flex items-center space-x-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span>
-                    {formatTimeDisplay(item.startTime)} -{" "}
-                    {formatTimeDisplay(item.endTime)}
-                  </span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span>{item.componentName}</span>
-                  {item.location && (
-                    <span className="text-muted-foreground">
-                      ({item.location})
-                    </span>
-                  )}
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      item.status === "pending"
-                        ? "bg-amber-50 text-amber-700 border-amber-200"
-                        : item.status === "confirmed"
-                          ? "bg-green-50 text-green-700 border-green-200"
-                          : item.status === "completed"
-                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : "bg-amber-50 text-amber-700 border-amber-200"
-                    )}
-                  >
-                    {item.status}
-                  </Badge>
-                </div>
+          {timelineItems.map((item, index) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between text-sm"
+            >
+              <div className="flex items-center space-x-2">
+                <span className="font-medium">{index + 1}.</span>
+                <span>{item.componentName}</span>
               </div>
-            ))}
+              <div className="flex items-center space-x-2">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    item.status === "pending"
+                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                      : item.status === "confirmed"
+                        ? "bg-green-50 text-green-700 border-green-200"
+                        : item.status === "paid"
+                          ? "bg-blue-50 text-blue-700 border-blue-200"
+                          : item.status === "completed"
+                            ? "bg-green-50 text-green-700 border-green-200"
+                            : item.status === "cancelled"
+                              ? "bg-red-50 text-red-700 border-red-200"
+                              : "bg-amber-50 text-amber-700 border-amber-200"
+                  )}
+                >
+                  {item.status}
+                </Badge>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

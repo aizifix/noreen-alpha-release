@@ -48,13 +48,15 @@ export function SuccessModal({
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Event:</span>
                 <span className="text-sm font-medium">
-                  {eventDetails.eventTitle}
+                  {eventDetails.eventTitle || "New Event"}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Date:</span>
                 <span className="text-sm font-medium">
-                  {eventDetails.eventDate}
+                  {eventDetails.eventDate
+                    ? new Date(eventDetails.eventDate).toLocaleDateString()
+                    : "Not set"}
                 </span>
               </div>
               <div className="flex justify-between">

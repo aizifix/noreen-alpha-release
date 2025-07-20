@@ -388,31 +388,6 @@ const AttachmentsStep: React.FC<AttachmentsStepProps> = ({
           </div>
         </CardContent>
       </Card>
-
-      {/* Client Signature Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Client Approval</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div>
-            <Label htmlFor="client-signature">
-              Client Digital Signature/Approval
-            </Label>
-            <Textarea
-              id="client-signature"
-              placeholder="Client name and approval confirmation, or digital signature reference..."
-              value={clientSignature}
-              onChange={(e) => onSignatureUpdate(e.target.value)}
-              rows={3}
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              This serves as confirmation that the client has reviewed and
-              approved the event details.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 };

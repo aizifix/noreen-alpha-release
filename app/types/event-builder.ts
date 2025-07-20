@@ -84,6 +84,8 @@ export interface EventDetails {
   bookingReference?: string;
   venueId?: string;
   theme?: string;
+  churchLocation?: string;
+  churchStartTime?: string;
 }
 
 // Add payment attachment types

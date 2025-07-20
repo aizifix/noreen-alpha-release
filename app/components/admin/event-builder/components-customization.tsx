@@ -608,11 +608,21 @@ export function ComponentCustomization({
             <div className="flex gap-2">
               <Button
                 onClick={() => setShowSupplierModal(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
+                className={`${
+                  componentList.some(
+                    (comp) => (comp as ComponentWithSupplier).assignedSupplier
+                  )
+                    ? "bg-green-600 hover:bg-green-700 text-white"
+                    : "bg-blue-600 hover:bg-blue-700 text-white"
+                }`}
                 disabled={isLoadingSuppliers || suppliers.length === 0}
               >
                 <User className="h-4 w-4 mr-2" />
-                Add Supplier
+                {componentList.some(
+                  (comp) => (comp as ComponentWithSupplier).assignedSupplier
+                )
+                  ? "Selected"
+                  : "Add Supplier"}
               </Button>
               <Button
                 onClick={() => setShowAddDialog(true)}
@@ -843,9 +853,8 @@ export function ComponentCustomization({
           </DialogHeader>
 
           <Tabs defaultValue="custom" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-1">
               <TabsTrigger value="custom">Custom Component</TabsTrigger>
-              <TabsTrigger value="supplier">Select Supplier</TabsTrigger>
             </TabsList>
 
             <TabsContent value="custom" className="space-y-4">
@@ -918,120 +927,6 @@ export function ComponentCustomization({
                 </Button>
                 <Button onClick={addNewComponent} disabled={!newComponentName}>
                   Add Custom Component
-                </Button>
-              </DialogFooter>
-            </TabsContent>
-
-            <TabsContent value="supplier" className="space-y-4">
-              {isLoadingSuppliers ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                  <span className="ml-2">Loading suppliers...</span>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-96 overflow-y-auto">
-                    {suppliers
-                      .filter(
-                        (supplier) => supplier.supplier_status === "active"
-                      )
-                      .map((supplier) => {
-                        const isSelected = selectedSupplierIds.has(
-                          supplier.supplier_id
-                        );
-                        return (
-                          <Card
-                            key={supplier.supplier_id}
-                            className={`transition-colors ${
-                              isSelected
-                                ? "cursor-not-allowed bg-green-50 border-green-300"
-                                : "cursor-pointer hover:border-blue-300"
-                            }`}
-                            onClick={() =>
-                              !isSelected && addComponentFromSupplier(supplier)
-                            }
-                          >
-                            <CardContent className="p-4">
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <h4 className="font-semibold text-gray-900">
-                                    {supplier.supplier_name}
-                                  </h4>
-                                  <p className="text-sm text-gray-600">
-                                    {supplier.supplier_category}
-                                  </p>
-                                  <p className="text-sm text-gray-500">
-                                    {supplier.supplier_email}
-                                  </p>
-                                  <p className="text-sm text-gray-500">
-                                    {supplier.supplier_phone}
-                                  </p>
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                  <Badge
-                                    variant="outline"
-                                    className="bg-green-50 text-green-700 border-green-200"
-                                  >
-                                    Active
-                                  </Badge>
-                                  {isSelected && (
-                                    <Badge
-                                      variant="outline"
-                                      className="bg-blue-50 text-blue-700 border-blue-200"
-                                    >
-                                      Selected
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-
-                              {supplier.pricing_tiers &&
-                                supplier.pricing_tiers.length > 0 && (
-                                  <div className="mt-3 pt-3 border-t">
-                                    <p className="text-sm font-medium text-gray-700 mb-2">
-                                      Pricing Tiers:
-                                    </p>
-                                    <div className="space-y-1">
-                                      {supplier.pricing_tiers.map(
-                                        (tier, index) => (
-                                          <div
-                                            key={index}
-                                            className="flex justify-between text-sm"
-                                          >
-                                            <span className="text-gray-600">
-                                              {tier.tier_name}:
-                                            </span>
-                                            <span className="font-medium">
-                                              {formatCurrency(tier.tier_price)}
-                                            </span>
-                                          </div>
-                                        )
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                  </div>
-
-                  {suppliers.filter((s) => s.supplier_status === "active")
-                    .length === 0 && (
-                    <div className="text-center py-8">
-                      <p className="text-muted-foreground">
-                        No active suppliers available.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowAddDialog(false)}
-                >
-                  Cancel
                 </Button>
               </DialogFooter>
             </TabsContent>

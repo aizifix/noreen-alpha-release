@@ -32,15 +32,21 @@ export function middleware(request: NextRequest) {
     const role = user.user_role.toLowerCase();
     if (role === "admin") {
       return NextResponse.redirect(new URL("/admin/dashboard", request.url));
-    } else if (role === "vendor") {
-      return NextResponse.redirect(new URL("/vendor/dashboard", request.url));
+    } else if (role === "vendor" || role === "organizer") {
+      return NextResponse.redirect(
+        new URL("/organizer/dashboard", request.url)
+      );
+    } else if (role === "client") {
+      return NextResponse.redirect(new URL("/client/dashboard", request.url));
     }
   }
 
   // If user is not authenticated and tries to access protected routes
   if (
     !user &&
-    (pathname.startsWith("/admin") || pathname.startsWith("/vendor"))
+    (pathname.startsWith("/admin") ||
+      pathname.startsWith("/organizer") ||
+      pathname.startsWith("/client"))
   ) {
     return NextResponse.redirect(new URL("/auth/login", request.url));
   }
@@ -50,11 +56,35 @@ export function middleware(request: NextRequest) {
     const role = user.user_role.toLowerCase();
 
     if (pathname.startsWith("/admin") && role !== "admin") {
-      return NextResponse.redirect(new URL("/vendor/dashboard", request.url));
+      if (role === "organizer" || role === "vendor") {
+        return NextResponse.redirect(
+          new URL("/organizer/dashboard", request.url)
+        );
+      } else if (role === "client") {
+        return NextResponse.redirect(new URL("/client/dashboard", request.url));
+      }
     }
 
-    if (pathname.startsWith("/vendor") && role !== "vendor") {
-      return NextResponse.redirect(new URL("/admin/dashboard", request.url));
+    if (
+      pathname.startsWith("/organizer") &&
+      role !== "organizer" &&
+      role !== "vendor"
+    ) {
+      if (role === "admin") {
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url));
+      } else if (role === "client") {
+        return NextResponse.redirect(new URL("/client/dashboard", request.url));
+      }
+    }
+
+    if (pathname.startsWith("/client") && role !== "client") {
+      if (role === "admin") {
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url));
+      } else if (role === "organizer" || role === "vendor") {
+        return NextResponse.redirect(
+          new URL("/organizer/dashboard", request.url)
+        );
+      }
     }
   }
 
@@ -64,7 +94,8 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/admin/:path*",
-    "/vendor/:path*",
+    "/organizer/:path*",
+    "/client/:path*",
     "/auth/login",
     "/auth/signup",
     "/auth/verify-otp",

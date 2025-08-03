@@ -119,8 +119,7 @@ export function TimelineStep({
         const timelineItem = {
           id: `timeline-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
           componentId: component.id || "",
-          componentName:
-            component.name || component.title || "Unknown Component",
+          componentName: component.name || "Unknown Component",
           category: component.category || "",
           date: new Date(eventDateObj),
           startTime: format(startTime, "HH:mm"),
@@ -129,8 +128,8 @@ export function TimelineStep({
           notes: "",
           supplierId: "",
           supplierName: "",
-          status: "pending",
-          priority: "medium",
+          status: "pending" as const,
+          priority: "medium" as const,
           assignedTo: "",
           dependencies: [],
         };
@@ -206,8 +205,8 @@ export function TimelineStep({
       notes: "",
       supplierId: "",
       supplierName: "",
-      status: "pending",
-      priority: "medium",
+      status: "pending" as const,
+      priority: "medium" as const,
       assignedTo: "",
       dependencies: [],
     };
@@ -436,7 +435,7 @@ export function TimelineStep({
                         componentId: component.id || "",
                         componentName:
                           component.name ||
-                          component.title ||
+                          component.name ||
                           "Unknown Component",
                         category: component.category || "",
                         date: new Date(eventDateObj),
@@ -446,8 +445,8 @@ export function TimelineStep({
                         notes: "",
                         supplierId: "",
                         supplierName: "",
-                        status: "pending",
-                        priority: "medium",
+                        status: "pending" as const,
+                        priority: "medium" as const,
                         assignedTo: "",
                         dependencies: [],
                       };
@@ -601,13 +600,13 @@ export function TimelineStep({
                   className={cn(
                     item.status === "pending"
                       ? "bg-amber-50 text-amber-700 border-amber-200"
-                      : item.status === "confirmed"
+                      : item.status === "in-progress"
                         ? "bg-green-50 text-green-700 border-green-200"
-                        : item.status === "paid"
+                        : item.status === "completed"
                           ? "bg-blue-50 text-blue-700 border-blue-200"
                           : item.status === "completed"
                             ? "bg-green-50 text-green-700 border-green-200"
-                            : item.status === "cancelled"
+                            : item.status === "pending"
                               ? "bg-red-50 text-red-700 border-red-200"
                               : "bg-amber-50 text-amber-700 border-amber-200"
                   )}
@@ -628,15 +627,15 @@ export function TimelineStep({
             <p>Components available: {components?.length || 0}</p>
             <p>Timeline items: {timelineItems.length}</p>
             <p>Event date: {eventDate || "Not set"}</p>
-            <p>Update function: {updateData ? "Available" : "Not available"}</p>
+            <p>Update function: Available</p>
             {components && components.length > 0 && (
               <div>
                 <p className="font-medium">Available components:</p>
                 <ul className="list-disc list-inside ml-2">
                   {components.map((comp, index) => (
                     <li key={index}>
-                      {comp.name || comp.title || "Unknown"} (
-                      {comp.category || "No category"})
+                      {comp.name || "Unknown"} ({comp.category || "No category"}
+                      )
                     </li>
                   ))}
                 </ul>

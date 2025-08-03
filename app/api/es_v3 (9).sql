@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jul 22, 2025 at 04:09 AM
+-- Generation Time: Aug 03, 2025 at 10:08 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -27,15 +27,118 @@ DELIMITER $$
 --
 CREATE DEFINER=`root`@`localhost` PROCEDURE `CreateNotification` (IN `p_user_id` INT, IN `p_notification_type` VARCHAR(50), IN `p_notification_title` VARCHAR(255), IN `p_notification_message` TEXT, IN `p_notification_priority` VARCHAR(10), IN `p_notification_icon` VARCHAR(50), IN `p_notification_url` VARCHAR(500), IN `p_event_id` INT, IN `p_booking_id` INT, IN `p_venue_id` INT, IN `p_store_id` INT, IN `p_budget_id` INT, IN `p_feedback_id` INT, IN `p_expires_at` TIMESTAMP)   BEGIN
     INSERT INTO tbl_notifications (
-        user_id, notification_type, notification_title, notification_message, 
-        notification_priority, notification_icon, notification_url, event_id, 
-        booking_id, venue_id, store_id, budget_id, feedback_id, expires_at, created_at
-    ) VALUES (
-        p_user_id, p_notification_type, p_notification_title, p_notification_message, 
-        COALESCE(p_notification_priority, 'medium'), p_notification_icon, p_notification_url, 
-        p_event_id, p_booking_id, p_venue_id, p_store_id, p_budget_id, p_feedback_id, 
-        p_expires_at, NOW()
+        user_id,
+        notification_type,
+        notification_title,
+        notification_message,
+        notification_priority,
+        notification_icon,
+        notification_url,
+        event_id,
+        booking_id,
+        venue_id,
+        store_id,
+        budget_id,
+        feedback_id,
+        expires_at,
+        created_at
+    )
+    VALUES (
+        p_user_id,
+        p_notification_type,
+        p_notification_title,
+        p_notification_message,
+        COALESCE(p_notification_priority, 'medium'),
+        p_notification_icon,
+        p_notification_url,
+        p_event_id,
+        p_booking_id,
+        p_venue_id,
+        p_store_id,
+        p_budget_id,
+        p_feedback_id,
+        p_expires_at,
+        NOW()
     );
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `getEnhancedEventDetails` (IN `p_event_id` INT)   BEGIN
+    -- Main event details
+    SELECT
+        e.*,
+        v.venue_title,
+        v.venue_name,
+        v.venue_location,
+        v.venue_contact,
+        v.venue_capacity,
+        COALESCE(vp.price, v.venue_price) as venue_price,
+        CONCAT(u.first_name, ' ', COALESCE(u.middle_name, ''), ' ', u.last_name, ' ', COALESCE(u.suffix, '')) as client_name,
+        u.email as client_email,
+        u.contact_num as client_contact,
+        u.pfp as client_pfp,
+        et.event_type_name,
+        et.event_type_description,
+        p.package_title,
+        p.package_description,
+        CONCAT(a.first_name, ' ', a.last_name) as admin_name,
+        CONCAT(o.first_name, ' ', o.last_name) as organizer_name,
+        CONCAT(cb.first_name, ' ', cb.last_name) as created_by_name,
+        CONCAT(ub.first_name, ' ', ub.last_name) as updated_by_name,
+        pst.schedule_name as payment_schedule_name,
+        pst.description as payment_schedule_description,
+        pst.installment_count
+    FROM tbl_events e
+    LEFT JOIN tbl_venues v ON e.venue_id = v.venue_id
+    LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+        AND vp.is_active = 1
+        AND e.guest_count >= vp.min_pax
+        AND e.guest_count <= vp.max_pax
+    LEFT JOIN tbl_user u ON e.user_id = u.user_id
+    LEFT JOIN tbl_event_types et ON e.event_type_id = et.event_type_id
+    LEFT JOIN tbl_packages p ON e.package_id = p.package_id
+    LEFT JOIN tbl_user a ON e.admin_id = a.user_id
+    LEFT JOIN tbl_organizer o ON e.organizer_id = o.organizer_id
+    LEFT JOIN tbl_user cb ON e.created_by = cb.user_id
+    LEFT JOIN tbl_user ub ON e.updated_by = ub.user_id
+    LEFT JOIN tbl_payment_schedule_types pst ON e.payment_schedule_type_id = pst.schedule_type_id
+    WHERE e.event_id = p_event_id;
+
+    -- Event components with payment status
+    SELECT
+        ec.*,
+        pc.component_name as original_component_name,
+        pc.component_description as original_component_description,
+        s.supplier_name,
+        s.contact_person
+    FROM tbl_event_components ec
+    LEFT JOIN tbl_package_components pc ON ec.original_package_component_id = pc.package_component_id
+    LEFT JOIN tbl_suppliers s ON ec.supplier_id = s.supplier_id
+    WHERE ec.event_id = p_event_id
+    ORDER BY ec.display_order;
+
+    -- Payment history
+    SELECT * FROM tbl_payments
+    WHERE event_id = p_event_id
+    ORDER BY payment_date DESC;
+
+    -- Event timeline
+    SELECT * FROM tbl_event_timeline
+    WHERE event_id = p_event_id
+    ORDER BY timeline_date, timeline_time;
+
+    -- Event attachments
+    SELECT * FROM tbl_event_attachments
+    WHERE event_id = p_event_id
+    ORDER BY uploaded_at DESC;
+
+    -- Wedding details if applicable
+    SELECT * FROM tbl_wedding_details
+    WHERE event_id = p_event_id;
+
+    -- Payment schedule if applicable
+    SELECT * FROM tbl_payment_schedule
+    WHERE event_id = p_event_id
+    ORDER BY due_date;
 END$$
 
 DELIMITER ;
@@ -88,7 +191,9 @@ INSERT INTO `tbl_bookings` (`booking_id`, `booking_reference`, `user_id`, `event
 (2, 'BK-20250717-5172', 23, 5, 'Wedding Package ', '2025-07-22', '10:00:00', '10:00:00', NULL, 100, 30, 15, '', 'converted', '2025-07-16 20:56:45', '2025-07-17 03:40:05'),
 (3, 'BK-20250717-4233', 21, 5, 'Gamon Wedding', '2025-07-25', '10:00:00', '10:00:00', NULL, 100, 30, 15, '', 'confirmed', '2025-07-16 23:38:12', '2025-07-17 05:39:25'),
 (4, 'BK-20250717-9308', 29, 5, 'Weeding Package 2', '2025-07-26', '10:00:00', '10:00:00', NULL, 100, 30, 14, '', 'confirmed', '2025-07-16 23:59:17', '2025-07-17 06:00:44'),
-(5, 'BK-20250719-8510', 30, 5, 'Clyde Wedding Day!', '2025-08-15', '10:00:00', '10:00:00', NULL, 100, 30, 15, '', 'confirmed', '2025-07-18 21:06:00', '2025-07-19 03:08:55');
+(5, 'BK-20250719-8510', 30, 5, 'Clyde Wedding Day!', '2025-08-15', '10:00:00', '10:00:00', NULL, 100, 30, 15, '', 'confirmed', '2025-07-18 21:06:00', '2025-07-19 03:08:55'),
+(6, 'BK-20250722-3053', 21, 5, 'Debut', '2025-08-01', '10:00:00', '10:00:00', NULL, 100, 30, 14, '', 'confirmed', '2025-07-22 00:32:27', '2025-07-22 06:33:13'),
+(7, 'BK-20250723-9399', 21, 5, 'Test', '2025-08-02', '10:00:00', '10:00:00', NULL, 100, 30, 15, '', 'confirmed', '2025-07-23 01:12:59', '2025-07-23 07:14:17');
 
 --
 -- Triggers `tbl_bookings`
@@ -262,7 +367,9 @@ INSERT INTO `tbl_email_logs` (`email_log_id`, `recipient_email`, `recipient_name
 (1, 'lasi.anches.coc@phinmaed.com', 'Boss Zata', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 1, NULL, '2025-07-14 23:17:17'),
 (2, 'lasi.anches.coc@phinmaed.com', 'Boss Zata', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 2, NULL, '2025-07-14 23:23:14'),
 (3, 'lasi.anches.coc@phinmaed.com', 'Boss Zata', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 3, NULL, '2025-07-14 23:24:43'),
-(4, 'rendon@gmail.com', 'Rendon Labrabis', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 4, NULL, '2025-07-17 02:32:00');
+(4, 'rendon@gmail.com', 'Rendon Labrabis', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 4, NULL, '2025-07-17 02:32:00'),
+(5, 'rhienmanoy@gmail.com', 'Rhein Manoy', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 5, NULL, '2025-07-22 10:44:55'),
+(6, 'brianrenan@gmail.com', 'Brian Renan', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 6, NULL, '2025-07-27 18:48:23');
 
 -- --------------------------------------------------------
 
@@ -328,13 +435,17 @@ INSERT INTO `tbl_events` (`event_id`, `original_booking_reference`, `user_id`, `
 (8, NULL, 20, 7, 4, 'Custom Event 3', 'tropical-paradise', NULL, NULL, NULL, 2, 500, '2025-07-30', '10:00:00', '18:00:00', 'partial', NULL, 34, 10157000.00, 8633450.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-17 16:14:22', '2025-07-22 01:32:33', '[{\"original_name\":\"Elevate_IT_Services_Business_Plan.txt\",\"file_name\":\"1752768848_6879215003910.txt\",\"file_path\":\"uploads/event_attachments/1752768848_6879215003910.txt\",\"file_size\":4485,\"file_type\":\"text/plain\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T16:14:08.029Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 16:14:22', NULL),
 (9, NULL, 29, 7, 3, 'Birthday Event', 'Theme', NULL, NULL, NULL, 3, 500, '2025-08-08', '10:00:00', '18:00:00', 'partial', NULL, 29, 767000.00, 613600.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-17 16:54:53', '2025-07-22 01:32:33', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752770207_6879269fb3081.docx\",\"file_path\":\"uploads/event_attachments/1752770207_6879269fb3081.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T16:36:47.735Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 16:54:53', NULL),
 (10, NULL, 29, 7, 4, 'Customized Event 8', 'Theme', NULL, NULL, NULL, 5, 100, '2025-08-12', '10:00:00', '18:00:00', 'partial', NULL, 34, 47000.00, 37600.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-18 06:56:14', '2025-07-22 01:32:33', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752818709_6879e41542d82.docx\",\"file_path\":\"uploads/event_attachments/1752818709_6879e41542d82.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-18T06:05:09.275Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-18 06:56:14', NULL),
-(11, NULL, 21, 7, NULL, 'CUSTOMIZED PACKAGE 9', 'cultural-traditional', NULL, NULL, NULL, 3, 200, '2025-08-28', '10:00:00', '18:00:00', 'paid', NULL, 29, 182000.00, 91000.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-18 07:44:00', '2025-07-22 01:32:33', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752824595_6879fb13c5f4f.docx\",\"file_path\":\"uploads/event_attachments/1752824595_6879fb13c5f4f.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-18T07:43:15.812Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-18 07:44:00', NULL),
+(11, NULL, 21, 7, NULL, 'CUSTOMIZED PACKAGE 9', 'cultural-traditional', NULL, NULL, NULL, 3, 200, '2025-08-28', '10:00:00', '18:00:00', 'partial', NULL, 29, 182000.00, 91000.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-18 07:44:00', '2025-08-03 08:06:30', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752824595_6879fb13c5f4f.docx\",\"file_path\":\"uploads/event_attachments/1752824595_6879fb13c5f4f.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-18T07:43:15.812Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-18 07:44:00', NULL),
 (12, NULL, 30, 7, 3, 'Clyde Wedding Day!', 'Other Celebration', NULL, NULL, NULL, 5, 300, '2025-08-15', '10:00:00', '10:00:00', 'partial', 15, 30, 221000.00, 176800.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-19 03:10:50', '2025-07-22 01:32:33', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752894628_687b0ca473b36.docx\",\"file_path\":\"uploads/event_attachments/1752894628_687b0ca473b36.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-19T03:10:28.476Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-19 03:10:50', NULL),
 (13, NULL, 20, 7, 3, 'Jesse Golden Wedding', 'cultural-traditional', NULL, NULL, NULL, 1, 300, '2025-08-31', '10:00:00', '18:00:00', 'partial', 23, 0, 770000.00, 385000.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-19 04:50:36', '2025-07-22 01:32:33', NULL, 0, NULL, NULL, 0, NULL, NULL, '2025-07-19 04:50:36', NULL),
 (31, NULL, 29, 7, 3, 'Test', 'vintage-romance', NULL, NULL, NULL, 3, 100, '2025-09-10', '10:00:00', '23:59:00', 'paid', 22, 34, 120120.00, 84084.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-21 18:38:01', '2025-07-22 01:32:33', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753122341_687e8625539ce.jpg\",\"file_path\":\"uploads/event_attachments/1753122341_687e8625539ce.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-21T18:25:41.361Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-21 18:38:01', NULL),
 (32, NULL, 29, 7, 3, 'Kimi K2 - Test 2', 'Sample', NULL, NULL, NULL, 3, 100, '2025-09-18', '10:00:00', '23:59:00', 'paid', 22, 29, 161000.00, 120750.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-22 01:05:43', '2025-07-22 01:32:33', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753146327_687ee3d73d7e8.jpg\",\"file_path\":\"uploads/event_attachments/1753146327_687ee3d73d7e8.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:05:27.259Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:05:43', NULL),
-(33, NULL, 23, 7, 4, 'Christine\'s Birthday', 'fairy-tale', NULL, NULL, NULL, 3, 100, '2025-09-19', '10:00:00', '23:59:00', 'paid', 22, 34, 128000.00, 96000.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-22 01:10:54', '2025-07-22 01:32:33', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753146640_687ee51039fd9.jpg\",\"file_path\":\"uploads/event_attachments/1753146640_687ee51039fd9.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:10:40.254Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:10:54', NULL),
-(34, NULL, 20, 7, 4, 'Test Paymnet Test', 'boho-chic', NULL, NULL, NULL, 3, 100, '2025-09-20', '10:00:00', '23:59:00', 'unpaid', 22, 34, 128000.00, 89600.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-22 01:42:11', '2025-07-22 01:42:11', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753148520_687eec68d8982.jpg\",\"file_path\":\"uploads/event_attachments/1753148520_687eec68d8982.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:42:00.906Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:42:10', NULL);
+(33, NULL, 23, 7, 4, 'Christine\'s Birthday', 'fairy-tale', NULL, NULL, NULL, 3, 100, '2025-09-19', '10:00:00', '23:59:00', 'partial', 22, 34, 128000.00, 96000.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-22 01:10:54', '2025-07-22 02:14:16', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753146640_687ee51039fd9.jpg\",\"file_path\":\"uploads/event_attachments/1753146640_687ee51039fd9.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:10:40.254Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:10:54', NULL),
+(34, NULL, 20, 7, 4, 'Test Paymnet Test', 'boho-chic', NULL, NULL, NULL, 3, 100, '2025-09-20', '10:00:00', '23:59:00', 'unpaid', 22, 34, 128000.00, 89600.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-22 01:42:11', '2025-07-22 01:42:11', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753148520_687eec68d8982.jpg\",\"file_path\":\"uploads/event_attachments/1753148520_687eec68d8982.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:42:00.906Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:42:10', NULL),
+(35, NULL, 20, 7, 4, 'Payment Issue Fix', 'color-coordinated', NULL, NULL, NULL, 5, 300, '2025-09-21', '10:30:00', '23:59:00', 'paid', 23, 29, 412000.00, 309000.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-22 02:19:13', '2025-07-22 02:20:25', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753150735_687ef50f80b46.jpg\",\"file_path\":\"uploads/event_attachments/1753150735_687ef50f80b46.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T02:18:55.529Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 02:19:13', NULL),
+(36, NULL, 21, 7, 4, 'Debut', 'winter-wonderland', NULL, NULL, NULL, 5, 100, '2025-08-01', '10:00:00', '23:59:00', 'partial', 14, 30, 83000.00, 41500.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-22 06:36:36', '2025-07-22 06:36:36', NULL, 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 06:36:36', NULL),
+(37, NULL, 21, 7, NULL, 'Test', 'tropical-paradise', NULL, NULL, NULL, 5, 100, '2025-08-08', '10:00:00', '23:59:00', 'partial', 15, 30, 169000.00, 84500.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-07-23 07:25:44', '2025-07-23 07:25:44', '[{\"original_name\":\"June 27.docx\",\"file_name\":\"1753255511_68808e5714028.docx\",\"file_path\":\"uploads/event_attachments/1753255511_68808e5714028.docx\",\"file_size\":11241,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-23T07:25:11.085Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-23 07:25:44', NULL),
+(48, NULL, 21, 7, 6, 'Test 50', 'art-deco', NULL, NULL, NULL, 3, 100, '2025-09-30', '10:00:00', '23:59:00', 'paid', 22, 34, 80000.00, 40000.00, 'cash', 2, NULL, NULL, 'draft', NULL, NULL, NULL, NULL, '2025-08-03 07:53:36', '2025-08-03 07:53:36', '[{\"original_name\":\"maxresdefault.webp\",\"file_name\":\"1754207086_688f136eee4b1.webp\",\"file_path\":\"uploads/event_attachments/1754207086_688f136eee4b1.webp\",\"file_size\":109018,\"file_type\":\"image/webp\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-03T07:44:46.977Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL);
 
 --
 -- Triggers `tbl_events`
@@ -574,6 +685,9 @@ CREATE TABLE `tbl_event_components` (
   `component_description` text DEFAULT NULL,
   `is_custom` tinyint(1) NOT NULL DEFAULT 0,
   `is_included` tinyint(1) NOT NULL DEFAULT 1,
+  `payment_status` enum('pending','paid') NOT NULL DEFAULT 'pending',
+  `payment_date` datetime DEFAULT NULL,
+  `payment_notes` text DEFAULT NULL,
   `original_package_component_id` int(11) DEFAULT NULL,
   `supplier_id` int(11) DEFAULT NULL COMMENT 'Reference to supplier if this is a supplier component',
   `offer_id` int(11) DEFAULT NULL COMMENT 'Reference to supplier offer if this is from a specific offer',
@@ -584,310 +698,335 @@ CREATE TABLE `tbl_event_components` (
 -- Dumping data for table `tbl_event_components`
 --
 
-INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`, `component_price`, `supplier_price`, `supplier_status`, `supplier_notes`, `delivery_date`, `is_rated`, `component_description`, `is_custom`, `is_included`, `original_package_component_id`, `supplier_id`, `offer_id`, `display_order`) VALUES
-(7, 28, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(8, 28, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(9, 28, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(10, 28, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(11, 28, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, NULL, 0, 0, 205, NULL, NULL, 8),
-(12, 29, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(13, 29, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(14, 29, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(15, 29, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(16, 29, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(17, 29, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(18, 29, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(19, 29, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(20, 29, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(21, 30, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(22, 30, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(23, 30, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(24, 30, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(25, 30, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(26, 30, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(27, 30, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(28, 30, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(29, 30, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(30, 31, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 188, NULL, NULL, 0),
-(31, 31, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 1, 1, NULL, NULL, NULL, 1),
-(32, 32, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(33, 32, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(34, 32, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(35, 32, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(36, 32, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(37, 32, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(38, 32, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(39, 32, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(40, 32, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(41, 33, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(42, 33, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(43, 33, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(44, 33, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(45, 33, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(46, 33, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(47, 33, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(48, 33, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(49, 33, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(50, 34, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(51, 34, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(52, 34, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(53, 34, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(54, 34, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(55, 34, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(56, 34, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(57, 34, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(58, 34, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(59, 35, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(60, 35, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(61, 35, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(62, 35, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(63, 35, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(64, 35, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(65, 35, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(66, 35, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(67, 35, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(68, 36, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(69, 36, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(70, 36, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(71, 36, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(72, 36, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(73, 36, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(74, 36, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(75, 36, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(76, 36, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(77, 37, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(78, 37, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(79, 37, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(80, 37, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(81, 37, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(82, 37, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(83, 37, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(84, 37, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(85, 37, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(86, 38, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(87, 38, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(88, 38, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(89, 38, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(90, 38, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(91, 38, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(92, 38, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(93, 38, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(94, 38, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(95, 39, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(96, 39, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(97, 39, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(98, 39, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(99, 39, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(100, 39, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(101, 39, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(102, 39, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(103, 39, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(104, 40, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(105, 40, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(106, 40, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(107, 40, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(108, 40, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(109, 40, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(110, 40, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(111, 40, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(112, 40, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(113, 41, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(114, 41, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(115, 41, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(116, 41, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(117, 41, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(118, 41, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(119, 41, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(120, 41, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(121, 41, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(122, 42, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(123, 42, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(124, 42, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(125, 42, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(126, 42, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(127, 42, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(128, 42, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(129, 42, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(130, 42, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(131, 43, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(132, 43, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(133, 43, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(134, 43, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(135, 43, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(136, 43, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(137, 43, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(138, 43, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(139, 43, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(140, 44, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(141, 44, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(142, 44, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(143, 44, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(144, 44, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(145, 44, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(146, 44, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(147, 44, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(148, 44, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(149, 45, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(150, 45, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(151, 45, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(152, 45, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(153, 45, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(154, 45, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(155, 45, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(156, 45, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(157, 45, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(160, 46, 'Venue Rental', 40000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 261, NULL, NULL, 0),
-(161, 46, 'Catering Service', 75000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 262, NULL, NULL, 1),
-(162, 46, 'Event Styling & Floral Design', 34999.98, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 263, NULL, NULL, 2),
-(163, 46, 'Photo & Video Coverage', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 264, NULL, NULL, 3),
-(164, 46, 'Host / Emcee', 10000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 265, NULL, NULL, 4),
-(165, 46, 'Acoustic Live Band', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 266, NULL, NULL, 5),
-(166, 46, 'Led Wall', 12000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 267, NULL, NULL, 6),
-(167, 46, 'Customized Cake', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 268, NULL, NULL, 7),
-(168, 46, 'Anniversary Tokens', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 269, NULL, NULL, 8),
-(169, 46, 'Event Coordinator & Staff', 18000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 270, NULL, NULL, 9),
-(170, 47, 'Venue Rental', 44000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 279, NULL, NULL, 0),
-(171, 47, 'Catering', 70000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 280, NULL, NULL, 1),
-(172, 47, 'Lights & Sounds', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 281, NULL, NULL, 2),
-(173, 47, 'Host & Live Performer', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 282, NULL, NULL, 3),
-(174, 47, 'Event Styling & Decorations', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 283, NULL, NULL, 4),
-(175, 47, 'Photographer & Videographer', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 284, NULL, NULL, 5),
-(176, 47, 'Invitation Design & Printing', 6000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 285, NULL, NULL, 6),
-(177, 47, 'Cake & Wine Set', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 286, NULL, NULL, 7),
-(178, 48, 'Venue Rental', 44000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 279, NULL, NULL, 0),
-(179, 48, 'Catering', 70000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 280, NULL, NULL, 1),
-(180, 48, 'Lights & Sounds', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 281, NULL, NULL, 2),
-(181, 48, 'Host & Live Performer', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 282, NULL, NULL, 3),
-(182, 48, 'Event Styling & Decorations', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 283, NULL, NULL, 4),
-(183, 48, 'Photographer & Videographer', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 284, NULL, NULL, 5),
-(184, 48, 'Invitation Design & Printing', 6000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 285, NULL, NULL, 6),
-(185, 48, 'Cake & Wine Set', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 286, NULL, NULL, 7),
-(186, 48, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 1, 1, NULL, NULL, NULL, 8),
-(187, 57, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 0),
-(188, 57, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 1),
-(189, 57, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 2),
-(190, 57, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 3),
-(191, 57, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 4),
-(192, 57, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 5),
-(193, 57, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 6),
-(194, 57, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 7),
-(195, 57, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 8),
-(196, 58, 'sample_inclusion', 12000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 287, NULL, NULL, 0),
-(197, 58, 'sample_inclusion 2', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 288, NULL, NULL, 1),
-(198, 1, 'Pearlmont Hotel', 44000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel', 1, 1, NULL, NULL, NULL, 0),
-(199, 1, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 1),
-(200, 1, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 2),
-(201, 1, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 3),
-(202, 1, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 4),
-(203, 1, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 5),
-(204, 1, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 6),
-(205, 1, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 195, NULL, NULL, 7),
-(206, 1, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 8),
-(207, 1, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 9),
-(208, 1, 'Elegant Catering Services', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering', 1, 1, NULL, NULL, NULL, 10),
-(209, 1, 'Purple Yam', 0.00, NULL, 'pending', NULL, NULL, 0, 'Purple Yam - Catering', 1, 1, NULL, NULL, NULL, 11),
-(210, 1, 'My own photography service', 35000.00, NULL, 'pending', NULL, NULL, 0, 'My own photography service', 1, 1, NULL, NULL, NULL, 12),
-(211, 2, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 1, 1, NULL, NULL, NULL, 0),
-(212, 2, 'sample_inclusion', 12000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 287, NULL, NULL, 1),
-(213, 2, 'sample_inclusion 2', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 288, NULL, NULL, 2),
-(214, 2, 'Elegant Catering Services', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering', 1, 1, NULL, NULL, NULL, 3),
-(215, 2, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, NULL, NULL, NULL, 4),
-(216, 2, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, NULL, NULL, NULL, 5),
-(217, 2, 'Sample rate ', 200000.00, NULL, 'pending', NULL, NULL, 0, 'Sample rate ', 1, 1, NULL, NULL, NULL, 6),
-(218, 3, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 1, 1, NULL, NULL, NULL, 0),
-(219, 3, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 1),
-(220, 3, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 2),
-(221, 3, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 191, NULL, NULL, 3),
-(222, 3, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 192, NULL, NULL, 4),
-(223, 3, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 5),
-(224, 3, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 6),
-(225, 3, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 195, NULL, NULL, 7),
-(226, 3, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 8),
-(227, 3, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 9),
-(228, 3, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, NULL, NULL, NULL, 10),
-(229, 3, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, NULL, NULL, NULL, 11),
-(230, 3, 'Warner Bros.', 50000.00, NULL, 'pending', NULL, NULL, 0, 'Warner Bros.', 1, 1, NULL, NULL, NULL, 12),
-(231, 4, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 1, 1, NULL, NULL, NULL, 0),
-(232, 4, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 1),
-(233, 4, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 2),
-(234, 4, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 191, NULL, NULL, 3),
-(235, 4, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 192, NULL, NULL, 4),
-(236, 4, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 5),
-(237, 4, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 194, NULL, NULL, 6),
-(238, 4, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 7),
-(239, 4, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 196, NULL, NULL, 8),
-(240, 4, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 9),
-(241, 4, 'Purple Yam', 0.00, NULL, 'pending', NULL, NULL, 0, 'Purple Yam - Catering', 1, 1, NULL, NULL, NULL, 10),
-(242, 4, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, NULL, NULL, NULL, 11),
-(243, 4, 'External Creatives', 35000.00, NULL, 'pending', NULL, NULL, 0, 'External Creatives', 1, 1, NULL, NULL, NULL, 12),
-(244, 5, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 1, 1, NULL, NULL, NULL, 0),
-(245, 5, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 188, NULL, NULL, 1),
-(246, 5, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, NULL, NULL, NULL, 2),
-(247, 5, 'Perfect Shots Photography', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography', 1, 1, NULL, NULL, NULL, 3),
-(248, 5, 'External Creatives', 10000.00, NULL, 'pending', NULL, NULL, 0, 'External Creatives', 1, 1, NULL, NULL, NULL, 4),
-(249, 6, 'Demiren Hotel', 30000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel (includes overflow for 150 guests)', 1, 1, NULL, NULL, NULL, 0),
-(250, 6, 'Elegant Catering Services', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering', 1, 1, NULL, NULL, NULL, 1),
-(251, 6, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, NULL, NULL, NULL, 2),
-(252, 6, 'Perfect Shots Photography', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography', 1, 1, NULL, NULL, NULL, 3),
-(253, 6, 'Purple Yam', 0.00, NULL, 'pending', NULL, NULL, 0, 'Purple Yam - Catering', 1, 1, NULL, NULL, NULL, 4),
-(254, 6, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, NULL, NULL, NULL, 5),
-(255, 6, 'External Supplier Sample', 50000.00, NULL, 'pending', NULL, NULL, 0, 'External Supplier Sample', 1, 1, NULL, NULL, NULL, 6),
-(256, 7, 'Pearlmont Hotel', 79000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel (includes overflow for 200 guests)', 1, 1, NULL, NULL, NULL, 0),
-(257, 7, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, NULL, NULL, NULL, 1),
-(258, 7, 'Perfect Shots Photography', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography', 1, 1, NULL, NULL, NULL, 2),
-(259, 7, 'Fablus Catering', 35000.00, NULL, 'pending', NULL, NULL, 0, 'Fablus Catering', 1, 1, NULL, NULL, NULL, 3),
-(260, 7, 'Purple Yam', 0.00, NULL, 'pending', NULL, NULL, 0, 'Purple Yam - Catering', 1, 1, NULL, NULL, NULL, 4),
-(261, 7, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, NULL, NULL, NULL, 5),
-(262, 8, 'Demiren Hotel', 100000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel (includes overflow for 500 guests)', 1, 1, NULL, NULL, NULL, 0),
-(263, 8, 'Elegant Catering Services', 25000.00, 25000.00, 'pending', 'Added from supplier: Elegant Catering Services', NULL, 0, 'Elegant Catering Services - Catering', 1, 1, NULL, 1, NULL, 1),
-(264, 8, 'Perfect Shots Photography', 20000.00, 20000.00, 'pending', 'Added from supplier: Perfect Shots Photography', NULL, 0, 'Perfect Shots Photography - Photography', 1, 1, NULL, 2, NULL, 2),
-(265, 8, 'Custom Component', 12000.00, NULL, 'pending', NULL, NULL, 0, 'Custom Component', 1, 1, NULL, NULL, NULL, 3),
-(266, 8, 'Test', 10000000.00, NULL, 'pending', NULL, NULL, 0, 'Test', 1, 1, NULL, NULL, NULL, 4),
-(267, 9, 'Pearlmont Hotel', 184000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel (includes overflow for 500 guests)', 1, 1, NULL, NULL, NULL, 0),
-(268, 9, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, NULL, 1, NULL, 1),
-(269, 9, 'Blooming Gardens Florals - Reception Centerpieces', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Reception Centerpieces)', 1, 1, NULL, 3, NULL, 2),
-(270, 9, 'Sample rate ', 500000.00, NULL, 'pending', NULL, NULL, 0, 'Sample rate ', 1, 1, NULL, NULL, NULL, 3),
-(271, 10, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 1, 1, NULL, NULL, NULL, 0),
-(272, 10, 'Random', 12000.00, NULL, 'pending', NULL, NULL, 0, 'Random', 1, 1, NULL, NULL, NULL, 1),
-(273, 10, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', 15000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Bridal Bouquet & Ceremony Florals)', 1, 1, NULL, 3, NULL, 2),
-(274, 11, 'Pearlmont Hotel', 79000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel (includes overflow for 200 guests)', 1, 1, NULL, NULL, NULL, 0),
-(275, 11, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, NULL, 1, NULL, 1),
-(276, 11, 'Perfect Shots Photography - Event Photography Half Day', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography (Event Photography Half Day)', 1, 1, NULL, 2, NULL, 2),
-(277, 11, 'Blooming Gardens Florals - Reception Centerpieces', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Reception Centerpieces)', 1, 1, NULL, 3, NULL, 3),
-(278, 12, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 0, 1, NULL, NULL, NULL, 0),
-(279, 12, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 189, NULL, NULL, 1),
-(280, 12, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 190, NULL, NULL, 2),
-(281, 12, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 191, NULL, NULL, 3),
-(282, 12, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 192, NULL, NULL, 4),
-(283, 12, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 193, NULL, NULL, 5),
-(284, 12, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 194, NULL, NULL, 6),
-(285, 12, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 195, NULL, NULL, 7),
-(286, 12, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 196, NULL, NULL, 8),
-(287, 12, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 205, NULL, NULL, 9),
-(288, 12, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, NULL, 1, NULL, 10),
-(289, 12, 'Sample rate ', 12000.00, NULL, 'pending', NULL, NULL, 0, 'Sample rate ', 1, 1, NULL, NULL, NULL, 11),
-(290, 13, 'Food and Beverages', 120000.00, NULL, 'pending', NULL, NULL, 0, 'Premium Large Size Buffet, Free Snacks, Full-blown Lunch, Golden Dinner', 0, 1, NULL, NULL, NULL, 0),
-(291, 13, 'Photo and Video', 50000.00, NULL, 'pending', NULL, NULL, 0, 'IMAX Equipments, High-resolution Edits, Multiple Same Edits, Multiple Photo and Video Booth, Drone Shots, Special Video Director', 0, 1, NULL, NULL, NULL, 1),
-(292, 13, 'Transporation', 300000.00, NULL, 'pending', NULL, NULL, 0, 'White Lamborghini Aventador, Free Cars for the main family', 0, 1, NULL, NULL, NULL, 2),
-(293, 13, 'Entertainment', 250000.00, NULL, 'pending', NULL, NULL, 0, 'Special Guess, Magic Performance, Live Band, Sing a long (Unlimited Hours)', 0, 1, NULL, NULL, NULL, 3),
-(294, 13, 'Ultrawinds Mountain Resort', 50000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Ultrawinds Mountain Resort', 0, 1, NULL, NULL, NULL, 4),
-(295, 31, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 0, 1, NULL, NULL, NULL, 0),
-(296, 31, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, NULL, NULL, NULL, 1),
-(297, 31, 'Test', 120.00, NULL, 'pending', NULL, NULL, 0, 'Test', 1, 1, NULL, NULL, NULL, 2),
-(298, 31, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, NULL, 1, NULL, 3),
-(299, 32, 'Pearlmont Hotel', 44000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel', 0, 1, NULL, NULL, NULL, 0),
-(300, 32, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, NULL, NULL, NULL, 1),
-(301, 32, 'EventCorp AV Solutions - Basic Sound System Package', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual (Basic Sound System Package)', 1, 1, NULL, 4, NULL, 2),
-(302, 32, 'Cakes and Weddings', 35000.00, NULL, 'pending', NULL, NULL, 0, 'Cakes and Weddings', 1, 1, NULL, NULL, NULL, 3),
-(303, 32, 'Perfect Shots Photography - Wedding Photography Full Day', 45000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography (Wedding Photography Full Day)', 1, 1, NULL, 2, NULL, 4),
-(304, 33, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 0, 1, NULL, NULL, NULL, 0),
-(305, 33, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, NULL, NULL, NULL, 1),
-(306, 33, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, NULL, 1, NULL, 2),
-(307, 33, 'Blooming Gardens Florals - Reception Centerpieces', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Reception Centerpieces)', 1, 1, NULL, 3, NULL, 3),
-(308, 34, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 0, 1, NULL, NULL, NULL, 0),
-(309, 34, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, NULL, NULL, NULL, 1),
-(310, 34, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, NULL, 1, NULL, 2),
-(311, 34, 'Blooming Gardens Florals - Reception Centerpieces', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Reception Centerpieces)', 1, 1, NULL, 3, NULL, 3);
+INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`, `component_price`, `supplier_price`, `supplier_status`, `supplier_notes`, `delivery_date`, `is_rated`, `component_description`, `is_custom`, `is_included`, `payment_status`, `payment_date`, `payment_notes`, `original_package_component_id`, `supplier_id`, `offer_id`, `display_order`) VALUES
+(7, 28, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(8, 28, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(9, 28, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(10, 28, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(11, 28, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, NULL, 0, 0, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(12, 29, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(13, 29, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(14, 29, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(15, 29, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(16, 29, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(17, 29, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(18, 29, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(19, 29, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(20, 29, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(21, 30, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(22, 30, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(23, 30, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(24, 30, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(25, 30, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(26, 30, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(27, 30, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(28, 30, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(29, 30, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(30, 31, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 188, NULL, NULL, 0),
+(31, 31, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(32, 32, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(33, 32, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(34, 32, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(35, 32, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(36, 32, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(37, 32, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(38, 32, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(39, 32, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(40, 32, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(41, 33, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(42, 33, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(43, 33, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(44, 33, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(45, 33, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(46, 33, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(47, 33, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(48, 33, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(49, 33, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(50, 34, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(51, 34, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(52, 34, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(53, 34, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(54, 34, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(55, 34, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(56, 34, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(57, 34, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(58, 34, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(59, 35, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(60, 35, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(61, 35, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(62, 35, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(63, 35, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(64, 35, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(65, 35, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(66, 35, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(67, 35, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(68, 36, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(69, 36, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(70, 36, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(71, 36, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(72, 36, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(73, 36, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(74, 36, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(75, 36, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(76, 36, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(77, 37, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(78, 37, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(79, 37, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(80, 37, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(81, 37, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(82, 37, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(83, 37, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(84, 37, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(85, 37, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(86, 38, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(87, 38, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(88, 38, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(89, 38, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(90, 38, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(91, 38, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(92, 38, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(93, 38, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(94, 38, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(95, 39, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(96, 39, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(97, 39, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(98, 39, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(99, 39, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(100, 39, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(101, 39, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(102, 39, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(103, 39, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(104, 40, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(105, 40, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(106, 40, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(107, 40, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(108, 40, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(109, 40, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(110, 40, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(111, 40, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(112, 40, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(113, 41, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(114, 41, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(115, 41, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(116, 41, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(117, 41, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(118, 41, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(119, 41, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(120, 41, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(121, 41, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(122, 42, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(123, 42, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(124, 42, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(125, 42, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(126, 42, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(127, 42, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(128, 42, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(129, 42, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(130, 42, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(131, 43, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(132, 43, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(133, 43, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(134, 43, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(135, 43, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(136, 43, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(137, 43, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(138, 43, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(139, 43, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(140, 44, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(141, 44, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(142, 44, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(143, 44, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(144, 44, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(145, 44, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(146, 44, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(147, 44, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(148, 44, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(149, 45, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(150, 45, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(151, 45, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(152, 45, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(153, 45, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(154, 45, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(155, 45, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(156, 45, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(157, 45, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(160, 46, 'Venue Rental', 40000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 261, NULL, NULL, 0),
+(161, 46, 'Catering Service', 75000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 262, NULL, NULL, 1),
+(162, 46, 'Event Styling & Floral Design', 34999.98, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 263, NULL, NULL, 2),
+(163, 46, 'Photo & Video Coverage', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 264, NULL, NULL, 3),
+(164, 46, 'Host / Emcee', 10000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 265, NULL, NULL, 4),
+(165, 46, 'Acoustic Live Band', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 266, NULL, NULL, 5),
+(166, 46, 'Led Wall', 12000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 267, NULL, NULL, 6),
+(167, 46, 'Customized Cake', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 268, NULL, NULL, 7),
+(168, 46, 'Anniversary Tokens', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 269, NULL, NULL, 8),
+(169, 46, 'Event Coordinator & Staff', 18000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 270, NULL, NULL, 9),
+(170, 47, 'Venue Rental', 44000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 279, NULL, NULL, 0),
+(171, 47, 'Catering', 70000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 280, NULL, NULL, 1),
+(172, 47, 'Lights & Sounds', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 281, NULL, NULL, 2),
+(173, 47, 'Host & Live Performer', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 282, NULL, NULL, 3),
+(174, 47, 'Event Styling & Decorations', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 283, NULL, NULL, 4),
+(175, 47, 'Photographer & Videographer', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 284, NULL, NULL, 5),
+(176, 47, 'Invitation Design & Printing', 6000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 285, NULL, NULL, 6),
+(177, 47, 'Cake & Wine Set', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 286, NULL, NULL, 7),
+(178, 48, 'Venue Rental', 44000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 279, NULL, NULL, 0),
+(179, 48, 'Catering', 70000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 280, NULL, NULL, 1),
+(180, 48, 'Lights & Sounds', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 281, NULL, NULL, 2),
+(181, 48, 'Host & Live Performer', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 282, NULL, NULL, 3),
+(182, 48, 'Event Styling & Decorations', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 283, NULL, NULL, 4),
+(183, 48, 'Photographer & Videographer', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 284, NULL, NULL, 5),
+(184, 48, 'Invitation Design & Printing', 6000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 285, NULL, NULL, 6),
+(185, 48, 'Cake & Wine Set', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 286, NULL, NULL, 7),
+(186, 48, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 8),
+(187, 57, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
+(188, 57, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
+(189, 57, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 2),
+(190, 57, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 3),
+(191, 57, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 4),
+(192, 57, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(193, 57, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(194, 57, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(195, 57, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(196, 58, 'sample_inclusion', 12000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 287, NULL, NULL, 0),
+(197, 58, 'sample_inclusion 2', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 288, NULL, NULL, 1),
+(198, 1, 'Pearlmont Hotel', 44000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(199, 1, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 1),
+(200, 1, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 2),
+(201, 1, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 3),
+(202, 1, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 4),
+(203, 1, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 5),
+(204, 1, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 6),
+(205, 1, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 195, NULL, NULL, 7),
+(206, 1, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 8),
+(207, 1, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 9),
+(208, 1, 'Elegant Catering Services', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 10),
+(209, 1, 'Purple Yam', 0.00, NULL, 'pending', NULL, NULL, 0, 'Purple Yam - Catering', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 11),
+(210, 1, 'My own photography service', 35000.00, NULL, 'pending', NULL, NULL, 0, 'My own photography service', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 12),
+(211, 2, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(212, 2, 'sample_inclusion', 12000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 287, NULL, NULL, 1),
+(213, 2, 'sample_inclusion 2', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 288, NULL, NULL, 2),
+(214, 2, 'Elegant Catering Services', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(215, 2, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4),
+(216, 2, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 5),
+(217, 2, 'Sample rate ', 200000.00, NULL, 'pending', NULL, NULL, 0, 'Sample rate ', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 6),
+(218, 3, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(219, 3, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 1),
+(220, 3, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 2),
+(221, 3, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 191, NULL, NULL, 3),
+(222, 3, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 4),
+(223, 3, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 5),
+(224, 3, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 6),
+(225, 3, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 195, NULL, NULL, 7),
+(226, 3, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 8),
+(227, 3, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 9),
+(228, 3, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 10),
+(229, 3, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 11),
+(230, 3, 'Warner Bros.', 50000.00, NULL, 'pending', NULL, NULL, 0, 'Warner Bros.', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 12),
+(231, 4, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(232, 4, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 1),
+(233, 4, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 2),
+(234, 4, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 3),
+(235, 4, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 192, NULL, NULL, 4),
+(236, 4, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 5),
+(237, 4, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 194, NULL, NULL, 6),
+(238, 4, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 7),
+(239, 4, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 8),
+(240, 4, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 9),
+(241, 4, 'Purple Yam', 0.00, NULL, 'pending', NULL, NULL, 0, 'Purple Yam - Catering', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 10),
+(242, 4, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 11),
+(243, 4, 'External Creatives', 35000.00, NULL, 'pending', NULL, NULL, 0, 'External Creatives', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 12),
+(244, 5, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(245, 5, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 188, NULL, NULL, 1),
+(246, 5, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 2),
+(247, 5, 'Perfect Shots Photography', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(248, 5, 'External Creatives', 10000.00, NULL, 'pending', NULL, NULL, 0, 'External Creatives', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4),
+(249, 6, 'Demiren Hotel', 30000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel (includes overflow for 150 guests)', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(250, 6, 'Elegant Catering Services', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(251, 6, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 2),
+(252, 6, 'Perfect Shots Photography', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(253, 6, 'Purple Yam', 0.00, NULL, 'pending', NULL, NULL, 0, 'Purple Yam - Catering', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4),
+(254, 6, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 5),
+(255, 6, 'External Supplier Sample', 50000.00, NULL, 'pending', NULL, NULL, 0, 'External Supplier Sample', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 6),
+(256, 7, 'Pearlmont Hotel', 79000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel (includes overflow for 200 guests)', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(257, 7, 'Blooming Gardens Florals', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(258, 7, 'Perfect Shots Photography', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 2),
+(259, 7, 'Fablus Catering', 35000.00, NULL, 'pending', NULL, NULL, 0, 'Fablus Catering', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(260, 7, 'Purple Yam', 0.00, NULL, 'pending', NULL, NULL, 0, 'Purple Yam - Catering', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4),
+(261, 7, 'EventCorp AV Solutions', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 5),
+(262, 8, 'Demiren Hotel', 100000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel (includes overflow for 500 guests)', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(263, 8, 'Elegant Catering Services', 25000.00, 25000.00, 'pending', 'Added from supplier: Elegant Catering Services', NULL, 0, 'Elegant Catering Services - Catering', 1, 1, 'pending', NULL, NULL, NULL, 1, NULL, 1),
+(264, 8, 'Perfect Shots Photography', 20000.00, 20000.00, 'pending', 'Added from supplier: Perfect Shots Photography', NULL, 0, 'Perfect Shots Photography - Photography', 1, 1, 'pending', NULL, NULL, NULL, 2, NULL, 2),
+(265, 8, 'Custom Component', 12000.00, NULL, 'pending', NULL, NULL, 0, 'Custom Component', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(266, 8, 'Test', 10000000.00, NULL, 'pending', NULL, NULL, 0, 'Test', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4),
+(267, 9, 'Pearlmont Hotel', 184000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel (includes overflow for 500 guests)', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(268, 9, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, 'pending', NULL, NULL, NULL, 1, NULL, 1),
+(269, 9, 'Blooming Gardens Florals - Reception Centerpieces', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Reception Centerpieces)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 2),
+(270, 9, 'Sample rate ', 500000.00, NULL, 'pending', NULL, NULL, 0, 'Sample rate ', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(271, 10, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(272, 10, 'Random', 12000.00, NULL, 'pending', NULL, NULL, 0, 'Random', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(273, 10, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', 15000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Bridal Bouquet & Ceremony Florals)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 2),
+(274, 11, 'Pearlmont Hotel', 79000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel (includes overflow for 200 guests)', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(275, 11, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, 'pending', NULL, NULL, NULL, 1, NULL, 1),
+(276, 11, 'Perfect Shots Photography - Event Photography Half Day', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography (Event Photography Half Day)', 1, 1, 'pending', NULL, NULL, NULL, 2, NULL, 2),
+(277, 11, 'Blooming Gardens Florals - Reception Centerpieces', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Reception Centerpieces)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 3),
+(278, 12, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(279, 12, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 1),
+(280, 12, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 2),
+(281, 12, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 191, NULL, NULL, 3),
+(282, 12, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 192, NULL, NULL, 4),
+(283, 12, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 5),
+(284, 12, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 6),
+(285, 12, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 7),
+(286, 12, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 196, NULL, NULL, 8),
+(287, 12, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 9),
+(288, 12, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, 'pending', NULL, NULL, NULL, 1, NULL, 10),
+(289, 12, 'Sample rate ', 12000.00, NULL, 'pending', NULL, NULL, 0, 'Sample rate ', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 11),
+(290, 13, 'Food and Beverages', 120000.00, NULL, 'pending', NULL, NULL, 0, 'Premium Large Size Buffet, Free Snacks, Full-blown Lunch, Golden Dinner', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(291, 13, 'Photo and Video', 50000.00, NULL, 'pending', NULL, NULL, 0, 'IMAX Equipments, High-resolution Edits, Multiple Same Edits, Multiple Photo and Video Booth, Drone Shots, Special Video Director', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(292, 13, 'Transporation', 300000.00, NULL, 'pending', NULL, NULL, 0, 'White Lamborghini Aventador, Free Cars for the main family', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 2),
+(293, 13, 'Entertainment', 250000.00, NULL, 'pending', NULL, NULL, 0, 'Special Guess, Magic Performance, Live Band, Sing a long (Unlimited Hours)', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(294, 13, 'Ultrawinds Mountain Resort', 50000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Ultrawinds Mountain Resort', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4),
+(295, 31, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(296, 31, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(297, 31, 'Test', 120.00, NULL, 'pending', NULL, NULL, 0, 'Test', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 2),
+(298, 31, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, 'pending', NULL, NULL, NULL, 1, NULL, 3),
+(299, 32, 'Pearlmont Hotel', 44000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(300, 32, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(301, 32, 'EventCorp AV Solutions - Basic Sound System Package', 12000.00, NULL, 'pending', NULL, NULL, 0, 'EventCorp AV Solutions - Audio Visual (Basic Sound System Package)', 1, 1, 'pending', NULL, NULL, NULL, 4, NULL, 2),
+(302, 32, 'Cakes and Weddings', 35000.00, NULL, 'pending', NULL, NULL, 0, 'Cakes and Weddings', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(303, 32, 'Perfect Shots Photography - Wedding Photography Full Day', 45000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography (Wedding Photography Full Day)', 1, 1, 'pending', NULL, NULL, NULL, 2, NULL, 4),
+(304, 33, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(305, 33, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(306, 33, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, 'pending', NULL, NULL, NULL, 1, NULL, 2),
+(307, 33, 'Blooming Gardens Florals - Reception Centerpieces', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Reception Centerpieces)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 3),
+(308, 34, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(309, 34, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(310, 34, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, 'pending', NULL, NULL, NULL, 1, NULL, 2),
+(311, 34, 'Blooming Gardens Florals - Reception Centerpieces', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Reception Centerpieces)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 3),
+(312, 35, 'Pearlmont Hotel', 44000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(313, 35, 'Food and Beverages', 120000.00, NULL, 'pending', NULL, NULL, 0, 'Premium Large Size Buffet, Free Snacks, Full-blown Lunch, Golden Dinner', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(314, 35, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, 'pending', NULL, NULL, NULL, 1, NULL, 2),
+(315, 35, 'Blooming Gardens Florals - Reception Centerpieces', 8000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Reception Centerpieces)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 3),
+(316, 35, 'Perfect Shots Photography - Wedding Photography Full Day', 45000.00, NULL, 'pending', NULL, NULL, 0, 'Perfect Shots Photography - Photography (Wedding Photography Full Day)', 1, 1, 'pending', NULL, NULL, NULL, 2, NULL, 4),
+(317, 35, 'Test Component', 120000.00, NULL, 'pending', NULL, NULL, 0, 'Test Component', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 5),
+(318, 36, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(319, 36, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 188, NULL, NULL, 1),
+(320, 36, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', 15000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Bridal Bouquet & Ceremony Florals)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 2),
+(321, 36, 'Sample Test', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Sample Test', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(322, 37, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(323, 37, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 1),
+(324, 37, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 2),
+(325, 37, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 3),
+(326, 37, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 4),
+(327, 37, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 5),
+(328, 37, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 6),
+(329, 37, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 7),
+(330, 37, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 8),
+(331, 37, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 9),
+(332, 37, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', 15000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Bridal Bouquet & Ceremony Florals)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 10),
+(333, 48, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(334, 48, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(335, 48, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', 15000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Bridal Bouquet & Ceremony Florals)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 2),
+(336, 48, 'Test', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Test', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3);
 
 -- --------------------------------------------------------
 
@@ -1279,7 +1418,32 @@ INSERT INTO `tbl_event_timeline` (`timeline_id`, `event_id`, `component_id`, `ac
 (0, 34, NULL, 'Demiren Hotel', '2025-09-20', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
 (0, 34, NULL, 'Venue Decoration', '2025-09-20', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
 (0, 34, NULL, 'Elegant Catering Services - Wedding Catering Package - Premium', '2025-09-20', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
-(0, 34, NULL, 'Blooming Gardens Florals - Reception Centerpieces', '2025-09-20', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3);
+(0, 34, NULL, 'Blooming Gardens Florals - Reception Centerpieces', '2025-09-20', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
+(0, 35, NULL, 'Pearlmont Hotel', '2025-09-21', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 35, NULL, 'Food and Beverages', '2025-09-21', '10:00:00', '11:00:00', '', '', NULL, '', 1),
+(0, 35, NULL, 'Elegant Catering Services - Wedding Catering Package - Premium', '2025-09-21', '12:00:00', '13:00:00', '', '', NULL, '', 2),
+(0, 35, NULL, 'Blooming Gardens Florals - Reception Centerpieces', '2025-09-21', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
+(0, 35, NULL, 'Perfect Shots Photography - Wedding Photography Full Day', '2025-09-21', '16:00:00', '17:00:00', '', '', NULL, '', 4),
+(0, 35, NULL, 'Test Component', '2025-09-21', '18:00:00', '19:00:00', '', '', NULL, 'pending', 5),
+(0, 36, NULL, 'Pearlmont Hotel - Package 2', '2025-08-01', '08:00:00', '09:00:00', '', '', NULL, '', 0),
+(0, 36, NULL, 'Inclusions', '2025-08-01', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 36, NULL, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', '2025-08-01', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(0, 36, NULL, 'Sample Test', '2025-08-01', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
+(0, 37, NULL, 'Pearlmont Hotel - Package 2', '2025-08-08', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 37, NULL, 'Full Wedding Coordination', '2025-08-08', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 37, NULL, 'Attire ', '2025-08-08', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(0, 37, NULL, 'Hair and Makeup', '2025-08-08', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
+(0, 37, NULL, 'Wedding Cake', '2025-08-08', '16:00:00', '17:00:00', '', '', NULL, 'pending', 4),
+(0, 37, NULL, 'Transport & Floral Decor ', '2025-08-08', '18:00:00', '19:00:00', '', '', NULL, 'pending', 5),
+(0, 37, NULL, 'Emcee & Program Flow', '2025-08-08', '20:00:00', '21:00:00', '', '', NULL, 'pending', 6),
+(0, 37, NULL, 'Photography & Videography', '2025-08-08', '22:00:00', '23:00:00', '', '', NULL, 'pending', 7),
+(0, 37, NULL, 'Remaining Buffer ', '2025-08-08', '00:00:00', '01:00:00', '', '', NULL, 'pending', 8),
+(0, 37, NULL, 'Inclusions', '2025-08-08', '02:00:00', '03:00:00', '', '', NULL, 'pending', 9),
+(0, 37, NULL, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', '2025-08-08', '04:00:00', '05:00:00', '', '', NULL, 'pending', 10),
+(0, 48, NULL, 'Demiren Hotel', '2025-09-30', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 48, NULL, 'Venue Decoration', '2025-09-30', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 48, NULL, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', '2025-09-30', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(0, 48, NULL, 'Test', '2025-09-30', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3);
 
 -- --------------------------------------------------------
 
@@ -1541,6 +1705,47 @@ INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venu
 (0, 7, 33, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱96,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/39', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:10:54'),
 (0, 20, 34, 34, NULL, NULL, NULL, NULL, 'Your event \"Test Paymnet Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/34', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:42:11'),
 (0, 20, 34, 34, NULL, NULL, NULL, NULL, 'Your event \"Test Paymnet Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/34', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:42:11');
+INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venue_id`, `store_id`, `budget_id`, `booking_id`, `feedback_id`, `notification_message`, `notification_type`, `notification_title`, `notification_priority`, `notification_icon`, `notification_url`, `expires_at`, `read_at`, `notification_status`, `created_at`) VALUES
+(0, 15, 33, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱149,000.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/6', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:14:16'),
+(0, 15, 45, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱212,500.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/13', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:14:16'),
+(0, 20, 58, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱400,000.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/22', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:14:16'),
+(0, 20, 35, 29, NULL, NULL, NULL, NULL, 'Your event \"Payment Issue Fix\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/35', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
+(0, 20, 35, 29, NULL, NULL, NULL, NULL, 'Your event \"Payment Issue Fix\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/35', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
+(0, 20, 35, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱309,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/40', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
+(0, 7, 35, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱309,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/40', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
+(0, 20, 35, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱309,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/40', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
+(0, 7, 35, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱309,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/40', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
+(0, 20, 35, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱103,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/41', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:20:25'),
+(0, 7, 35, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱103,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/41', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:20:25'),
+(0, 20, 35, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱103,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/41', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:20:25'),
+(0, 7, 35, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱103,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/41', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:20:25'),
+(0, 7, NULL, 30, NULL, NULL, 6, NULL, 'New booking BK-20250722-3053 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/6', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:32:27'),
+(0, 7, NULL, NULL, NULL, NULL, 6, NULL, 'New booking created: BK-20250722-3053', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-22 06:32:27'),
+(0, 21, NULL, 30, NULL, NULL, 6, NULL, 'Your booking BK-20250722-3053 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/6', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:33:13'),
+(0, 21, NULL, NULL, NULL, NULL, 6, NULL, 'Your booking BK-20250722-3053 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-22 06:33:13'),
+(0, 21, 36, 30, NULL, NULL, NULL, NULL, 'Your event \"Debut\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/36', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
+(0, 21, 36, 30, NULL, NULL, NULL, NULL, 'Your event \"Debut\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/36', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
+(0, 21, 36, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱41,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/42', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
+(0, 7, 36, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱41,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/42', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
+(0, 21, 36, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱41,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/42', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
+(0, 7, 36, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱41,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/42', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
+(0, 7, NULL, 30, NULL, NULL, 7, NULL, 'New booking BK-20250723-9399 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/7', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:12:59'),
+(0, 7, NULL, NULL, NULL, NULL, 7, NULL, 'New booking created: BK-20250723-9399', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-23 07:12:59'),
+(0, 21, NULL, 30, NULL, NULL, 7, NULL, 'Your booking BK-20250723-9399 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/7', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:14:17'),
+(0, 21, NULL, NULL, NULL, NULL, 7, NULL, 'Your booking BK-20250723-9399 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-23 07:14:17'),
+(0, 21, 37, 30, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/37', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
+(0, 21, 37, 30, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/37', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
+(0, 21, 37, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/43', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
+(0, 7, 37, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱84,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/43', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
+(0, 21, 37, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/43', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
+(0, 7, 37, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱84,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/43', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
+(0, 21, 48, 34, NULL, NULL, NULL, NULL, 'Your event \"Test 50\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/48', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
+(0, 21, 48, 34, NULL, NULL, NULL, NULL, 'Your event \"Test 50\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/48', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
+(0, 21, 48, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱40,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/44', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
+(0, 7, 48, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱40,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/44', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
+(0, 21, 48, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱40,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/44', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
+(0, 7, 48, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱40,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/44', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
+(0, 21, 11, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱91,000.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/33', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 08:06:30');
 
 -- --------------------------------------------------------
 
@@ -1567,7 +1772,9 @@ CREATE TABLE `tbl_organizer` (
 
 INSERT INTO `tbl_organizer` (`organizer_id`, `user_id`, `organizer_experience`, `organizer_certifications`, `organizer_resume_path`, `organizer_portfolio_link`, `organizer_availability`, `remarks`, `created_at`, `updated_at`) VALUES
 (3, 27, 'Years of Experience: 3\nAddress: CDO', '[\"uploads\\/certifications\\/1752506681_687521399564d.pdf\"]', 'uploads/resumes/1752506681_6875213991ce7.docx', '', 'flexible', '', '2025-07-14 15:24:41', '2025-07-14 15:24:41'),
-(4, 28, 'Years of Experience: 3\nAddress: ligan City', '[\"uploads\\/certifications\\/1752690715_6877f01bc3dc2.pdf\"]', 'uploads/resumes/1752690714_6877f01a83e0e.pdf', '', 'flexible', '', '2025-07-16 18:31:57', '2025-07-16 18:31:57');
+(4, 28, 'Years of Experience: 3\nAddress: ligan City', '[\"uploads\\/certifications\\/1752690715_6877f01bc3dc2.pdf\"]', 'uploads/resumes/1752690714_6877f01a83e0e.pdf', '', 'flexible', '', '2025-07-16 18:31:57', '2025-07-16 18:31:57'),
+(5, 31, 'Years of Experience: 0\nAddress: Iligan City', '[\"uploads\\/certifications\\/1753152283_687efb1b7aa37.jpg\"]', 'uploads/resumes/1753152286_687efb1e0930e.docx', '', 'flexible', '', '2025-07-22 02:44:52', '2025-07-22 02:44:52'),
+(6, 32, 'Years of Experience: 4\nAddress: Cagayan de Oro City', '[\"uploads\\/certifications\\/1753613279_688603df53254.pdf\"]', 'uploads/resumes/1753613281_688603e19c872.pdf', '', 'flexible', 'Great experience', '2025-07-27 10:48:21', '2025-07-27 10:48:21');
 
 -- --------------------------------------------------------
 
@@ -1591,7 +1798,9 @@ CREATE TABLE `tbl_organizer_activity_logs` (
 
 INSERT INTO `tbl_organizer_activity_logs` (`log_id`, `organizer_id`, `activity_type`, `description`, `related_id`, `metadata`, `created_at`) VALUES
 (3, 3, 'created', 'Organizer account created', 27, 'null', '2025-07-14 15:24:43'),
-(4, 4, 'created', 'Organizer account created', 28, 'null', '2025-07-16 18:32:00');
+(4, 4, 'created', 'Organizer account created', 28, 'null', '2025-07-16 18:32:00'),
+(5, 5, 'created', 'Organizer account created', 31, 'null', '2025-07-22 02:44:55'),
+(6, 6, 'created', 'Organizer account created', 32, 'null', '2025-07-27 10:48:23');
 
 -- --------------------------------------------------------
 
@@ -1954,14 +2163,14 @@ INSERT INTO `tbl_payments` (`payment_id`, `event_id`, `schedule_id`, `client_id`
 (3, 30, NULL, 15, 'gcash', 125000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-06-26', '13123123', '2025-06-26 07:17:02', '2025-06-26 07:17:02', NULL),
 (4, 31, NULL, 15, 'gcash', 82000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-06-26', '12312', '2025-06-26 08:36:53', '2025-06-26 08:36:53', NULL),
 (5, 32, NULL, 15, 'gcash', 149000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-06-26', 'sdfsdf', '2025-06-26 08:39:30', '2025-06-26 08:39:30', NULL),
-(6, 33, NULL, 15, 'gcash', 149000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-06-26', 'sdfsdf', '2025-06-26 08:50:59', '2025-06-26 08:50:59', NULL),
+(6, 33, NULL, 15, 'gcash', 149000.00, 'Initial down payment for event creation [CANCELLED: Duplicate reference detected during migration]', NULL, 'cancelled', '2025-06-26', 'sdfsdf', '2025-06-26 08:50:59', '2025-07-22 02:14:16', NULL),
 (7, 34, NULL, 15, 'gcash', 147000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-06-26', '567567', '2025-06-26 10:40:27', '2025-06-26 10:40:27', NULL),
 (8, 40, NULL, 5, 'gcash', 149000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-01', '12333212123', '2025-07-01 10:40:11', '2025-07-01 10:40:11', '[{\"file_name\":\"1751366367_6863badfcb9f2.pdf\",\"original_name\":\"Case 1.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751366367_6863badfcb9f2.pdf\",\"file_size\":883804,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-01 12:40:11\"}]'),
 (9, 41, NULL, 5, 'bank-transfer', 253300.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-01', '8234908149082390823', '2025-07-01 10:45:50', '2025-07-01 10:45:50', '[{\"file_name\":\"1751366730_6863bc4a46a8b.pdf\",\"original_name\":\"User_Involvement_Case_Study_Summary.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751366730_6863bc4a46a8b.pdf\",\"file_size\":2340,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for bank-transfer payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-01 12:45:50\"}]'),
 (10, 42, NULL, 15, 'cash', 208600.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-02', NULL, '2025-07-02 00:10:56', '2025-07-02 00:10:56', '[{\"file_name\":\"1751415039_686478ff50a1d.webp\",\"original_name\":\"1_vRf6wpV1rRbRLGOcJqnU1A.webp\",\"file_path\":\"uploads\\/payment_proofs\\/1751415039_686478ff50a1d.webp\",\"file_size\":8458,\"file_type\":\"image\\/webp\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-07-02 02:10:56\"},{\"file_name\":\"1751415040_68647900d8b76.pdf\",\"original_name\":\"User_Involvement_Case_Study_Summary.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751415040_68647900d8b76.pdf\",\"file_size\":2340,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-02 02:10:56\"}]'),
 (11, 43, NULL, 15, 'gcash', 212500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-02', '123123123123', '2025-07-02 06:29:36', '2025-07-02 06:29:36', '[{\"file_name\":\"1751437773_6864d1cdc4655.pdf\",\"original_name\":\"User_Involvement_Case_Study_Summary.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751437773_6864d1cdc4655.pdf\",\"file_size\":2340,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-02 08:29:36\"}]'),
 (12, 44, NULL, 15, 'gcash', 62500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-02', '1231231231231231231231', '2025-07-02 06:55:23', '2025-07-02 06:55:23', '[{\"file_name\":\"1751439316_6864d7d4aad48.pdf\",\"original_name\":\"User_Involvement_Case_Study_Summary.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751439316_6864d7d4aad48.pdf\",\"file_size\":2340,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-02 08:55:23\"}]'),
-(13, 45, NULL, 15, 'gcash', 212500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-02', '1231231231231231231231', '2025-07-02 13:20:50', '2025-07-02 13:20:50', '[{\"file_name\":\"1751462449_686532316c7d1.png\",\"original_name\":\"image_2025-07-02_212049403.png\",\"file_path\":\"uploads\\/payment_proofs\\/1751462449_686532316c7d1.png\",\"file_size\":43446,\"file_type\":\"image\\/png\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-07-02 15:20:50\"}]'),
+(13, 45, NULL, 15, 'gcash', 212500.00, 'Initial down payment for event creation [CANCELLED: Duplicate reference detected during migration]', NULL, 'cancelled', '2025-07-02', '1231231231231231231231', '2025-07-02 13:20:50', '2025-07-22 02:14:16', '[{\"file_name\":\"1751462449_686532316c7d1.png\",\"original_name\":\"image_2025-07-02_212049403.png\",\"file_path\":\"uploads\\/payment_proofs\\/1751462449_686532316c7d1.png\",\"file_size\":43446,\"file_type\":\"image\\/png\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-07-02 15:20:50\"}]'),
 (14, 41, NULL, 5, 'cash', 44700.00, '', NULL, 'completed', '2025-07-02', '', '2025-07-02 15:13:26', '2025-07-02 15:13:26', NULL),
 (15, 42, NULL, 15, 'cash', 89400.00, '', NULL, 'completed', '2025-07-02', '', '2025-07-02 15:19:54', '2025-07-03 01:00:36', NULL),
 (16, 46, NULL, 15, 'gcash', 187499.99, 'Initial down payment for event creation', NULL, 'completed', '2025-07-07', '31212131233123123', '2025-07-07 20:04:55', '2025-07-07 20:04:55', '[{\"file_name\":\"1751918693_686c286577d9d.pdf\",\"original_name\":\"analysis gamon.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1751918693_686c286577d9d.pdf\",\"file_size\":61531,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for gcash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-07 22:04:55\"}]'),
@@ -1970,7 +2179,7 @@ INSERT INTO `tbl_payments` (`payment_id`, `event_id`, `schedule_id`, `client_id`
 (19, 48, NULL, 20, 'cash', 212500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-09', NULL, '2025-07-09 12:22:19', '2025-07-09 12:22:19', '[{\"file_name\":\"1752063718_686e5ee632d8c.pdf\",\"original_name\":\"Document1.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752063718_686e5ee632d8c.pdf\",\"file_size\":940474,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-09 14:22:19\"},{\"file_name\":\"1752063728_686e5ef07b2b2.pdf\",\"original_name\":\"milestone_1_filled_followed_format.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752063728_686e5ef07b2b2.pdf\",\"file_size\":79021,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-09 14:22:19\"}]'),
 (20, 48, NULL, 20, 'cash', 37500.00, '', NULL, 'completed', '2025-07-09', '', '2025-07-09 12:25:24', '2025-07-09 12:25:24', '[{\"filename\":\"1752063924_686e5fb42951a.docx\",\"original_name\":\"Document1.docx\",\"description\":\"\",\"file_size\":409700,\"file_type\":\"docx\",\"uploaded_at\":\"2025-07-09 14:25:24\"}]'),
 (21, 57, NULL, 15, 'cash', 125000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-10', NULL, '2025-07-10 17:42:14', '2025-07-10 17:42:14', '[{\"file_name\":\"1752169333_686ffb7540559.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752169333_686ffb7540559.pdf\",\"file_size\":3191,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-10 19:42:14\"}]'),
-(22, 58, NULL, 20, 'bank-transfer', 400000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-11', '1231231231231231231231', '2025-07-11 03:45:10', '2025-07-11 03:45:10', '[{\"file_name\":\"1752205501_687088bd8db11.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752205501_687088bd8db11.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for bank-transfer payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-11 05:45:10\"}]'),
+(22, 58, NULL, 20, 'bank-transfer', 400000.00, 'Initial down payment for event creation [CANCELLED: Duplicate reference detected during migration]', NULL, 'cancelled', '2025-07-11', '1231231231231231231231', '2025-07-11 03:45:10', '2025-07-22 02:14:16', '[{\"file_name\":\"1752205501_687088bd8db11.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752205501_687088bd8db11.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for bank-transfer payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-11 05:45:10\"}]'),
 (23, 1, NULL, 20, 'cash', 153300.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-16', NULL, '2025-07-16 16:37:10', '2025-07-16 16:37:10', '[{\"file_name\":\"1752683822_6877d52e06bbb.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752683822_6877d52e06bbb.pdf\",\"file_size\":3191,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-16 18:37:10\"}]'),
 (24, 2, NULL, 23, 'cash', 282150.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-16', NULL, '2025-07-16 18:19:46', '2025-07-16 18:19:46', '[{\"file_name\":\"1752689982_6877ed3ec5d9f.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752689982_6877ed3ec5d9f.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-16 20:19:46\"}]'),
 (25, 3, NULL, 23, 'cash', 153850.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-17', NULL, '2025-07-17 03:40:05', '2025-07-17 03:40:05', '[{\"file_name\":\"1752723601_68787091263e9.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752723601_68787091263e9.pdf\",\"file_size\":3191,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-17 05:40:05\"}]'),
@@ -1981,67 +2190,24 @@ INSERT INTO `tbl_payments` (`payment_id`, `event_id`, `schedule_id`, `client_id`
 (30, 8, NULL, 20, 'cash', 8633450.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-17', NULL, '2025-07-17 16:14:22', '2025-07-17 16:14:22', '[{\"file_name\":\"1752768861_6879215da77a1.pdf\",\"original_name\":\"analysis gamon.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752768861_6879215da77a1.pdf\",\"file_size\":61531,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-17 18:14:22\"}]'),
 (31, 9, NULL, 29, 'cash', 613600.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-17', NULL, '2025-07-17 16:54:53', '2025-07-17 16:54:53', '[{\"file_name\":\"1752770220_687926ac0b68e.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752770220_687926ac0b68e.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-17 18:54:53\"}]'),
 (32, 10, NULL, 29, 'cash', 37600.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-18', NULL, '2025-07-18 06:56:14', '2025-07-18 06:56:14', '[{\"file_name\":\"1752818720_6879e420bda47.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752818720_6879e420bda47.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-18 08:56:14\"}]'),
-(33, 11, NULL, 21, 'cash', 91000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-18', NULL, '2025-07-18 07:44:00', '2025-07-18 07:44:00', '[{\"file_name\":\"1752824634_6879fb3a4a38e.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752824634_6879fb3a4a38e.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-18 09:44:00\"}]'),
+(33, 11, NULL, 21, 'cash', 91000.00, 'Initial down payment for event creation [AUTO-CANCELLED: Duplicate payment detected]', NULL, 'cancelled', '2025-07-18', NULL, '2025-07-18 07:44:00', '2025-08-03 08:06:30', '[{\"file_name\":\"1752824634_6879fb3a4a38e.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752824634_6879fb3a4a38e.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-18 09:44:00\"}]'),
 (34, 11, NULL, 21, 'cash', 91000.00, '', NULL, 'completed', '2025-07-18', '', '2025-07-18 08:24:20', '2025-07-18 08:24:20', '[{\"filename\":\"1752827060_687a04b4e374c.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"description\":\"\",\"file_size\":1688,\"file_type\":\"pdf\",\"uploaded_at\":\"2025-07-18 10:24:20\"}]'),
 (35, 12, NULL, 30, 'cash', 176800.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-19', NULL, '2025-07-19 03:10:50', '2025-07-19 03:10:50', '[{\"file_name\":\"1752894648_687b0cb8053bf.pdf\",\"original_name\":\"SMC_Customer_Relationships_and_Channels.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1752894648_687b0cb8053bf.pdf\",\"file_size\":1688,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-19 05:10:50\"}]'),
 (36, 13, NULL, 20, 'cash', 385000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-19', NULL, '2025-07-19 04:50:36', '2025-07-19 04:50:36', NULL),
 (37, 31, NULL, 29, 'cash', 84084.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-21', NULL, '2025-07-21 18:38:01', '2025-07-21 18:38:01', '[{\"file_name\":\"1753122348_687e862c419cd.jpg\",\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1753122348_687e862c419cd.jpg\",\"file_size\":393207,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-07-21 20:38:01\"}]'),
 (38, 32, NULL, 29, 'cash', 120750.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-22', NULL, '2025-07-22 01:05:43', '2025-07-22 01:05:43', '[{\"file_name\":\"1753146341_687ee3e5e9cc8.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1753146341_687ee3e5e9cc8.pdf\",\"file_size\":3191,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-22 03:05:43\"}]'),
-(39, 33, NULL, 23, 'cash', 96000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-22', NULL, '2025-07-22 01:10:54', '2025-07-22 01:10:54', '[{\"file_name\":\"1753146653_687ee51d9832d.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1753146653_687ee51d9832d.pdf\",\"file_size\":2895,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-22 03:10:54\"}]');
+(39, 33, NULL, 23, 'cash', 96000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-22', NULL, '2025-07-22 01:10:54', '2025-07-22 01:10:54', '[{\"file_name\":\"1753146653_687ee51d9832d.pdf\",\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1753146653_687ee51d9832d.pdf\",\"file_size\":2895,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-22 03:10:54\"}]'),
+(40, 35, NULL, 20, 'cash', 309000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-22', NULL, '2025-07-22 02:19:13', '2025-07-22 02:19:13', '[{\"file_name\":\"1753150752_687ef5207f58b.pdf\",\"original_name\":\"milestone_1_filled_followed_format.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1753150752_687ef5207f58b.pdf\",\"file_size\":79021,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-07-22 04:19:13\"}]'),
+(41, 35, NULL, 20, 'cash', 103000.00, '', NULL, 'completed', '2025-07-22', '', '2025-07-22 02:20:25', '2025-07-22 02:20:25', '[{\"filename\":\"1753150825_687ef569952b8.jpg\",\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"description\":\"\",\"file_size\":393207,\"file_type\":\"jpg\",\"uploaded_at\":\"2025-07-22 04:20:25\"}]'),
+(42, 36, NULL, 21, 'cash', 41500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-22', NULL, '2025-07-22 06:36:36', '2025-07-22 06:36:36', '[{\"file_name\":\"1753166193_687f31719592e.jpg\",\"original_name\":\"photo_2025-07-14_02-36-40 (2).jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1753166193_687f31719592e.jpg\",\"file_size\":74110,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-07-22 08:36:36\"}]'),
+(43, 37, NULL, 21, 'cash', 84500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-07-23', NULL, '2025-07-23 07:25:44', '2025-07-23 07:25:44', '[{\"file_name\":\"1753255542_68808e76beef4.webp\",\"original_name\":\"jupiter-logo (1).webp\",\"file_path\":\"uploads\\/payment_proofs\\/1753255542_68808e76beef4.webp\",\"file_size\":1428,\"file_type\":\"image\\/webp\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-07-23 09:25:44\"}]'),
+(44, 48, NULL, 21, 'cash', 40000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-03', NULL, '2025-08-03 07:53:36', '2025-08-03 07:53:36', '[{\"file_name\":\"1754207094_688f13765ee9a.jpg\",\"original_name\":\"gallery_section_upscaled.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1754207094_688f13765ee9a.jpg\",\"file_size\":336420,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-08-03 09:53:36\"}]');
 
 --
 -- Triggers `tbl_payments`
 --
 DELIMITER $$
 CREATE TRIGGER `notify_on_payment_create` AFTER INSERT ON `tbl_payments` FOR EACH ROW BEGIN
-    DECLARE admin_id INT;
-    DECLARE done INT DEFAULT FALSE;
-    DECLARE event_title VARCHAR(255);
-    DECLARE admin_cursor CURSOR FOR
-        SELECT user_id FROM tbl_users WHERE user_role = 'admin';
-    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
-
-    -- Get event title
-    SELECT event_title INTO event_title FROM tbl_events WHERE event_id = NEW.event_id;
-
-    -- Notify client about payment submission
-    CALL CreateNotification(
-        NEW.client_id,
-        'payment_created',
-        'Payment Submitted',
-        CONCAT('Your payment of ₱', FORMAT(NEW.payment_amount, 2), ' for "', COALESCE(event_title, 'your event'), '" has been submitted and is pending admin confirmation.'),
-        'medium',
-        'credit-card',
-        CONCAT('/client/payments/', NEW.payment_id),
-        NEW.event_id, NULL, NULL, NULL, NULL, NULL, 48
-    );
-
-    -- Notify admins about new payment
-    OPEN admin_cursor;
-    admin_loop: LOOP
-        FETCH admin_cursor INTO admin_id;
-        IF done THEN
-            LEAVE admin_loop;
-        END IF;
-
-        CALL CreateNotification(
-            admin_id,
-            'payment_created',
-            'New Payment Received',
-            CONCAT('New payment of ₱', FORMAT(NEW.payment_amount, 2), ' received for "', COALESCE(event_title, 'event'), '" requiring confirmation.'),
-            'high',
-            'dollar-sign',
-            CONCAT('/admin/payments/', NEW.payment_id),
-            NEW.event_id, NULL, NULL, NULL, NULL, NULL, 72
-        );
-    END LOOP;
-    CLOSE admin_cursor;
-END
-$$
-DELIMITER ;
-DELIMITER $$
-CREATE TRIGGER `notify_on_payment_created` AFTER INSERT ON `tbl_payments` FOR EACH ROW BEGIN
-    DECLARE admin_ids TEXT;
     DECLARE admin_id INT;
     DECLARE done INT DEFAULT FALSE;
     DECLARE event_title VARCHAR(255);
@@ -2310,7 +2476,16 @@ INSERT INTO `tbl_payment_logs` (`log_id`, `event_id`, `schedule_id`, `payment_id
 (0, 13, NULL, 36, 20, NULL, 'payment_received', 385000.00, NULL, 'Initial down payment for event creation', '2025-07-19 04:50:36'),
 (0, 31, NULL, 37, 29, NULL, 'payment_received', 84084.00, NULL, 'Initial down payment for event creation', '2025-07-21 18:38:01'),
 (0, 32, NULL, 38, 29, NULL, 'payment_received', 120750.00, NULL, 'Initial down payment for event creation', '2025-07-22 01:05:43'),
-(0, 33, NULL, 39, 23, NULL, 'payment_received', 96000.00, NULL, 'Initial down payment for event creation', '2025-07-22 01:10:54');
+(0, 33, NULL, 39, 23, NULL, 'payment_received', 96000.00, NULL, 'Initial down payment for event creation', '2025-07-22 01:10:54'),
+(0, 33, NULL, 6, 15, NULL, 'payment_confirmed', 149000.00, 'sdfsdf', 'Status changed from completed to cancelled', '2025-07-22 02:14:16'),
+(0, 45, NULL, 13, 15, NULL, 'payment_confirmed', 212500.00, '1231231231231231231231', 'Status changed from completed to cancelled', '2025-07-22 02:14:16'),
+(0, 58, NULL, 22, 20, NULL, 'payment_confirmed', 400000.00, '1231231231231231231231', 'Status changed from completed to cancelled', '2025-07-22 02:14:16'),
+(0, 35, NULL, 40, 20, NULL, 'payment_received', 309000.00, NULL, 'Initial down payment for event creation', '2025-07-22 02:19:13'),
+(0, 35, NULL, 41, 20, NULL, 'payment_received', 103000.00, '', '', '2025-07-22 02:20:25'),
+(0, 36, NULL, 42, 21, NULL, 'payment_received', 41500.00, NULL, 'Initial down payment for event creation', '2025-07-22 06:36:36'),
+(0, 37, NULL, 43, 21, NULL, 'payment_received', 84500.00, NULL, 'Initial down payment for event creation', '2025-07-23 07:25:44'),
+(0, 48, NULL, 44, 21, NULL, 'payment_received', 40000.00, NULL, 'Initial down payment for event creation', '2025-08-03 07:53:36'),
+(0, 11, NULL, 33, 21, NULL, 'payment_confirmed', 91000.00, NULL, 'Status changed from completed to cancelled', '2025-08-03 08:06:30');
 
 -- --------------------------------------------------------
 
@@ -2739,14 +2914,16 @@ CREATE TABLE `tbl_users` (
 
 INSERT INTO `tbl_users` (`user_id`, `user_firstName`, `user_lastName`, `user_suffix`, `user_birthdate`, `user_email`, `user_contact`, `user_username`, `user_pwd`, `force_password_change`, `last_login`, `account_status`, `user_pfp`, `user_role`, `is_verified`, `email_verified_at`, `created_at`) VALUES
 (5, 'test', 'test', 'III', '1995-10-20', 'test@gmail.com', '0909090990', 'test', '$2y$10$kINW0dn.gMncgts2MHlwAeuJluo1eotovACTt.z5TUhZ5rf2Ewhhm', 0, NULL, 'active', 'uploads/user_profile/sample.jpg', 'client', 1, NULL, '2025-02-25 12:43:54'),
-(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 0, '2025-07-22 02:15:30', 'active', 'uploads/profile_pictures/profile_7_1752809428.jpg', 'admin', 1, NULL, '2025-02-25 16:41:22'),
+(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 0, '2025-08-02 23:09:11', 'active', 'uploads/profile_pictures/profile_7_1752809428.jpg', 'admin', 1, NULL, '2025-02-25 16:41:22'),
 (20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 0, '2025-07-17 10:35:01', 'active', 'uploads/profile_pictures/profile_20_1752461113.jpg', 'client', 1, NULL, '2025-07-09 12:04:49'),
-(21, 'Richard', 'Gamon', NULL, '1995-01-01', 'contact.aizworks@gmail.com', '+630995059950', 'richardq20', '$2y$10$iSf.6ZlAVsOR0Gcuwazw4uHeGggmQetB2raODfOzAjhz8qqxjopaW', 0, '2025-07-17 13:34:49', 'active', 'uploads/profile_pictures/profile_21_1752549645.jpg', 'client', 1, '2025-07-14 14:03:53', '2025-07-14 06:03:28'),
+(21, 'Richard', 'Gamon', NULL, '1995-01-01', 'contact.aizworks@gmail.com', '+630995059950', 'richardq20', '$2y$10$iSf.6ZlAVsOR0Gcuwazw4uHeGggmQetB2raODfOzAjhz8qqxjopaW', 0, '2025-07-22 10:21:55', 'active', 'uploads/profile_pictures/profile_21_1752549645.jpg', 'client', 1, '2025-07-14 14:03:53', '2025-07-14 06:03:28'),
 (23, 'Christine', 'Bacsarsa', NULL, '2003-07-26', 'chis.bacsarsa.coc@phinmaed.com', '+639059490590', 'christinegrace', '$2y$10$c82pB7cRnWdV2.GoMCBVqe.kHzB..MjSJy1EjMi1w0CmIkbO.XlM.', 0, '2025-07-17 10:56:17', 'active', 'uploads/profile_pictures/profile_23_1752474108.jpg', 'client', 1, '2025-07-14 14:20:03', '2025-07-14 06:19:38'),
 (27, 'Boss', 'Zata', NULL, '1998-12-12', 'lasi.anches.coc@phinmaed.com', '+639055455544', 'boss.zata22', '$2y$10$m0xfTZ0docbytsrYxzaHceDJgiwPZuDALih4KeVUZcy3ypexVOShK', 0, NULL, 'active', 'uploads/profile_pictures/1752506654_6875211e813a4.png', 'organizer', 1, NULL, '2025-07-14 15:24:41'),
 (28, 'Rendon', 'Labrabis', NULL, '1995-12-12', 'rendon@gmail.com', '+63 63 905 190 3994', 'rendon.labrabis', '$2y$10$5gfBKZ1ZevsTrvtUJ8nmVe53K4jQVorO1o4fkjN9RYV6ZtrICAMze', 0, '2025-07-17 02:33:46', 'active', NULL, 'organizer', 1, NULL, '2025-07-16 18:31:57'),
 (29, 'Ralph', 'Gallegos', NULL, '1995-10-10', 'ralp.pelino11@gmail.com', '+630977349175', 'ralphg48', '$2y$10$oTXf0C.ogNxflEcAux3BtuzC1cozvGsvZvFDU5WOeD5n2zSz8akgm', 0, '2025-07-17 13:51:51', 'active', 'uploads/user_profile/default_pfp.png', 'client', 1, '2025-07-17 13:51:07', '2025-07-17 05:50:39'),
-(30, 'Clyde', 'Parol', NULL, '2003-12-16', 'cllu.parol.coc@phinmaed.com', '+639274276461', 'clydeparol', '$2y$10$cEpVxZuLdvPPPeWjdmOIy.CYluyKi35gqx2glo/9fGi6ffLxA9bCO', 0, '2025-07-18 17:36:38', 'active', 'uploads/profile_pictures/profile_30_1752831457.jpg', 'client', 1, '2025-07-18 17:35:23', '2025-07-18 09:34:58');
+(30, 'Clyde', 'Parol', NULL, '2003-12-16', 'cllu.parol.coc@phinmaed.com', '+639274276461', 'clydeparol', '$2y$10$cEpVxZuLdvPPPeWjdmOIy.CYluyKi35gqx2glo/9fGi6ffLxA9bCO', 0, '2025-07-18 17:36:38', 'active', 'uploads/profile_pictures/profile_30_1752831457.jpg', 'client', 1, '2025-07-18 17:35:23', '2025-07-18 09:34:58'),
+(31, 'Rhein', 'Manoy', NULL, '0000-00-00', 'rhienmanoy@gmail.com', '+63 63 905 190 3994', 'rhein.manoy', '$2y$10$qRiBg2tCvZ0Vieifi58ssObSCMDeNgK1t2dktM5GAnMeJKn2w7.gu', 0, NULL, 'active', 'uploads/profile_pictures/1753152278_687efb166a675.jpg', 'organizer', 1, NULL, '2025-07-22 02:44:52'),
+(32, 'Brian', 'Renan', NULL, '1998-12-12', 'brianrenan@gmail.com', '+63 63 905 190 3994', 'brian.renan', '$2y$10$zIQ/3m1R4x.iJDoq/NcVJe.mkz2l2ayE.O07gbAoyYLCmAU9z4qja', 0, '2025-07-27 18:49:19', 'active', 'uploads/profile_pictures/1753613294_688603eeb6358.png', 'organizer', 1, NULL, '2025-07-27 10:48:21');
 
 -- --------------------------------------------------------
 
@@ -3014,7 +3191,8 @@ ALTER TABLE `tbl_event_components`
   ADD KEY `idx_event_component_supplier` (`supplier_id`),
   ADD KEY `idx_event_component_offer` (`offer_id`),
   ADD KEY `idx_event_component_status` (`supplier_status`),
-  ADD KEY `idx_event_component_rated` (`is_rated`);
+  ADD KEY `idx_event_component_rated` (`is_rated`),
+  ADD KEY `idx_event_components_payment_status` (`payment_status`);
 
 --
 -- Indexes for table `tbl_organizer`
@@ -3044,7 +3222,8 @@ ALTER TABLE `tbl_packages`
 -- Indexes for table `tbl_payments`
 --
 ALTER TABLE `tbl_payments`
-  ADD PRIMARY KEY (`payment_id`);
+  ADD PRIMARY KEY (`payment_id`),
+  ADD KEY `idx_payment_duplicate_check` (`event_id`,`payment_amount`,`payment_date`,`payment_method`,`payment_status`);
 
 --
 -- Indexes for table `tbl_signup_otp`
@@ -3137,7 +3316,7 @@ ALTER TABLE `tbl_users`
 -- AUTO_INCREMENT for table `tbl_bookings`
 --
 ALTER TABLE `tbl_bookings`
-  MODIFY `booking_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `booking_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT for table `tbl_document_types`
@@ -3149,31 +3328,31 @@ ALTER TABLE `tbl_document_types`
 -- AUTO_INCREMENT for table `tbl_email_logs`
 --
 ALTER TABLE `tbl_email_logs`
-  MODIFY `email_log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `email_log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `tbl_events`
 --
 ALTER TABLE `tbl_events`
-  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
+  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=49;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_components`
 --
 ALTER TABLE `tbl_event_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=312;
+  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=337;
 
 --
 -- AUTO_INCREMENT for table `tbl_organizer`
 --
 ALTER TABLE `tbl_organizer`
-  MODIFY `organizer_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `organizer_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `tbl_organizer_activity_logs`
 --
 ALTER TABLE `tbl_organizer_activity_logs`
-  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `tbl_packages`
@@ -3185,7 +3364,7 @@ ALTER TABLE `tbl_packages`
 -- AUTO_INCREMENT for table `tbl_payments`
 --
 ALTER TABLE `tbl_payments`
-  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=40;
+  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=45;
 
 --
 -- AUTO_INCREMENT for table `tbl_signup_otp`
@@ -3239,7 +3418,7 @@ ALTER TABLE `tbl_supplier_verification_requests`
 -- AUTO_INCREMENT for table `tbl_users`
 --
 ALTER TABLE `tbl_users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=31;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
 
 --
 -- Constraints for dumped tables

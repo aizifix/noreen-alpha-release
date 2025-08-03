@@ -507,7 +507,7 @@ export default function SupplierOffers() {
           <Checkbox
             id="is_featured"
             checked={offer.is_featured}
-            onCheckedChange={(checked) =>
+            onCheckedChange={(checked: boolean) =>
               setOffer({ ...offer, is_featured: checked })
             }
           />
@@ -575,7 +575,7 @@ export default function SupplierOffers() {
                       <div className="flex items-center space-x-2">
                         <Checkbox
                           checked={subcomponent.is_customizable}
-                          onCheckedChange={(checked) =>
+                          onCheckedChange={(checked: boolean) =>
                             updateSubComponent(
                               index,
                               "is_customizable",

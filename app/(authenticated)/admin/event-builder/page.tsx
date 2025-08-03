@@ -1611,7 +1611,7 @@ export default function EventBuilderPage() {
             ? JSON.stringify(eventDetails.recurrenceRule)
             : null,
         client_signature: clientSignature || null,
-        finalized_at: new Date().toISOString(),
+        finalized_at: null,
         // Event attachments - simplified structure
         event_attachments:
           attachments?.length > 0
@@ -1702,19 +1702,37 @@ export default function EventBuilderPage() {
           headers: {
             "Content-Type": "application/json",
           },
+          validateStatus: function (status) {
+            // Accept any status code to handle errors properly
+            return true;
+          },
         }
       );
       console.log("📡 API response received:", response);
       console.log("Response status:", response.status);
       console.log("Response status text:", response.statusText);
+      console.log("Response headers:", response.headers);
       console.log("✅ API call completed successfully");
 
       console.log("API Response:", response.data);
       console.log("API Response type:", typeof response.data);
+      console.log("API Response stringified:", JSON.stringify(response.data));
       console.log("API Response keys:", Object.keys(response.data || {}));
       console.log("Response data status:", response.data?.status);
       console.log("Response data message:", response.data?.message);
       console.log("Response data event_id:", response.data?.event_id);
+
+      // Check if response is HTML (common PHP error output)
+      if (
+        typeof response.data === "string" &&
+        (response.data.includes("<!DOCTYPE") || response.data.includes("<html"))
+      ) {
+        console.error("API returned HTML instead of JSON - likely a PHP error");
+        console.error("HTML Response:", response.data);
+        throw new Error(
+          "Server returned HTML instead of JSON. Check PHP error logs."
+        );
+      }
 
       // Enhanced response validation
       if (!response.data) {
@@ -1727,7 +1745,10 @@ export default function EventBuilderPage() {
         Object.keys(response.data).length === 0
       ) {
         console.error("API returned empty response object");
-        throw new Error("Server returned empty response");
+        console.error("Full response object:", response);
+        throw new Error(
+          "Server returned empty response. Check PHP error logs."
+        );
       }
 
       if (response.data.status === "success") {
@@ -1825,8 +1846,13 @@ export default function EventBuilderPage() {
       } else {
         // Handle API error response
         console.error("API Error Response:", response.data);
-        const errorMessage =
-          response.data.message || "Failed to create event. Please try again.";
+        let errorMessage = "Failed to create event. Please try again.";
+
+        if (response.data?.message) {
+          errorMessage = response.data.message;
+        } else if (typeof response.data === "string") {
+          errorMessage = response.data;
+        }
 
         toast({
           title: "Error",

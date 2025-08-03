@@ -31,7 +31,8 @@ export interface PackageComponent extends BasePackageComponent {
   subComponents?: Array<{
     id: string;
     name: string;
-    price: number;
+    quantity: number;
+    unitPrice: number;
     description?: string;
   }>;
 }

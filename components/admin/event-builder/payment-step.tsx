@@ -152,10 +152,8 @@ export function PaymentStep({ data, updateData }: PaymentStepProps) {
             <div className="space-y-2">
               <Label htmlFor="downPaymentMethod">Payment Method</Label>
               <RadioGroup
-                value={paymentData.downPaymentMethod}
-                onValueChange={(value) =>
-                  handleChange("downPaymentMethod", value)
-                }
+                value={paymentData.paymentMethod}
+                onValueChange={(value) => handleChange("paymentMethod", value)}
                 className="grid grid-cols-3 gap-4"
               >
                 <div>
@@ -200,8 +198,8 @@ export function PaymentStep({ data, updateData }: PaymentStepProps) {
               </RadioGroup>
             </div>
 
-            {(paymentData.downPaymentMethod === "gcash" ||
-              paymentData.downPaymentMethod === "bank-transfer") && (
+            {(paymentData.paymentMethod === "gcash" ||
+              paymentData.paymentMethod === "bank-transfer") && (
               <div className="space-y-2">
                 <Label htmlFor="referenceNumber">Reference Number</Label>
                 <Input

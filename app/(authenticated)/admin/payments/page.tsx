@@ -1445,25 +1445,27 @@ export default function AdminPaymentsPage() {
                   <Percent className="h-3 w-3" />
                   Percentage
                 </Button>
-                {selectedEventDetails?.event.remaining_balance > 0 && (
-                  <Button
-                    type="button"
-                    variant={paymentType === "full" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => {
-                      setPaymentType("full");
-                      setNewPayment((prev) => ({
-                        ...prev,
-                        payment_amount:
-                          selectedEventDetails.event.remaining_balance.toString(),
-                      }));
-                    }}
-                    className="flex items-center gap-1"
-                  >
-                    <Wallet className="h-3 w-3" />
-                    Pay Full Balance
-                  </Button>
-                )}
+                {selectedEventDetails?.event.remaining_balance &&
+                  selectedEventDetails.event.remaining_balance > 0 && (
+                    <Button
+                      type="button"
+                      variant={paymentType === "full" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setPaymentType("full");
+                        setNewPayment((prev) => ({
+                          ...prev,
+                          payment_amount:
+                            selectedEventDetails?.event.remaining_balance?.toString() ||
+                            "0",
+                        }));
+                      }}
+                      className="flex items-center gap-1"
+                    >
+                      <Wallet className="h-3 w-3" />
+                      Pay Full Balance
+                    </Button>
+                  )}
               </div>
             </div>
 

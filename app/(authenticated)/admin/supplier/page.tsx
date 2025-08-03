@@ -468,7 +468,7 @@ export default function SupplierPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            onClick={fetchSuppliers}
+            onClick={() => fetchSuppliers()}
             variant="outline"
             className="bg-white border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
           >

@@ -597,7 +597,7 @@ export default function EnhancedSupplierCreationForm() {
                 <Checkbox
                   id="agreement_signed"
                   checked={formData.agreement_signed}
-                  onCheckedChange={(checked) =>
+                  onCheckedChange={(checked: boolean) =>
                     handleInputChange("agreement_signed", checked)
                   }
                 />
@@ -608,7 +608,7 @@ export default function EnhancedSupplierCreationForm() {
                 <Checkbox
                   id="is_verified"
                   checked={formData.is_verified}
-                  onCheckedChange={(checked) =>
+                  onCheckedChange={(checked: boolean) =>
                     handleInputChange("is_verified", checked)
                   }
                 />

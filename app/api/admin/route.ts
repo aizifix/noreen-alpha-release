@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
+import { spawn } from "child_process";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,14 +19,40 @@ export async function POST(request: NextRequest) {
     });
 
     // Execute the PHP file with the data
-    const { stdout, stderr } = await execAsync(`php ${phpFilePath}`, {
-      input: formData.toString(),
+    const phpProcess = spawn("php", [phpFilePath], {
       env: {
         ...process.env,
         REQUEST_METHOD: "POST",
         CONTENT_TYPE: "application/x-www-form-urlencoded",
         CONTENT_LENGTH: formData.toString().length.toString(),
       },
+    });
+
+    // Send the form data to PHP
+    phpProcess.stdin.write(formData.toString());
+    phpProcess.stdin.end();
+
+    // Collect output
+    let stdout = "";
+    let stderr = "";
+
+    phpProcess.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    phpProcess.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    // Wait for the process to complete
+    await new Promise<void>((resolve, reject) => {
+      phpProcess.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`PHP process exited with code ${code}`));
+        }
+      });
     });
 
     if (stderr) {
@@ -80,16 +103,36 @@ export async function GET(request: NextRequest) {
     const queryString = searchParams.toString();
 
     // Execute the PHP file with GET parameters
-    const { stdout, stderr } = await execAsync(
-      `php ${phpFilePath}?${queryString}`,
-      {
-        env: {
-          ...process.env,
-          REQUEST_METHOD: "GET",
-          QUERY_STRING: queryString,
-        },
-      }
-    );
+    const phpProcess = spawn("php", [`${phpFilePath}?${queryString}`], {
+      env: {
+        ...process.env,
+        REQUEST_METHOD: "GET",
+        QUERY_STRING: queryString,
+      },
+    });
+
+    // Collect output
+    let stdout = "";
+    let stderr = "";
+
+    phpProcess.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    phpProcess.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    // Wait for the process to complete
+    await new Promise<void>((resolve, reject) => {
+      phpProcess.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`PHP process exited with code ${code}`));
+        }
+      });
+    });
 
     if (stderr) {
       console.error("PHP Error:", stderr);

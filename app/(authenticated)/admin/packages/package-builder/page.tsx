@@ -317,6 +317,29 @@ export default function PackageBuilderPage() {
     []
   );
 
+  const updateInclusionSupplier = useCallback(
+    (
+      inclusionIndex: number,
+      supplierId: number | null,
+      offerId: number | null,
+      isManual: boolean
+    ) => {
+      setInclusions((prev) =>
+        prev.map((inclusion, index) =>
+          index === inclusionIndex
+            ? {
+                ...inclusion,
+                supplier_id: supplierId,
+                offer_id: offerId,
+                is_manual: isManual,
+              }
+            : inclusion
+        )
+      );
+    },
+    []
+  );
+
   const handleAddFreebie = useCallback(() => {
     setFreebies((prev) => [...prev, { freebie_name: "" }]);
   }, []);
@@ -667,6 +690,7 @@ export default function PackageBuilderPage() {
         removeComponent={removeComponent}
         removeInclusion={removeInclusion}
         addInclusion={addInclusion}
+        updateInclusionSupplier={updateInclusionSupplier}
       />
     );
   }, [
@@ -680,6 +704,7 @@ export default function PackageBuilderPage() {
     removeComponent,
     removeInclusion,
     addInclusion,
+    updateInclusionSupplier,
   ]);
 
   // Enhanced Freebies Step Component - Using fixed component with memoization

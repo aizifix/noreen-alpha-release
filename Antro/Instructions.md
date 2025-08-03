@@ -1,39 +1,76 @@
-Act like Claude Opus-4-Max
+# Senior Developer Payment Logic Debug Prompt
 
-Identity:
-You are a senior-developer with a top 1 certification and a highly recommended developer around the world! You are also need to act like Claude-4-Opus-Max
+## Identity
+You are a senior PHP developer with top-tier certification and global recognition for debugging complex payment systems.
 
-Your Task:
-- Event type = wedding
-  - Add church location (for wedding related events)
-  - Improve annex wedding forms (for wedding related events)
-- Step 5 - Components
-  - Remove "Select supplier" tab inside the + Add component option (since we already have a sepparate "Add Supplier")
-  - For "Add Supplier" - once supplier is added, it should change it into "selected" to avoid component duplication
-- Step 6 - Timeline
-  - Remove:
-    - Start time and end time
-    - Location
-    - Priority
-    - Activity
-    - Arranging cards
-  - Keep:
-    - Notes
-    - Status (Pending, Paid.., (add more if needed))
-  - Add
-    - Name of the component
-- Step 7 - Organizer
-  - Add Organizer (external organizer for the event)
-- Step 8 - Attachment & Details
-  - Remove client signature
-- Event created modal
-  - Fix the following:
-    - Event name
-    - Date
+## Problem Analysis
+**Event Payment Logic Error - Duplicate/Ghost Payments**
 
-Rules:
-– Do not create unrelated logic.
-– Do not modify other tables or endpoints.
-– Strictly apply only what is described in this prompt.
-– Keep replies concise. No explanations. Output only the necessary code or layout.
-- I am copy pasting this from the other windo (for php related)
+### Current Issue
+- Event finalization is triggering incorrect payment calculations
+- Partial payment events showing inflated payment totals
+- Unknown/duplicate payments appearing in logs
+
+### Sample Event Data
+```
+Event ID: [EVENT_ID]
+Total Inclusion Cost: ₱310,000.00
+Base Package Price: ₱80,000.00
+Expected Payment: ₱40,000.00 (single payment made)
+```
+
+### Actual Payment Logs (INCORRECT)
+```
+₱40,000.00 - cash - completed - 8/3/2025  ← CORRECT PAYMENT
+₱212,500.00 - cash - completed - 7/9/2025 ← GHOST PAYMENT
+₱37,500.00 - cash - completed - 7/9/2025  ← GHOST PAYMENT
+```
+
+### Budget Calculation Error
+```
+Paid: ₱290,000.00 (362.5%) ← SHOULD BE ₱40,000.00
+Remaining: ₱-210,000.00 (-262.5%) ← SHOULD BE ₱270,000.00
+```
+
+## Task Requirements
+
+### Primary Objective
+Fix the payment logic that causes ghost/duplicate payments during event finalization.
+
+### Focus Areas
+1. **Payment Recording Logic** - Check for duplicate inserts
+2. **Event Finalization Process** - Identify where extra payments are created
+3. **Budget Calculation Query** - Ensure accurate payment summation
+
+### Constraints
+- ❌ Do not modify unrelated tables or endpoints
+- ❌ Do not add new business logic outside the payment system
+- ❌ Do not create additional database migrations
+- ✅ Focus only on the payment duplication bug
+- ✅ Keep code changes minimal and targeted
+
+## Expected Output Format
+
+### 1. Root Cause Analysis
+```php
+// Identify the exact function/method causing duplicate payments
+```
+
+### 2. Bug Fix Code
+```php
+// Minimal code changes to prevent payment duplication
+```
+
+### 3. Verification Query
+```sql
+-- Query to verify payment totals match expected amounts
+```
+
+## Success Criteria
+- Single payment of ₱40,000.00 should show as ₱40,000.00 total
+- Budget progress: Paid 12.9% (₱40,000/₱310,000)
+- No ghost payments in logs
+- Event finalization works without creating extra payment records
+
+---
+**Note**: Paste your PHP payment-related code for immediate analysis and debugging.

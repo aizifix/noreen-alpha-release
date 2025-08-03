@@ -7,7 +7,7 @@ $password = 'godisgood'; // password
 
 // Enable error reporting for debugging
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0); // Don't display errors, only log them
 ini_set('log_errors', 1);
 
 try {
@@ -112,5 +112,3 @@ if (tableExists($pdo, 'tbl_users')) {
         }
     }
 }
-
-?>

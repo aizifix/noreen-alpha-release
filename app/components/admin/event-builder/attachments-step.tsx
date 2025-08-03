@@ -181,8 +181,8 @@ const AttachmentsStep: React.FC<AttachmentsStepProps> = ({
               <Checkbox
                 id="is-recurring"
                 checked={eventDetails.isRecurring || false}
-                onCheckedChange={(checked) =>
-                  onEventDetailsUpdate({ isRecurring: checked as boolean })
+                onCheckedChange={(checked: boolean) =>
+                  onEventDetailsUpdate({ isRecurring: checked })
                 }
               />
               <Label htmlFor="is-recurring">This is a recurring event</Label>
@@ -200,12 +200,15 @@ const AttachmentsStep: React.FC<AttachmentsStepProps> = ({
                       onValueChange={(value) =>
                         onEventDetailsUpdate({
                           recurrenceRule: {
-                            ...eventDetails.recurrenceRule,
                             frequency: value as
                               | "daily"
                               | "weekly"
                               | "monthly"
                               | "yearly",
+                            interval:
+                              eventDetails.recurrenceRule?.interval || 1,
+                            endDate: eventDetails.recurrenceRule?.endDate,
+                            endAfter: eventDetails.recurrenceRule?.endAfter,
                           },
                         })
                       }
@@ -232,8 +235,12 @@ const AttachmentsStep: React.FC<AttachmentsStepProps> = ({
                       onChange={(e) =>
                         onEventDetailsUpdate({
                           recurrenceRule: {
-                            ...eventDetails.recurrenceRule,
+                            frequency:
+                              eventDetails.recurrenceRule?.frequency ||
+                              "monthly",
                             interval: parseInt(e.target.value) || 1,
+                            endDate: eventDetails.recurrenceRule?.endDate,
+                            endAfter: eventDetails.recurrenceRule?.endAfter,
                           },
                         })
                       }
@@ -250,8 +257,11 @@ const AttachmentsStep: React.FC<AttachmentsStepProps> = ({
                     onChange={(e) =>
                       onEventDetailsUpdate({
                         recurrenceRule: {
-                          ...eventDetails.recurrenceRule,
+                          frequency:
+                            eventDetails.recurrenceRule?.frequency || "monthly",
+                          interval: eventDetails.recurrenceRule?.interval || 1,
                           endDate: e.target.value,
+                          endAfter: eventDetails.recurrenceRule?.endAfter,
                         },
                       })
                     }

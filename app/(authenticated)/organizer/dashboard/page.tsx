@@ -6,7 +6,7 @@ import { ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 
-export default function VendorDashboard() {
+export default function OrganizerDashboard() {
   const router = useRouter();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -20,9 +20,10 @@ export default function VendorDashboard() {
       if (
         !userData ||
         !userData.user_role ||
-        userData.user_role.toLowerCase() !== "vendor"
+        (userData.user_role.toLowerCase() !== "organizer" &&
+          userData.user_role !== "Organizer")
       ) {
-        console.log("Invalid user data in dashboard:", userData);
+        console.log("Invalid user data in organizer dashboard:", userData);
         router.push("/auth/login");
         return;
       }
@@ -33,44 +34,54 @@ export default function VendorDashboard() {
   }, [router]);
 
   const metrics = [
-    { title: "Venues Created", value: "16", change: "+25%", trend: "up" },
-    { title: "Quick Events", value: "357", change: "+24%", trend: "up" },
-    { title: "Performance", value: "2300", change: "+15%", trend: "up" },
-    { title: "Active Events", value: "840", change: "+30%", trend: "up" },
+    { title: "Events Organized", value: "24", change: "+18%", trend: "up" },
+    { title: "Active Bookings", value: "12", change: "+32%", trend: "up" },
+    {
+      title: "Revenue This Month",
+      value: "₱45,200",
+      change: "+15%",
+      trend: "up",
+    },
+    { title: "Client Satisfaction", value: "95%", change: "+8%", trend: "up" },
   ];
 
-  const reviews = {
-    positive: 80,
-    neutral: 17,
+  const clientFeedback = {
+    positive: 85,
+    neutral: 12,
     negative: 3,
-    total: "1,065",
+    total: "148",
   };
 
-  const events = [
+  const recentEvents = [
     {
-      title: "Wedding Reception at Grand Ballroom",
+      title: "Maria & John's Wedding Reception",
       time: "22 DEC 7:20 PM",
-      color: "bg-green-500",
+      color: "bg-pink-500",
+      status: "Upcoming",
     },
     {
-      title: "Corporate Seminar at Conference Center",
-      time: "21 DEC 11:21 PM",
+      title: "Corporate Annual Meeting",
+      time: "21 DEC 11:21 AM",
       color: "bg-blue-500",
+      status: "In Progress",
     },
     {
-      title: "Birthday Party at Garden Pavilion",
-      time: "21 DEC 9:28 PM",
-      color: "bg-[#486968]",
-    },
-    {
-      title: "Product Launch at Exhibition Hall",
-      time: "20 DEC 3:52 PM",
+      title: "Sarah's Birthday Celebration",
+      time: "19 DEC 6:30 PM",
       color: "bg-purple-500",
+      status: "Completed",
     },
     {
-      title: "Charity Gala at Rooftop Terrace",
-      time: "19 DEC 11:35 PM",
+      title: "Tech Conference 2024",
+      time: "18 DEC 9:00 AM",
+      color: "bg-green-500",
+      status: "Completed",
+    },
+    {
+      title: "Holiday Party Planning",
+      time: "17 DEC 8:00 PM",
       color: "bg-indigo-500",
+      status: "Completed",
     },
   ];
 
@@ -144,10 +155,10 @@ export default function VendorDashboard() {
       !isCurrentMonth
         ? "text-gray-400"
         : isSelected(dayIndex)
-          ? "bg-[#486968] text-white"
+          ? "bg-brand-500 text-white"
           : isToday(dayIndex)
             ? "font-semibold"
-            : "hover:bg-[#486968]/10"
+            : "hover:bg-brand-500/10"
     }`;
 
     return (
@@ -195,13 +206,22 @@ export default function VendorDashboard() {
 
   return (
     <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">
+          Organizer Dashboard
+        </h1>
+        <p className="text-gray-600">
+          Welcome back! Here's your event organizing overview.
+        </p>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {metrics.map((metric, index) => (
           <div
             key={index}
             className={`rounded-xl p-6 ${
               index === 0
-                ? "bg-[#486968]"
+                ? "bg-brand-500"
                 : index === 1
                   ? "bg-gray-900"
                   : "bg-white"
@@ -229,37 +249,43 @@ export default function VendorDashboard() {
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-xl bg-white p-6">
           <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Reviews</h2>
+            <h2 className="text-lg font-semibold">Client Feedback</h2>
             <button className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white">
-              View all reviews
+              View all feedback
             </button>
           </div>
 
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm">Positive Reviews</span>
-                <span className="text-sm font-medium">{reviews.positive}%</span>
+                <span className="text-sm">Positive Feedback</span>
+                <span className="text-sm font-medium">
+                  {clientFeedback.positive}%
+                </span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full w-[80%] rounded-full bg-[#486968]" />
+                <div className="h-full w-[85%] rounded-full bg-brand-500" />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm">Neutral Reviews</span>
-                <span className="text-sm font-medium">{reviews.neutral}%</span>
+                <span className="text-sm">Neutral Feedback</span>
+                <span className="text-sm font-medium">
+                  {clientFeedback.neutral}%
+                </span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full w-[17%] rounded-full bg-gray-500" />
+                <div className="h-full w-[12%] rounded-full bg-gray-500" />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm">Negative Reviews</span>
-                <span className="text-sm font-medium">{reviews.negative}%</span>
+                <span className="text-sm">Negative Feedback</span>
+                <span className="text-sm font-medium">
+                  {clientFeedback.negative}%
+                </span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
                 <div className="h-full w-[3%] rounded-full bg-red-500" />
@@ -267,23 +293,36 @@ export default function VendorDashboard() {
             </div>
 
             <p className="text-sm text-gray-600">
-              More than {reviews.total} vendors have created stores or venues on
-              our platform.
+              {clientFeedback.total} clients have shared their feedback on your
+              organized events.
             </p>
           </div>
 
           <div className="mt-6">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Event Overview</h2>
-              <span className="text-sm text-green-500">+24% this month</span>
+              <h2 className="text-lg font-semibold">Recent Events</h2>
+              <span className="text-sm text-green-500">+18% this month</span>
             </div>
 
             <div className="space-y-4">
-              {events.map((event, index) => (
+              {recentEvents.map((event, index) => (
                 <div key={index} className="flex gap-4">
                   <div className={`h-2 w-2 mt-2 rounded-full ${event.color}`} />
-                  <div>
-                    <p className="font-medium">{event.title}</p>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{event.title}</p>
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full ${
+                          event.status === "Upcoming"
+                            ? "bg-blue-100 text-blue-800"
+                            : event.status === "In Progress"
+                              ? "bg-yellow-100 text-yellow-800"
+                              : "bg-green-100 text-green-800"
+                        }`}
+                      >
+                        {event.status}
+                      </span>
+                    </div>
                     <p className="text-sm text-gray-600">{event.time}</p>
                   </div>
                 </div>
@@ -325,36 +364,61 @@ export default function VendorDashboard() {
             </div>
             <div className="grid grid-cols-7 gap-1">{renderCalendarDays()}</div>
           </div>
+
           <div className="rounded-xl bg-white p-6">
             <h3 className="text-md font-semibold mb-4">Upcoming Events</h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">Wedding Reception</p>
+                  <p className="font-medium">Maria & John's Wedding</p>
                   <p className="text-sm text-gray-500">Grand Ballroom</p>
                 </div>
-                <span className="text-xs bg-[#486968] text-white px-2 py-1 rounded-full">
-                  Dec 15
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Corporate Seminar</p>
-                  <p className="text-sm text-gray-500">Conference Hall</p>
-                </div>
-                <span className="text-xs bg-[#486968] text-white px-2 py-1 rounded-full">
-                  Dec 18
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Birthday Party</p>
-                  <p className="text-sm text-gray-500">Garden Pavilion</p>
-                </div>
-                <span className="text-xs bg-[#486968] text-white px-2 py-1 rounded-full">
+                <span className="text-xs bg-brand-500 text-white px-2 py-1 rounded-full">
                   Dec 22
                 </span>
               </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Corporate Meeting</p>
+                  <p className="text-sm text-gray-500">Conference Hall</p>
+                </div>
+                <span className="text-xs bg-brand-500 text-white px-2 py-1 rounded-full">
+                  Dec 21
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Holiday Party</p>
+                  <p className="text-sm text-gray-500">Garden Pavilion</p>
+                </div>
+                <span className="text-xs bg-brand-500 text-white px-2 py-1 rounded-full">
+                  Dec 25
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-white p-6">
+            <h3 className="text-md font-semibold mb-4">Quick Actions</h3>
+            <div className="space-y-2">
+              <button
+                onClick={() => router.push("/organizer/events")}
+                className="w-full text-left px-3 py-2 rounded-md bg-brand-500 text-white hover:bg-brand-600 transition-colors"
+              >
+                Create New Event
+              </button>
+              <button
+                onClick={() => router.push("/organizer/bookings")}
+                className="w-full text-left px-3 py-2 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+              >
+                View All Bookings
+              </button>
+              <button
+                onClick={() => router.push("/organizer/venues")}
+                className="w-full text-left px-3 py-2 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+              >
+                Manage Venues
+              </button>
             </div>
           </div>
         </div>

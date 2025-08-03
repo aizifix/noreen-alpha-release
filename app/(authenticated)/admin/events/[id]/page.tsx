@@ -138,6 +138,9 @@ interface EventComponent {
   display_order: number;
   original_component_name?: string;
   original_component_description?: string;
+  payment_status?: "pending" | "paid";
+  payment_date?: string;
+  payment_notes?: string;
 }
 
 interface PaymentHistoryItem {
@@ -378,19 +381,42 @@ function EventFinalization({
   const [loading, setLoading] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [finalizationAction, setFinalizationAction] = useState<
-    "lock" | "unlock"
-  >("lock");
+    "finalize" | "unfinalize"
+  >("finalize");
+  const [paymentStats, setPaymentStats] = useState<any>(null);
 
   const isEventFinalized =
-    event.event_status === "finalized" || !!event.finalized_at;
+    event.event_status === "confirmed" && !!event.finalized_at;
 
   // Check if event is finalized and disable editing
   const isEditingDisabled = isEventFinalized;
 
+  useEffect(() => {
+    fetchPaymentStats();
+  }, [event.event_id]);
+
+  const fetchPaymentStats = async () => {
+    try {
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "getEventPaymentStats",
+          event_id: event.event_id,
+        }
+      );
+
+      if (response.data.status === "success") {
+        setPaymentStats(response.data.stats);
+      }
+    } catch (error) {
+      console.error("Error fetching payment stats:", error);
+    }
+  };
+
   const handleFinalizationToggle = async () => {
     try {
       setLoading(true);
-      const action = isEventFinalized ? "unlock" : "lock";
+      const action = isEventFinalized ? "unfinalize" : "finalize";
       setFinalizationAction(action);
       setShowConfirmModal(true);
     } catch (error) {
@@ -421,9 +447,9 @@ function EventFinalization({
         toast({
           title: "Success",
           description:
-            finalizationAction === "lock"
-              ? "Event has been finalized and locked for editing"
-              : "Event has been unlocked for editing",
+            finalizationAction === "finalize"
+              ? "Event has been finalized. Event remains editable until the event starts."
+              : "Event has been set back to draft status",
         });
         await onEventUpdate();
       } else {
@@ -456,16 +482,16 @@ function EventFinalization({
             <div className="flex items-center gap-3 mb-4">
               <AlertTriangle className="h-6 w-6 text-orange-500" />
               <h3 className="text-lg font-semibold text-gray-900">
-                {finalizationAction === "lock"
+                {finalizationAction === "finalize"
                   ? "Finalize Event"
-                  : "Unlock Event"}
+                  : "Set to Draft"}
               </h3>
             </div>
 
             <p className="text-gray-600 mb-4">
-              {finalizationAction === "lock"
-                ? "Are you sure you want to finalize this event? This will lock all editing capabilities and notify the organizer about upcoming payments."
-                : "Are you sure you want to unlock this event? This will allow editing again."}
+              {finalizationAction === "finalize"
+                ? "Are you sure you want to finalize this event? The event remains editable until the event starts and the organizer will be notified."
+                : "Are you sure you want to set this event back to draft status? This will allow full editing again."}
             </p>
 
             <div className="flex gap-3 justify-end">
@@ -480,9 +506,9 @@ function EventFinalization({
                 onClick={confirmFinalization}
                 disabled={loading}
                 className={
-                  finalizationAction === "lock"
-                    ? "bg-red-600 hover:bg-red-700"
-                    : "bg-green-600 hover:bg-green-700"
+                  finalizationAction === "finalize"
+                    ? "bg-green-600 hover:bg-green-700"
+                    : "bg-blue-600 hover:bg-blue-700"
                 }
               >
                 {loading ? (
@@ -492,7 +518,7 @@ function EventFinalization({
                   </>
                 ) : (
                   <>
-                    {finalizationAction === "lock" ? (
+                    {finalizationAction === "finalize" ? (
                       <>
                         <Lock className="h-4 w-4 mr-2" />
                         Finalize Event
@@ -500,7 +526,7 @@ function EventFinalization({
                     ) : (
                       <>
                         <Unlock className="h-4 w-4 mr-2" />
-                        Unlock Event
+                        Set to Draft
                       </>
                     )}
                   </>
@@ -531,8 +557,8 @@ function EventFinalization({
               </h3>
               <p className="text-sm text-gray-500">
                 {isEventFinalized
-                  ? "Event is finalized and locked for editing"
-                  : "Event is unlocked and can be edited"}
+                  ? "Event is finalized but remains editable until event starts"
+                  : "Event is in draft status and can be edited"}
               </p>
             </div>
           </div>
@@ -555,7 +581,7 @@ function EventFinalization({
             ) : isEventFinalized ? (
               <>
                 <Unlock className="h-4 w-4 mr-2" />
-                Unlock Event
+                Set to Draft
               </>
             ) : (
               <>
@@ -566,6 +592,77 @@ function EventFinalization({
           </Button>
         </div>
 
+        {/* Inclusion & Payment Status Display */}
+        {paymentStats && (
+          <div className="mb-4 space-y-3">
+            {/* Inclusion Status */}
+            <div
+              className={`p-3 rounded-md border ${
+                paymentStats.inclusion_percentage === 100
+                  ? "bg-green-50 border-green-200"
+                  : "bg-yellow-50 border-yellow-200"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-gray-600" />
+                  <span className="text-sm font-medium text-gray-700">
+                    Inclusion Status: {paymentStats.finalized_inclusions} of{" "}
+                    {paymentStats.included_components} inclusions finalized
+                  </span>
+                </div>
+                <span
+                  className={`text-sm font-bold ${
+                    paymentStats.inclusion_percentage === 100
+                      ? "text-green-600"
+                      : "text-yellow-600"
+                  }`}
+                >
+                  {paymentStats.inclusion_percentage}%
+                </span>
+              </div>
+              {paymentStats.inclusion_percentage !== 100 && (
+                <p className="text-xs text-yellow-700 mt-1">
+                  All inclusions must be finalized (delivered status) before the
+                  event can be finalized.
+                </p>
+              )}
+            </div>
+
+            {/* Payment Status */}
+            <div
+              className={`p-3 rounded-md border ${
+                paymentStats.payment_percentage === 100
+                  ? "bg-green-50 border-green-200"
+                  : "bg-blue-50 border-blue-200"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Receipt className="h-4 w-4 text-gray-600" />
+                  <span className="text-sm font-medium text-gray-700">
+                    Payment Status: {paymentStats.paid_components} of{" "}
+                    {paymentStats.included_components} inclusions paid
+                  </span>
+                </div>
+                <span
+                  className={`text-sm font-bold ${
+                    paymentStats.payment_percentage === 100
+                      ? "text-green-600"
+                      : "text-blue-600"
+                  }`}
+                >
+                  {paymentStats.payment_percentage}%
+                </span>
+              </div>
+              <p className="text-xs text-blue-700 mt-1">
+                Payment status can be updated independently of event
+                finalization.
+              </p>
+            </div>
+          </div>
+        )}
+
         {isEventFinalized && (
           <div className="bg-red-100 border border-red-200 rounded-md p-3">
             <div className="flex items-center gap-2">
@@ -575,8 +672,9 @@ function EventFinalization({
               </span>
             </div>
             <p className="text-sm text-red-700 mt-1">
-              This event has been finalized. No further edits can be made. The
-              organizer will be notified about upcoming payments.
+              This event has been finalized. No further edits can be made except
+              for payment status updates. The organizer will be notified about
+              upcoming payments.
             </p>
             {event.finalized_at && (
               <p className="text-xs text-red-600 mt-2">
@@ -1141,6 +1239,88 @@ function PackageInclusionsManagement({
     );
   };
 
+  const [paymentStatusModal, setPaymentStatusModal] = useState<{
+    isOpen: boolean;
+    componentId: number | null;
+    componentName: string;
+    currentStatus: "pending" | "paid";
+  }>({
+    isOpen: false,
+    componentId: null,
+    componentName: "",
+    currentStatus: "pending",
+  });
+
+  const handlePaymentStatusChange = async (
+    componentId: number,
+    newStatus: "pending" | "paid"
+  ) => {
+    try {
+      console.log(
+        "Changing payment status for component:",
+        componentId,
+        "to:",
+        newStatus
+      );
+      setLoading(true);
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "updateComponentPaymentStatus",
+          component_id: componentId,
+          payment_status: newStatus,
+          payment_notes: `Status changed to ${newStatus} by admin`,
+        }
+      );
+
+      if (response.data.status === "success") {
+        // Update local state
+        setComponents(
+          components.map((comp) =>
+            comp.component_id === componentId
+              ? {
+                  ...comp,
+                  payment_status: newStatus,
+                  payment_date:
+                    newStatus === "paid" ? new Date().toISOString() : undefined,
+                }
+              : comp
+          )
+        );
+
+        toast({
+          title: "Success",
+          description: `Payment status updated to ${newStatus}`,
+        });
+
+        // Refresh event data to get updated stats
+        await onEventUpdate();
+      } else {
+        toast({
+          title: "Error",
+          description:
+            response.data.message || "Failed to update payment status",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error updating payment status:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update payment status",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+      setPaymentStatusModal({
+        isOpen: false,
+        componentId: null,
+        componentName: "",
+        currentStatus: "pending",
+      });
+    }
+  };
+
   return (
     <>
       <ConfirmationModal
@@ -1160,6 +1340,84 @@ function PackageInclusionsManagement({
         priceImpact={confirmModal.priceImpact}
         loading={loading}
       />
+
+      {/* Payment Status Modal */}
+      {paymentStatusModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <CreditCard className="h-6 w-6 text-blue-600" />
+              <h3 className="text-lg font-semibold text-gray-900">
+                Update Payment Status
+              </h3>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-gray-600">
+                Update payment status for:{" "}
+                <span className="font-semibold">
+                  {paymentStatusModal.componentName}
+                </span>
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 mb-6">
+              <button
+                onClick={() =>
+                  handlePaymentStatusChange(
+                    paymentStatusModal.componentId!,
+                    "paid"
+                  )
+                }
+                disabled={paymentStatusModal.currentStatus === "paid"}
+                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-colors ${
+                  paymentStatusModal.currentStatus === "paid"
+                    ? "border-green-500 bg-green-50 cursor-not-allowed"
+                    : "border-gray-300 hover:border-green-500 hover:bg-green-50"
+                }`}
+              >
+                <CheckCircle className="h-5 w-5 text-green-600" />
+                <span className="font-medium">Mark as Paid</span>
+              </button>
+
+              <button
+                onClick={() =>
+                  handlePaymentStatusChange(
+                    paymentStatusModal.componentId!,
+                    "pending"
+                  )
+                }
+                disabled={paymentStatusModal.currentStatus === "pending"}
+                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-colors ${
+                  paymentStatusModal.currentStatus === "pending"
+                    ? "border-yellow-500 bg-yellow-50 cursor-not-allowed"
+                    : "border-gray-300 hover:border-yellow-500 hover:bg-yellow-50"
+                }`}
+              >
+                <Clock className="h-5 w-5 text-yellow-600" />
+                <span className="font-medium">Mark as Pending</span>
+              </button>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <Button
+                onClick={() =>
+                  setPaymentStatusModal({
+                    isOpen: false,
+                    componentId: null,
+                    componentName: "",
+                    currentStatus: "pending",
+                  })
+                }
+                variant="outline"
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border p-6">
         <div className="flex items-center justify-between mb-4">
@@ -1242,6 +1500,111 @@ function PackageInclusionsManagement({
             </div>
           </div>
         </div>
+
+        {/* --- INCLUSION FINALIZATION PROGRESS BAR --- */}
+        {(() => {
+          const includedComponents = components.filter(
+            (comp) => comp.is_included
+          );
+          const finalizedComponents = includedComponents.filter(
+            (comp) => (comp as any).supplier_status === "delivered"
+          );
+          const completionPercentage =
+            includedComponents.length > 0
+              ? Math.round(
+                  (finalizedComponents.length / includedComponents.length) * 100
+                )
+              : 0;
+
+          return (
+            <div className="mb-6 bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-gray-600" />
+                  <h4 className="text-sm font-semibold text-gray-900">
+                    Inclusion Finalization Progress
+                  </h4>
+                </div>
+                <div className="text-sm font-medium">
+                  <span className="text-green-600">
+                    {finalizedComponents.length}
+                  </span>{" "}
+                  of{" "}
+                  <span className="text-gray-900">
+                    {includedComponents.length}
+                  </span>{" "}
+                  inclusions finalized
+                </div>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-green-500 to-green-600 transition-all duration-300 ease-out"
+                  style={{ width: `${completionPercentage}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-sm font-bold text-gray-700">
+                  {completionPercentage}%
+                </span>
+                {completionPercentage === 100 && !isEventFinalized && (
+                  <Button
+                    onClick={async () => {
+                      try {
+                        setLoading(true);
+                        const response = await axios.post(
+                          "http://localhost/events-api/admin.php",
+                          {
+                            operation: "updateEventFinalization",
+                            event_id: event.event_id,
+                            action: "finalize",
+                          }
+                        );
+
+                        if (response.data.status === "success") {
+                          toast({
+                            title: "Success",
+                            description:
+                              "Event has been finalized. Event remains editable until the event starts.",
+                          });
+                          await onEventUpdate();
+                        } else {
+                          toast({
+                            title: "Error",
+                            description:
+                              response.data.message ||
+                              "Failed to finalize event",
+                            variant: "destructive",
+                          });
+                        }
+                      } catch (error) {
+                        console.error("Error finalizing event:", error);
+                        toast({
+                          title: "Error",
+                          description: "Failed to finalize event",
+                          variant: "destructive",
+                        });
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700"
+                    disabled={loading}
+                  >
+                    <Lock className="h-3 w-3 mr-1" />
+                    Finalize Event
+                  </Button>
+                )}
+                {completionPercentage === 100 && isEventFinalized && (
+                  <span className="text-sm text-green-600 font-medium flex items-center gap-1">
+                    <CheckCircle className="h-4 w-4" />
+                    Event Finalized
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* --- SUMMARY SECTION --- */}
         <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1380,6 +1743,19 @@ function PackageInclusionsManagement({
                           }
                           loading={loading}
                           onUpdateComponent={handleUpdateComponent}
+                          onPaymentStatusClick={() => {
+                            console.log(
+                              "Payment status clicked for component:",
+                              component.component_name
+                            );
+                            setPaymentStatusModal({
+                              isOpen: true,
+                              componentId: component.component_id,
+                              componentName: component.component_name,
+                              currentStatus:
+                                component.payment_status || "pending",
+                            });
+                          }}
                         />
                       </div>
                     </div>
@@ -1549,6 +1925,7 @@ function ComponentDisplay({
   onToggleInclusion,
   loading,
   onUpdateComponent,
+  onPaymentStatusClick,
 }: {
   component: EventComponent;
   isEditing: boolean;
@@ -1557,6 +1934,7 @@ function ComponentDisplay({
   onToggleInclusion: () => void;
   loading: boolean;
   onUpdateComponent?: (updatedComponent: EventComponent) => void;
+  onPaymentStatusClick?: () => void;
 }) {
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [editedComponent, setEditedComponent] = useState(component);
@@ -1618,6 +1996,43 @@ function ComponentDisplay({
                 </span>
               )}
             </div>
+            {/* Payment Status */}
+            {component.is_included && (
+              <div className="flex items-center gap-2 mt-3">
+                <div className="text-xs text-gray-500 mb-1">
+                  Payment Status:
+                </div>
+                <button
+                  onClick={onPaymentStatusClick}
+                  title={`Click to change payment status from ${component.payment_status || "pending"} to ${component.payment_status === "paid" ? "pending" : "paid"}`}
+                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer hover:scale-105 active:scale-95 ${
+                    component.payment_status === "paid"
+                      ? "bg-green-100 text-green-800 hover:bg-green-200 border border-green-300"
+                      : "bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border border-yellow-300"
+                  }`}
+                >
+                  {component.payment_status === "paid" ? (
+                    <>
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Paid
+                      <Edit className="h-2 w-2 ml-1 opacity-60" />
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="h-3 w-3 mr-1" />
+                      Pending
+                      <Edit className="h-2 w-2 ml-1 opacity-60" />
+                    </>
+                  )}
+                </button>
+                {component.payment_date && (
+                  <span className="text-xs text-gray-500">
+                    Paid on{" "}
+                    {new Date(component.payment_date).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1775,6 +2190,37 @@ function ComponentDisplay({
               </span>
             )}
           </div>
+          {/* Payment Status in Edit Mode */}
+          {component.is_included && (
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                onClick={onPaymentStatusClick}
+                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity ${
+                  component.payment_status === "paid"
+                    ? "bg-green-100 text-green-800"
+                    : "bg-yellow-100 text-yellow-800"
+                }`}
+              >
+                {component.payment_status === "paid" ? (
+                  <>
+                    <CheckCircle className="h-3 w-3 mr-1" />
+                    Paid
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-3 w-3 mr-1" />
+                    Pending
+                  </>
+                )}
+              </button>
+              {component.payment_date && (
+                <span className="text-xs text-gray-500">
+                  Paid on{" "}
+                  {new Date(component.payment_date).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex gap-2 ml-4">
           <Button
@@ -2437,12 +2883,10 @@ export default function EventDetailsPage() {
             <BudgetProgress event={event} />
             <EventTimeline event={event} />
             <EventCountdown event={event} />
-            {/* Event Finalization temporarily disabled
             <EventFinalization
               event={event}
               onEventUpdate={fetchEventDetails}
             />
-            */}
           </div>
 
           {/* Main Content */}

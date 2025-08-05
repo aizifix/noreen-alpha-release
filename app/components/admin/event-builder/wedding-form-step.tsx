@@ -887,7 +887,7 @@ export function WeddingFormStep({
         </CardContent>
       </Card>
 
-      {/* Action Buttons */}
+      {/* Action Buttons
       <div className="flex justify-end space-x-4 pt-6">
         <Button
           type="button"
@@ -903,7 +903,7 @@ export function WeddingFormStep({
         <Button type="button" onClick={handleNext} disabled={loading}>
           {loading ? "Saving..." : "Next Step"}
         </Button>
-      </div>
+      </div> */}
     </div>
   );
 }

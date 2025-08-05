@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import axios from "axios";
 
 interface VenueSelectionProps {
   venues: any[];
@@ -67,6 +68,7 @@ export function VenueSelection({
   const [isLoadingVenues, setIsLoadingVenues] = useState(false);
   const [allVenues, setAllVenues] = useState<any[]>([]);
   const [venuesError, setVenuesError] = useState<string | null>(null);
+  const [isUpdatingGuestCount, setIsUpdatingGuestCount] = useState(false);
 
   // Fetch all venues when in "start from scratch" mode and no venues are provided
   useEffect(() => {
@@ -81,44 +83,43 @@ export function VenueSelection({
       setIsLoadingVenues(true);
       setVenuesError(null);
 
-      const response = await fetch("http://localhost/events-api/admin.php", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          operation: "getAllAvailableVenues",
-        }),
+      const response = await axios.post("http://localhost/events-api/admin.php", {
+        operation: "getAllAvailableVenues",
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = response.data;
+      console.log("API Response:", data);
 
       if (data.status === "success") {
         const fetchedVenues = data.venues || [];
         console.log(
           `Fetched ${fetchedVenues.length} venues for start from scratch mode`
         );
+        console.log("Raw venue data:", fetchedVenues);
 
         // Process venues to include proper pricing and pax rates
-        const processedVenues = fetchedVenues.map((venue: any) => ({
-          ...venue,
-          venue_id: venue.venue_id,
-          venue_title: venue.venue_title,
-          venue_location: venue.venue_location,
-          venue_price: parseFloat(venue.venue_price || 0),
-          extra_pax_rate: parseFloat(venue.extra_pax_rate || 0),
-          venue_capacity: parseInt(venue.venue_capacity || 100),
-          venue_type: venue.venue_type || "indoor",
-          venue_profile_picture: venue.venue_profile_picture,
-          venue_cover_photo: venue.venue_cover_photo,
-          inclusions: [], // Will be populated if needed
-          is_active: venue.is_active,
-          venue_status: venue.venue_status,
-        }));
+        const processedVenues = fetchedVenues.map((venue: any) => {
+          const processedVenue = {
+            ...venue,
+            venue_id: venue.venue_id,
+            venue_title: venue.venue_title,
+            venue_location: venue.venue_location,
+            venue_price: parseFloat(venue.venue_price || 0),
+            extra_pax_rate: parseFloat(venue.extra_pax_rate || 0),
+            venue_capacity: parseInt(venue.venue_capacity || 100),
+            venue_type: venue.venue_type || "indoor",
+            venue_profile_picture: venue.venue_profile_picture,
+            venue_cover_photo: venue.venue_cover_photo,
+            inclusions: [], // Will be populated if needed
+            is_active: venue.is_active,
+            venue_status: venue.venue_status,
+          };
+          
+          // Debug logging for extra pax rate
+          console.log(`Venue: ${processedVenue.venue_title}, Extra Pax Rate: ${processedVenue.extra_pax_rate}`);
+          
+          return processedVenue;
+        });
 
         setAllVenues(processedVenues);
         if (onVenuesLoaded) {
@@ -129,9 +130,23 @@ export function VenueSelection({
       }
     } catch (error) {
       console.error("Error fetching all venues:", error);
-      setVenuesError(
-        error instanceof Error ? error.message : "Failed to fetch venues"
-      );
+      
+      // Handle axios errors
+      if (axios.isAxiosError(error)) {
+        console.error("Axios error details:", {
+          message: error.message,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data
+        });
+        setVenuesError(
+          `API Error: ${error.response?.status} - ${error.response?.statusText || error.message}`
+        );
+      } else {
+        setVenuesError(
+          error instanceof Error ? error.message : "Failed to fetch venues"
+        );
+      }
     } finally {
       setIsLoadingVenues(false);
     }
@@ -162,13 +177,23 @@ export function VenueSelection({
       return;
     }
 
-    // Check if venues have pax rate data
-    const venuesWithPaxRates = venuesToUse.filter(
-      (venue: any) => parseFloat(venue.extra_pax_rate || 0) > 0
-    );
-    if (venuesWithPaxRates.length > 0) {
-      console.log(`Found ${venuesWithPaxRates.length} venues with pax rates`);
-    }
+            // Check if venues have pax rate data
+        const venuesWithPaxRates = venuesToUse.filter(
+          (venue: any) => parseFloat(venue.extra_pax_rate || 0) > 0
+        );
+        console.log(`Total venues: ${venuesToUse.length}`);
+        console.log(`Venues with pax rates: ${venuesWithPaxRates.length}`);
+        
+        // Debug: Log all venues and their pax rates
+        venuesToUse.forEach((venue: any) => {
+          console.log(`Venue: ${venue.venue_title} - Pax Rate: ${venue.extra_pax_rate} (${typeof venue.extra_pax_rate})`);
+        });
+        
+        if (venuesWithPaxRates.length > 0) {
+          console.log(`Found ${venuesWithPaxRates.length} venues with pax rates`);
+        } else {
+          console.warn("No venues found with pax rates!");
+        }
 
     const venuesFilteredBySearch = venuesToUse.filter(
       (venue: any) =>
@@ -181,8 +206,11 @@ export function VenueSelection({
   // Handle venue selection
   const handleVenueSelect = async (venueId: string) => {
     setSelectedVenueId(venueId);
-    // Automatically call onSelect when venue is selected with current guest count
-    await onSelect(venueId, selectedPackageId, guestCount);
+    // Set default guest count to 100 when venue is first selected
+    setGuestCount(100);
+    setGuestCountInput("100");
+    // Automatically call onSelect when venue is selected with default guest count
+    await onSelect(venueId, selectedPackageId, 100);
   };
 
   // Handle guest count input changes
@@ -192,15 +220,20 @@ export function VenueSelection({
   };
 
   // Handle guest count input blur (when user finishes typing)
-  const handleGuestCountBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+  const handleGuestCountBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
     const value = parseInt(e.target.value) || 100;
     const clampedValue = Math.max(1, Math.min(1000, value));
-    setGuestCount(clampedValue);
     setGuestCountInput(String(clampedValue));
-
-    // Only call onSelect if we have a selected venue
-    if (selectedVenueId) {
-      onSelect(selectedVenueId, selectedPackageId, clampedValue);
+    
+    // Update guest count and call onSelect if we have a selected venue
+    if (selectedVenueId && clampedValue !== guestCount) {
+      setIsUpdatingGuestCount(true);
+      try {
+        setGuestCount(clampedValue);
+        await onSelect(selectedVenueId, selectedPackageId, clampedValue);
+      } finally {
+        setIsUpdatingGuestCount(false);
+      }
     }
   };
 
@@ -233,11 +266,21 @@ export function VenueSelection({
     return `http://localhost/events-api/${imagePath}`;
   };
 
+  // Helper function to safely calculate overflow charge
+  const calculateOverflowCharge = (guestCount: number, extraPaxRate: string | number) => {
+    const rate = parseFloat(String(extraPaxRate)) || 0;
+    const extraGuests = Math.max(0, guestCount - 100);
+    return extraGuests * rate;
+  };
+
+  // Helper function to get current guest count safely
+  const getCurrentGuestCount = () => currentGuestCount || guestCount;
+
   // Show loading state
   if (isLoadingVenues) {
     return (
       <div className="space-y-6">
-        <div className="text-center mb-6">
+        {/* <div className="text-center mb-6">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
             Venue Selection
           </h2>
@@ -246,7 +289,7 @@ export function VenueSelection({
               ? "Loading all available venues for your custom event..."
               : "Choose a venue and set your expected guest count to see overflow charges"}
           </p>
-        </div>
+        </div> */}
 
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
@@ -267,7 +310,7 @@ export function VenueSelection({
   if (venuesError) {
     return (
       <div className="space-y-6">
-        <div className="text-center mb-6">
+        {/* <div className="text-center mb-6">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
             Venue Selection
           </h2>
@@ -276,7 +319,7 @@ export function VenueSelection({
               ? "Loading all available venues for your custom event..."
               : "Choose a venue and set your expected guest count to see overflow charges"}
           </p>
-        </div>
+        </div> */}
 
         <div className="bg-red-50 border border-red-200 rounded-lg p-6">
           <div className="text-center">
@@ -300,26 +343,16 @@ export function VenueSelection({
 
   return (
     <div className="space-y-6">
-      {/* Step Header */}
-      <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">
-          Venue Selection
-        </h2>
-        <p className="text-gray-600">
-          {isStartFromScratch
-            ? "Choose from all available venues for your custom event"
-            : "Choose a venue and set your expected guest count to see overflow charges"}
-        </p>
-        {isStartFromScratch && (
-          <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <p className="text-sm text-blue-700">
-              <strong>Custom Event Mode:</strong> You're creating an event from
-              scratch. All available venues are shown below. Select any venue
-              that fits your needs.
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Custom Event Mode Notice */}
+      {isStartFromScratch && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-700">
+            <strong>Custom Event Mode:</strong> You're creating an event from
+            scratch. All available venues are shown below. Select any venue
+            that fits your needs.
+          </p>
+        </div>
+      )}
 
       {/* Guest Count Input */}
       <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
@@ -328,56 +361,30 @@ export function VenueSelection({
             <label className="block text-sm font-medium text-blue-900 mb-2">
               Expected Guest Count
             </label>
-            <div className="flex items-center space-x-4">
-              <Input
-                type="number"
-                min="1"
-                max="1000"
-                value={guestCountInput}
-                onChange={handleGuestCountChange}
-                onBlur={handleGuestCountBlur}
-                onKeyDown={handleGuestCountKeyDown}
-                className="w-32"
-                placeholder="100"
-              />
-              <span className="text-sm text-blue-700">guests</span>
+                         <div className="flex items-center space-x-4">
+               <Input
+                 type="number"
+                 min="1"
+                 max="1000"
+                 value={guestCountInput}
+                 onChange={handleGuestCountChange}
+                 onBlur={handleGuestCountBlur}
+                 onKeyDown={handleGuestCountKeyDown}
+                 className="w-32"
+                 placeholder="100"
+                 disabled={isUpdatingGuestCount}
+               />
+               <span className="text-sm text-blue-700">guests</span>
+               {isUpdatingGuestCount && (
+                 <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+               )}
             </div>
             <p className="text-xs text-blue-600 mt-1">
-              This will be used to calculate overflow charges for venues with
-              extra guest rates
+              Base capacity is 100 guests. Extra guests beyond 100 will be charged based on each venue's extra guest rate
             </p>
           </div>
 
-          {/* Overflow Charge Preview */}
-          {selectedVenueId && guestCount > 100 && (
-            <div className="text-right">
-              <div className="text-sm text-blue-700">
-                Selected venue overflow:
-              </div>
-              <div className="text-lg font-bold text-blue-900">
-                {(() => {
-                  const selectedVenue = venuesToUse.find(
-                    (v) => String(v.venue_id) === selectedVenueId
-                  );
-
-                  if (
-                    selectedVenue &&
-                    parseFloat(selectedVenue.extra_pax_rate || 0) > 0
-                  ) {
-                    const extraGuests = Math.max(0, guestCount - 100);
-                    const overflowCharge =
-                      extraGuests *
-                      parseFloat(selectedVenue.extra_pax_rate || 0);
-                    return formatCurrency(overflowCharge);
-                  }
-                  return "₱0.00";
-                })()}
-              </div>
-              <div className="text-xs text-blue-600">
-                for {guestCount - 100} extra guests
-              </div>
-            </div>
-          )}
+          
         </div>
       </div>
 
@@ -407,22 +414,22 @@ export function VenueSelection({
             guestCount > 100 ? Math.max(0, guestCount - 100) * extraPaxRate : 0;
           const totalPrice = basePrice + overflowCharge;
 
-          return (
-            <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-green-900">
-                    Selected: {selectedVenue.venue_title}
-                  </h3>
-                  <p className="text-sm text-green-700">
-                    Guest count: {guestCount} • Base capacity: 100
-                  </p>
-                  {extraPaxRate > 0 && (
-                    <p className="text-xs text-blue-700 mt-1">
-                      Extra guest rate: {formatCurrency(extraPaxRate)} per guest
-                    </p>
-                  )}
-                </div>
+                     return (
+             <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
+               <div className="flex items-center justify-between">
+                 <div>
+                   <h3 className="text-lg font-semibold text-green-900">
+                     Selected: {selectedVenue.venue_title}
+                   </h3>
+                   <p className="text-sm text-green-700">
+                     Guest count: {guestCount} • Base capacity: 100
+                   </p>
+                   {extraPaxRate > 0 && (
+                     <p className="text-xs text-blue-700 mt-1">
+                       Extra guest rate: {formatCurrency(extraPaxRate)} per guest
+                     </p>
+                   )}
+                 </div>
                 <div className="text-right">
                   <div className="text-sm text-green-700">
                     Base price: {formatCurrency(basePrice)}
@@ -437,7 +444,7 @@ export function VenueSelection({
                   </div>
                   {extraPaxRate > 0 && guestCount > 100 && (
                     <div className="text-xs text-blue-600 mt-1">
-                      Formula: {guestCount} guests ×{" "}
+                      Formula: {guestCount - 100} extra guests ×{" "}
                       {formatCurrency(extraPaxRate)} ={" "}
                       {formatCurrency(overflowCharge)}
                     </div>
@@ -561,7 +568,7 @@ export function VenueSelection({
                       </div>
                       {guestCount > 100 && (
                         <div className="text-xs text-yellow-900 font-medium mt-1">
-                          Your event: {guestCount} ×{" "}
+                          Your event: {guestCount - 100} extra guests ×{" "}
                           {formatCurrency(
                             parseFloat(venue.extra_pax_rate || 0)
                           )}{" "}
@@ -600,7 +607,7 @@ export function VenueSelection({
                         <div className="bg-white p-2 rounded border border-blue-300">
                           <div className="flex items-center justify-between text-xs mb-1">
                             <span className="text-blue-700 font-medium">
-                              Overflow charge ({guestCount} guests):
+                              Overflow charge ({guestCount - 100} extra guests):
                             </span>
                             <span className="text-blue-900 font-bold">
                               {formatCurrency(
@@ -814,25 +821,25 @@ export function VenueSelection({
                         </div>
 
                         {/* Current Guest Count Calculation */}
-                        {currentGuestCount && currentGuestCount > 100 && (
+                        {getCurrentGuestCount() > 100 && (
                           <div className="bg-green-50 p-4 rounded-lg border border-green-300">
                             <div className="flex justify-between items-center mb-2">
                               <span className="text-green-900 font-medium">
-                                Your Event ({currentGuestCount} guests):
+                                Your Event ({getCurrentGuestCount()} guests):
                               </span>
                               <span className="text-green-900 font-bold">
                                 {formatCurrency(
-                                  (currentGuestCount - 100) *
-                                    parseFloat(
-                                      selectedVenueForModal.extra_pax_rate
-                                    )
+                                  calculateOverflowCharge(
+                                    getCurrentGuestCount(),
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
                                 )}{" "}
                                 additional charge
                               </span>
                             </div>
                             <div className="text-sm text-green-700">
                               <p>
-                                • Extra guests: {currentGuestCount - 100} ×{" "}
+                                • Extra guests: {getCurrentGuestCount() - 100} ×{" "}
                                 {formatCurrency(
                                   parseFloat(
                                     selectedVenueForModal.extra_pax_rate
@@ -846,20 +853,20 @@ export function VenueSelection({
                                 )}{" "}
                                 +{" "}
                                 {formatCurrency(
-                                  (currentGuestCount - 100) *
-                                    parseFloat(
-                                      selectedVenueForModal.extra_pax_rate
-                                    )
+                                  calculateOverflowCharge(
+                                    getCurrentGuestCount(),
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
                                 )}{" "}
                                 ={" "}
                                 {formatCurrency(
                                   parseFloat(
                                     selectedVenueForModal.venue_price
                                   ) +
-                                    (currentGuestCount - 100) *
-                                      parseFloat(
-                                        selectedVenueForModal.extra_pax_rate
-                                      )
+                                    calculateOverflowCharge(
+                                      getCurrentGuestCount(),
+                                      selectedVenueForModal.extra_pax_rate
+                                    )
                                 )}
                               </p>
                             </div>
@@ -888,34 +895,25 @@ export function VenueSelection({
                             </p>
                             <p>
                               3. Your guest count:{" "}
-                              {currentGuestCount || guestCount} guests
+                              {getCurrentGuestCount()} guests
                             </p>
                             <p>
                               4. Extra guests:{" "}
-                              {Math.max(
-                                0,
-                                (currentGuestCount || guestCount) - 100
-                              )}
+                              {Math.max(0, getCurrentGuestCount() - 100)}
                             </p>
                             <p>
                               5. Overflow charge:{" "}
-                              {Math.max(
-                                0,
-                                (currentGuestCount || guestCount) - 100
-                              )}{" "}
+                              {Math.max(0, getCurrentGuestCount() - 100)}{" "}
                               ×{" "}
                               {formatCurrency(
                                 parseFloat(selectedVenueForModal.extra_pax_rate)
                               )}{" "}
                               ={" "}
                               {formatCurrency(
-                                Math.max(
-                                  0,
-                                  (currentGuestCount || guestCount) - 100
-                                ) *
-                                  parseFloat(
-                                    selectedVenueForModal.extra_pax_rate
-                                  )
+                                calculateOverflowCharge(
+                                  getCurrentGuestCount(),
+                                  selectedVenueForModal.extra_pax_rate
+                                )
                               )}
                             </p>
                             <p className="font-bold">
@@ -925,24 +923,18 @@ export function VenueSelection({
                               )}{" "}
                               +{" "}
                               {formatCurrency(
-                                Math.max(
-                                  0,
-                                  (currentGuestCount || guestCount) - 100
-                                ) *
-                                  parseFloat(
-                                    selectedVenueForModal.extra_pax_rate
-                                  )
+                                calculateOverflowCharge(
+                                  getCurrentGuestCount(),
+                                  selectedVenueForModal.extra_pax_rate
+                                )
                               )}{" "}
                               ={" "}
                               {formatCurrency(
                                 parseFloat(selectedVenueForModal.venue_price) +
-                                  Math.max(
-                                    0,
-                                    (currentGuestCount || guestCount) - 100
-                                  ) *
-                                    parseFloat(
-                                      selectedVenueForModal.extra_pax_rate
-                                    )
+                                  calculateOverflowCharge(
+                                    getCurrentGuestCount(),
+                                    selectedVenueForModal.extra_pax_rate
+                                  )
                               )}
                             </p>
                           </div>
@@ -1118,21 +1110,20 @@ export function VenueSelection({
                         )}
 
                       {/* Overflow Charge for Current Guest Count */}
-                      {currentGuestCount &&
-                        currentGuestCount > 100 &&
+                      {getCurrentGuestCount() > 100 &&
                         parseFloat(selectedVenueForModal.extra_pax_rate) >
                           0 && (
                           <div className="flex justify-between items-center">
                             <span className="text-gray-600">
-                              Overflow Charge ({currentGuestCount - 100} extra
+                              Overflow Charge ({getCurrentGuestCount() - 100} extra
                               guests):
                             </span>
                             <span className="font-semibold text-blue-600">
                               {formatCurrency(
-                                Math.max(0, currentGuestCount - 100) *
-                                  parseFloat(
-                                    selectedVenueForModal.extra_pax_rate
-                                  )
+                                calculateOverflowCharge(
+                                  getCurrentGuestCount(),
+                                  selectedVenueForModal.extra_pax_rate
+                                )
                               )}
                             </span>
                           </div>
@@ -1146,12 +1137,11 @@ export function VenueSelection({
                           {formatCurrency(
                             (parseFloat(selectedVenueForModal.venue_price) ||
                               0) +
-                              (currentGuestCount &&
-                              currentGuestCount > 100 &&
+                              (getCurrentGuestCount() > 100 &&
                               parseFloat(selectedVenueForModal.extra_pax_rate) >
                                 0
-                                ? Math.max(0, currentGuestCount - 100) *
-                                  parseFloat(
+                                ? calculateOverflowCharge(
+                                    getCurrentGuestCount(),
                                     selectedVenueForModal.extra_pax_rate
                                   )
                                 : 0) +
@@ -1169,8 +1159,8 @@ export function VenueSelection({
                         </span>
                       </div>
                       <p className="text-xs text-gray-500 mt-2">
-                        {currentGuestCount && currentGuestCount > 100
-                          ? `* Total includes overflow charge for ${currentGuestCount} guests`
+                        {getCurrentGuestCount() > 100
+                          ? `* Total includes overflow charge for ${getCurrentGuestCount()} guests`
                           : "* Final venue cost will be calculated based on your actual guest count during event creation"}
                       </p>
                     </div>

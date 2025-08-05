@@ -130,7 +130,29 @@ export function EventDetailsStep({
       console.log("Setting default start time:", updates);
       updateFields(updates);
     }
+    
+    // Set default end time if not already set
+    if (!initialData.endTime) {
+      const updates: Partial<typeof initialData> = {};
+      updates.endTime = "18:00";
+
+      console.log("Setting default end time:", updates);
+      updateFields(updates);
+    }
+
+    // Mark initialization as complete
+    setIsInitialLoad(false);
   }, []); // Empty dependency array - only run once
+
+  // Trigger conflict check when component mounts with default times
+  useEffect(() => {
+    if (initialData.startTime && initialData.endTime && date) {
+      // Small delay to ensure state is updated
+      setTimeout(() => {
+        checkForConflicts();
+      }, 100);
+    }
+  }, [initialData.startTime, initialData.endTime, date]);
 
   // Generate sample heat map data based on actual events from database
   const generateSampleHeatMapData = (
@@ -284,14 +306,12 @@ export function EventDetailsStep({
     }
   }, [date]); // Only depend on date changes
 
-  // Check for conflicts when date or time changes - but only after calendar data is loaded
+  // Check for conflicts when date or time changes
   useEffect(() => {
     if (
       initialData.date &&
       initialData.startTime &&
-      initialData.endTime &&
-      !isLoadingCalendarData &&
-      !isInitialLoad
+      initialData.endTime
     ) {
       // Clear any existing timeout
       if (conflictCheckTimeoutRef.current) {
@@ -313,8 +333,6 @@ export function EventDetailsStep({
     initialData.date,
     initialData.startTime,
     initialData.endTime,
-    isLoadingCalendarData,
-    isInitialLoad,
   ]);
 
   // Notify parent component about conflicts - only when conflicts change
@@ -450,42 +468,40 @@ export function EventDetailsStep({
     // Check if this date has existing events
     const dateData = calendarConflictData[formattedDate];
 
-    // Simulate checking conflicts for the clicked date
-    setTimeout(async () => {
-      try {
-        // Update the date state
-        setDate(selectedDate);
+    try {
+      // Update the date state immediately
+      setDate(selectedDate);
+      console.log("Updating with date:", formattedDate);
+      updateField("date", formattedDate);
 
-        console.log("Updating with date:", formattedDate);
-        updateField("date", formattedDate);
-
-        // Check for conflicts with current time settings
-        if (initialData.startTime && initialData.endTime) {
-          // Force a fresh conflict check for the selected date
-          await checkForConflicts();
-        }
-
-        // Show immediate feedback about the selected date (only for conflicts)
-        if (dateData && (dateData.hasWedding || dateData.hasOtherEvents)) {
-          if (dateData.hasWedding) {
-            toast({
-              title: "Wedding Scheduled",
-              description: `This date has a wedding event. Only one wedding per day is allowed.`,
-              variant: "destructive",
-            });
-          } else if (dateData.hasOtherEvents && dateData.eventCount > 1) {
-            toast({
-              title: "Multiple Events Scheduled",
-              description: `This date has ${dateData.eventCount} events. Check for time conflicts.`,
-              variant: "default",
-            });
-          }
-        }
-      } finally {
-        setIsCheckingDateConflicts(false);
-        setClickedDate(null);
+      // Always check for conflicts when a date is selected
+      if (initialData.startTime && initialData.endTime) {
+        // Force a fresh conflict check for the selected date
+        await checkForConflicts();
       }
-    }, 800); // Simulate loading time
+
+      // Show immediate feedback about the selected date
+      if (dateData && (dateData.hasWedding || dateData.hasOtherEvents)) {
+        if (dateData.hasWedding) {
+          toast({
+            title: "Wedding Scheduled",
+            description: `This date has a wedding event. Only one wedding per day is allowed.`,
+            variant: "destructive",
+          });
+        } else if (dateData.hasOtherEvents && dateData.eventCount > 1) {
+          toast({
+            title: "Multiple Events Scheduled",
+            description: `This date has ${dateData.eventCount} events. Check for time conflicts.`,
+            variant: "default",
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error in handleDateSelect:", error);
+    } finally {
+      setIsCheckingDateConflicts(false);
+      setClickedDate(null);
+    }
   };
 
   const handleTimeChange = (field: "startTime" | "endTime", value: string) => {
@@ -528,9 +544,7 @@ export function EventDetailsStep({
 
     // Check for conflicts when time changes - with debouncing
     conflictCheckTimeoutRef.current = setTimeout(() => {
-      if (!isInitialLoad && !isLoadingCalendarData) {
-        checkForConflicts();
-      }
+      checkForConflicts();
     }, 300); // Shorter delay for time changes
   };
 
@@ -541,11 +555,7 @@ export function EventDetailsStep({
       "startTime:",
       initialData.startTime,
       "endTime:",
-      initialData.endTime,
-      "isInitialLoad:",
-      isInitialLoad,
-      "isLoadingCalendarData:",
-      isLoadingCalendarData
+      initialData.endTime
     );
 
     if (!date || !initialData.startTime || !initialData.endTime) {
@@ -554,15 +564,7 @@ export function EventDetailsStep({
       setHasWedding(false);
       setHasOtherEvents(false);
       setConflictingEvents([]);
-      if (initialData.hasConflicts !== false) {
-        updateField("hasConflicts", false);
-      }
-      return;
-    }
-
-    // Don't check conflicts during initial load or while calendar data is loading
-    if (isInitialLoad || isLoadingCalendarData) {
-      console.log("⏭️ Skipping conflict check - still loading data");
+      updateField("hasConflicts", false);
       return;
     }
 
@@ -597,18 +599,16 @@ export function EventDetailsStep({
         setConflictingEvents(response.data.conflicts || []);
 
         // Update parent component with conflict status
-        if (initialData.hasConflicts !== hasConflictsFound) {
-          updateField("hasConflicts", hasConflictsFound);
-        }
+        updateField("hasConflicts", hasConflictsFound);
+        
+        console.log("✅ Conflict check completed - hasConflicts:", hasConflictsFound);
       } else {
         console.error("Error checking conflicts:", response.data.message);
         setHasConflicts(false);
         setHasWedding(false);
         setHasOtherEvents(false);
         setConflictingEvents([]);
-        if (initialData.hasConflicts !== false) {
-          updateField("hasConflicts", false);
-        }
+        updateField("hasConflicts", false);
       }
     } catch (error) {
       console.error("Error checking conflicts:", error);
@@ -616,9 +616,7 @@ export function EventDetailsStep({
       setHasWedding(false);
       setHasOtherEvents(false);
       setConflictingEvents([]);
-      if (initialData.hasConflicts !== false) {
-        updateField("hasConflicts", false);
-      }
+      updateField("hasConflicts", false);
     } finally {
       setIsCheckingConflicts(false);
     }
@@ -626,10 +624,7 @@ export function EventDetailsStep({
     date,
     initialData.startTime,
     initialData.endTime,
-    initialData.hasConflicts,
-    isInitialLoad,
-    isLoadingCalendarData,
-    onUpdate,
+    updateField,
   ]);
 
   // Get heat map color based on event count
@@ -863,6 +858,16 @@ export function EventDetailsStep({
                 <span>Wedding (Blocked)</span>
               </div>
             </div>
+            
+            {/* Calendar loading indicator */}
+            {isLoadingCalendarData && (
+              <div className="mt-3 p-2 bg-blue-50 rounded border border-blue-200">
+                <div className="flex items-center gap-2 text-xs text-blue-600">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                  <span>Loading event data for this month...</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">
@@ -987,11 +992,18 @@ export function EventDetailsStep({
         {/* Conflict checking indicator and manual refresh */}
         <div className="flex items-center justify-between">
           {(isCheckingConflicts || isCheckingDateConflicts) && (
-            <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-              {isCheckingDateConflicts
-                ? "Checking date availability..."
-                : "Checking for scheduling conflicts..."}
+            <div className="flex items-center gap-3 text-sm text-blue-600 bg-blue-50 p-4 rounded-lg border border-blue-200 shadow-sm">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+              <div className="flex flex-col">
+                <span className="font-medium">
+                  {isCheckingDateConflicts
+                    ? "Checking date availability..."
+                    : "Checking for scheduling conflicts..."}
+                </span>
+                <span className="text-xs text-blue-500">
+                  Please wait while we verify your selected date and time
+                </span>
+              </div>
             </div>
           )}
 
@@ -1013,6 +1025,39 @@ export function EventDetailsStep({
           )}
         </div>
 
+        {/* Loading state when checking conflicts - show before results */}
+        {(isCheckingConflicts || isCheckingDateConflicts) && (
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-6">
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0">
+                <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center animate-pulse">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                </div>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <h4 className="text-md font-bold text-blue-800">
+                    Checking Availability
+                  </h4>
+                </div>
+                <p className="text-blue-700 font-medium mb-3">
+                  {isCheckingDateConflicts
+                    ? "Verifying if the selected date is available for your event..."
+                    : "Analyzing potential scheduling conflicts with existing events..."}
+                </p>
+                <div className="bg-blue-100 border-l-4 border-blue-500 p-3 rounded-r-lg">
+                  <div className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    <span className="text-blue-800 text-sm font-medium">
+                      Please wait while we check the database...
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Enhanced Success message when no conflicts */}
         {!hasConflicts &&
           !isCheckingConflicts &&
@@ -1023,9 +1068,9 @@ export function EventDetailsStep({
             <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg p-6">
               <div className="flex items-center gap-4">
                 <div className="flex-shrink-0">
-                  {/* <div className="w-12 h-12 bg-[#028A75] rounded-full flex items-center justify-center">
+                  <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center">
                     <CheckCircle className="h-6 w-6 text-white" />
-                  </div> */}
+                  </div>
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
@@ -1050,13 +1095,13 @@ export function EventDetailsStep({
           )}
 
         {/* Show conflict warning when conflicts exist */}
-        {hasConflicts && conflictingEvents.length > 0 && (
+        {hasConflicts && (
           <div className="bg-gradient-to-r from-red-50 to-pink-50 border-2 border-red-300 rounded-lg p-6 shadow-lg">
             <div className="flex items-start gap-4">
               <div className="flex-shrink-0">
-                {/* <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+                <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
                   <AlertTriangle className="h-6 w-6 text-white" />
-                </div> */}
+                </div>
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-3">
@@ -1175,6 +1220,24 @@ export function EventDetailsStep({
             </div>
           </div>
         )}
+
+        {/* Debug section for troubleshooting
+        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Debug Info:</h4>
+          <div className="text-xs text-gray-600 space-y-1">
+            <div>Date: {initialData.date || 'Not set'}</div>
+            <div>Start Time: {initialData.startTime || 'Not set'}</div>
+            <div>End Time: {initialData.endTime || 'Not set'}</div>
+            <div>Has Conflicts: {hasConflicts ? 'Yes' : 'No'}</div>
+            <div>Has Wedding: {hasWedding ? 'Yes' : 'No'}</div>
+            <div>Has Other Events: {hasOtherEvents ? 'Yes' : 'No'}</div>
+            <div>Conflicting Events Count: {conflictingEvents.length}</div>
+            <div>Is Initializing: {isInitialLoad ? 'Yes' : 'No'}</div>
+            <div>Is Checking Conflicts: {isCheckingConflicts ? 'Yes' : 'No'}</div>
+            <div>Is Checking Date Conflicts: {isCheckingDateConflicts ? 'Yes' : 'No'}</div>
+            <div>Is Loading Calendar Data: {isLoadingCalendarData ? 'Yes' : 'No'}</div>
+          </div>
+        </div> */}
 
         <div className="space-y-2">
           <Label htmlFor="event-notes">Additional Notes</Label>

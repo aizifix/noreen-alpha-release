@@ -1225,7 +1225,7 @@ export default function EventBuilderPage() {
         const venueComponent: DataPackageComponent = {
           id: `venue-${venue.venue_id}`,
           name: venue.venue_title || venue.venue_name,
-          description: `Venue: ${venue.venue_title || venue.venue_name}${extraPaxRate > 0 && guestCount > 100 ? ` (includes overflow for ${guestCount} guests)` : ""}`,
+          description: `Venue: ${venue.venue_title || venue.venue_name}${extraPaxRate > 0 && guestCount > 100 ? ` (includes overflow for ${guestCount - 100} extra guests)` : ""}`,
           price: venuePrice,
           category: "venue",
           included: true,

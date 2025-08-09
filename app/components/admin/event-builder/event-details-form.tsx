@@ -188,7 +188,13 @@ export function EventDetailsForm({
                     mode="single"
                     selected={date}
                     onSelect={handleDateChange}
-                    disabled={(date) => date < new Date()}
+                    disabled={(d) => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const check = new Date(d);
+                      check.setHours(0, 0, 0, 0);
+                      return check < today;
+                    }}
                     initialFocus
                   />
                 </PopoverContent>

@@ -388,9 +388,9 @@ export default function VendorVenues() {
         <div className="text-center text-gray-500">No venues found</div>
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {venues.map((venue) => (
+          {venues.map((venue, index) => (
             <VenueCard
-              key={venue.venue_id}
+              key={`venue-${venue.venue_id ?? index}`}
               id={venue.venue_id}
               venueTitle={venue.venue_title}
               venueProfilePicture={venue.venue_profile_picture}

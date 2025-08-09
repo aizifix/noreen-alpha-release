@@ -606,7 +606,7 @@ export default function VenuesPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {filteredVenues.map((venue, index) => (
                   <div
-                    key={venue.venue_id}
+                    key={`venue-${venue.venue_id ?? index}`}
                     className="animate-slide-up-stagger"
                     style={{ animationDelay: `${index * 100}ms` }}
                   >
@@ -689,7 +689,9 @@ export default function VenuesPage() {
                             {/* Status Badge */}
                             <div className="absolute -top-1 -right-1">
                               <Badge
-                                variant={venue.is_active ? "default" : "secondary"}
+                                variant={
+                                  venue.is_active ? "default" : "secondary"
+                                }
                                 className={`${venue.is_active ? "bg-[#E6F4F1] text-[#028A75] hover:bg-[#D1E8E3]" : "bg-gray-100 text-gray-700 hover:bg-gray-200"} text-xs px-2 py-1`}
                               >
                                 {venue.is_active ? "Active" : "Inactive"}
@@ -735,7 +737,8 @@ export default function VenuesPage() {
                                   onChange={(e) =>
                                     setEditForm((prev) => ({
                                       ...prev,
-                                      venue_price: parseFloat(e.target.value) || 0,
+                                      venue_price:
+                                        parseFloat(e.target.value) || 0,
                                     }))
                                   }
                                   className="text-sm bg-white border-[#028A75]/30"
@@ -752,7 +755,8 @@ export default function VenuesPage() {
                                   onChange={(e) =>
                                     setEditForm((prev) => ({
                                       ...prev,
-                                      venue_capacity: parseInt(e.target.value) || 0,
+                                      venue_capacity:
+                                        parseInt(e.target.value) || 0,
                                     }))
                                   }
                                   className="text-sm bg-white border-[#028A75]/30"
@@ -845,7 +849,8 @@ export default function VenuesPage() {
                                     .slice(0, 2)
                                     .map((inc) => inc.inclusion_name)
                                     .join(", ")}
-                                  {venue.inclusions.length > 2 && ", and more..."}
+                                  {venue.inclusions.length > 2 &&
+                                    ", and more..."}
                                 </span>
                               )}
                             </div>

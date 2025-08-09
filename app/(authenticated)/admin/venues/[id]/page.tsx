@@ -446,10 +446,10 @@ export default function VenueDetailsPage() {
               <Card className="p-6">
                 <h2 className="text-xl font-semibold mb-4">Inclusions</h2>
                 <Accordion type="single" collapsible className="w-full">
-                  {venue.inclusions.map((inclusion) => (
+                  {venue.inclusions.map((inclusion, idx) => (
                     <AccordionItem
-                      key={inclusion.inclusion_id}
-                      value={inclusion.inclusion_id.toString()}
+                      key={`inclusion-${inclusion.inclusion_id ?? 0}-${idx}`}
+                      value={`${inclusion.inclusion_id ?? 0}-${idx}`}
                     >
                       <AccordionTrigger className="hover:no-underline">
                         <div className="flex justify-between items-center w-full pr-4">

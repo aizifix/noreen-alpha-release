@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
@@ -27,6 +27,8 @@ import {
   Clock,
   Users,
   DollarSign,
+  Percent,
+  Wallet,
   CheckCircle,
   Circle,
   AlertCircle,
@@ -38,10 +40,18 @@ import {
   Building,
   Lock,
   Unlock,
+  Banknote,
 } from "lucide-react";
 import axios from "axios";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { format } from "date-fns";
 
 // Enhanced interface to match updated tbl_events structure
@@ -138,7 +148,7 @@ interface EventComponent {
   display_order: number;
   original_component_name?: string;
   original_component_description?: string;
-  payment_status?: "pending" | "paid";
+  payment_status?: "pending" | "paid" | "cancelled";
   payment_date?: string;
   payment_notes?: string;
 }
@@ -386,7 +396,7 @@ function EventFinalization({
   const [paymentStats, setPaymentStats] = useState<any>(null);
 
   const isEventFinalized =
-    event.event_status === "confirmed" && !!event.finalized_at;
+    event.event_status === "confirmed" || !!event.finalized_at;
 
   // Check if event is finalized and disable editing
   const isEditingDisabled = isEventFinalized;
@@ -701,7 +711,9 @@ function VenueSelection({
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const isEventFinalized =
-    event.event_status === "finalized" || !!event.finalized_at;
+    event.event_status === "done" ||
+    event.event_status === "finalized" ||
+    !!event.finalized_at;
 
   useEffect(() => {
     if (event.package_id) {
@@ -1130,6 +1142,10 @@ function PackageInclusionsManagement({
         component_price: Number(componentData.component_price) || 0,
         is_custom: isNew,
         is_included: componentData.is_included,
+        // allow setting initial payment status when creating a custom inclusion
+        payment_status: isNew
+          ? componentData.payment_status || "pending"
+          : undefined,
       }),
     });
 
@@ -1239,21 +1255,14 @@ function PackageInclusionsManagement({
     );
   };
 
-  const [paymentStatusModal, setPaymentStatusModal] = useState<{
-    isOpen: boolean;
-    componentId: number | null;
-    componentName: string;
-    currentStatus: "pending" | "paid";
-  }>({
-    isOpen: false,
-    componentId: null,
-    componentName: "",
-    currentStatus: "pending",
-  });
+  // Inline payment status dropdown state
+  const [editingPaymentStatusFor, setEditingPaymentStatusFor] = useState<
+    number | null
+  >(null);
 
   const handlePaymentStatusChange = async (
     componentId: number,
-    newStatus: "pending" | "paid"
+    newStatus: "pending" | "paid" | "cancelled"
   ) => {
     try {
       console.log(
@@ -1312,12 +1321,7 @@ function PackageInclusionsManagement({
       });
     } finally {
       setLoading(false);
-      setPaymentStatusModal({
-        isOpen: false,
-        componentId: null,
-        componentName: "",
-        currentStatus: "pending",
-      });
+      setEditingPaymentStatusFor(null);
     }
   };
 
@@ -1341,83 +1345,7 @@ function PackageInclusionsManagement({
         loading={loading}
       />
 
-      {/* Payment Status Modal */}
-      {paymentStatusModal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <CreditCard className="h-6 w-6 text-blue-600" />
-              <h3 className="text-lg font-semibold text-gray-900">
-                Update Payment Status
-              </h3>
-            </div>
-
-            <div className="mb-4">
-              <p className="text-gray-600">
-                Update payment status for:{" "}
-                <span className="font-semibold">
-                  {paymentStatusModal.componentName}
-                </span>
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 mb-6">
-              <button
-                onClick={() =>
-                  handlePaymentStatusChange(
-                    paymentStatusModal.componentId!,
-                    "paid"
-                  )
-                }
-                disabled={paymentStatusModal.currentStatus === "paid"}
-                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-colors ${
-                  paymentStatusModal.currentStatus === "paid"
-                    ? "border-green-500 bg-green-50 cursor-not-allowed"
-                    : "border-gray-300 hover:border-green-500 hover:bg-green-50"
-                }`}
-              >
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="font-medium">Mark as Paid</span>
-              </button>
-
-              <button
-                onClick={() =>
-                  handlePaymentStatusChange(
-                    paymentStatusModal.componentId!,
-                    "pending"
-                  )
-                }
-                disabled={paymentStatusModal.currentStatus === "pending"}
-                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-colors ${
-                  paymentStatusModal.currentStatus === "pending"
-                    ? "border-yellow-500 bg-yellow-50 cursor-not-allowed"
-                    : "border-gray-300 hover:border-yellow-500 hover:bg-yellow-50"
-                }`}
-              >
-                <Clock className="h-5 w-5 text-yellow-600" />
-                <span className="font-medium">Mark as Pending</span>
-              </button>
-            </div>
-
-            <div className="flex gap-3 justify-end">
-              <Button
-                onClick={() =>
-                  setPaymentStatusModal({
-                    isOpen: false,
-                    componentId: null,
-                    componentName: "",
-                    currentStatus: "pending",
-                  })
-                }
-                variant="outline"
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Inline dropdown replaces modal – nothing to render here */}
 
       <div className="bg-white rounded-xl shadow-sm border p-6">
         <div className="flex items-center justify-between mb-4">
@@ -1501,18 +1429,18 @@ function PackageInclusionsManagement({
           </div>
         </div>
 
-        {/* --- INCLUSION FINALIZATION PROGRESS BAR --- */}
+        {/* --- PAYMENT COMPLETION PROGRESS BAR --- */}
         {(() => {
           const includedComponents = components.filter(
             (comp) => comp.is_included
           );
-          const finalizedComponents = includedComponents.filter(
-            (comp) => (comp as any).supplier_status === "delivered"
+          const paidComponents = includedComponents.filter(
+            (comp) => (comp as any).payment_status === "paid"
           );
           const completionPercentage =
             includedComponents.length > 0
               ? Math.round(
-                  (finalizedComponents.length / includedComponents.length) * 100
+                  (paidComponents.length / includedComponents.length) * 100
                 )
               : 0;
 
@@ -1522,18 +1450,18 @@ function PackageInclusionsManagement({
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-5 w-5 text-gray-600" />
                   <h4 className="text-sm font-semibold text-gray-900">
-                    Inclusion Finalization Progress
+                    Payment Completion Progress
                   </h4>
                 </div>
                 <div className="text-sm font-medium">
                   <span className="text-green-600">
-                    {finalizedComponents.length}
+                    {paidComponents.length}
                   </span>{" "}
                   of{" "}
                   <span className="text-gray-900">
                     {includedComponents.length}
                   </span>{" "}
-                  inclusions finalized
+                  inclusions paid
                 </div>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
@@ -1564,7 +1492,7 @@ function PackageInclusionsManagement({
                           toast({
                             title: "Success",
                             description:
-                              "Event has been finalized. Event remains editable until the event starts.",
+                              "Event has been finalized and marked as confirmed.",
                           });
                           await onEventUpdate();
                         } else {
@@ -1743,19 +1671,9 @@ function PackageInclusionsManagement({
                           }
                           loading={loading}
                           onUpdateComponent={handleUpdateComponent}
-                          onPaymentStatusClick={() => {
-                            console.log(
-                              "Payment status clicked for component:",
-                              component.component_name
-                            );
-                            setPaymentStatusModal({
-                              isOpen: true,
-                              componentId: component.component_id,
-                              componentName: component.component_name,
-                              currentStatus:
-                                component.payment_status || "pending",
-                            });
-                          }}
+                          onSetPaymentStatus={(id, status) =>
+                            handlePaymentStatusChange(id, status)
+                          }
                         />
                       </div>
                     </div>
@@ -1773,6 +1691,19 @@ function PackageInclusionsManagement({
               </p>
             </div>
           )}
+
+          {/* Inline Payment Status Dropdown */}
+          {editingPaymentStatusFor && (
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setEditingPaymentStatusFor(null)}
+            />
+          )}
+          <div className="relative">
+            {components.map((component) => (
+              <div key={`dropdown-anchor-${component.component_id}`} />
+            ))}
+          </div>
 
           {/* Add New Component Button */}
           {!showAddForm && !isEventFinalized && (
@@ -1925,7 +1856,7 @@ function ComponentDisplay({
   onToggleInclusion,
   loading,
   onUpdateComponent,
-  onPaymentStatusClick,
+  onSetPaymentStatus,
 }: {
   component: EventComponent;
   isEditing: boolean;
@@ -1934,10 +1865,14 @@ function ComponentDisplay({
   onToggleInclusion: () => void;
   loading: boolean;
   onUpdateComponent?: (updatedComponent: EventComponent) => void;
-  onPaymentStatusClick?: () => void;
+  onSetPaymentStatus?: (
+    componentId: number,
+    newStatus: "pending" | "paid" | "cancelled"
+  ) => void;
 }) {
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [editedComponent, setEditedComponent] = useState(component);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
 
   useEffect(() => {
     setEditedComponent(component);
@@ -1999,38 +1934,79 @@ function ComponentDisplay({
             {/* Payment Status */}
             {component.is_included && (
               <div className="flex items-center gap-2 mt-3">
-                <div className="text-xs text-gray-500 mb-1">
-                  Payment Status:
-                </div>
-                <button
-                  onClick={onPaymentStatusClick}
-                  title={`Click to change payment status from ${component.payment_status || "pending"} to ${component.payment_status === "paid" ? "pending" : "paid"}`}
-                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer hover:scale-105 active:scale-95 ${
-                    component.payment_status === "paid"
-                      ? "bg-green-100 text-green-800 hover:bg-green-200 border border-green-300"
-                      : "bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border border-yellow-300"
-                  }`}
-                >
-                  {component.payment_status === "paid" ? (
-                    <>
-                      <CheckCircle className="h-3 w-3 mr-1" />
-                      Paid
-                      <Edit className="h-2 w-2 ml-1 opacity-60" />
-                    </>
-                  ) : (
-                    <>
-                      <Clock className="h-3 w-3 mr-1" />
-                      Pending
-                      <Edit className="h-2 w-2 ml-1 opacity-60" />
-                    </>
+                <div className="text-xs text-gray-500">Payment Status:</div>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowStatusMenu((v) => !v)}
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer hover:scale-105 active:scale-95 ${
+                      component.payment_status === "paid"
+                        ? "bg-green-100 text-green-800 border border-green-300"
+                        : component.payment_status === "cancelled"
+                          ? "bg-red-100 text-red-800 border border-red-300"
+                          : "bg-yellow-100 text-yellow-800 border border-yellow-300"
+                    }`}
+                  >
+                    {component.payment_status === "paid" && (
+                      <>
+                        <CheckCircle className="h-3 w-3 mr-1" /> Paid
+                      </>
+                    )}
+                    {component.payment_status === "pending" && (
+                      <>
+                        <Clock className="h-3 w-3 mr-1" /> Pending
+                      </>
+                    )}
+                    {component.payment_status === "cancelled" && (
+                      <>
+                        <X className="h-3 w-3 mr-1" /> Cancelled
+                      </>
+                    )}
+                  </button>
+                  {showStatusMenu && (
+                    <div className="absolute z-50 mt-2 w-40 bg-white border rounded-md shadow-lg p-1">
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
+                        onClick={() => {
+                          onSetPaymentStatus?.(component.component_id, "paid");
+                          setShowStatusMenu(false);
+                        }}
+                      >
+                        Mark as Paid
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
+                        onClick={() => {
+                          onSetPaymentStatus?.(
+                            component.component_id,
+                            "pending"
+                          );
+                          setShowStatusMenu(false);
+                        }}
+                      >
+                        Mark as Pending
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                        onClick={() => {
+                          onSetPaymentStatus?.(
+                            component.component_id,
+                            "cancelled"
+                          );
+                          setShowStatusMenu(false);
+                        }}
+                      >
+                        Mark as Cancelled
+                      </button>
+                    </div>
                   )}
-                </button>
-                {component.payment_date && (
-                  <span className="text-xs text-gray-500">
-                    Paid on{" "}
-                    {new Date(component.payment_date).toLocaleDateString()}
-                  </span>
-                )}
+                </div>
+                {component.payment_date &&
+                  component.payment_status === "paid" && (
+                    <span className="text-xs text-gray-500">
+                      Paid on{" "}
+                      {new Date(component.payment_date).toLocaleDateString()}
+                    </span>
+                  )}
               </div>
             )}
           </div>
@@ -2193,32 +2169,75 @@ function ComponentDisplay({
           {/* Payment Status in Edit Mode */}
           {component.is_included && (
             <div className="flex items-center gap-2 mt-3">
-              <button
-                onClick={onPaymentStatusClick}
-                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity ${
-                  component.payment_status === "paid"
-                    ? "bg-green-100 text-green-800"
-                    : "bg-yellow-100 text-yellow-800"
-                }`}
-              >
-                {component.payment_status === "paid" ? (
-                  <>
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    Paid
-                  </>
-                ) : (
-                  <>
-                    <Clock className="h-3 w-3 mr-1" />
-                    Pending
-                  </>
+              <div className="relative">
+                <button
+                  onClick={() => setShowStatusMenu((v) => !v)}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity ${
+                    component.payment_status === "paid"
+                      ? "bg-green-100 text-green-800"
+                      : component.payment_status === "cancelled"
+                        ? "bg-red-100 text-red-800"
+                        : "bg-yellow-100 text-yellow-800"
+                  }`}
+                >
+                  {component.payment_status === "paid" && (
+                    <>
+                      <CheckCircle className="h-3 w-3 mr-1" /> Paid
+                    </>
+                  )}
+                  {component.payment_status === "pending" && (
+                    <>
+                      <Clock className="h-3 w-3 mr-1" /> Pending
+                    </>
+                  )}
+                  {component.payment_status === "cancelled" && (
+                    <>
+                      <X className="h-3 w-3 mr-1" /> Cancelled
+                    </>
+                  )}
+                </button>
+                {showStatusMenu && (
+                  <div className="absolute z-50 mt-2 w-40 bg-white border rounded-md shadow-lg p-1">
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
+                      onClick={() => {
+                        onSetPaymentStatus?.(component.component_id, "paid");
+                        setShowStatusMenu(false);
+                      }}
+                    >
+                      Mark as Paid
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
+                      onClick={() => {
+                        onSetPaymentStatus?.(component.component_id, "pending");
+                        setShowStatusMenu(false);
+                      }}
+                    >
+                      Mark as Pending
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                      onClick={() => {
+                        onSetPaymentStatus?.(
+                          component.component_id,
+                          "cancelled"
+                        );
+                        setShowStatusMenu(false);
+                      }}
+                    >
+                      Mark as Cancelled
+                    </button>
+                  </div>
                 )}
-              </button>
-              {component.payment_date && (
-                <span className="text-xs text-gray-500">
-                  Paid on{" "}
-                  {new Date(component.payment_date).toLocaleDateString()}
-                </span>
-              )}
+              </div>
+              {component.payment_date &&
+                component.payment_status === "paid" && (
+                  <span className="text-xs text-gray-500">
+                    Paid on{" "}
+                    {new Date(component.payment_date).toLocaleDateString()}
+                  </span>
+                )}
             </div>
           )}
         </div>
@@ -2250,6 +2269,16 @@ function ComponentDisplay({
 // Event Timeline Component
 function EventTimeline({ event }: { event: Event }) {
   const getTimelineSteps = () => {
+    const includedComponents = (event.components || []).filter(
+      (comp) => comp.is_included
+    );
+    const paidIncludedComponents = includedComponents.filter(
+      (comp) => comp.payment_status === "paid"
+    );
+    const allIncludedPaid =
+      includedComponents.length > 0 &&
+      paidIncludedComponents.length === includedComponents.length;
+
     const steps = [
       {
         id: "booking",
@@ -2270,10 +2299,19 @@ function EventTimeline({ event }: { event: Event }) {
       {
         id: "planning",
         title: "Event Planning",
-        date: null,
-        status: event.event_status === "confirmed" ? "in-progress" : "pending",
+        date: event.finalized_at || null,
+        // Only mark completed when event has been explicitly finalized
+        status: event.finalized_at
+          ? "completed"
+          : allIncludedPaid || event.event_status === "confirmed"
+            ? "in-progress"
+            : "pending",
         icon: Edit,
-        description: "Finalizing event details",
+        description: event.finalized_at
+          ? "All inclusions paid and finalized"
+          : allIncludedPaid
+            ? "All inclusions paid. Ready to finalize."
+            : "Finalizing event details",
       },
       {
         id: "final-payment",
@@ -2531,6 +2569,22 @@ function PaymentHistoryTab({ event }: { event: Event }) {
     []
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [newPayment, setNewPayment] = useState({
+    payment_type: "custom" as "custom" | "percentage" | "full",
+    percentage: 0 as number,
+    payment_amount: 0,
+    payment_method: "gcash" as "gcash" | "bank-transfer" | "cash",
+    payment_date: new Date().toISOString().slice(0, 10),
+    payment_status: "completed" as "completed" | "pending",
+    next_due_date: "",
+    payment_reference: "",
+    payment_notes: "",
+    attachments: [] as File[],
+  });
 
   useEffect(() => {
     fetchPaymentHistory();
@@ -2548,13 +2602,114 @@ function PaymentHistoryTab({ event }: { event: Event }) {
       );
 
       if (response.data.status === "success") {
-        setPaymentHistory(response.data.payments || event.payments || []);
+        const raw = response.data.payments || event.payments || [];
+        const normalized = (raw || []).map((p: any) => {
+          let attachments = p.payment_attachments;
+          if (typeof attachments === "string") {
+            try {
+              attachments = JSON.parse(attachments);
+            } catch {
+              attachments = [];
+            }
+          }
+          return { ...p, payment_attachments: attachments || [] };
+        });
+        setPaymentHistory(normalized);
       }
     } catch (error) {
       console.error("Error fetching payment history:", error);
-      setPaymentHistory(event.payments || []);
+      const fallback = (event.payments || []).map((p: any) => ({
+        ...p,
+        payment_attachments:
+          typeof p.payment_attachments === "string"
+            ? (() => {
+                try {
+                  return JSON.parse(p.payment_attachments);
+                } catch {
+                  return [];
+                }
+              })()
+            : p.payment_attachments || [],
+      }));
+      setPaymentHistory(fallback);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleCreatePayment = async () => {
+    try {
+      setIsCreating(true);
+      // 1) Create payment record
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "createPayment",
+          event_id: event.event_id,
+          client_id: event.user_id,
+          payment_method: newPayment.payment_method,
+          payment_amount: Number(newPayment.payment_amount) || 0,
+          payment_notes: newPayment.payment_notes || "",
+          payment_status: newPayment.payment_status,
+          payment_date: newPayment.payment_date,
+          payment_reference: newPayment.payment_reference || "",
+          // attachments added separately via upload endpoint
+        }
+      );
+
+      if (response.data.status !== "success") {
+        toast({
+          title: "Error",
+          description: response.data.message || "Failed to create payment",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const paymentId = response.data.payment_id;
+
+      // 2) Upload attachments (if any)
+      for (const file of newPayment.attachments) {
+        const formData = new FormData();
+        formData.append("operation", "uploadPaymentAttachment");
+        formData.append("event_id", String(event.event_id));
+        formData.append("payment_id", String(paymentId));
+        formData.append("description", newPayment.payment_notes || "");
+        formData.append("file", file);
+
+        await fetch("http://localhost/events-api/admin.php", {
+          method: "POST",
+          body: formData,
+        });
+      }
+
+      toast({ title: "Success", description: "Payment recorded successfully" });
+      // reset form & close modal
+      setNewPayment({
+        payment_type: "custom",
+        percentage: 0,
+        payment_amount: 0,
+        payment_method: "gcash",
+        payment_date: new Date().toISOString().slice(0, 10),
+        payment_status: "completed",
+        next_due_date: "",
+        payment_reference: "",
+        payment_notes: "",
+        attachments: [],
+      });
+      setIsPaymentModalOpen(false);
+
+      // refresh
+      await fetchPaymentHistory();
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Error",
+        description: "Failed to create payment",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -2571,6 +2726,29 @@ function PaymentHistoryTab({ event }: { event: Event }) {
     }
   };
 
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const filesArray = Array.from(e.dataTransfer.files);
+      setNewPayment((p) => ({ ...p, attachments: filesArray as File[] }));
+    }
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleUploadClick = () => fileInputRef.current?.click();
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -2581,9 +2759,419 @@ function PaymentHistoryTab({ event }: { event: Event }) {
 
   return (
     <div className="space-y-4">
+      {/* Header actions */}
+      <div className="flex items-center justify-end">
+        <Button
+          onClick={() => setIsPaymentModalOpen(true)}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          Make Payment
+        </Button>
+      </div>
+
+      {/* Make Payment Modal */}
+      <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
+        <DialogContent
+          className="max-w-2xl lg:max-w-xl max-h-[85vh] overflow-y-auto pr-3 md:pr-4"
+          style={{ scrollbarGutter: "stable both-edges" }}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-xl">Record Payment</DialogTitle>
+            <DialogDescription className="text-sm">
+              Add payment details and proof. Use custom amount or percentage of
+              package price.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-6">
+            <div>
+              {/* Summary on top */}
+              <div className="rounded-lg border p-4 bg-blue-50/50 mb-4">
+                <h4 className="font-semibold text-blue-900 mb-3">
+                  Payment Summary
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <div className="text-blue-700">Package Price</div>
+                    <div className="font-semibold text-blue-900">
+                      ₱
+                      {event.total_budget.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-blue-700">Amount Paid</div>
+                    <div className="font-semibold text-blue-900">
+                      ₱
+                      {(
+                        paymentHistory?.reduce(
+                          (sum, p) =>
+                            p.payment_status === "completed"
+                              ? sum + p.payment_amount
+                              : sum,
+                          0
+                        ) || 0
+                      ).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-blue-700">Balance Due</div>
+                    <div className="font-semibold text-blue-900">
+                      ₱
+                      {(
+                        event.total_budget -
+                        (paymentHistory?.reduce(
+                          (sum, p) =>
+                            p.payment_status === "completed"
+                              ? sum + p.payment_amount
+                              : sum,
+                          0
+                        ) || 0)
+                      ).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                  </div>
+                </div>
+                {(() => {
+                  const paid =
+                    paymentHistory?.reduce(
+                      (sum, p) =>
+                        p.payment_status === "completed"
+                          ? sum + p.payment_amount
+                          : sum,
+                      0
+                    ) || 0;
+                  const pct =
+                    event.total_budget > 0
+                      ? (paid / event.total_budget) * 100
+                      : 0;
+                  return (
+                    <div className="mt-3">
+                      <div className="text-blue-700 text-sm mb-1">
+                        Payment Progress
+                      </div>
+                      <div className="w-full h-2 rounded bg-blue-100 overflow-hidden">
+                        <div
+                          className="h-2 bg-blue-600"
+                          style={{ width: `${pct.toFixed(1)}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-blue-700 mt-1">
+                        {pct.toFixed(1)}% Complete
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Payment type buttons (Full, Percentage, Amount) */}
+              <div className="mb-4">
+                <div className="text-sm font-medium text-gray-700 mb-2">
+                  Payment Type
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={
+                      newPayment.payment_type === "custom"
+                        ? "default"
+                        : "outline"
+                    }
+                    size="sm"
+                    onClick={() =>
+                      setNewPayment((p) => ({ ...p, payment_type: "custom" }))
+                    }
+                  >
+                    <DollarSign className="h-3 w-3 mr-1" /> Custom Amount
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={
+                      newPayment.payment_type === "percentage"
+                        ? "default"
+                        : "outline"
+                    }
+                    size="sm"
+                    onClick={() =>
+                      setNewPayment((p) => ({
+                        ...p,
+                        payment_type: "percentage",
+                      }))
+                    }
+                  >
+                    <Percent className="h-3 w-3 mr-1" /> Percentage
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={
+                      newPayment.payment_type === "full" ? "default" : "outline"
+                    }
+                    size="sm"
+                    onClick={() =>
+                      setNewPayment((p) => ({
+                        ...p,
+                        payment_type: "full",
+                        percentage: 100,
+                        payment_amount: Math.max(
+                          0,
+                          event.total_budget -
+                            (paymentHistory?.reduce(
+                              (s, pay) =>
+                                pay.payment_status === "completed"
+                                  ? s + pay.payment_amount
+                                  : s,
+                              0
+                            ) || 0)
+                        ).valueOf(),
+                      }))
+                    }
+                  >
+                    <Wallet className="h-3 w-3 mr-1" /> Pay Full Balance
+                  </Button>
+                </div>
+              </div>
+
+              {newPayment.payment_type === "percentage" && (
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Percentage
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={newPayment.percentage}
+                    onChange={(e) =>
+                      setNewPayment((p) => ({
+                        ...p,
+                        percentage: parseFloat(e.target.value) || 0,
+                        payment_amount:
+                          (event.total_budget *
+                            (parseFloat(e.target.value) || 0)) /
+                            100 || 0,
+                      }))
+                    }
+                    placeholder="e.g., 25"
+                    className="w-28 px-3 py-2 border rounded-md"
+                  />
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Payment Amount *
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={newPayment.payment_amount}
+                    onChange={(e) =>
+                      setNewPayment((p) => ({
+                        ...p,
+                        payment_amount: parseFloat(e.target.value) || 0,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-md"
+                    placeholder="0.00"
+                    disabled={newPayment.payment_type === "full"}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Payment Method *
+                  </label>
+                  <select
+                    value={newPayment.payment_method}
+                    onChange={(e) =>
+                      setNewPayment((p) => ({
+                        ...p,
+                        payment_method: e.target.value as any,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-md capitalize"
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="gcash">GCash</option>
+                    <option value="bank-transfer">Bank Transfer</option>
+                  </select>
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Payment Date *
+                  </label>
+                  <input
+                    type="date"
+                    value={newPayment.payment_date}
+                    onChange={(e) =>
+                      setNewPayment((p) => ({
+                        ...p,
+                        payment_date: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-md"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Status *
+                  </label>
+                  <select
+                    value={newPayment.payment_status}
+                    onChange={(e) =>
+                      setNewPayment((p) => ({
+                        ...p,
+                        payment_status: e.target.value as any,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-md capitalize"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Reference Number (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newPayment.payment_reference}
+                    onChange={(e) =>
+                      setNewPayment((p) => ({
+                        ...p,
+                        payment_reference: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-md"
+                    placeholder="Transaction reference"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Notes (Optional)
+                  </label>
+                  <textarea
+                    value={newPayment.payment_notes}
+                    onChange={(e) =>
+                      setNewPayment((p) => ({
+                        ...p,
+                        payment_notes: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-3 border rounded-md min-h-28 resize-vertical"
+                    rows={4}
+                    placeholder="Additional notes..."
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-gray-700 mb-2">
+                    📎 Payment Attachments (Optional)
+                  </label>
+                  <div
+                    className={`border-2 border-dashed rounded-lg p-5 text-center transition-colors ${dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"}`}
+                    onDragEnter={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDragOver={handleDrag}
+                    onDrop={handleDrop}
+                  >
+                    <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+                    <p className="text-sm md:text-base font-medium text-gray-700 mb-1">
+                      Proof of Payment
+                    </p>
+                    <p className="text-xs md:text-sm text-gray-500 mb-3">
+                      Upload receipts, screenshots, or other payment proof
+                      documents
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleUploadClick}
+                      disabled={isCreating}
+                    >
+                      Choose Files
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        setNewPayment((p) => ({
+                          ...p,
+                          attachments: files as File[],
+                        }));
+                      }}
+                      accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx"
+                    />
+                    <div className="text-xs md:text-sm text-gray-500 mt-3">
+                      Supported: JPG, PNG, PDF, DOC, DOCX (Max 5MB each)
+                    </div>
+                  </div>
+
+                  {newPayment.attachments.length > 0 && (
+                    <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {newPayment.attachments.map((file, idx) => (
+                        <div
+                          key={`${file.name}-${idx}`}
+                          className="flex items-center gap-3 bg-gray-50 p-3 rounded border"
+                        >
+                          {file.type.startsWith("image/") ? (
+                            <img
+                              src={URL.createObjectURL(file)}
+                              alt={file.name}
+                              className="w-12 h-12 object-cover rounded"
+                            />
+                          ) : (
+                            <FileIcon className="w-7 h-7 text-gray-500" />
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-xs md:text-sm font-medium text-gray-900 truncate max-w-[200px]">
+                              {file.name}
+                            </div>
+                            <div className="text-[10px] md:text-xs text-gray-500">
+                              {(file.size / 1024).toFixed(1)} KB
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* Right column removed (summary moved to top) */}
+              </div>
+              {/* Right column summary */}
+              <div className="mt-5 flex justify-end gap-3">
+                <Button
+                  onClick={() => setIsPaymentModalOpen(false)}
+                  variant="outline"
+                  disabled={isCreating}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreatePayment}
+                  disabled={isCreating || newPayment.payment_amount <= 0}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {isCreating ? "Saving..." : "Record Payment"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
         <h4 className="font-semibold text-blue-900 mb-2">Payment Summary</h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
           <div>
             <div className="text-blue-700">Total Budget</div>
             <div className="font-semibold text-blue-900">
@@ -2612,12 +3200,20 @@ function PaymentHistoryTab({ event }: { event: Event }) {
             </div>
           </div>
           <div>
-            <div className="text-blue-700">Status</div>
-            <span
-              className={`inline-block px-2 py-1 rounded-full text-xs font-medium border ${getPaymentStatusColor(event.payment_status)}`}
-            >
-              {event.payment_status}
-            </span>
+            <div className="text-blue-700">Remaining Balance</div>
+            <div className="font-semibold text-blue-900">
+              ₱
+              {(
+                event.total_budget -
+                (paymentHistory?.reduce(
+                  (sum, p) =>
+                    p.payment_status === "completed"
+                      ? sum + p.payment_amount
+                      : sum,
+                  0
+                ) || 0)
+              ).toLocaleString()}
+            </div>
           </div>
         </div>
       </div>
@@ -2664,11 +3260,31 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                 </div>
               )}
 
-              {payment.description && (
-                <p className="text-sm text-gray-600 mt-2">
-                  {payment.description}
-                </p>
-              )}
+              {/* Attachments */}
+              {payment.payment_attachments &&
+                Array.isArray(payment.payment_attachments) &&
+                payment.payment_attachments.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-sm font-medium text-gray-900 mb-1">
+                      Attachments
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {payment.payment_attachments.map(
+                        (att: any, i: number) => (
+                          <a
+                            key={`${payment.payment_id}-${i}`}
+                            className="text-sm text-blue-600 hover:underline"
+                            href={`http://localhost/events-api/uploads/payment_proof/${att.filename || att.file_name}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {att.original_name || att.filename}
+                          </a>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
             </div>
           ))}
         </div>
@@ -2759,14 +3375,14 @@ export default function EventDetailsPage() {
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
-      case "draft":
-        return "bg-gray-100 text-gray-700 border-gray-300";
       case "confirmed":
-        return "bg-blue-100 text-blue-700 border-blue-300";
-      case "on_going":
-        return "bg-yellow-100 text-yellow-700 border-yellow-300";
-      case "done":
         return "bg-green-100 text-green-700 border-green-300";
+      case "draft":
+        return "bg-yellow-100 text-yellow-700 border-yellow-300";
+      case "on_going":
+        return "bg-blue-100 text-blue-700 border-blue-300";
+      case "done":
+        return "bg-purple-100 text-purple-700 border-purple-300";
       case "cancelled":
         return "bg-red-100 text-red-700 border-red-300";
       default:

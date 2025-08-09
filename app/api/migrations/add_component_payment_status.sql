@@ -1,6 +1,6 @@
 -- Add payment status to event components
 ALTER TABLE `tbl_event_components`
-ADD COLUMN `payment_status` ENUM('pending', 'paid') NOT NULL DEFAULT 'pending' AFTER `is_included`,
+ADD COLUMN `payment_status` ENUM('pending', 'paid', 'cancelled') NOT NULL DEFAULT 'pending' AFTER `is_included`,
 ADD COLUMN `payment_date` DATETIME DEFAULT NULL AFTER `payment_status`,
 ADD COLUMN `payment_notes` TEXT DEFAULT NULL AFTER `payment_date`;
 

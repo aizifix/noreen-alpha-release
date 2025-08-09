@@ -202,41 +202,52 @@ export default function EventsPage() {
   // Status color helper
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
+      // confirmed = green
       case "confirmed":
         return {
-          border: "border-green-500",
+          border: "border-green-600",
           bg: "bg-green-100",
           text: "text-green-700",
         };
+      // draft = yellow
       case "draft":
-      case "planning":
         return {
           border: "border-yellow-500",
           bg: "bg-yellow-100",
           text: "text-yellow-700",
         };
+      // on going = blue
       case "on_going":
         return {
           border: "border-blue-500",
           bg: "bg-blue-100",
           text: "text-blue-700",
         };
+      // done = purple
       case "done":
         return {
           border: "border-purple-500",
           bg: "bg-purple-100",
           text: "text-purple-700",
         };
+      // cancelled = red
       case "cancelled":
         return {
           border: "border-red-500",
           bg: "bg-red-100",
           text: "text-red-700",
         };
+      // conflict = orange (explicit status if used)
+      case "conflict":
+        return {
+          border: "border-orange-500",
+          bg: "bg-orange-100",
+          text: "text-orange-700",
+        };
       default:
         return {
-          border: "border-gray-500",
-          bg: "bg-gray-100",
+          border: "border-gray-400",
+          bg: "bg-gray-50",
           text: "text-gray-700",
         };
     }
@@ -283,6 +294,8 @@ export default function EventsPage() {
       const isToday = date.toDateString() === today.toDateString();
       const isSelected =
         selectedDate && date.toDateString() === selectedDate.toDateString();
+
+      // Display events with their actual status colors per legend; no auto overrides
 
       calendarDays.push(
         <div

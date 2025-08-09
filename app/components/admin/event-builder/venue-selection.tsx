@@ -83,9 +83,12 @@ export function VenueSelection({
       setIsLoadingVenues(true);
       setVenuesError(null);
 
-      const response = await axios.post("http://localhost/events-api/admin.php", {
-        operation: "getAllAvailableVenues",
-      });
+      const response = await axios.post(
+        "http://localhost/events-api/admin.php",
+        {
+          operation: "getAllAvailableVenues",
+        }
+      );
 
       const data = response.data;
       console.log("API Response:", data);
@@ -114,10 +117,12 @@ export function VenueSelection({
             is_active: venue.is_active,
             venue_status: venue.venue_status,
           };
-          
+
           // Debug logging for extra pax rate
-          console.log(`Venue: ${processedVenue.venue_title}, Extra Pax Rate: ${processedVenue.extra_pax_rate}`);
-          
+          console.log(
+            `Venue: ${processedVenue.venue_title}, Extra Pax Rate: ${processedVenue.extra_pax_rate}`
+          );
+
           return processedVenue;
         });
 
@@ -130,14 +135,14 @@ export function VenueSelection({
       }
     } catch (error) {
       console.error("Error fetching all venues:", error);
-      
+
       // Handle axios errors
       if (axios.isAxiosError(error)) {
         console.error("Axios error details:", {
           message: error.message,
           status: error.response?.status,
           statusText: error.response?.statusText,
-          data: error.response?.data
+          data: error.response?.data,
         });
         setVenuesError(
           `API Error: ${error.response?.status} - ${error.response?.statusText || error.message}`
@@ -177,23 +182,25 @@ export function VenueSelection({
       return;
     }
 
-            // Check if venues have pax rate data
-        const venuesWithPaxRates = venuesToUse.filter(
-          (venue: any) => parseFloat(venue.extra_pax_rate || 0) > 0
-        );
-        console.log(`Total venues: ${venuesToUse.length}`);
-        console.log(`Venues with pax rates: ${venuesWithPaxRates.length}`);
-        
-        // Debug: Log all venues and their pax rates
-        venuesToUse.forEach((venue: any) => {
-          console.log(`Venue: ${venue.venue_title} - Pax Rate: ${venue.extra_pax_rate} (${typeof venue.extra_pax_rate})`);
-        });
-        
-        if (venuesWithPaxRates.length > 0) {
-          console.log(`Found ${venuesWithPaxRates.length} venues with pax rates`);
-        } else {
-          console.warn("No venues found with pax rates!");
-        }
+    // Check if venues have pax rate data
+    const venuesWithPaxRates = venuesToUse.filter(
+      (venue: any) => parseFloat(venue.extra_pax_rate || 0) > 0
+    );
+    console.log(`Total venues: ${venuesToUse.length}`);
+    console.log(`Venues with pax rates: ${venuesWithPaxRates.length}`);
+
+    // Debug: Log all venues and their pax rates
+    venuesToUse.forEach((venue: any) => {
+      console.log(
+        `Venue: ${venue.venue_title} - Pax Rate: ${venue.extra_pax_rate} (${typeof venue.extra_pax_rate})`
+      );
+    });
+
+    if (venuesWithPaxRates.length > 0) {
+      console.log(`Found ${venuesWithPaxRates.length} venues with pax rates`);
+    } else {
+      console.warn("No venues found with pax rates!");
+    }
 
     const venuesFilteredBySearch = venuesToUse.filter(
       (venue: any) =>
@@ -220,11 +227,13 @@ export function VenueSelection({
   };
 
   // Handle guest count input blur (when user finishes typing)
-  const handleGuestCountBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
+  const handleGuestCountBlur = async (
+    e: React.FocusEvent<HTMLInputElement>
+  ) => {
     const value = parseInt(e.target.value) || 100;
     const clampedValue = Math.max(1, Math.min(1000, value));
     setGuestCountInput(String(clampedValue));
-    
+
     // Update guest count and call onSelect if we have a selected venue
     if (selectedVenueId && clampedValue !== guestCount) {
       setIsUpdatingGuestCount(true);
@@ -267,7 +276,10 @@ export function VenueSelection({
   };
 
   // Helper function to safely calculate overflow charge
-  const calculateOverflowCharge = (guestCount: number, extraPaxRate: string | number) => {
+  const calculateOverflowCharge = (
+    guestCount: number,
+    extraPaxRate: string | number
+  ) => {
     const rate = parseFloat(String(extraPaxRate)) || 0;
     const extraGuests = Math.max(0, guestCount - 100);
     return extraGuests * rate;
@@ -348,8 +360,8 @@ export function VenueSelection({
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-blue-700">
             <strong>Custom Event Mode:</strong> You're creating an event from
-            scratch. All available venues are shown below. Select any venue
-            that fits your needs.
+            scratch. All available venues are shown below. Select any venue that
+            fits your needs.
           </p>
         </div>
       )}
@@ -361,30 +373,29 @@ export function VenueSelection({
             <label className="block text-sm font-medium text-blue-900 mb-2">
               Expected Guest Count
             </label>
-                         <div className="flex items-center space-x-4">
-               <Input
-                 type="number"
-                 min="1"
-                 max="1000"
-                 value={guestCountInput}
-                 onChange={handleGuestCountChange}
-                 onBlur={handleGuestCountBlur}
-                 onKeyDown={handleGuestCountKeyDown}
-                 className="w-32"
-                 placeholder="100"
-                 disabled={isUpdatingGuestCount}
-               />
-               <span className="text-sm text-blue-700">guests</span>
-               {isUpdatingGuestCount && (
-                 <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-               )}
+            <div className="flex items-center space-x-4">
+              <Input
+                type="number"
+                min="1"
+                max="1000"
+                value={guestCountInput}
+                onChange={handleGuestCountChange}
+                onBlur={handleGuestCountBlur}
+                onKeyDown={handleGuestCountKeyDown}
+                className="w-32"
+                placeholder="100"
+                disabled={isUpdatingGuestCount}
+              />
+              <span className="text-sm text-blue-700">guests</span>
+              {isUpdatingGuestCount && (
+                <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+              )}
             </div>
             <p className="text-xs text-blue-600 mt-1">
-              Base capacity is 100 guests. Extra guests beyond 100 will be charged based on each venue's extra guest rate
+              Base capacity is 100 guests. Extra guests beyond 100 will be
+              charged based on each venue's extra guest rate
             </p>
           </div>
-
-          
         </div>
       </div>
 
@@ -414,22 +425,22 @@ export function VenueSelection({
             guestCount > 100 ? Math.max(0, guestCount - 100) * extraPaxRate : 0;
           const totalPrice = basePrice + overflowCharge;
 
-                     return (
-             <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
-               <div className="flex items-center justify-between">
-                 <div>
-                   <h3 className="text-lg font-semibold text-green-900">
-                     Selected: {selectedVenue.venue_title}
-                   </h3>
-                   <p className="text-sm text-green-700">
-                     Guest count: {guestCount} • Base capacity: 100
-                   </p>
-                   {extraPaxRate > 0 && (
-                     <p className="text-xs text-blue-700 mt-1">
-                       Extra guest rate: {formatCurrency(extraPaxRate)} per guest
-                     </p>
-                   )}
-                 </div>
+          return (
+            <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-green-900">
+                    Selected: {selectedVenue.venue_title}
+                  </h3>
+                  <p className="text-sm text-green-700">
+                    Guest count: {guestCount} • Base capacity: 100
+                  </p>
+                  {extraPaxRate > 0 && (
+                    <p className="text-xs text-blue-700 mt-1">
+                      Extra guest rate: {formatCurrency(extraPaxRate)} per guest
+                    </p>
+                  )}
+                </div>
                 <div className="text-right">
                   <div className="text-sm text-green-700">
                     Base price: {formatCurrency(basePrice)}
@@ -457,12 +468,12 @@ export function VenueSelection({
 
       {/* Venue Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {filteredVenues.map((venue: any) => {
+        {filteredVenues.map((venue: any, index: number) => {
           const isSelected = selectedVenueId === String(venue.venue_id);
 
           return (
             <Card
-              key={venue.venue_id}
+              key={`venue-${venue.venue_id ?? index}`}
               className={`cursor-pointer transition-all duration-200 ${
                 isSelected ? "ring-2 ring-[#028A75] border-[#028A75]" : ""
               }`}
@@ -894,8 +905,8 @@ export function VenueSelection({
                               per guest
                             </p>
                             <p>
-                              3. Your guest count:{" "}
-                              {getCurrentGuestCount()} guests
+                              3. Your guest count: {getCurrentGuestCount()}{" "}
+                              guests
                             </p>
                             <p>
                               4. Extra guests:{" "}
@@ -903,8 +914,7 @@ export function VenueSelection({
                             </p>
                             <p>
                               5. Overflow charge:{" "}
-                              {Math.max(0, getCurrentGuestCount() - 100)}{" "}
-                              ×{" "}
+                              {Math.max(0, getCurrentGuestCount() - 100)} ×{" "}
                               {formatCurrency(
                                 parseFloat(selectedVenueForModal.extra_pax_rate)
                               )}{" "}
@@ -952,9 +962,9 @@ export function VenueSelection({
                         </h4>
                         <div className="grid grid-cols-1 gap-4">
                           {selectedVenueForModal.inclusions.map(
-                            (inclusion: any) => (
+                            (inclusion: any, idx: number) => (
                               <div
-                                key={`modal-${selectedVenueForModal.venue_id}-inclusion-${inclusion.inclusion_id}`}
+                                key={`modal-${selectedVenueForModal.venue_id}-inclusion-${inclusion.inclusion_id ?? 0}-${idx}`}
                                 className="p-6 bg-white border border-gray-200 rounded-xl shadow-sm"
                               >
                                 <div className="flex items-center justify-between mb-4">
@@ -1115,8 +1125,8 @@ export function VenueSelection({
                           0 && (
                           <div className="flex justify-between items-center">
                             <span className="text-gray-600">
-                              Overflow Charge ({getCurrentGuestCount() - 100} extra
-                              guests):
+                              Overflow Charge ({getCurrentGuestCount() - 100}{" "}
+                              extra guests):
                             </span>
                             <span className="font-semibold text-blue-600">
                               {formatCurrency(

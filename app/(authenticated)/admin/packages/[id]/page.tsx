@@ -760,9 +760,9 @@ export default function PackageDetailsPage() {
                           Venue Inclusions:
                         </h4>
                         <div className="space-y-1">
-                          {venue.inclusions.map((inclusion) => (
+                          {venue.inclusions.map((inclusion, idx) => (
                             <div
-                              key={inclusion.inclusion_id}
+                              key={`venue-inc-${inclusion.inclusion_id ?? 0}-${idx}`}
                               className="flex items-center justify-between text-sm"
                             >
                               <span className="text-gray-700">

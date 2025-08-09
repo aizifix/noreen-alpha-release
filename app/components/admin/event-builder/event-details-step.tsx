@@ -130,7 +130,7 @@ export function EventDetailsStep({
       console.log("Setting default start time:", updates);
       updateFields(updates);
     }
-    
+
     // Set default end time if not already set
     if (!initialData.endTime) {
       const updates: Partial<typeof initialData> = {};
@@ -308,11 +308,7 @@ export function EventDetailsStep({
 
   // Check for conflicts when date or time changes
   useEffect(() => {
-    if (
-      initialData.date &&
-      initialData.startTime &&
-      initialData.endTime
-    ) {
+    if (initialData.date && initialData.startTime && initialData.endTime) {
       // Clear any existing timeout
       if (conflictCheckTimeoutRef.current) {
         clearTimeout(conflictCheckTimeoutRef.current);
@@ -329,11 +325,7 @@ export function EventDetailsStep({
         }
       };
     }
-  }, [
-    initialData.date,
-    initialData.startTime,
-    initialData.endTime,
-  ]);
+  }, [initialData.date, initialData.startTime, initialData.endTime]);
 
   // Notify parent component about conflicts - only when conflicts change
   useEffect(() => {
@@ -356,6 +348,25 @@ export function EventDetailsStep({
     async (targetDate?: Date) => {
       const dateToUse = targetDate || date || new Date();
       const monthKey = format(dateToUse, "yyyy-MM");
+
+      // Try to hydrate from sessionStorage cache first to avoid losing plotted events on step navigation
+      try {
+        const storageKey = `calendar-conflicts:${monthKey}`;
+        const cached =
+          typeof window !== "undefined"
+            ? sessionStorage.getItem(storageKey)
+            : null;
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") {
+            setCalendarConflictData(parsed);
+            calendarDataLoadedRef.current.add(monthKey);
+            return;
+          }
+        }
+      } catch (e) {
+        // Ignore cache errors and proceed to fetch
+      }
 
       // Check if we've already loaded data for this month
       if (calendarDataLoadedRef.current.has(monthKey)) {
@@ -388,16 +399,12 @@ export function EventDetailsStep({
         console.log("Calendar conflict data response:", response.data);
 
         if (response.data.status === "success") {
-          setCalendarConflictData(response.data.calendarData || {});
-          console.log(
-            "✅ Successfully loaded real calendar data:",
-            response.data.calendarData
-          );
+          const monthData = response.data.calendarData || {};
+          setCalendarConflictData(monthData);
+          console.log("✅ Successfully loaded real calendar data:", monthData);
 
           // Count total events loaded for logging
-          const totalEvents = Object.values(
-            response.data.calendarData || {}
-          ).reduce(
+          const totalEvents = Object.values(monthData || {}).reduce(
             (sum: number, dayData: any) => sum + (dayData.eventCount || 0),
             0
           );
@@ -408,6 +415,16 @@ export function EventDetailsStep({
 
           // Mark this month as loaded
           calendarDataLoadedRef.current.add(monthKey);
+
+          // Store to sessionStorage cache
+          try {
+            const storageKey = `calendar-conflicts:${monthKey}`;
+            if (typeof window !== "undefined") {
+              sessionStorage.setItem(storageKey, JSON.stringify(monthData));
+            }
+          } catch (e) {
+            // Ignore cache write errors
+          }
         } else {
           console.error(
             "❌ API Error loading calendar data:",
@@ -417,6 +434,13 @@ export function EventDetailsStep({
           // If API fails, show sample data for demonstration
           const sampleData = generateSampleHeatMapData(startDate, endDate);
           setCalendarConflictData(sampleData);
+          // Cache sample data as well so UI remains consistent when navigating back
+          try {
+            const storageKey = `calendar-conflicts:${monthKey}`;
+            if (typeof window !== "undefined") {
+              sessionStorage.setItem(storageKey, JSON.stringify(sampleData));
+            }
+          } catch (e) {}
           console.log("Using sample heat map data:", sampleData);
 
           toast({
@@ -434,6 +458,12 @@ export function EventDetailsStep({
         const endDate = format(endOfMonth(dateToUse), "yyyy-MM-dd");
         const sampleData = generateSampleHeatMapData(startDate, endDate);
         setCalendarConflictData(sampleData);
+        try {
+          const storageKey = `calendar-conflicts:${monthKey}`;
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem(storageKey, JSON.stringify(sampleData));
+          }
+        } catch (e) {}
         console.log(
           "Using sample heat map data due to network error:",
           sampleData
@@ -458,6 +488,20 @@ export function EventDetailsStep({
 
   const handleDateSelect = async (selectedDate: Date | undefined) => {
     if (!selectedDate) return;
+
+    // Guard against selecting past dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const normalizedSelected = new Date(selectedDate);
+    normalizedSelected.setHours(0, 0, 0, 0);
+    if (normalizedSelected < today) {
+      toast({
+        title: "Past date not allowed",
+        description: "You can only select today or a future date.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     console.log("Date selected:", selectedDate);
     setClickedDate(selectedDate);
@@ -600,8 +644,11 @@ export function EventDetailsStep({
 
         // Update parent component with conflict status
         updateField("hasConflicts", hasConflictsFound);
-        
-        console.log("✅ Conflict check completed - hasConflicts:", hasConflictsFound);
+
+        console.log(
+          "✅ Conflict check completed - hasConflicts:",
+          hasConflictsFound
+        );
       } else {
         console.error("Error checking conflicts:", response.data.message);
         setHasConflicts(false);
@@ -620,12 +667,7 @@ export function EventDetailsStep({
     } finally {
       setIsCheckingConflicts(false);
     }
-  }, [
-    date,
-    initialData.startTime,
-    initialData.endTime,
-    updateField,
-  ]);
+  }, [date, initialData.startTime, initialData.endTime, updateField]);
 
   // Get heat map color based on event count
   const getHeatMapColor = (eventCount: number, hasWedding: boolean) => {
@@ -661,6 +703,13 @@ export function EventDetailsStep({
     const isSelected = date && isSameDay(day, date);
     const isClickedDate = clickedDate && isSameDay(day, clickedDate);
 
+    // Determine if the day is in the past (treat as done and disable)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const normalizedDay = new Date(day);
+    normalizedDay.setHours(0, 0, 0, 0);
+    const isPastDate = normalizedDay < today;
+
     const eventCount = dayData?.eventCount || 0;
     const hasWedding = dayData?.hasWedding || false;
 
@@ -678,14 +727,18 @@ export function EventDetailsStep({
           isClickedDate &&
             isCheckingDateConflicts &&
             "animate-pulse ring-2 ring-yellow-400",
-          "hover:bg-gray-100 focus:bg-gray-100"
+          "hover:bg-gray-100 focus:bg-gray-100",
+          isPastDate && "opacity-40 cursor-not-allowed pointer-events-none"
         )}
+        aria-disabled={isPastDate}
         onClick={(e) => {
+          if (isPastDate) return;
           e.preventDefault();
           e.stopPropagation();
           handleDateSelect(day);
         }}
         style={{ border: "none", boxShadow: "none" }}
+        title={isPastDate ? "Past date (considered done)" : undefined}
       >
         <span>{format(day, "d")}</span>
 
@@ -858,7 +911,7 @@ export function EventDetailsStep({
                 <span>Wedding (Blocked)</span>
               </div>
             </div>
-            
+
             {/* Calendar loading indicator */}
             {isLoadingCalendarData && (
               <div className="mt-3 p-2 bg-blue-50 rounded border border-blue-200">

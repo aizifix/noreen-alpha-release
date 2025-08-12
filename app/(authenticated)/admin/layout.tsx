@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -37,6 +37,7 @@ import {
   SidebarMenuItem,
 } from "../../components/sidebar/AdminSidebar";
 import { secureStorage } from "@/app/utils/encryption";
+import axios from "axios";
 import { useTheme } from "next-themes";
 
 interface User {
@@ -73,6 +74,24 @@ export default function AdminLayout({
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
+  const [isNotifDropdownOpen, setIsNotifDropdownOpen] = useState(false);
+  const [isNotifLoading, setIsNotifLoading] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const notifRef = useRef<HTMLDivElement | null>(null);
+
+  interface NotificationItem {
+    notification_id: number;
+    notification_type?: string;
+    notification_title?: string;
+    notification_message: string;
+    notification_priority?: string;
+    notification_icon?: string | null;
+    notification_url?: string | null;
+    event_id?: number | null;
+    booking_id?: number | null;
+    created_at: string;
+  }
 
   const menuSections: MenuSection[] = [
     {
@@ -129,6 +148,13 @@ export default function AdminLayout({
       if (isUserDropdownOpen && !target.closest(".relative")) {
         setIsUserDropdownOpen(false);
       }
+      if (
+        isNotifDropdownOpen &&
+        notifRef.current &&
+        !notifRef.current.contains(target)
+      ) {
+        setIsNotifDropdownOpen(false);
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
@@ -139,7 +165,14 @@ export default function AdminLayout({
 
   useEffect(() => {
     try {
-      const userData = secureStorage.getItem("user");
+      let userData: any = secureStorage.getItem("user");
+      if (typeof userData === "string") {
+        try {
+          userData = JSON.parse(userData);
+        } catch {
+          userData = null;
+        }
+      }
       if (!userData) {
         console.log("No user data found in secure storage");
         router.replace("/auth/login");
@@ -160,6 +193,8 @@ export default function AdminLayout({
         return;
       }
       setUser(userData);
+      // Fetch notifications once user is ready
+      fetchNotificationCounts(userData);
     } catch (error) {
       console.error("Error in admin layout:", error);
       secureStorage.removeItem("user");
@@ -189,19 +224,79 @@ export default function AdminLayout({
     };
   }, []);
 
+  // Poll unread notification count periodically
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => fetchNotificationCounts(user), 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  async function fetchNotificationCounts(currentUser: any) {
+    try {
+      const userId = currentUser?.user_id;
+      if (!userId) return;
+      const res = await fetch(
+        `http://localhost/events-api/notifications.php?operation=get_counts&user_id=${encodeURIComponent(
+          userId
+        )}`
+      );
+      const data = await res.json();
+      if (data?.status === "success") {
+        setUnreadNotifCount(Number(data.counts?.unread || 0));
+      }
+    } catch (err) {
+      console.error("Admin notif count fetch failed:", err);
+    }
+  }
+
+  async function fetchNotificationsList(currentUser: any) {
+    try {
+      const userId = currentUser?.user_id;
+      if (!userId) return;
+      setIsNotifLoading(true);
+      const res = await fetch(
+        `http://localhost/events-api/notifications.php?operation=get_notifications&user_id=${encodeURIComponent(
+          userId
+        )}&limit=10&offset=0`
+      );
+      const data = await res.json();
+      if (data?.status === "success") {
+        setNotifications(
+          Array.isArray(data.notifications) ? data.notifications : []
+        );
+      } else {
+        setNotifications([]);
+      }
+    } catch (err) {
+      console.error("Admin notif list fetch failed:", err);
+      setNotifications([]);
+    } finally {
+      setIsNotifLoading(false);
+    }
+  }
+
   const handleLogout = () => {
     try {
+      const current = secureStorage.getItem("user");
+      if (current?.user_id) {
+        axios
+          .post(
+            "http://localhost/events-api/auth.php",
+            { operation: "logout", user_id: current.user_id },
+            { headers: { "Content-Type": "application/json" } }
+          )
+          .catch(() => {});
+      }
+    } catch {}
+    try {
       secureStorage.removeItem("user");
-      // Clear any other stored data
       document.cookie =
         "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
       document.cookie =
         "pending_otp_email=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
-      // Clear browser history and redirect
       window.location.replace("/auth/login");
     } catch (error) {
       console.error("Error during logout:", error);
-      // Force redirect even if there's an error
       window.location.replace("/auth/login");
     }
   };
@@ -356,8 +451,89 @@ export default function AdminLayout({
                 29
               </span>
             </div>
-            <div className="cursor-pointer">
+            <div
+              className="relative cursor-pointer"
+              ref={notifRef}
+              onClick={async () => {
+                const nextOpen = !isNotifDropdownOpen;
+                setIsNotifDropdownOpen(nextOpen);
+                if (nextOpen && user) {
+                  await fetchNotificationsList(user);
+                }
+              }}
+            >
               <Bell className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
+              {unreadNotifCount > 0 && (
+                <span className="absolute -top-2 -right-2 min-w-[1.25rem] h-5 px-1 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                  {unreadNotifCount > 99 ? "99+" : unreadNotifCount}
+                </span>
+              )}
+
+              {isNotifDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-96 max-h-96 overflow-auto bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                  <div className="px-4 py-2 border-b flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-700">
+                      Notifications
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {unreadNotifCount} unread
+                    </span>
+                  </div>
+                  <div className="p-2">
+                    {isNotifLoading ? (
+                      <div className="py-6 text-center text-sm text-gray-500">
+                        Loading...
+                      </div>
+                    ) : notifications.length === 0 ? (
+                      <div className="py-6 text-center text-sm text-gray-500">
+                        No notifications
+                      </div>
+                    ) : (
+                      <ul className="space-y-1">
+                        {notifications.map((n, idx) => (
+                          <li
+                            key={`${n.notification_id ?? "n"}-${idx}`}
+                            className="rounded-md hover:bg-gray-50"
+                          >
+                            {n.notification_url ? (
+                              <Link
+                                href={n.notification_url}
+                                className="block px-3 py-2"
+                              >
+                                <div className="text-sm font-medium text-gray-800 line-clamp-1">
+                                  {n.notification_title ||
+                                    n.notification_type ||
+                                    "Notification"}
+                                </div>
+                                <div className="text-xs text-gray-600 line-clamp-2">
+                                  {n.notification_message}
+                                </div>
+                                <div className="mt-1 text-[10px] text-gray-400">
+                                  {new Date(n.created_at).toLocaleString()}
+                                </div>
+                              </Link>
+                            ) : (
+                              <div className="px-3 py-2">
+                                <div className="text-sm font-medium text-gray-800 line-clamp-1">
+                                  {n.notification_title ||
+                                    n.notification_type ||
+                                    "Notification"}
+                                </div>
+                                <div className="text-xs text-gray-600 line-clamp-2">
+                                  {n.notification_message}
+                                </div>
+                                <div className="mt-1 text-[10px] text-gray-400">
+                                  {new Date(n.created_at).toLocaleString()}
+                                </div>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* User Dropdown */}

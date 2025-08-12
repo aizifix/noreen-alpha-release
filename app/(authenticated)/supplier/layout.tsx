@@ -17,6 +17,7 @@ import {
   User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import axios from "axios";
 import { Badge } from "@/components/ui/badge";
 
 interface SupplierLayoutProps {
@@ -70,8 +71,26 @@ export default function SupplierLayout({ children }: SupplierLayoutProps) {
   };
 
   const handleLogout = () => {
-    // Implement logout logic
-    console.log("Logging out...");
+    try {
+      const stored = window.localStorage.getItem("user");
+      let userId: number | null = null;
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          userId = parsed?.user_id ?? null;
+        } catch {}
+      }
+      if (userId) {
+        axios
+          .post(
+            "http://localhost/events-api/auth.php",
+            { operation: "logout", user_id: userId },
+            { headers: { "Content-Type": "application/json" } }
+          )
+          .catch(() => {});
+      }
+    } catch {}
+    window.location.replace("/auth/login");
   };
 
   return (

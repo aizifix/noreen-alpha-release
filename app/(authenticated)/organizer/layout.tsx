@@ -32,6 +32,7 @@ import {
   SidebarMenuItem,
 } from "../../components/sidebar/AdminSidebar";
 import { secureStorage } from "@/app/utils/encryption";
+import axios from "axios";
 import { useTheme } from "next-themes";
 
 interface User {
@@ -188,17 +189,26 @@ export default function OrganizerLayout({
 
   const handleLogout = () => {
     try {
+      const current = secureStorage.getItem("user");
+      if (current?.user_id) {
+        axios
+          .post(
+            "http://localhost/events-api/auth.php",
+            { operation: "logout", user_id: current.user_id },
+            { headers: { "Content-Type": "application/json" } }
+          )
+          .catch(() => {});
+      }
+    } catch {}
+    try {
       secureStorage.removeItem("user");
-      // Clear any other stored data
       document.cookie =
         "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
       document.cookie =
         "pending_otp_email=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
-      // Clear browser history and redirect
       window.location.replace("/auth/login");
     } catch (error) {
       console.error("Error during logout:", error);
-      // Force redirect even if there's an error
       window.location.replace("/auth/login");
     }
   };

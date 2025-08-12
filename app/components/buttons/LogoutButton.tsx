@@ -4,11 +4,26 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { secureStorage } from "@/app/utils/encryption";
+import axios from "axios";
 
 export const LogoutButton = () => {
   const router = useRouter();
 
   const handleLogout = () => {
+    try {
+      const user = secureStorage.getItem("user");
+      if (user?.user_id) {
+        axios
+          .post(
+            "http://localhost/events-api/auth.php",
+            { operation: "logout", user_id: user.user_id },
+            { headers: { "Content-Type": "application/json" } }
+          )
+          .catch(() => {});
+      }
+    } catch (e) {
+      // ignore
+    }
     // Clear all authentication-related data
     secureStorage.removeItem("user");
 

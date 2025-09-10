@@ -1494,17 +1494,7 @@ export default function EventBuilderPage() {
       return;
     }
 
-    // Validate church start time for wedding events
-    if (eventDetails.type === "wedding" && !eventDetails.churchStartTime) {
-      console.log("❌ Church start time validation failed for wedding");
-      toast({
-        title: "Validation Error",
-        description: "Church start time is required for wedding events",
-        variant: "destructive",
-      });
-      setLoading(false);
-      return;
-    }
+    // Church start time validation removed - now optional for wedding events
 
     if (!eventDetails.capacity || eventDetails.capacity <= 0) {
       console.log("❌ Event capacity validation failed");
@@ -1576,11 +1566,10 @@ export default function EventBuilderPage() {
         original_booking_reference: bookingReference || null,
         user_id: parseInt(clientData.id),
         admin_id: parseInt(userData.user_id),
+        // Set organizer_id if one is selected, otherwise null
         organizer_id:
-          selectedOrganizers?.length > 0 && selectedOrganizers[0]
-            ? !isNaN(parseInt(selectedOrganizers[0]))
-              ? parseInt(selectedOrganizers[0])
-              : null
+          selectedOrganizers && selectedOrganizers.length > 0
+            ? selectedOrganizers[0]
             : null,
         external_organizer: externalOrganizer || null,
         event_title: eventDetails.title || "New Event",
@@ -1612,26 +1601,51 @@ export default function EventBuilderPage() {
             : null,
         client_signature: clientSignature || null,
         finalized_at: null,
-        // Event attachments - simplified structure
-        event_attachments:
-          attachments?.length > 0
-            ? (() => {
-                const eventAttachments = attachments.map((attachment) => ({
-                  original_name: attachment.fileName,
-                  file_name:
-                    attachment.uploadedPath?.split("/").pop() ||
-                    attachment.fileName,
-                  file_path: attachment.uploadedPath || "",
-                  file_size: attachment.fileSize,
-                  file_type: attachment.fileType,
-                  description: "",
-                  attachment_type: "event_attachment",
-                  uploaded_at:
-                    attachment.uploadedAt || new Date().toISOString(),
-                }));
-                return JSON.stringify(eventAttachments);
-              })()
-            : null,
+        // Event attachments - include uploaded files and organizer invites metadata (if any)
+        event_attachments: (() => {
+          const eventAttachments = (attachments || []).map((attachment) => ({
+            original_name: attachment.fileName,
+            file_name:
+              attachment.uploadedPath?.split("/").pop() || attachment.fileName,
+            file_path: attachment.uploadedPath || "",
+            file_size: attachment.fileSize,
+            file_type: attachment.fileType,
+            description: "",
+            attachment_type: "event_attachment",
+            uploaded_at: attachment.uploadedAt || new Date().toISOString(),
+          }));
+
+          // Persist organizer invites metadata without changing backend endpoints
+          const hasOrganizerMeta =
+            (selectedOrganizers && selectedOrganizers.length > 0) ||
+            !!externalOrganizer;
+          if (hasOrganizerMeta) {
+            try {
+              eventAttachments.push({
+                original_name: "organizer_invites.json",
+                file_name: "organizer_invites",
+                file_path: "",
+                file_size: 0,
+                file_type: "application/json",
+                description: JSON.stringify({
+                  pending: selectedOrganizers || [],
+                  accepted: [],
+                  rejected: [],
+                  externalOrganizer: externalOrganizer || null,
+                  created_at: new Date().toISOString(),
+                }),
+                attachment_type: "organizer_invites",
+                uploaded_at: new Date().toISOString(),
+              });
+            } catch (e) {
+              console.warn("Failed to serialize organizer invites metadata", e);
+            }
+          }
+
+          return eventAttachments.length > 0
+            ? JSON.stringify(eventAttachments)
+            : null;
+        })(),
         // Payment attachments - simplified structure
         payment_attachments:
           paymentData?.paymentAttachments?.length &&
@@ -1817,6 +1831,9 @@ export default function EventBuilderPage() {
             console.error("Error saving wedding details:", weddingError);
           }
         }
+
+        // Note: Organizer is now assigned directly during event creation
+        // The organizer_id is set in the event data above
 
         // Show completion confirmation modal instead of success modal
         console.log("✅ Event created successfully, showing completion modal");

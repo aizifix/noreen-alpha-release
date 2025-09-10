@@ -25,6 +25,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationPrevious,
+  PaginationNext,
+  PaginationEllipsis,
+} from "@/components/ui/pagination";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +91,9 @@ export default function AdminBookingsPage() {
   const [convertingBookingId, setConvertingBookingId] = useState<number | null>(
     null
   );
+  const [activeTab, setActiveTab] = useState<string>("cards");
+  const [tableCurrentPage, setTableCurrentPage] = useState<number>(1);
+  const [tableItemsPerPage, setTableItemsPerPage] = useState<number>(10);
 
   useEffect(() => {
     try {
@@ -120,7 +141,22 @@ export default function AdminBookingsPage() {
     }
 
     setFilteredBookings(filtered);
+    // Reset table page when filters/search change
+    setTableCurrentPage(1);
   }, [bookings, searchTerm, statusFilter]);
+
+  // Derived pagination data for table view
+  const tableTotalItems = filteredBookings.length;
+  const tableTotalPages = Math.max(
+    1,
+    Math.ceil(tableTotalItems / tableItemsPerPage)
+  );
+  const safeTableCurrentPage = Math.min(tableCurrentPage, tableTotalPages);
+  const tableStartIndex = (safeTableCurrentPage - 1) * tableItemsPerPage;
+  const tablePageBookings = filteredBookings.slice(
+    tableStartIndex,
+    tableStartIndex + tableItemsPerPage
+  );
 
   const fetchBookings = async () => {
     try {
@@ -528,7 +564,7 @@ export default function AdminBookingsPage() {
   }
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen p-6 animate-fadeSlideIn">
       <div className="max-w-7xl mx-auto">
         <div className="space-y-6">
           {/* Header */}
@@ -627,60 +663,363 @@ export default function AdminBookingsPage() {
             </div>
           </div>
 
-          {/* Bookings List */}
-          <div className="space-y-4">
-            {isLoading ? (
-              <div className="flex justify-center items-center py-12 bg-white rounded-lg border">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <span className="ml-2 text-gray-600">Loading bookings...</span>
-              </div>
-            ) : filteredBookings.length === 0 ? (
-              <div className="text-center py-12 bg-white rounded-lg border">
-                {bookings.length === 0 ? (
-                  <div className="space-y-4">
-                    <div className="text-6xl">📋</div>
-                    <h3 className="text-xl font-semibold text-gray-700">
-                      No Bookings Yet
-                    </h3>
-                    <p className="text-gray-500 max-w-md mx-auto">
-                      No client bookings have been submitted yet. When clients
-                      create bookings, they will appear here for you to review
-                      and approve.
-                    </p>
-                    <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <p className="text-sm text-blue-700">
-                        💡 <strong>Tip:</strong> Clients can create bookings
-                        from the client portal. Once submitted, you can accept
-                        or reject them here.
-                      </p>
-                    </div>
+          {/* Tabs for Card/Table views */}
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <div className="flex items-center justify-between">
+              <TabsList>
+                <TabsTrigger value="cards">Card View</TabsTrigger>
+                <TabsTrigger value="table">Table View</TabsTrigger>
+              </TabsList>
+            </div>
+
+            {/* Card View */}
+            <TabsContent value="cards">
+              <div className="space-y-4">
+                {isLoading ? (
+                  <div className="flex justify-center items-center py-12 bg-white rounded-lg border">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <span className="ml-2 text-gray-600">
+                      Loading bookings...
+                    </span>
+                  </div>
+                ) : filteredBookings.length === 0 ? (
+                  <div className="text-center py-12 bg-white rounded-lg border">
+                    {bookings.length === 0 ? (
+                      <div className="space-y-4">
+                        <div className="text-6xl">📋</div>
+                        <h3 className="text-xl font-semibold text-gray-700">
+                          No Bookings Yet
+                        </h3>
+                        <p className="text-gray-500 max-w-md mx-auto">
+                          No client bookings have been submitted yet. When
+                          clients create bookings, they will appear here for you
+                          to review and approve.
+                        </p>
+                        <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                          <p className="text-sm text-blue-700">
+                            💡 <strong>Tip:</strong> Clients can create bookings
+                            from the client portal. Once submitted, you can
+                            accept or reject them here.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="text-4xl">🔍</div>
+                        <h3 className="text-lg font-semibold text-gray-700">
+                          No Results Found
+                        </h3>
+                        <p className="text-gray-500">
+                          No bookings match your current search criteria or
+                          filters.
+                        </p>
+                        <p className="text-sm text-gray-400 mt-2">
+                          Try adjusting your search term or filter settings.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="text-4xl">🔍</div>
-                    <h3 className="text-lg font-semibold text-gray-700">
-                      No Results Found
-                    </h3>
-                    <p className="text-gray-500">
-                      No bookings match your current search criteria or filters.
-                    </p>
-                    <p className="text-sm text-gray-400 mt-2">
-                      Try adjusting your search term or filter settings.
-                    </p>
+                  <div className="grid gap-4">
+                    {filteredBookings.map((booking) => (
+                      <BookingCard
+                        key={booking.booking_reference}
+                        booking={booking}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="grid gap-4">
-                {filteredBookings.map((booking) => (
-                  <BookingCard
-                    key={booking.booking_reference}
-                    booking={booking}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+            </TabsContent>
+
+            {/* Table View */}
+            <TabsContent value="table">
+              <Card className="bg-white border-0">
+                <CardContent className="p-0">
+                  {isLoading ? (
+                    <div className="flex justify-center items-center py-12">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                      <span className="ml-2 text-gray-600">
+                        Loading bookings...
+                      </span>
+                    </div>
+                  ) : filteredBookings.length === 0 ? (
+                    <div className="text-center py-12">
+                      <div className="text-4xl">🔍</div>
+                      <h3 className="text-lg font-semibold text-gray-700 mt-2">
+                        No bookings found
+                      </h3>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 p-4">
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div className="text-sm text-gray-600">
+                          Showing{" "}
+                          {Math.min(tableStartIndex + 1, tableTotalItems)}-
+                          {Math.min(
+                            tableStartIndex + tableItemsPerPage,
+                            tableTotalItems
+                          )}{" "}
+                          of {tableTotalItems}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-600">
+                            Rows per page
+                          </span>
+                          <select
+                            value={tableItemsPerPage}
+                            onChange={(e) => {
+                              setTableItemsPerPage(Number(e.target.value));
+                              setTableCurrentPage(1);
+                            }}
+                            className="w-28 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            {[10, 20, 50, 100].map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[140px]">
+                              Reference
+                            </TableHead>
+                            <TableHead>Client</TableHead>
+                            <TableHead>Event</TableHead>
+                            <TableHead className="w-[120px]">Date</TableHead>
+                            <TableHead className="w-[80px]">Time</TableHead>
+                            <TableHead className="w-[90px]">Guests</TableHead>
+                            <TableHead>Venue</TableHead>
+                            <TableHead>Package</TableHead>
+                            <TableHead className="w-[120px]">Status</TableHead>
+                            <TableHead className="w-[260px]">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {tablePageBookings.map((booking, index) => (
+                            <TableRow
+                              key={`booking-row-${booking.booking_id}-${index}`}
+                            >
+                              <TableCell className="font-medium">
+                                {booking.booking_reference}
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-sm text-gray-900">
+                                  {booking.client_name}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {booking.client_email}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-sm text-gray-900 truncate max-w-[220px]">
+                                  {booking.event_name}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {booking.event_type_name}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {new Date(
+                                  booking.event_date
+                                ).toLocaleDateString()}
+                              </TableCell>
+                              <TableCell>{booking.event_time}</TableCell>
+                              <TableCell>{booking.guest_count}</TableCell>
+                              <TableCell className="truncate max-w-[180px]">
+                                {booking.venue_name || "-"}
+                              </TableCell>
+                              <TableCell className="truncate max-w-[180px]">
+                                {booking.package_name || "-"}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  className={`${getStatusColor(booking.booking_status)} flex items-center gap-1`}
+                                >
+                                  {getStatusIcon(booking.booking_status)}
+                                  {booking.booking_status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    key="view"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedBooking(booking);
+                                      setShowDetailsModal(true);
+                                    }}
+                                  >
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    View
+                                  </Button>
+                                  {booking.booking_status === "pending" && (
+                                    <>
+                                      <Button
+                                        key="accept"
+                                        size="sm"
+                                        onClick={() =>
+                                          handleAcceptBooking(booking)
+                                        }
+                                        className="bg-green-600 hover:bg-green-700"
+                                      >
+                                        <CheckCircle className="h-4 w-4 mr-1" />
+                                        Accept
+                                      </Button>
+                                      <Button
+                                        key="reject"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                          handleRejectBooking(booking)
+                                        }
+                                        className="border-red-200 text-red-700 hover:bg-red-50"
+                                      >
+                                        <XCircle className="h-4 w-4 mr-1" />
+                                        Reject
+                                      </Button>
+                                    </>
+                                  )}
+                                  {booking.booking_status === "confirmed" && (
+                                    <Button
+                                      key="convert"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleConvertToEvent(booking)
+                                      }
+                                      disabled={
+                                        convertingBookingId ===
+                                        booking.booking_id
+                                      }
+                                      className="bg-blue-600 hover:bg-blue-700"
+                                    >
+                                      {convertingBookingId ===
+                                      booking.booking_id ? (
+                                        <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                                      ) : (
+                                        <ArrowRight className="h-4 w-4 mr-1" />
+                                      )}
+                                      Create an Event
+                                    </Button>
+                                  )}
+                                  {booking.booking_status === "converted" && (
+                                    <Button
+                                      key="view-event"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        router.push(
+                                          `/admin/events?booking_ref=${booking.booking_reference}`
+                                        );
+                                      }}
+                                      className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                                    >
+                                      View Event
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+
+                      {tableTotalPages > 1 && (
+                        <Pagination className="pt-2">
+                          <PaginationContent>
+                            <PaginationItem>
+                              <PaginationPrevious
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setTableCurrentPage((p) =>
+                                    Math.max(1, p - 1)
+                                  );
+                                }}
+                                className={
+                                  safeTableCurrentPage === 1
+                                    ? "pointer-events-none opacity-50"
+                                    : ""
+                                }
+                              />
+                            </PaginationItem>
+                            {(() => {
+                              const pages: number[] = [];
+                              const total = tableTotalPages;
+                              const current = safeTableCurrentPage;
+                              const add = (n: number) => {
+                                if (!pages.includes(n) && n >= 1 && n <= total)
+                                  pages.push(n);
+                              };
+                              add(1);
+                              add(current - 1);
+                              add(current);
+                              add(current + 1);
+                              add(total);
+                              const uniqueSorted = [...new Set(pages)].sort(
+                                (a, b) => a - b
+                              );
+                              const items: (number | string)[] = [];
+                              uniqueSorted.forEach((n, i) => {
+                                if (
+                                  i > 0 &&
+                                  n - (uniqueSorted[i - 1] as number) > 1
+                                )
+                                  items.push("...");
+                                items.push(n);
+                              });
+                              return items.map((p, i) =>
+                                typeof p === "number" ? (
+                                  <PaginationItem key={`page-${p}-${i}`}>
+                                    <PaginationLink
+                                      href="#"
+                                      isActive={p === current}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        setTableCurrentPage(p);
+                                      }}
+                                    >
+                                      {p}
+                                    </PaginationLink>
+                                  </PaginationItem>
+                                ) : (
+                                  <PaginationItem key={`gap-${i}`}>
+                                    <PaginationEllipsis />
+                                  </PaginationItem>
+                                )
+                              );
+                            })()}
+                            <PaginationItem>
+                              <PaginationNext
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setTableCurrentPage((p) =>
+                                    Math.min(tableTotalPages, p + 1)
+                                  );
+                                }}
+                                className={
+                                  safeTableCurrentPage === tableTotalPages
+                                    ? "pointer-events-none opacity-50"
+                                    : ""
+                                }
+                              />
+                            </PaginationItem>
+                          </PaginationContent>
+                        </Pagination>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
 
           {/* Booking Details Modal */}
           <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>

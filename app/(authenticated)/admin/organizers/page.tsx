@@ -68,6 +68,10 @@ interface Organizer {
   certifications: string;
   resume_path: string;
   portfolio_link: string;
+  talent_fee_min?: number | null;
+  talent_fee_max?: number | null;
+  talent_fee_currency?: string;
+  talent_fee_notes?: string | null;
   profile_picture: string;
   is_active: boolean;
   availability: string;
@@ -97,6 +101,10 @@ interface FormData {
   date_of_birth: string;
   years_of_experience: number;
   portfolio_link: string;
+  talent_fee_min?: number | null;
+  talent_fee_max?: number | null;
+  talent_fee_currency?: string;
+  talent_fee_notes?: string;
   admin_remarks: string;
   username: string;
   password: string;
@@ -147,6 +155,10 @@ export default function OrganizersPage() {
     date_of_birth: "",
     years_of_experience: 0,
     portfolio_link: "",
+    talent_fee_min: null,
+    talent_fee_max: null,
+    talent_fee_currency: "PHP",
+    talent_fee_notes: "",
     admin_remarks: "",
     username: "",
     password: "",
@@ -522,6 +534,10 @@ export default function OrganizersPage() {
           )?.[1] || "0"
         ),
         portfolio_link: organizer.portfolio_link || "",
+        talent_fee_min: organizer.talent_fee_min ?? null,
+        talent_fee_max: organizer.talent_fee_max ?? null,
+        talent_fee_currency: organizer.talent_fee_currency || "PHP",
+        talent_fee_notes: organizer.talent_fee_notes || "",
         admin_remarks: organizer.remarks || "",
         username: organizer.username,
         password: "",
@@ -546,6 +562,10 @@ export default function OrganizersPage() {
       date_of_birth: "",
       years_of_experience: 0,
       portfolio_link: "",
+      talent_fee_min: null,
+      talent_fee_max: null,
+      talent_fee_currency: "PHP",
+      talent_fee_notes: "",
       admin_remarks: "",
       username: "",
       password: "",
@@ -562,6 +582,39 @@ export default function OrganizersPage() {
     setIsSubmitting(true);
 
     try {
+      // Optimistically close modal and show loading toast
+      setIsModalOpen(false);
+      const activeToast = toast({
+        title: "Saving organizer...",
+        description: "Please wait while we apply your changes.",
+      });
+      // Client-side validation: ensure fee min/max are logical
+      if (
+        (formData.talent_fee_min != null && formData.talent_fee_min < 0) ||
+        (formData.talent_fee_max != null && formData.talent_fee_max < 0)
+      ) {
+        toast({
+          title: "Invalid fee",
+          description: "Talent fees cannot be negative.",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+      if (
+        formData.talent_fee_min != null &&
+        formData.talent_fee_max != null &&
+        formData.talent_fee_min > formData.talent_fee_max
+      ) {
+        toast({
+          title: "Invalid fee range",
+          description: "Minimum fee cannot be greater than maximum fee.",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
       const submitData = {
         ...formData,
         profile_picture: profilePictureFile?.url || currentProfilePicture,
@@ -576,34 +629,41 @@ export default function OrganizersPage() {
           ? `${API_URL}/admin.php?operation=createOrganizer`
           : `${API_URL}/admin.php?operation=updateOrganizer&organizer_id=${selectedOrganizer?.organizer_id}`;
 
-      const response = await axios.post(url, submitData);
+      const response = await axios.post(url, submitData, {
+        headers: { "Content-Type": "application/json" },
+      });
       const data = response.data;
 
       if (data.status === "success") {
-        toast({
+        activeToast.update({
           title: "Success!",
           description:
             modalMode === "add"
               ? "Organizer added successfully"
               : "Organizer updated successfully",
-        });
-        setIsModalOpen(false);
+          className: "border-green-200 bg-green-50 text-green-800",
+        } as any);
         resetForm();
-        fetchOrganizers();
+        await fetchOrganizers();
       } else {
-        toast({
+        activeToast.update({
           title: "Error",
-          description: data.message || "Operation failed",
+          description: data.message || data.debug?.error || "Operation failed",
           variant: "destructive",
-        });
+        } as any);
+        await fetchOrganizers();
       }
     } catch (error) {
       console.error("Submit error:", error);
+      const apiMessage = (error as any)?.response?.data?.message;
+      const apiDebug = (error as any)?.response?.data?.debug?.error;
       toast({
         title: "Error",
-        description: "An error occurred. Please try again.",
+        description:
+          apiMessage || apiDebug || "An error occurred. Please try again.",
         variant: "destructive",
       });
+      await fetchOrganizers();
     } finally {
       setIsSubmitting(false);
     }
@@ -837,6 +897,7 @@ export default function OrganizersPage() {
                   <th className="text-left py-3 px-4">Phone</th>
                   <th className="text-left py-3 px-4">Status</th>
                   <th className="text-left py-3 px-4">Experience</th>
+                  <th className="text-left py-3 px-4">Talent Fee</th>
                   <th className="text-left py-3 px-4">Registered</th>
                   <th className="text-left py-3 px-4">Actions</th>
                 </tr>
@@ -899,6 +960,23 @@ export default function OrganizersPage() {
                             .replace("Years of Experience: ", "")
                         : "0"}{" "}
                       years
+                    </td>
+                    <td className="py-3 px-4">
+                      {organizer.talent_fee_min != null ||
+                      organizer.talent_fee_max != null ? (
+                        <span>
+                          {(organizer.talent_fee_currency || "PHP") + " "}
+                          {organizer.talent_fee_min != null
+                            ? organizer.talent_fee_min.toLocaleString()
+                            : "?"}
+                          {" - "}
+                          {organizer.talent_fee_max != null
+                            ? organizer.talent_fee_max.toLocaleString()
+                            : "?"}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       {formatDate(organizer.created_at)}
@@ -1241,6 +1319,77 @@ export default function OrganizersPage() {
               </div>
             </div>
 
+            {/* Talent Fees */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="talent_fee_min">Talent Fee Min</Label>
+                <Input
+                  id="talent_fee_min"
+                  type="number"
+                  step="0.01"
+                  value={formData.talent_fee_min ?? ""}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      talent_fee_min:
+                        e.target.value === "" ? null : Number(e.target.value),
+                    }))
+                  }
+                  className="mt-1"
+                  placeholder="e.g. 2000"
+                />
+              </div>
+              <div>
+                <Label htmlFor="talent_fee_max">Talent Fee Max</Label>
+                <Input
+                  id="talent_fee_max"
+                  type="number"
+                  step="0.01"
+                  value={formData.talent_fee_max ?? ""}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      talent_fee_max:
+                        e.target.value === "" ? null : Number(e.target.value),
+                    }))
+                  }
+                  className="mt-1"
+                  placeholder="e.g. 5000"
+                />
+              </div>
+              <div>
+                <Label htmlFor="talent_fee_currency">Currency</Label>
+                <Input
+                  id="talent_fee_currency"
+                  value={formData.talent_fee_currency || "PHP"}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      talent_fee_currency: e.target.value,
+                    }))
+                  }
+                  className="mt-1"
+                  placeholder="PHP"
+                />
+              </div>
+              <div className="md:col-span-3">
+                <Label htmlFor="talent_fee_notes">Talent Fee Notes</Label>
+                <Textarea
+                  id="talent_fee_notes"
+                  value={formData.talent_fee_notes || ""}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      talent_fee_notes: e.target.value,
+                    }))
+                  }
+                  className="mt-1"
+                  rows={2}
+                  placeholder="Any notes about fees, inclusions, conditions..."
+                />
+              </div>
+            </div>
+
             <div>
               <Label htmlFor="address">Address</Label>
               <Textarea
@@ -1459,12 +1608,44 @@ export default function OrganizersPage() {
                 </div>
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">
+                    Talent Fee
+                  </label>
+                  <p className="text-sm">
+                    {selectedOrganizer.talent_fee_min != null ||
+                    selectedOrganizer.talent_fee_max != null ? (
+                      <>
+                        {(selectedOrganizer.talent_fee_currency || "PHP") + " "}
+                        {selectedOrganizer.talent_fee_min != null
+                          ? selectedOrganizer.talent_fee_min.toLocaleString()
+                          : "?"}
+                        {" - "}
+                        {selectedOrganizer.talent_fee_max != null
+                          ? selectedOrganizer.talent_fee_max.toLocaleString()
+                          : "?"}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">
                     Registration Date
                   </label>
                   <p className="text-sm">
                     {formatDate(selectedOrganizer.created_at)}
                   </p>
                 </div>
+                {selectedOrganizer.talent_fee_notes && (
+                  <div className="col-span-2">
+                    <label className="text-sm font-medium text-muted-foreground">
+                      Talent Fee Notes
+                    </label>
+                    <p className="text-sm">
+                      {selectedOrganizer.talent_fee_notes}
+                    </p>
+                  </div>
+                )}
                 {selectedOrganizer.portfolio_link && (
                   <div className="col-span-2">
                     <label className="text-sm font-medium text-muted-foreground">

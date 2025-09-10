@@ -9,7 +9,6 @@ import {
   LayoutDashboard,
   Calendar,
   Users,
-  Settings,
   LogOut,
   Bell,
   Wrench,
@@ -27,9 +26,7 @@ import {
   Truck,
   Menu,
   X,
-  Clock,
   FileText,
-  BellRing,
 } from "lucide-react";
 import {
   Sidebar,
@@ -80,6 +77,8 @@ export default function ClientLayout({
     notification_url?: string | null;
     event_id?: number | null;
     booking_id?: number | null;
+    notification_status?: string;
+    read_at?: string | null;
     created_at: string;
   }
 
@@ -260,15 +259,54 @@ export default function ClientLayout({
     }
   }
 
+  async function markAllNotificationsRead(currentUser: any) {
+    try {
+      const userId = currentUser?.user_id;
+      if (!userId) return;
+      const res = await fetch(
+        `http://localhost/events-api/notifications.php?operation=mark_read`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userId, operation: "mark_read" }),
+        }
+      );
+      const data = await res.json();
+      if (data?.status === "success") {
+        setUnreadNotifCount(0);
+      }
+    } catch (err) {
+      // ignore errors silently
+    }
+  }
+
+  async function clearReadNotifications(currentUser: any) {
+    try {
+      const userId = currentUser?.user_id;
+      if (!userId) return;
+      const res = await fetch(
+        `http://localhost/events-api/notifications.php?operation=delete_notification&user_id=${encodeURIComponent(
+          userId
+        )}`,
+        {
+          method: "DELETE",
+        }
+      );
+      const data = await res.json();
+      if (data?.status === "success") {
+        await fetchNotificationsList(currentUser);
+      }
+    } catch (err) {
+      // ignore
+    }
+  }
+
   const menuItems = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/client/dashboard" },
     { icon: Calendar, label: "Events", href: "/client/events" },
     { icon: CalendarCheck, label: "Bookings", href: "/client/bookings" },
     { icon: CreditCard, label: "Payments", href: "/client/payments" },
-    { icon: Clock, label: "Timeline", href: "/client/timeline" },
     { icon: FileText, label: "Documents", href: "/client/documents" },
-    { icon: BellRing, label: "Notifications", href: "/client/notifications" },
-    { icon: Settings, label: "Settings", href: "/client/settings" },
   ];
 
   // Mobile navigation items for bottom nav
@@ -355,6 +393,7 @@ export default function ClientLayout({
                 const nextOpen = !isNotifDropdownOpen;
                 setIsNotifDropdownOpen(nextOpen);
                 if (nextOpen && user) {
+                  await markAllNotificationsRead(user);
                   await fetchNotificationsList(user);
                 }
               }}
@@ -372,9 +411,31 @@ export default function ClientLayout({
                     <span className="text-sm font-semibold text-gray-700">
                       Notifications
                     </span>
-                    <span className="text-xs text-gray-500">
-                      {unreadNotifCount} unread
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (user) {
+                            await markAllNotificationsRead(user);
+                            await clearReadNotifications(user);
+                          }
+                        }}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Clear all
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (user) {
+                            await clearReadNotifications(user);
+                          }
+                        }}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Clear read
+                      </button>
+                    </div>
                   </div>
                   <div className="p-2">
                     {isNotifLoading ? (
@@ -495,16 +556,7 @@ export default function ClientLayout({
                     <User className="h-4 w-4" />
                     Profile
                   </button>
-                  <button
-                    onClick={() => {
-                      setIsUserDropdownOpen(false);
-                      router.push("/client/settings");
-                    }}
-                    className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    <Settings className="h-4 w-4" />
-                    Settings
-                  </button>
+
                   <div className="border-t border-gray-100 my-1"></div>
                   <button
                     onClick={() => {
@@ -587,22 +639,7 @@ export default function ClientLayout({
                       {user?.user_role}
                     </div>
                   </div>
-                  <Link
-                    href="/client/settings/userinfo"
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    onClick={() => setIsUserDropdownOpen(false)}
-                  >
-                    <User className="h-4 w-4" />
-                    Profile
-                  </Link>
-                  <Link
-                    href="/client/settings"
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    onClick={() => setIsUserDropdownOpen(false)}
-                  >
-                    <Settings className="h-4 w-4" />
-                    Settings
-                  </Link>
+
                   <button
                     onClick={() =>
                       setTheme(theme === "dark" ? "light" : "dark")
@@ -673,7 +710,9 @@ export default function ClientLayout({
 
         {/* Page Content - Adjusted for Navbar */}
         <main className="lg:pt-24 lg:p-6 h-screen overflow-auto pb-16 lg:pb-0">
-          {children}
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+            {children}
+          </div>
         </main>
       </div>
 

@@ -6,15 +6,14 @@ import axios from "axios";
 import { CheckCircle2, Mail, RefreshCw, X } from "lucide-react";
 import Image from "next/image";
 import Logo from "../../../public/logo.png";
-import { SlidingAlert } from "../../components/ui/sliding-alert";
+import { toast } from "@/hooks/use-toast";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
 
 const VerifySignupOTP = () => {
   const [otpValues, setOtpValues] = useState(["", "", "", "", "", ""]);
-  const [message, setMessage] = useState("");
-  const [showAlert, setShowAlert] = useState(false);
+
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [timeLeft, setTimeLeft] = useState(300); // 5 minutes in seconds
@@ -31,8 +30,11 @@ const VerifySignupOTP = () => {
       const email = getCookie("pending_signup_email");
 
       if (!user_id || !email) {
-        setMessage("⚠ No pending signup found. Please register first.");
-        setShowAlert(true);
+        toast({
+          title: "No pending signup",
+          description: "Please register first.",
+          variant: "destructive",
+        });
         setTimeout(() => {
           router.push("/auth/signup");
         }, 3000);
@@ -121,8 +123,11 @@ const VerifySignupOTP = () => {
     const otpCode = otpValues.join("");
 
     if (otpCode.length !== 6) {
-      setMessage("⚠ Please enter the complete 6-digit OTP code.");
-      setShowAlert(true);
+      toast({
+        title: "Incomplete OTP",
+        description: "Please enter the complete 6-digit OTP code.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -130,8 +135,11 @@ const VerifySignupOTP = () => {
     const email = getCookie("pending_signup_email");
 
     if (!user_id || !email) {
-      setMessage("⚠ Session expired. Please register again.");
-      setShowAlert(true);
+      toast({
+        title: "Session expired",
+        description: "Please register again.",
+        variant: "destructive",
+      });
       setTimeout(() => {
         router.push("/auth/signup");
       }, 2000);
@@ -155,8 +163,10 @@ const VerifySignupOTP = () => {
 
       if (response.data.status === "success") {
         setIsVerified(true);
-        setMessage("✅ Email verified successfully! Welcome to our platform.");
-        setShowAlert(true);
+        toast({
+          title: "Email verified",
+          description: "Welcome to our platform.",
+        });
 
         // Clear the pending signup cookies
         document.cookie =
@@ -169,19 +179,25 @@ const VerifySignupOTP = () => {
           router.push("/auth/login");
         }, 2000);
       } else {
-        setMessage(
-          response.data.message || "⚠ Invalid OTP. Please check and try again."
-        );
-        setShowAlert(true);
+        toast({
+          title: "Invalid OTP",
+          description:
+            response.data.message || "Please check the code and try again.",
+          variant: "destructive",
+        });
 
         // Clear current OTP inputs for retry
         setOtpValues(["", "", "", "", "", ""]);
         inputRefs.current[0]?.focus();
       }
     } catch (error) {
-      console.error("OTP verification error:", error);
-      setMessage("⚠ Error verifying OTP. Please try again.");
-      setShowAlert(true);
+      console.error("OTP verification error:
+", error);
+      toast({
+        title: "Verification error",
+        description: "Error verifying OTP. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -192,8 +208,11 @@ const VerifySignupOTP = () => {
     const email = getCookie("pending_signup_email");
 
     if (!user_id || !email) {
-      setMessage("⚠ Session expired. Please register again.");
-      setShowAlert(true);
+      toast({
+        title: "Session expired",
+        description: "Please register again.",
+        variant: "destructive",
+      });
       setTimeout(() => {
         router.push("/auth/signup");
       }, 2000);
@@ -215,21 +234,28 @@ const VerifySignupOTP = () => {
       });
 
       if (response.data.status === "success") {
-        setMessage("✅ New OTP sent to your email!");
-        setShowAlert(true);
+        toast({
+          title: "OTP sent",
+          description: "New OTP sent to your email.",
+        });
         setTimeLeft(300); // Reset timer
         setOtpValues(["", "", "", "", "", ""]);
         inputRefs.current[0]?.focus();
       } else {
-        setMessage(
-          response.data.message || "⚠ Failed to resend OTP. Please try again."
-        );
-        setShowAlert(true);
+        toast({
+          title: "Resend failed",
+          description:
+            response.data.message || "Failed to resend OTP. Please try again.",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Resend OTP error:", error);
-      setMessage("⚠ Error resending OTP. Please try again.");
-      setShowAlert(true);
+      toast({
+        title: "Resend error",
+        description: "Error resending OTP. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsResending(false);
     }
@@ -392,11 +418,7 @@ const VerifySignupOTP = () => {
         </div>
       </div>
 
-      <SlidingAlert
-        message={message}
-        show={showAlert}
-        onClose={() => setShowAlert(false)}
-      />
+
     </div>
   );
 };

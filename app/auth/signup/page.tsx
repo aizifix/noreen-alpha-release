@@ -23,7 +23,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import Logo from "../../../public/logo.png";
-import { SlidingAlert } from "../../components/ui/sliding-alert";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const API_URL =
@@ -97,8 +97,6 @@ const SignUpPage = () => {
     captchaResponse: "",
   });
 
-  const [message, setMessage] = useState("");
-  const [showAlert, setShowAlert] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -424,13 +422,14 @@ const SignUpPage = () => {
     }
 
     setIsLoading(true);
-    setMessage("");
-    setShowAlert(false);
 
     // CAPTCHA validation (like working login page)
     if (!formData.captchaResponse) {
-      setMessage("⚠ Please complete the CAPTCHA.");
-      setShowAlert(true);
+      toast({
+        title: "Complete CAPTCHA",
+        description: "Please complete the CAPTCHA to continue.",
+        variant: "destructive",
+      });
       setIsLoading(false);
       return;
     }
@@ -479,11 +478,11 @@ const SignUpPage = () => {
         });
 
         // Show success message like login
-        setMessage(
-          response.data.message ||
-            "Registration successful! Please check your email."
-        );
-        setShowAlert(true);
+        toast({
+          title: "Registration successful",
+          description:
+            response.data.message || "Please check your email for the OTP.",
+        });
 
         // Show success modal
         setShowSuccessModal(true);
@@ -493,16 +492,19 @@ const SignUpPage = () => {
           router.push("/auth/verify-signup-otp");
         }, 3000);
       } else {
-        // Simple error handling like login
-        setMessage(
-          response.data.message || "⚠ Registration failed. Please try again."
-        );
-        setShowAlert(true);
+        toast({
+          title: "Registration failed",
+          description: response.data.message || "Please try again.",
+          variant: "destructive",
+        });
       }
     } catch (error: any) {
       console.error("Registration error:", error);
-      setMessage("⚠ Error during registration. Please try again.");
-      setShowAlert(true);
+      toast({
+        title: "Registration error",
+        description: "Error during registration. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -1134,12 +1136,6 @@ const SignUpPage = () => {
             </div>
           </div>
         </div>
-
-        <SlidingAlert
-          message={message}
-          show={showAlert}
-          onClose={() => setShowAlert(false)}
-        />
 
         {/* Success Modal */}
         {showSuccessModal && (

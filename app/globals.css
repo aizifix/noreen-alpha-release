@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Toast progress bar animation (3s) */
+.toast-progress {
+  transform-origin: right;
+  animation: toast-progress var(--toast-duration, 3s) linear forwards;
+}
+
+@keyframes toast-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
 * {
   font-family: "Inter", sans-serif;
   font-optical-sizing: auto;

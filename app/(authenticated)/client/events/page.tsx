@@ -41,7 +41,15 @@ interface Event {
   venue_id?: number;
   total_budget: number;
   down_payment: number;
-  event_status: "draft" | "confirmed" | "on_going" | "done" | "cancelled";
+  event_status:
+    | "draft"
+    | "pending"
+    | "planning"
+    | "confirmed"
+    | "on_going"
+    | "done"
+    | "cancelled";
+  finalized_at?: string;
   venue_name?: string;
   venue_location?: string;
   event_type_name?: string;
@@ -147,6 +155,8 @@ export default function ClientEventsPage() {
           text: "text-green-700",
         };
       case "draft":
+      case "pending":
+      case "planning":
         return {
           border: "border-yellow-500",
           bg: "bg-yellow-100",
@@ -193,6 +203,29 @@ export default function ClientEventsPage() {
       default:
         return { bg: "bg-gray-100", text: "text-gray-700" };
     }
+  };
+
+  const getTodayString = () => {
+    const t = new Date();
+    const y = t.getFullYear();
+    const m = String(t.getMonth() + 1).padStart(2, "0");
+    const d = String(t.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const getDerivedEventStatus = (event: Event) => {
+    if ((event.event_status || "").toLowerCase() === "cancelled")
+      return "cancelled";
+    const today = getTodayString();
+    if (event.event_date === today) return "on_going";
+    if (event.event_date < today) return "done";
+    if (event.finalized_at) return "confirmed";
+    const status = (event.event_status || "").toLowerCase().trim();
+    if (["draft", "pending", "planning"].includes(status))
+      return status as typeof event.event_status;
+    if (["on_going", "done", "cancelled", "confirmed"].includes(status))
+      return status as typeof event.event_status;
+    return "draft";
   };
 
   // Calendar Component
@@ -253,7 +286,8 @@ export default function ClientEventsPage() {
           </div>
           <div className="space-y-1">
             {dayEvents.slice(0, 3).map((event) => {
-              const colors = getStatusColor(event.event_status);
+              const derivedStatus = getDerivedEventStatus(event);
+              const colors = getStatusColor(derivedStatus);
               return (
                 <div
                   key={event.event_id}
@@ -365,7 +399,8 @@ export default function ClientEventsPage() {
         ) : (
           <div className="space-y-3">
             {dayEvents.map((event) => {
-              const colors = getStatusColor(event.event_status);
+              const derivedStatus = getDerivedEventStatus(event);
+              const colors = getStatusColor(derivedStatus);
               return (
                 <div
                   key={event.event_id}
@@ -519,7 +554,8 @@ export default function ClientEventsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {events.map((event) => {
-            const colors = getStatusColor(event.event_status);
+            const derivedStatus = getDerivedEventStatus(event);
+            const colors = getStatusColor(derivedStatus);
             const paymentColors = getPaymentStatusColor(event.payment_status);
             return (
               <div
@@ -535,7 +571,7 @@ export default function ClientEventsPage() {
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-semibold ${colors.bg} ${colors.text}`}
                     >
-                      {event.event_status}
+                      {derivedStatus}
                     </span>
                   </div>
 

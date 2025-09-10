@@ -17,7 +17,8 @@ export default function SecurityPage() {
       if (
         !userData ||
         !userData.user_role ||
-        userData.user_role.toLowerCase() !== "vendor"
+        (userData.user_role.toLowerCase() !== "organizer" &&
+          userData.user_role !== "Organizer")
       ) {
         console.log("Invalid user data in security settings:", userData);
         router.push("/auth/login");

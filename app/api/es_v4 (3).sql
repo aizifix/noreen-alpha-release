@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Aug 12, 2025 at 07:42 PM
+-- Generation Time: Sep 11, 2025 at 01:16 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -18,13 +18,106 @@ SET time_zone = "+00:00";
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Database: `es_v3`
+-- Database: `es_v4`
 --
 
 DELIMITER $$
 --
 -- Procedures
 --
+CREATE DEFINER=`root`@`localhost` PROCEDURE `AssignOrganizerToEvent` (IN `p_event_id` INT, IN `p_organizer_id` INT, IN `p_assigned_by` INT, IN `p_notes` TEXT)   BEGIN
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+
+    -- Check if event exists
+    IF NOT EXISTS (SELECT 1 FROM tbl_events WHERE event_id = p_event_id) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Event not found';
+    END IF;
+
+    -- Check if organizer exists
+    IF NOT EXISTS (SELECT 1 FROM tbl_organizer WHERE organizer_id = p_organizer_id) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Organizer not found';
+    END IF;
+
+    -- Check if admin exists
+    IF NOT EXISTS (SELECT 1 FROM tbl_users WHERE user_id = p_assigned_by AND user_role = 'admin') THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin not found or not authorized';
+    END IF;
+
+    -- Remove any existing assignments for this event
+    DELETE FROM tbl_event_organizer_assignments WHERE event_id = p_event_id;
+
+    -- Create new assignment
+    INSERT INTO tbl_event_organizer_assignments (
+        event_id,
+        organizer_id,
+        assigned_by,
+        status,
+        notes
+    ) VALUES (
+        p_event_id,
+        p_organizer_id,
+        p_assigned_by,
+        'assigned',
+        p_notes
+    );
+
+    -- Update the event with the organizer_id
+    UPDATE tbl_events
+    SET organizer_id = p_organizer_id,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE event_id = p_event_id;
+
+    COMMIT;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `CheckOrganizerDateConflict` (IN `p_organizer_id` INT, IN `p_event_date` DATE, IN `p_event_id` INT, OUT `p_has_conflict` BOOLEAN, OUT `p_conflict_message` TEXT)   BEGIN
+    DECLARE conflict_count INT DEFAULT 0;
+    DECLARE conflict_event_id INT;
+    DECLARE conflict_event_title VARCHAR(255);
+
+    -- Check if organizer is already assigned to another event on the same date
+    SELECT COUNT(*), e.event_id, e.event_title
+    INTO conflict_count, conflict_event_id, conflict_event_title
+    FROM tbl_event_organizer_assignments eoa
+    JOIN tbl_events e ON eoa.event_id = e.event_id
+    WHERE eoa.organizer_id = p_organizer_id
+    AND e.event_date = p_event_date
+    AND eoa.event_id != p_event_id
+    AND eoa.status IN ('assigned', 'accepted')
+    AND e.event_status NOT IN ('cancelled', 'done');
+
+    IF conflict_count > 0 THEN
+        SET p_has_conflict = TRUE;
+        SET p_conflict_message = CONCAT('Organizer is already assigned to event "', conflict_event_title, '" on ', p_event_date);
+    ELSE
+        SET p_has_conflict = FALSE;
+        SET p_conflict_message = 'No conflicts found';
+    END IF;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `CleanupExpiredNotifications` ()   BEGIN
+    -- Delete notifications that have expired
+    DELETE FROM tbl_notifications 
+    WHERE expires_at IS NOT NULL 
+    AND expires_at < NOW();
+    
+    -- Delete read notifications older than 30 days
+    DELETE FROM tbl_notifications 
+    WHERE notification_status = 'read' 
+    AND created_at < DATE_SUB(NOW(), INTERVAL 30 DAY);
+    
+    -- Delete low priority notifications older than 7 days
+    DELETE FROM tbl_notifications 
+    WHERE notification_priority = 'low' 
+    AND created_at < DATE_SUB(NOW(), INTERVAL 7 DAY);
+END$$
+
 CREATE DEFINER=`root`@`localhost` PROCEDURE `CreateNotification` (IN `p_user_id` INT, IN `p_notification_type` VARCHAR(50), IN `p_notification_title` VARCHAR(255), IN `p_notification_message` TEXT, IN `p_notification_priority` VARCHAR(10), IN `p_notification_icon` VARCHAR(50), IN `p_notification_url` VARCHAR(500), IN `p_event_id` INT, IN `p_booking_id` INT, IN `p_venue_id` INT, IN `p_store_id` INT, IN `p_budget_id` INT, IN `p_feedback_id` INT, IN `p_expires_at` TIMESTAMP)   BEGIN
     INSERT INTO tbl_notifications (
         user_id,
@@ -62,104 +155,220 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `CreateNotification` (IN `p_user_id`
     );
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `getEnhancedEventDetails` (IN `p_event_id` INT)   BEGIN
-    -- Main event details
-    SELECT
-        e.*,
-        v.venue_title,
-        v.venue_name,
-        v.venue_location,
-        v.venue_contact,
-        v.venue_capacity,
-        COALESCE(vp.price, v.venue_price) as venue_price,
-        CONCAT(u.first_name, ' ', COALESCE(u.middle_name, ''), ' ', u.last_name, ' ', COALESCE(u.suffix, '')) as client_name,
-        u.email as client_email,
-        u.contact_num as client_contact,
-        u.pfp as client_pfp,
-        et.event_type_name,
-        et.event_type_description,
-        p.package_title,
-        p.package_description,
-        CONCAT(a.first_name, ' ', a.last_name) as admin_name,
-        CONCAT(o.first_name, ' ', o.last_name) as organizer_name,
-        CONCAT(cb.first_name, ' ', cb.last_name) as created_by_name,
-        CONCAT(ub.first_name, ' ', ub.last_name) as updated_by_name,
-        pst.schedule_name as payment_schedule_name,
-        pst.description as payment_schedule_description,
-        pst.installment_count
-    FROM tbl_events e
-    LEFT JOIN tbl_venues v ON e.venue_id = v.venue_id
-    LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
-        AND vp.is_active = 1
-        AND e.guest_count >= vp.min_pax
-        AND e.guest_count <= vp.max_pax
-    LEFT JOIN tbl_user u ON e.user_id = u.user_id
-    LEFT JOIN tbl_event_types et ON e.event_type_id = et.event_type_id
-    LEFT JOIN tbl_packages p ON e.package_id = p.package_id
-    LEFT JOIN tbl_user a ON e.admin_id = a.user_id
-    LEFT JOIN tbl_organizer o ON e.organizer_id = o.organizer_id
-    LEFT JOIN tbl_user cb ON e.created_by = cb.user_id
-    LEFT JOIN tbl_user ub ON e.updated_by = ub.user_id
-    LEFT JOIN tbl_payment_schedule_types pst ON e.payment_schedule_type_id = pst.schedule_type_id
-    WHERE e.event_id = p_event_id;
-
-    -- Event components with payment status
-    SELECT
-        ec.*,
-        pc.component_name as original_component_name,
-        pc.component_description as original_component_description,
-        s.supplier_name,
-        s.contact_person
-    FROM tbl_event_components ec
-    LEFT JOIN tbl_package_components pc ON ec.original_package_component_id = pc.package_component_id
-    LEFT JOIN tbl_suppliers s ON ec.supplier_id = s.supplier_id
-    WHERE ec.event_id = p_event_id
-    ORDER BY ec.display_order;
-
-    -- Payment history
-    SELECT * FROM tbl_payments
-    WHERE event_id = p_event_id
-    ORDER BY payment_date DESC;
-
-    -- Event timeline
-    SELECT * FROM tbl_event_timeline
-    WHERE event_id = p_event_id
-    ORDER BY timeline_date, timeline_time;
-
-    -- Event attachments
-    SELECT * FROM tbl_event_attachments
-    WHERE event_id = p_event_id
-    ORDER BY uploaded_at DESC;
-
-    -- Wedding details if applicable
-    SELECT * FROM tbl_wedding_details
-    WHERE event_id = p_event_id;
-
-    -- Payment schedule if applicable
-    SELECT * FROM tbl_payment_schedule
-    WHERE event_id = p_event_id
-    ORDER BY due_date;
+CREATE DEFINER=`root`@`localhost` PROCEDURE `CreatePaymentDueNotifications` ()   BEGIN
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE booking_id INT;
+    DECLARE user_id INT;
+    DECLARE payment_due_date DATE;
+    DECLARE days_until_due INT;
+    
+    -- Cursor for bookings with upcoming payments
+    DECLARE payment_cursor CURSOR FOR
+        SELECT 
+            b.booking_id,
+            b.user_id,
+            b.payment_due_date
+        FROM tbl_bookings b
+        WHERE b.payment_due_date IS NOT NULL
+        AND b.payment_due_date >= CURDATE()
+        AND b.payment_due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+        AND b.booking_status IN ('confirmed', 'pending_payment')
+        AND NOT EXISTS (
+            SELECT 1 FROM tbl_notifications n 
+            WHERE n.booking_id = b.booking_id 
+            AND n.notification_type = 'payment_due'
+            AND n.created_at > DATE_SUB(NOW(), INTERVAL 1 DAY)
+        );
+    
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+    
+    OPEN payment_cursor;
+    
+    read_loop: LOOP
+        FETCH payment_cursor INTO booking_id, user_id, payment_due_date;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+        
+        SET days_until_due = DATEDIFF(payment_due_date, CURDATE());
+        
+        -- Create notification based on urgency
+        IF days_until_due = 0 THEN
+            -- Payment due today
+            CALL CreateNotification(
+                user_id,
+                'payment_due',
+                'Payment Due Today',
+                CONCAT('Your payment for booking #', booking_id, ' is due today.'),
+                'urgent',
+                'payment',
+                CONCAT('/client/bookings/', booking_id),
+                NULL,
+                booking_id,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                DATE_ADD(NOW(), INTERVAL 24 HOUR)
+            );
+        ELSEIF days_until_due <= 3 THEN
+            -- Payment due soon
+            CALL CreateNotification(
+                user_id,
+                'payment_due',
+                'Payment Due Soon',
+                CONCAT('Your payment for booking #', booking_id, ' is due in ', days_until_due, ' day(s).'),
+                'high',
+                'payment',
+                CONCAT('/client/bookings/', booking_id),
+                NULL,
+                booking_id,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                DATE_ADD(NOW(), INTERVAL 72 HOUR)
+            );
+        ELSE
+            -- Payment due in a week
+            CALL CreateNotification(
+                user_id,
+                'payment_due',
+                'Payment Reminder',
+                CONCAT('Your payment for booking #', booking_id, ' is due in ', days_until_due, ' day(s).'),
+                'medium',
+                'payment',
+                CONCAT('/client/bookings/', booking_id),
+                NULL,
+                booking_id,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                DATE_ADD(NOW(), INTERVAL 168 HOUR)
+            );
+        END IF;
+        
+    END LOOP;
+    
+    CLOSE payment_cursor;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `LogUserActivity` (IN `p_user_id` INT, IN `p_action_type` VARCHAR(50), IN `p_description` TEXT, IN `p_user_role` VARCHAR(20), IN `p_ip_address` VARCHAR(64), IN `p_user_agent` TEXT)   BEGIN
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
+CREATE DEFINER=`root`@`localhost` PROCEDURE `GetEventOrganizerDetails` (IN `p_event_id` INT)   BEGIN
+    SELECT
+        e.event_id,
+        e.event_title,
+        e.organizer_id,
+        o.organizer_id as organizer_organizer_id,
+        CONCAT(u.first_name, ' ', u.last_name) as organizer_name,
+        u.email as organizer_email,
+        u.contact_number as organizer_phone,
+        o.organizer_experience,
+        o.organizer_certifications,
+        o.organizer_availability,
+        eoa.assignment_id,
+        eoa.assigned_by,
+        CONCAT(admin.first_name, ' ', admin.last_name) as assigned_by_name,
+        eoa.assigned_at,
+        eoa.status as assignment_status,
+        eoa.notes as assignment_notes
+    FROM tbl_events e
+    LEFT JOIN tbl_event_organizer_assignments eoa ON e.event_id = eoa.event_id AND eoa.status = 'assigned'
+    LEFT JOIN tbl_organizer o ON eoa.organizer_id = o.organizer_id
+    LEFT JOIN tbl_users u ON o.user_id = u.user_id
+    LEFT JOIN tbl_users admin ON eoa.assigned_by = admin.user_id
+    WHERE e.event_id = p_event_id;
+END$$
 
-    START TRANSACTION;
+CREATE DEFINER=`root`@`localhost` PROCEDURE `GetOrganizerEvents` (IN `p_organizer_id` INT)   BEGIN
+    SELECT
+        e.event_id,
+        e.event_title,
+        e.event_date,
+        e.start_time,
+        e.end_time,
+        e.event_status,
+        e.payment_status,
+        e.guest_count,
+        e.total_budget,
+        e.down_payment,
+        et.event_type_name,
+        v.venue_title,
+        v.venue_location,
+        CONCAT(c.user_firstName, ' ', c.user_lastName) as client_name,
+        c.user_email as client_email,
+        c.user_contact as client_contact,
+        c.user_pfp as client_pfp,
+        eoa.assigned_at,
+        eoa.status as assignment_status,
+        -- Add conflict detection
+        CASE
+            WHEN EXISTS (
+                SELECT 1 FROM tbl_event_organizer_assignments eoa2
+                JOIN tbl_events e2 ON eoa2.event_id = e2.event_id
+                WHERE eoa2.organizer_id = p_organizer_id
+                AND e2.event_date = e.event_date
+                AND eoa2.event_id != e.event_id
+                AND eoa2.status IN ('assigned', 'accepted')
+                AND e2.event_status NOT IN ('cancelled', 'done')
+            ) THEN TRUE
+            ELSE FALSE
+        END as has_date_conflict
+    FROM tbl_event_organizer_assignments eoa
+    JOIN tbl_events e ON eoa.event_id = e.event_id
+    LEFT JOIN tbl_users c ON e.user_id = c.user_id
+    LEFT JOIN tbl_event_type et ON e.event_type_id = et.event_type_id
+    LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
+    WHERE eoa.organizer_id = p_organizer_id
+    AND eoa.status IN ('assigned', 'accepted')
+    ORDER BY e.event_date ASC, e.start_time ASC;
+END$$
 
-    -- Log the activity
-    INSERT INTO tbl_user_activity_logs (
-        user_id, action_type, description, user_role,
-        ip_address, user_agent
+CREATE DEFINER=`root`@`localhost` PROCEDURE `UpdateOrganizerAssignmentStatus` (IN `p_assignment_id` INT, IN `p_status` ENUM('assigned','accepted','rejected','removed'), IN `p_updated_by` INT)   BEGIN
+    DECLARE v_event_id INT;
+    DECLARE v_organizer_id INT;
+
+    -- Get assignment details
+    SELECT event_id, organizer_id INTO v_event_id, v_organizer_id
+    FROM tbl_event_organizer_assignments
+    WHERE assignment_id = p_assignment_id;
+
+    IF v_event_id IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Assignment not found';
+    END IF;
+
+    -- Update assignment status
+    UPDATE tbl_event_organizer_assignments
+    SET status = p_status,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE assignment_id = p_assignment_id;
+
+    -- If rejected or removed, clear the organizer_id from the event
+    IF p_status IN ('rejected', 'removed') THEN
+        UPDATE tbl_events
+        SET organizer_id = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE event_id = v_event_id;
+    END IF;
+
+    -- Log the status change
+    INSERT INTO `tbl_organizer_activity_logs` (
+        `organizer_id`,
+        `activity_type`,
+        `description`,
+        `related_id`,
+        `metadata`
     ) VALUES (
-        p_user_id, p_action_type, p_description, p_user_role,
-        p_ip_address, p_user_agent
+        v_organizer_id,
+        'assignment_status_changed',
+        CONCAT('Event assignment status changed to ', p_status),
+        v_event_id,
+        JSON_OBJECT(
+            'assignment_id', p_assignment_id,
+            'new_status', p_status,
+            'updated_by', p_updated_by
+        )
     );
-
-    COMMIT;
 END$$
 
 DELIMITER ;
@@ -217,7 +426,10 @@ INSERT INTO `tbl_bookings` (`booking_id`, `booking_reference`, `user_id`, `event
 (7, 'BK-20250723-9399', 21, 5, 'Test', '2025-08-02', '10:00:00', '10:00:00', NULL, 100, 30, 15, '', 'confirmed', '2025-07-23 01:12:59', '2025-07-23 07:14:17'),
 (8, 'BK-20250809-7721', 20, 5, 'Notification Testing', '2025-10-25', '10:00:00', '10:00:00', NULL, 100, 30, 14, '', 'confirmed', '2025-08-09 06:07:03', '2025-08-09 12:15:23'),
 (9, 'BK-20250809-4973', 20, 2, 'Test', '2025-08-29', '10:00:00', '10:00:00', NULL, 100, 30, 19, '', 'confirmed', '2025-08-09 06:20:38', '2025-08-09 12:20:47'),
-(10, 'BK-20250812-9325', 20, 5, 'Test logs', '2025-10-03', '10:00:00', '10:00:00', NULL, 100, 29, 14, '', 'pending', '2025-08-12 11:41:27', '2025-08-12 17:41:27');
+(10, 'BK-20250812-9325', 20, 5, 'Test logs', '2025-10-03', '10:00:00', '10:00:00', NULL, 100, 29, 14, '', 'cancelled', '2025-08-12 11:41:27', '2025-08-13 05:23:00'),
+(11, 'BK-20250830-1256', 20, 1, 'teedt', '2025-11-08', '10:00:00', '10:00:00', NULL, 100, 29, 23, '', 'confirmed', '2025-08-30 01:54:10', '2025-08-30 07:58:46'),
+(12, 'BK-20250830-1779', 20, 2, 'Anniv', '2025-11-15', '10:00:00', '10:00:00', NULL, 100, 29, 19, '', 'confirmed', '2025-08-30 02:08:58', '2025-08-30 08:09:22'),
+(13, 'BK-20250908-9174', 20, 1, 'test_wedding', '2025-10-24', '10:00:00', '10:00:00', NULL, 100, 1, 25, '', 'pending', '2025-09-08 11:12:17', '2025-09-08 17:12:17');
 
 --
 -- Triggers `tbl_bookings`
@@ -335,7 +547,13 @@ CREATE TABLE `tbl_booking_activity_logs` (
 --
 
 INSERT INTO `tbl_booking_activity_logs` (`id`, `booking_id`, `user_id`, `action`, `old_status`, `new_status`, `description`, `metadata`, `created_at`) VALUES
-(1, 10, 20, 'created', NULL, 'pending', 'Booking BK-20250812-9325 created for Test logs on 2025-10-03 with 100 guests', '{\"booking_reference\":\"BK-20250812-9325\",\"event_type_id\":5,\"event_date\":\"2025-10-03\",\"guest_count\":100,\"venue_id\":29,\"package_id\":14}', '2025-08-13 01:41:27');
+(1, 10, 20, 'created', NULL, 'pending', 'Booking BK-20250812-9325 created for Test logs on 2025-10-03 with 100 guests', '{\"booking_reference\":\"BK-20250812-9325\",\"event_type_id\":5,\"event_date\":\"2025-10-03\",\"guest_count\":100,\"venue_id\":29,\"package_id\":14}', '2025-08-13 01:41:27'),
+(2, 10, 7, '', 'pending', 'cancelled', 'Booking BK-20250812-9325 status changed to cancelled', '{\"booking_reference\":\"BK-20250812-9325\"}', '2025-08-13 13:23:00'),
+(3, 11, 20, 'created', NULL, 'pending', 'Booking BK-20250830-1256 created for teedt on 2025-11-08 with 100 guests', '{\"booking_reference\":\"BK-20250830-1256\",\"event_type_id\":1,\"event_date\":\"2025-11-08\",\"guest_count\":100,\"venue_id\":29,\"package_id\":23}', '2025-08-30 15:54:10'),
+(4, 11, 7, '', 'pending', 'confirmed', 'Booking BK-20250830-1256 status changed to confirmed', '{\"booking_reference\":\"BK-20250830-1256\"}', '2025-08-30 15:58:46'),
+(5, 12, 20, 'created', NULL, 'pending', 'Booking BK-20250830-1779 created for Anniv on 2025-11-15 with 100 guests', '{\"booking_reference\":\"BK-20250830-1779\",\"event_type_id\":2,\"event_date\":\"2025-11-15\",\"guest_count\":100,\"venue_id\":29,\"package_id\":19}', '2025-08-30 16:08:58'),
+(6, 12, 7, '', 'pending', 'confirmed', 'Booking BK-20250830-1779 status changed to confirmed', '{\"booking_reference\":\"BK-20250830-1779\"}', '2025-08-30 16:09:22'),
+(7, 13, 20, 'created', NULL, 'pending', 'Booking BK-20250908-9174 created for test_wedding on 2025-10-24 with 100 guests', '{\"booking_reference\":\"BK-20250908-9174\",\"event_type_id\":1,\"event_date\":\"2025-10-24\",\"guest_count\":100,\"venue_id\":1,\"package_id\":25}', '2025-09-09 01:12:17');
 
 -- --------------------------------------------------------
 
@@ -418,7 +636,8 @@ INSERT INTO `tbl_email_logs` (`email_log_id`, `recipient_email`, `recipient_name
 (3, 'lasi.anches.coc@phinmaed.com', 'Boss Zata', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 3, NULL, '2025-07-14 23:24:43'),
 (4, 'rendon@gmail.com', 'Rendon Labrabis', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 4, NULL, '2025-07-17 02:32:00'),
 (5, 'rhienmanoy@gmail.com', 'Rhein Manoy', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 5, NULL, '2025-07-22 10:44:55'),
-(6, 'brianrenan@gmail.com', 'Brian Renan', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 6, NULL, '2025-07-27 18:48:23');
+(6, 'brianrenan@gmail.com', 'Brian Renan', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 6, NULL, '2025-07-27 18:48:23'),
+(7, 'startup@gmail.com', 'Start Up', '', 'Welcome to Event Coordination System - Organizer Portal', NULL, 'failed', NULL, 'Email sending failed: SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting', NULL, 7, NULL, '2025-08-14 00:22:48');
 
 -- --------------------------------------------------------
 
@@ -443,6 +662,7 @@ CREATE TABLE `tbl_events` (
   `start_time` time DEFAULT NULL,
   `end_time` time DEFAULT NULL,
   `payment_status` enum('unpaid','partial','paid','refunded') DEFAULT 'unpaid',
+  `venue_payment_status` enum('unpaid','partial','paid','cancelled') NOT NULL DEFAULT 'unpaid',
   `package_id` int(11) DEFAULT NULL,
   `venue_id` int(11) DEFAULT NULL,
   `total_budget` decimal(12,2) NOT NULL DEFAULT 0.00,
@@ -473,30 +693,38 @@ CREATE TABLE `tbl_events` (
 -- Dumping data for table `tbl_events`
 --
 
-INSERT INTO `tbl_events` (`event_id`, `original_booking_reference`, `user_id`, `admin_id`, `organizer_id`, `event_title`, `event_theme`, `event_description`, `church_location`, `church_start_time`, `event_type_id`, `guest_count`, `event_date`, `start_time`, `end_time`, `payment_status`, `package_id`, `venue_id`, `total_budget`, `down_payment`, `payment_method`, `payment_schedule_type_id`, `reference_number`, `additional_notes`, `event_status`, `booking_date`, `booking_time`, `created_by`, `updated_by`, `created_at`, `updated_at`, `event_attachments`, `wedding_details_completed`, `event_feedback_id`, `event_wedding_form_id`, `is_recurring`, `recurrence_rule`, `cancellation_reason`, `finalized_at`, `client_signature`) VALUES
-(1, NULL, 20, 7, 3, 'AAA Type of wedding v5', 'color-coordinated', NULL, NULL, NULL, 1, 100, '2025-07-18', '10:00:00', '18:00:00', 'partial', 15, 29, 219000.00, 153300.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-16 16:37:10', '2025-08-09 03:15:53', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752683814_6877d526720af.docx\",\"file_path\":\"uploads/event_attachments/1752683814_6877d526720af.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T16:36:54.473Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-16 16:37:10', NULL),
-(2, NULL, 23, 7, NULL, 'AAA Type of wedding new', 'cultural-traditional', NULL, NULL, NULL, 5, 100, '2025-07-19', '10:00:00', '18:00:00', 'partial', 20, 34, 297000.00, 282150.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-16 18:19:46', '2025-08-09 03:15:53', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752689964_6877ed2cab38e.docx\",\"file_path\":\"uploads/event_attachments/1752689964_6877ed2cab38e.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T18:19:24.724Z\"},{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752689968_6877ed30539c7.docx\",\"file_path\":\"uploads/event_attachments/1752689968_6877ed30539c7.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T18:19:28.364Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-16 18:19:46', NULL),
-(3, 'BK-20250717-5172', 23, 7, 4, 'Wedding Package ', 'Theme', NULL, NULL, NULL, 5, 100, '2025-07-22', '10:00:00', '10:00:00', 'partial', 15, 30, 181000.00, 153850.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 03:40:05', '2025-08-09 03:15:53', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752723581_6878707d19f15.docx\",\"file_path\":\"uploads/event_attachments/1752723581_6878707d19f15.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T03:39:41.108Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 03:40:05', NULL),
-(4, NULL, 21, 7, 3, 'Gamon Wedding', 'boho-chic', NULL, NULL, NULL, 5, 100, '2025-07-25', '10:00:00', '10:00:00', 'partial', 15, 30, 188000.00, 94000.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 05:46:14', '2025-08-09 03:15:53', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752731156_68788e146bb9c.docx\",\"file_path\":\"uploads/event_attachments/1752731156_68788e146bb9c.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T05:45:56.445Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 05:46:14', NULL),
-(5, NULL, 29, 7, 3, 'Weeding Package 2', 'Theme', NULL, NULL, NULL, 5, 100, '2025-07-26', '10:00:00', '10:00:00', 'partial', 19, 30, 90000.00, 45000.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 06:10:22', '2025-08-09 03:15:53', '[{\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_name\":\"1752732530_68789372b65a6.pdf\",\"file_path\":\"uploads/event_attachments/1752732530_68789372b65a6.pdf\",\"file_size\":3191,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T06:08:50.750Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 06:10:22', NULL),
-(6, NULL, 29, 7, NULL, 'Weeding Package 2', 'Minimalist', 'The client wants a very minimal setup, but very functional', NULL, NULL, 1, 150, '2025-07-28', '10:00:00', '10:00:00', 'partial', NULL, 34, 145000.00, 123250.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 15:16:52', '2025-08-09 03:15:53', '[{\"original_name\":\"Untitled1031_20250624011453.png\",\"file_name\":\"1752765074_6879129298c72.png\",\"file_path\":\"uploads/event_attachments/1752765074_6879129298c72.png\",\"file_size\":2649900,\"file_type\":\"image/png\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T15:11:14.627Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 15:16:52', 'Approved!'),
-(7, NULL, 23, 7, NULL, 'Customized Event 2', 'art-deco', 'Art decoration related', NULL, NULL, 5, 200, '2025-07-31', '10:00:00', '18:00:00', 'partial', NULL, 29, 154000.00, 130900.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 15:53:10', '2025-08-09 03:15:53', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752767561_68791c49b2159.docx\",\"file_path\":\"uploads/event_attachments/1752767561_68791c49b2159.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T15:52:41.732Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 15:53:10', 'Approved!'),
-(8, NULL, 20, 7, 4, 'Custom Event 3', 'tropical-paradise', NULL, NULL, NULL, 2, 500, '2025-07-30', '10:00:00', '18:00:00', 'partial', NULL, 34, 10157000.00, 8633450.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 16:14:22', '2025-08-09 03:15:53', '[{\"original_name\":\"Elevate_IT_Services_Business_Plan.txt\",\"file_name\":\"1752768848_6879215003910.txt\",\"file_path\":\"uploads/event_attachments/1752768848_6879215003910.txt\",\"file_size\":4485,\"file_type\":\"text/plain\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T16:14:08.029Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 16:14:22', NULL),
-(9, NULL, 29, 7, 3, 'Birthday Event', 'Theme', NULL, NULL, NULL, 3, 500, '2025-08-08', '10:00:00', '18:00:00', 'partial', NULL, 29, 767000.00, 613600.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 16:54:53', '2025-08-09 03:15:53', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752770207_6879269fb3081.docx\",\"file_path\":\"uploads/event_attachments/1752770207_6879269fb3081.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T16:36:47.735Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 16:54:53', NULL),
-(10, NULL, 29, 7, 4, 'Customized Event 8', 'Theme', NULL, NULL, NULL, 5, 100, '2025-08-12', '10:00:00', '18:00:00', 'partial', NULL, 34, 47000.00, 37600.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-18 06:56:14', '2025-08-09 11:18:14', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752818709_6879e41542d82.docx\",\"file_path\":\"uploads/event_attachments/1752818709_6879e41542d82.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-18T06:05:09.275Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-18 06:56:14', NULL),
-(11, NULL, 21, 7, NULL, 'CUSTOMIZED PACKAGE 9', 'cultural-traditional', NULL, NULL, NULL, 3, 200, '2025-08-28', '10:00:00', '18:00:00', 'partial', NULL, 29, 182000.00, 91000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-18 07:44:00', '2025-08-09 11:18:14', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752824595_6879fb13c5f4f.docx\",\"file_path\":\"uploads/event_attachments/1752824595_6879fb13c5f4f.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-18T07:43:15.812Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-18 07:44:00', NULL),
-(12, NULL, 30, 7, 3, 'Clyde Wedding Day!', 'Other Celebration', NULL, NULL, NULL, 5, 300, '2025-08-15', '10:00:00', '10:00:00', 'partial', 15, 30, 221000.00, 176800.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-19 03:10:50', '2025-08-09 11:18:14', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752894628_687b0ca473b36.docx\",\"file_path\":\"uploads/event_attachments/1752894628_687b0ca473b36.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-19T03:10:28.476Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-19 03:10:50', NULL),
-(13, NULL, 20, 7, 3, 'Jesse Golden Wedding', 'cultural-traditional', NULL, NULL, NULL, 1, 300, '2025-08-31', '10:00:00', '18:00:00', 'partial', 23, 0, 770000.00, 385000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-19 04:50:36', '2025-08-09 11:18:14', NULL, 0, NULL, NULL, 0, NULL, NULL, '2025-07-19 04:50:36', NULL),
-(31, NULL, 29, 7, 3, 'Test', 'vintage-romance', NULL, NULL, NULL, 3, 100, '2025-09-10', '10:00:00', '23:59:00', 'paid', 22, 34, 120120.00, 84084.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-21 18:38:01', '2025-08-09 11:18:14', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753122341_687e8625539ce.jpg\",\"file_path\":\"uploads/event_attachments/1753122341_687e8625539ce.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-21T18:25:41.361Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-21 18:38:01', NULL),
-(32, NULL, 29, 7, 3, 'Kimi K2 - Test 2', 'Sample', NULL, NULL, NULL, 3, 100, '2025-09-18', '10:00:00', '23:59:00', 'paid', 22, 29, 161000.00, 120750.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-22 01:05:43', '2025-08-09 11:18:14', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753146327_687ee3d73d7e8.jpg\",\"file_path\":\"uploads/event_attachments/1753146327_687ee3d73d7e8.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:05:27.259Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:05:43', NULL),
-(33, NULL, 23, 7, 4, 'Christine\'s Birthday', 'fairy-tale', NULL, NULL, NULL, 3, 100, '2025-09-19', '10:00:00', '23:59:00', 'partial', 22, 34, 128000.00, 96000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-22 01:10:54', '2025-08-09 11:18:14', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753146640_687ee51039fd9.jpg\",\"file_path\":\"uploads/event_attachments/1753146640_687ee51039fd9.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:10:40.254Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:10:54', NULL),
-(34, NULL, 20, 7, 4, 'Test Paymnet Test', 'boho-chic', NULL, NULL, NULL, 3, 100, '2025-09-20', '10:00:00', '23:59:00', 'unpaid', 22, 34, 128000.00, 89600.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-22 01:42:11', '2025-08-09 11:18:14', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753148520_687eec68d8982.jpg\",\"file_path\":\"uploads/event_attachments/1753148520_687eec68d8982.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:42:00.906Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:42:10', NULL),
-(35, NULL, 20, 7, 4, 'Payment Issue Fix', 'color-coordinated', NULL, NULL, NULL, 5, 300, '2025-09-21', '10:30:00', '23:59:00', 'paid', 23, 29, 412000.00, 309000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-22 02:19:13', '2025-08-09 11:18:14', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753150735_687ef50f80b46.jpg\",\"file_path\":\"uploads/event_attachments/1753150735_687ef50f80b46.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T02:18:55.529Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 02:19:13', NULL),
-(36, NULL, 21, 7, 4, 'Debut', 'winter-wonderland', NULL, NULL, NULL, 5, 100, '2025-08-01', '10:00:00', '23:59:00', 'paid', 14, 30, 83000.00, 41500.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-22 06:36:36', '2025-08-09 03:15:53', NULL, 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 06:36:36', NULL),
-(37, NULL, 21, 7, NULL, 'Test', 'tropical-paradise', NULL, NULL, NULL, 5, 100, '2025-08-08', '10:00:00', '23:59:00', 'partial', 15, 30, 169000.00, 84500.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-23 07:25:44', '2025-08-09 03:15:53', '[{\"original_name\":\"June 27.docx\",\"file_name\":\"1753255511_68808e5714028.docx\",\"file_path\":\"uploads/event_attachments/1753255511_68808e5714028.docx\",\"file_size\":11241,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-23T07:25:11.085Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-23 07:25:44', NULL),
-(48, NULL, 21, 7, 6, 'Test 50', 'art-deco', NULL, NULL, NULL, 3, 100, '2025-09-30', '10:00:00', '23:59:00', 'partial', 22, 34, 80000.00, 40000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-08-03 07:53:36', '2025-08-09 11:18:14', '[{\"original_name\":\"maxresdefault.webp\",\"file_name\":\"1754207086_688f136eee4b1.webp\",\"file_path\":\"uploads/event_attachments/1754207086_688f136eee4b1.webp\",\"file_size\":109018,\"file_type\":\"image/webp\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-03T07:44:46.977Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
-(49, NULL, 29, 7, 5, 'Event 80 - Fixed Ghost Payments', 'beach-themed', NULL, NULL, NULL, 5, 100, '2025-10-01', '10:00:00', '23:59:00', 'partial', 19, 30, 311000.00, 202150.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-08-03 08:18:33', '2025-08-09 11:18:14', '[{\"original_name\":\"movie_script.pdf\",\"file_name\":\"1754209102_688f1b4e1812e.pdf\",\"file_path\":\"uploads/event_attachments/1754209102_688f1b4e1812e.pdf\",\"file_size\":103951,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-03T08:18:22.100Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
-(50, NULL, 21, 7, 5, 'Wedding Ko Ya', 'cultural-traditional', NULL, NULL, NULL, 5, 100, '2025-10-18', '10:00:00', '23:59:00', 'partial', 20, 34, 139000.00, 69500.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-08-08 17:16:58', '2025-08-09 11:18:14', '[{\"original_name\":\"photo_2025-08-05_09-57-51.jpg\",\"file_name\":\"1754673410_6896310207914.jpg\",\"file_path\":\"uploads/event_attachments/1754673410_6896310207914.jpg\",\"file_size\":104757,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-08T17:16:50.032Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL);
+INSERT INTO `tbl_events` (`event_id`, `original_booking_reference`, `user_id`, `admin_id`, `organizer_id`, `event_title`, `event_theme`, `event_description`, `church_location`, `church_start_time`, `event_type_id`, `guest_count`, `event_date`, `start_time`, `end_time`, `payment_status`, `venue_payment_status`, `package_id`, `venue_id`, `total_budget`, `down_payment`, `payment_method`, `payment_schedule_type_id`, `reference_number`, `additional_notes`, `event_status`, `booking_date`, `booking_time`, `created_by`, `updated_by`, `created_at`, `updated_at`, `event_attachments`, `wedding_details_completed`, `event_feedback_id`, `event_wedding_form_id`, `is_recurring`, `recurrence_rule`, `cancellation_reason`, `finalized_at`, `client_signature`) VALUES
+(1, NULL, 20, 7, 3, 'AAA Type of wedding v5', 'color-coordinated', NULL, NULL, NULL, 1, 100, '2025-07-18', '10:00:00', '18:00:00', 'partial', 'partial', 15, 29, 219000.00, 153300.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-16 16:37:10', '2025-09-08 15:00:09', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752683814_6877d526720af.docx\",\"file_path\":\"uploads/event_attachments/1752683814_6877d526720af.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T16:36:54.473Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-16 16:37:10', NULL),
+(2, NULL, 23, 7, NULL, 'AAA Type of wedding new', 'cultural-traditional', NULL, NULL, NULL, 5, 100, '2025-07-19', '10:00:00', '18:00:00', 'partial', 'partial', 20, 34, 297000.00, 282150.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-16 18:19:46', '2025-09-08 15:00:09', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752689964_6877ed2cab38e.docx\",\"file_path\":\"uploads/event_attachments/1752689964_6877ed2cab38e.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T18:19:24.724Z\"},{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752689968_6877ed30539c7.docx\",\"file_path\":\"uploads/event_attachments/1752689968_6877ed30539c7.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-16T18:19:28.364Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-16 18:19:46', NULL),
+(3, 'BK-20250717-5172', 23, 7, 4, 'Wedding Package ', 'Theme', NULL, NULL, NULL, 5, 100, '2025-07-22', '10:00:00', '10:00:00', 'partial', 'partial', 15, 30, 181000.00, 153850.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 03:40:05', '2025-09-08 15:00:09', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752723581_6878707d19f15.docx\",\"file_path\":\"uploads/event_attachments/1752723581_6878707d19f15.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T03:39:41.108Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 03:40:05', NULL),
+(4, NULL, 21, 7, 3, 'Gamon Wedding', 'boho-chic', NULL, NULL, NULL, 5, 100, '2025-07-25', '10:00:00', '10:00:00', 'partial', 'partial', 15, 30, 188000.00, 94000.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 05:46:14', '2025-09-08 15:00:09', '[{\"original_name\":\"Anches - Business Plan.docx\",\"file_name\":\"1752731156_68788e146bb9c.docx\",\"file_path\":\"uploads/event_attachments/1752731156_68788e146bb9c.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T05:45:56.445Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 05:46:14', NULL),
+(5, NULL, 29, 7, 3, 'Weeding Package 2', 'Theme', NULL, NULL, NULL, 5, 100, '2025-07-26', '10:00:00', '10:00:00', 'partial', 'partial', 19, 30, 90000.00, 45000.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 06:10:22', '2025-09-08 15:00:09', '[{\"original_name\":\"SMC_Key_Executives_and_Heritage_Leaders_Updated.pdf\",\"file_name\":\"1752732530_68789372b65a6.pdf\",\"file_path\":\"uploads/event_attachments/1752732530_68789372b65a6.pdf\",\"file_size\":3191,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T06:08:50.750Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 06:10:22', NULL),
+(6, NULL, 29, 7, NULL, 'Weeding Package 2', 'Minimalist', 'The client wants a very minimal setup, but very functional', NULL, NULL, 1, 150, '2025-07-28', '10:00:00', '10:00:00', 'partial', 'partial', NULL, 34, 145000.00, 123250.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 15:16:52', '2025-09-08 15:00:09', '[{\"original_name\":\"Untitled1031_20250624011453.png\",\"file_name\":\"1752765074_6879129298c72.png\",\"file_path\":\"uploads/event_attachments/1752765074_6879129298c72.png\",\"file_size\":2649900,\"file_type\":\"image/png\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T15:11:14.627Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 15:16:52', 'Approved!'),
+(7, NULL, 23, 7, NULL, 'Customized Event 2', 'art-deco', 'Art decoration related', NULL, NULL, 5, 200, '2025-07-31', '10:00:00', '18:00:00', 'partial', 'partial', NULL, 29, 154000.00, 130900.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 15:53:10', '2025-09-08 15:00:09', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752767561_68791c49b2159.docx\",\"file_path\":\"uploads/event_attachments/1752767561_68791c49b2159.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T15:52:41.732Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 15:53:10', 'Approved!'),
+(8, NULL, 20, 7, 4, 'Custom Event 3', 'tropical-paradise', NULL, NULL, NULL, 2, 500, '2025-07-30', '10:00:00', '18:00:00', 'partial', 'partial', NULL, 34, 10157000.00, 8633450.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 16:14:22', '2025-09-08 15:00:09', '[{\"original_name\":\"Elevate_IT_Services_Business_Plan.txt\",\"file_name\":\"1752768848_6879215003910.txt\",\"file_path\":\"uploads/event_attachments/1752768848_6879215003910.txt\",\"file_size\":4485,\"file_type\":\"text/plain\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T16:14:08.029Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 16:14:22', NULL),
+(9, NULL, 29, 7, 3, 'Birthday Event', 'Theme', NULL, NULL, NULL, 3, 500, '2025-08-08', '10:00:00', '18:00:00', 'partial', 'partial', NULL, 29, 767000.00, 613600.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-17 16:54:53', '2025-09-08 15:00:09', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752770207_6879269fb3081.docx\",\"file_path\":\"uploads/event_attachments/1752770207_6879269fb3081.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-17T16:36:47.735Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-17 16:54:53', NULL),
+(10, NULL, 29, 7, 4, 'Customized Event 8', 'Theme', NULL, NULL, NULL, 5, 100, '2025-08-12', '10:00:00', '18:00:00', 'partial', 'partial', NULL, 34, 47000.00, 37600.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-18 06:56:14', '2025-09-08 15:00:09', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752818709_6879e41542d82.docx\",\"file_path\":\"uploads/event_attachments/1752818709_6879e41542d82.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-18T06:05:09.275Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-18 06:56:14', NULL),
+(11, NULL, 21, 7, NULL, 'CUSTOMIZED PACKAGE 9', 'cultural-traditional', NULL, NULL, NULL, 3, 200, '2025-08-28', '10:00:00', '18:00:00', 'partial', 'partial', NULL, 29, 182000.00, 91000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-18 07:44:00', '2025-09-08 15:00:09', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752824595_6879fb13c5f4f.docx\",\"file_path\":\"uploads/event_attachments/1752824595_6879fb13c5f4f.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-18T07:43:15.812Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-18 07:44:00', NULL),
+(12, NULL, 30, 7, 3, 'Clyde Wedding Day!', 'Other Celebration', NULL, NULL, NULL, 5, 300, '2025-08-15', '10:00:00', '10:00:00', 'paid', 'paid', 15, 30, 221000.00, 176800.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-19 03:10:50', '2025-09-08 15:00:09', '[{\"original_name\":\"1752683814_6877d526720af.docx\",\"file_name\":\"1752894628_687b0ca473b36.docx\",\"file_path\":\"uploads/event_attachments/1752894628_687b0ca473b36.docx\",\"file_size\":9810,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-19T03:10:28.476Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-19 03:10:50', NULL),
+(13, NULL, 20, 7, 3, 'Jesse Golden Wedding', 'cultural-traditional', NULL, NULL, NULL, 1, 300, '2025-08-31', '10:00:00', '18:00:00', 'partial', 'partial', 23, 0, 770000.00, 385000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-19 04:50:36', '2025-09-08 15:00:09', NULL, 0, NULL, NULL, 0, NULL, NULL, '2025-07-19 04:50:36', NULL),
+(31, NULL, 29, 7, 3, 'Test', 'vintage-romance', NULL, NULL, NULL, 3, 100, '2025-09-10', '10:00:00', '23:59:00', 'paid', 'paid', 22, 34, 120120.00, 84084.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-21 18:38:01', '2025-09-08 15:00:09', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753122341_687e8625539ce.jpg\",\"file_path\":\"uploads/event_attachments/1753122341_687e8625539ce.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-21T18:25:41.361Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-21 18:38:01', NULL),
+(32, NULL, 29, 7, 3, 'Kimi K2 - Test 2', 'Sample', NULL, NULL, NULL, 3, 100, '2025-09-18', '10:00:00', '23:59:00', 'paid', 'paid', 22, 29, 161000.00, 120750.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-22 01:05:43', '2025-09-08 15:00:09', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753146327_687ee3d73d7e8.jpg\",\"file_path\":\"uploads/event_attachments/1753146327_687ee3d73d7e8.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:05:27.259Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:05:43', NULL),
+(33, NULL, 23, 7, 4, 'Christine\'s Birthday', 'fairy-tale', NULL, NULL, NULL, 3, 100, '2025-09-19', '10:00:00', '23:59:00', 'partial', 'partial', 22, 34, 128000.00, 96000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-22 01:10:54', '2025-09-08 15:00:09', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753146640_687ee51039fd9.jpg\",\"file_path\":\"uploads/event_attachments/1753146640_687ee51039fd9.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:10:40.254Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:10:54', NULL),
+(34, NULL, 20, 7, 4, 'Test Paymnet Test', 'boho-chic', NULL, NULL, NULL, 3, 100, '2025-09-20', '10:00:00', '23:59:00', 'unpaid', 'unpaid', 22, 34, 128000.00, 89600.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-22 01:42:11', '2025-09-08 15:00:09', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753148520_687eec68d8982.jpg\",\"file_path\":\"uploads/event_attachments/1753148520_687eec68d8982.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T01:42:00.906Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 01:42:10', NULL),
+(35, NULL, 20, 7, 4, 'Payment Issue Fix', 'color-coordinated', NULL, NULL, NULL, 5, 300, '2025-09-21', '10:30:00', '23:59:00', 'paid', 'paid', 23, 29, 412000.00, 309000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-07-22 02:19:13', '2025-09-08 15:00:09', '[{\"original_name\":\"dd352a67-1871-48b0-96b9-17862c1e1d1b.jpg\",\"file_name\":\"1753150735_687ef50f80b46.jpg\",\"file_path\":\"uploads/event_attachments/1753150735_687ef50f80b46.jpg\",\"file_size\":393207,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-22T02:18:55.529Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 02:19:13', NULL),
+(36, NULL, 21, 7, 4, 'Debut', 'winter-wonderland', NULL, NULL, NULL, 5, 100, '2025-08-01', '10:00:00', '23:59:00', 'paid', 'paid', 14, 30, 83000.00, 41500.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-22 06:36:36', '2025-09-08 15:00:09', NULL, 0, NULL, NULL, 0, NULL, NULL, '2025-07-22 06:36:36', NULL),
+(37, NULL, 21, 7, NULL, 'Test', 'tropical-paradise', NULL, NULL, NULL, 5, 100, '2025-08-08', '10:00:00', '23:59:00', 'partial', 'partial', 15, 30, 169000.00, 84500.00, 'cash', 2, NULL, NULL, 'done', NULL, NULL, NULL, NULL, '2025-07-23 07:25:44', '2025-09-08 15:00:09', '[{\"original_name\":\"June 27.docx\",\"file_name\":\"1753255511_68808e5714028.docx\",\"file_path\":\"uploads/event_attachments/1753255511_68808e5714028.docx\",\"file_size\":11241,\"file_type\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-07-23T07:25:11.085Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-07-23 07:25:44', NULL),
+(48, NULL, 21, 7, 6, 'Test 50', 'art-deco', NULL, NULL, NULL, 3, 100, '2025-09-30', '10:00:00', '23:59:00', 'partial', 'partial', 22, 34, 80000.00, 40000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-08-03 07:53:36', '2025-09-08 15:00:09', '[{\"original_name\":\"maxresdefault.webp\",\"file_name\":\"1754207086_688f136eee4b1.webp\",\"file_path\":\"uploads/event_attachments/1754207086_688f136eee4b1.webp\",\"file_size\":109018,\"file_type\":\"image/webp\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-03T07:44:46.977Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(49, NULL, 29, 7, 5, 'Event 80 - Fixed Ghost Payments', 'beach-themed', NULL, NULL, NULL, 5, 100, '2025-10-01', '10:00:00', '23:59:00', 'partial', 'partial', 19, 30, 311000.00, 202150.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-08-03 08:18:33', '2025-09-08 15:00:09', '[{\"original_name\":\"movie_script.pdf\",\"file_name\":\"1754209102_688f1b4e1812e.pdf\",\"file_path\":\"uploads/event_attachments/1754209102_688f1b4e1812e.pdf\",\"file_size\":103951,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-03T08:18:22.100Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(50, NULL, 21, 7, 5, 'Wedding Ko Ya', 'cultural-traditional', NULL, NULL, NULL, 5, 100, '2025-10-18', '10:00:00', '23:59:00', 'partial', 'partial', 20, 34, 139000.00, 69500.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-08-08 17:16:58', '2025-09-08 15:00:09', '[{\"original_name\":\"photo_2025-08-05_09-57-51.jpg\",\"file_name\":\"1754673410_6896310207914.jpg\",\"file_path\":\"uploads/event_attachments/1754673410_6896310207914.jpg\",\"file_size\":104757,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-08T17:16:50.032Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(59, NULL, 29, 7, NULL, 'Test', 'beach-themed', NULL, NULL, NULL, 5, 100, '2025-08-23', '10:00:00', '23:59:00', 'partial', 'partial', 22, 30, 158000.00, 79000.00, 'cash', 2, NULL, NULL, '', NULL, NULL, NULL, NULL, '2025-08-18 16:09:28', '2025-09-08 15:00:09', '[{\"original_name\":\"Gxn2g-baMAA6Xpr.jpg\",\"file_name\":\"1755532781_68a34dedd599d.jpg\",\"file_path\":\"uploads/event_attachments/1755532781_68a34dedd599d.jpg\",\"file_size\":128416,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-18T15:59:41.877Z\"},{\"original_name\":\"organizer_invites.json\",\"file_name\":\"organizer_invites\",\"file_path\":\"\",\"file_size\":0,\"file_type\":\"application/json\",\"description\":\"{\\\"pending\\\":[7],\\\"accepted\\\":[],\\\"rejected\\\":[],\\\"externalOrganizer\\\":null,\\\"created_at\\\":\\\"2025-08-18T16:09:28.601Z\\\"}\",\"attachment_type\":\"organizer_invites\",\"uploaded_at\":\"2025-08-18T16:09:28.601Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(60, NULL, 20, 7, 4, 'This is just a test', 'boho-chic', NULL, NULL, NULL, 1, 100, '2025-10-29', '10:00:00', '23:59:00', 'partial', 'partial', 15, 29, 150000.00, 75000.00, 'cash', 2, NULL, NULL, '', NULL, NULL, NULL, NULL, '2025-08-18 16:14:58', '2025-09-08 16:57:26', '[{\"original_name\":\"Gxn2g-baMAA6Xpr.jpg\",\"file_name\":\"1755533455_68a3508fd0bce.jpg\",\"file_path\":\"uploads/event_attachments/1755533455_68a3508fd0bce.jpg\",\"file_size\":128416,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-18T16:10:55.858Z\"},{\"original_name\":\"organizer_invites.json\",\"file_name\":\"organizer_invites\",\"file_path\":\"\",\"file_size\":0,\"file_type\":\"application/json\",\"description\":\"{\\\"pending\\\":[7],\\\"accepted\\\":[],\\\"rejected\\\":[],\\\"externalOrganizer\\\":null,\\\"created_at\\\":\\\"2025-08-18T16:14:58.386Z\\\"}\",\"attachment_type\":\"organizer_invites\",\"uploaded_at\":\"2025-08-18T16:14:58.386Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(61, NULL, 21, 7, 6, 'Organizer ', 'Others Celebration', NULL, NULL, NULL, 5, 100, '2025-10-30', '10:00:00', '23:59:00', 'paid', 'paid', 20, 34, 52000.00, 26000.00, 'cash', 2, NULL, NULL, 'confirmed', NULL, NULL, NULL, NULL, '2025-08-19 16:22:23', '2025-09-08 20:16:36', '[{\"original_name\":\"GxmDg_0akAAWmOP.jpg\",\"file_name\":\"1755620534_68a4a4b62923e.jpg\",\"file_path\":\"uploads/event_attachments/1755620534_68a4a4b62923e.jpg\",\"file_size\":103752,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-19T16:22:14.170Z\"},{\"original_name\":\"organizer_invites.json\",\"file_name\":\"organizer_invites\",\"file_path\":\"\",\"file_size\":0,\"file_type\":\"application/json\",\"description\":\"{\\\"pending\\\":[7],\\\"accepted\\\":[],\\\"rejected\\\":[],\\\"externalOrganizer\\\":null,\\\"created_at\\\":\\\"2025-08-19T16:22:23.732Z\\\"}\",\"attachment_type\":\"organizer_invites\",\"uploaded_at\":\"2025-08-19T16:22:23.732Z\"}]', 0, NULL, NULL, 0, NULL, NULL, '2025-09-09 02:35:09', NULL),
+(62, NULL, 5, 7, 7, 'Organizer Birthday', 'art-deco', NULL, NULL, NULL, 3, 100, '2025-10-20', '10:00:00', '23:59:00', 'partial', 'partial', 22, 34, 130000.00, 65000.00, 'cash', 2, NULL, NULL, '', NULL, NULL, NULL, NULL, '2025-08-20 04:35:17', '2025-09-08 15:00:09', '[{\"original_name\":\"GxmDg_0akAAWmOP.jpg\",\"file_name\":\"1755664512_68a550807d02c.jpg\",\"file_path\":\"uploads/event_attachments/1755664512_68a550807d02c.jpg\",\"file_size\":103752,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-20T04:35:12.514Z\"},{\"original_name\":\"organizer_invites.json\",\"file_name\":\"organizer_invites\",\"file_path\":\"\",\"file_size\":0,\"file_type\":\"application/json\",\"description\":\"{\\\"pending\\\":[7],\\\"accepted\\\":[],\\\"rejected\\\":[],\\\"externalOrganizer\\\":null,\\\"created_at\\\":\\\"2025-08-20T04:35:17.706Z\\\"}\",\"attachment_type\":\"organizer_invites\",\"uploaded_at\":\"2025-08-20T04:35:17.706Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(63, NULL, 21, 7, 6, 'Sample', 'winter-wonderland', NULL, NULL, NULL, 3, 150, '2025-11-01', '12:00:00', '23:59:00', 'partial', 'partial', 19, 30, 318000.00, 159000.00, 'cash', 2, NULL, NULL, '', NULL, NULL, NULL, NULL, '2025-08-30 04:34:47', '2025-09-08 15:00:09', '[{\"original_name\":\"money attachment.pdf\",\"file_name\":\"1756528479_68b27f5f5a1fd.pdf\",\"file_path\":\"uploads/event_attachments/1756528479_68b27f5f5a1fd.pdf\",\"file_size\":572541,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-30T04:34:39.370Z\"},{\"original_name\":\"organizer_invites.json\",\"file_name\":\"organizer_invites\",\"file_path\":\"\",\"file_size\":0,\"file_type\":\"application/json\",\"description\":\"{\\\"pending\\\":[6],\\\"accepted\\\":[],\\\"rejected\\\":[],\\\"externalOrganizer\\\":null,\\\"created_at\\\":\\\"2025-08-30T04:34:47.186Z\\\"}\",\"attachment_type\":\"organizer_invites\",\"uploaded_at\":\"2025-08-30T04:34:47.186Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(64, NULL, 20, 7, 6, 'Baptism', 'tropical-paradise', NULL, NULL, NULL, 10, 150, '2025-11-05', '10:00:00', '23:59:00', 'partial', 'partial', 24, 29, 85500.00, 42750.00, 'cash', 2, NULL, NULL, '', NULL, NULL, NULL, NULL, '2025-08-30 07:44:02', '2025-09-08 15:00:09', '[{\"original_name\":\"money attachment.pdf\",\"file_name\":\"1756539741_68b2ab5df3ad1.pdf\",\"file_path\":\"uploads/event_attachments/1756539741_68b2ab5df3ad1.pdf\",\"file_size\":572541,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-30T07:42:21.999Z\"},{\"original_name\":\"organizer_invites.json\",\"file_name\":\"organizer_invites\",\"file_path\":\"\",\"file_size\":0,\"file_type\":\"application/json\",\"description\":\"{\\\"pending\\\":[6],\\\"accepted\\\":[],\\\"rejected\\\":[],\\\"externalOrganizer\\\":null,\\\"created_at\\\":\\\"2025-08-30T07:44:02.550Z\\\"}\",\"attachment_type\":\"organizer_invites\",\"uploaded_at\":\"2025-08-30T07:44:02.550Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(65, NULL, 30, 7, NULL, 'Montreal Wedding', 'color-coordinated', NULL, NULL, NULL, 5, 100, '2025-11-20', '10:00:00', '23:59:00', 'partial', 'partial', 15, 30, 162000.00, 81000.00, 'cash', 2, NULL, NULL, '', NULL, NULL, NULL, NULL, '2025-08-30 08:25:58', '2025-09-08 15:00:09', '[{\"original_name\":\"money attachment.pdf\",\"file_name\":\"1756542221_68b2b50daffa0.pdf\",\"file_path\":\"uploads/event_attachments/1756542221_68b2b50daffa0.pdf\",\"file_size\":572541,\"file_type\":\"application/pdf\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-08-30T08:23:41.722Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL),
+(66, NULL, 23, 7, 4, 'b_day_sample', 'rustic-garden', NULL, NULL, NULL, 3, 150, '2025-12-01', '10:00:00', '23:59:00', 'partial', 'unpaid', 22, 34, 140000.00, 112000.00, 'cash', 2, NULL, NULL, '', NULL, NULL, NULL, NULL, '2025-09-09 23:01:51', '2025-09-09 23:01:51', '[{\"original_name\":\"5b22c2c9-0744-4df9-b91f-a46043193dff.jpg\",\"file_name\":\"1757458900_68c0b1d45135c.jpg\",\"file_path\":\"uploads/event_attachments/1757458900_68c0b1d45135c.jpg\",\"file_size\":335979,\"file_type\":\"image/jpeg\",\"description\":\"\",\"attachment_type\":\"event_attachment\",\"uploaded_at\":\"2025-09-09T23:01:40.335Z\"},{\"original_name\":\"organizer_invites.json\",\"file_name\":\"organizer_invites\",\"file_path\":\"\",\"file_size\":0,\"file_type\":\"application/json\",\"description\":\"{\\\"pending\\\":[4],\\\"accepted\\\":[],\\\"rejected\\\":[],\\\"externalOrganizer\\\":null,\\\"created_at\\\":\\\"2025-09-09T23:01:51.444Z\\\"}\",\"attachment_type\":\"organizer_invites\",\"uploaded_at\":\"2025-09-09T23:01:51.444Z\"}]', 0, NULL, NULL, 0, NULL, NULL, NULL, NULL);
 
 --
 -- Triggers `tbl_events`
@@ -752,7 +980,7 @@ CREATE TABLE `tbl_event_components` (
   `component_description` text DEFAULT NULL,
   `is_custom` tinyint(1) NOT NULL DEFAULT 0,
   `is_included` tinyint(1) NOT NULL DEFAULT 1,
-  `payment_status` enum('pending','paid') NOT NULL DEFAULT 'pending',
+  `payment_status` enum('pending','paid','cancelled') NOT NULL DEFAULT 'pending',
   `payment_date` datetime DEFAULT NULL,
   `payment_notes` text DEFAULT NULL,
   `original_package_component_id` int(11) DEFAULT NULL,
@@ -789,7 +1017,7 @@ INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`
 (27, 30, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
 (28, 30, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
 (29, 30, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
-(30, 31, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 188, NULL, NULL, 0),
+(30, 31, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'paid', '2025-09-05 10:31:38', 'Status changed to paid by admin', 188, NULL, NULL, 0),
 (31, 31, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
 (32, 32, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 0),
 (33, 32, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 1),
@@ -1109,7 +1337,176 @@ INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`
 (349, 50, 'sample_inclusion', 12000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 287, NULL, NULL, 1),
 (350, 50, 'sample_inclusion 2', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 288, NULL, NULL, 2),
 (351, 50, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, 'paid', '2025-08-08 19:17:20', 'Status changed to paid by admin', NULL, 1, NULL, 3),
-(352, 50, 'Test', 12000.00, NULL, 'pending', NULL, NULL, 0, 'Test', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4);
+(352, 50, 'Test', 12000.00, NULL, 'pending', NULL, NULL, 0, 'Test', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4),
+(353, 59, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(354, 59, 'Food and Beverages', 35000.00, NULL, 'pending', NULL, NULL, 0, 'Free Lunch, Coffee Stand, Full Buffet Dinner', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(355, 59, 'Transporation', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Free Limosin Offer', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 2),
+(356, 59, 'Photo and Video', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Same Day Edit (SDE), Free USB, Photobooth, Photoshoot, Scheduled Prenup', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(357, 59, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4),
+(358, 60, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'paid', '2025-09-09 08:10:29', 'Status changed to paid by admin', 189, NULL, NULL, 0),
+(359, 60, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'paid', '2025-09-09 08:22:25', 'Status changed to paid by admin', 190, NULL, NULL, 1),
+(360, 60, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'paid', '2025-09-09 08:30:23', 'Status changed to paid by admin', 191, NULL, NULL, 2);
+INSERT INTO `tbl_event_components` (`component_id`, `event_id`, `component_name`, `component_price`, `supplier_price`, `supplier_status`, `supplier_notes`, `delivery_date`, `is_rated`, `component_description`, `is_custom`, `is_included`, `payment_status`, `payment_date`, `payment_notes`, `original_package_component_id`, `supplier_id`, `offer_id`, `display_order`) VALUES
+(361, 60, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'paid', '2025-09-09 08:30:30', 'Status changed to paid by admin', 192, NULL, NULL, 3),
+(362, 60, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'paid', '2025-09-09 08:30:33', 'Status changed to paid by admin', 193, NULL, NULL, 4),
+(363, 60, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 5),
+(364, 60, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 6),
+(365, 60, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 196, NULL, NULL, 7),
+(366, 60, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 8),
+(367, 60, 'Pearlmont Hotel', 44000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 9),
+(368, 61, 'sample_inclusion', 12000.00, NULL, 'delivered', NULL, '2025-09-09', 0, '', 0, 1, 'paid', '2025-09-05 15:39:13', 'Status changed to paid by admin', 287, NULL, NULL, 0),
+(369, 61, 'sample_inclusion 2', 20000.00, NULL, 'delivered', NULL, '2025-09-09', 0, '', 0, 1, 'paid', '2025-09-05 15:39:18', 'Status changed to paid by admin', 288, NULL, NULL, 1),
+(370, 61, 'Demiren Hotel', 20000.00, NULL, 'delivered', NULL, '2025-09-09', 0, 'Venue: Demiren Hotel', 0, 1, 'paid', '2025-09-05 15:39:21', 'Status changed to paid by admin', NULL, NULL, NULL, 2),
+(371, 62, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, 'paid', '2025-09-04 22:51:54', 'Status changed to paid by admin', NULL, NULL, NULL, 0),
+(372, 62, 'Food and Beverages', 35000.00, NULL, 'pending', NULL, NULL, 0, 'Free Lunch, Coffee Stand, Full Buffet Dinner', 0, 1, 'paid', '2025-09-04 23:34:14', 'Status changed to paid by admin', NULL, NULL, NULL, 1),
+(373, 62, 'Transporation', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Free Limosin Offer', 0, 1, 'paid', '2025-09-04 23:34:17', 'Status changed to paid by admin', NULL, NULL, NULL, 2),
+(374, 62, 'Photo and Video', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Same Day Edit (SDE), Free USB, Photobooth, Photoshoot, Scheduled Prenup', 0, 1, 'paid', '2025-09-04 23:34:23', 'Status changed to paid by admin', NULL, NULL, NULL, 3),
+(375, 62, 'Demiren Hotel', 20000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 0, 1, 'paid', '2025-09-04 23:34:25', 'Status changed to paid by admin', NULL, NULL, NULL, 4),
+(376, 63, 'Pearlmont Hotel - Package 2', 63000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(377, 63, 'Venue Rental', 44000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 279, NULL, NULL, 1),
+(378, 63, 'Catering', 70000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 280, NULL, NULL, 2),
+(379, 63, 'Lights & Sounds', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 281, NULL, NULL, 3),
+(380, 63, 'Host & Live Performer', 20000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 282, NULL, NULL, 4),
+(381, 63, 'Event Styling & Decorations', 30000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 283, NULL, NULL, 5),
+(382, 63, 'Photographer & Videographer', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 284, NULL, NULL, 6),
+(383, 63, 'Invitation Design & Printing', 6000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 285, NULL, NULL, 7),
+(384, 63, 'Cake & Wine Set', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 286, NULL, NULL, 8),
+(385, 63, 'Elegant Catering Services - Wedding Catering Package - Premium', 75000.00, NULL, 'pending', NULL, NULL, 0, 'Elegant Catering Services - Catering (Wedding Catering Package - Premium)', 1, 1, 'pending', NULL, NULL, NULL, 1, NULL, 9),
+(386, 64, 'Pearlmont Hotel', 61500.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(387, 64, 'Food', 12000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(388, 64, 'External Food', 12000.00, NULL, 'pending', NULL, NULL, 0, 'External Food', 1, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 2),
+(389, 65, 'Pearlmont Hotel - Package 2', 48000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Pearlmont Hotel - Package 2', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(390, 65, 'Full Wedding Coordination', 15000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 189, NULL, NULL, 1),
+(391, 65, 'Attire ', 25000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 190, NULL, NULL, 2),
+(392, 65, 'Hair and Makeup', 8000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 191, NULL, NULL, 3),
+(393, 65, 'Wedding Cake', 5000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 192, NULL, NULL, 4),
+(394, 65, 'Transport & Floral Decor ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 193, NULL, NULL, 5),
+(395, 65, 'Emcee & Program Flow', 4000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 194, NULL, NULL, 6),
+(396, 65, 'Photography & Videography', 35000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 195, NULL, NULL, 7),
+(397, 65, 'Remaining Buffer ', 7000.00, NULL, 'pending', NULL, NULL, 0, '', 0, 0, 'pending', NULL, NULL, 196, NULL, NULL, 8),
+(398, 65, 'Inclusions', 0.00, NULL, 'pending', NULL, NULL, 0, '', 0, 1, 'pending', NULL, NULL, 205, NULL, NULL, 9),
+(399, 65, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', 15000.00, NULL, 'pending', NULL, NULL, 0, 'Blooming Gardens Florals - Floral Design (Bridal Bouquet & Ceremony Florals)', 1, 1, 'pending', NULL, NULL, NULL, 3, NULL, 10),
+(400, 66, 'Venue Decoration', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Full flower decoration, Theme of choice', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 0),
+(401, 66, 'Food and Beverages', 35000.00, NULL, 'pending', NULL, NULL, 0, 'Free Lunch, Coffee Stand, Full Buffet Dinner', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 1),
+(402, 66, 'Transporation', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Free Limosin Offer', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 2),
+(403, 66, 'Photo and Video', 25000.00, NULL, 'pending', NULL, NULL, 0, 'Same Day Edit (SDE), Free USB, Photobooth, Photoshoot, Scheduled Prenup', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 3),
+(404, 66, 'Demiren Hotel', 30000.00, NULL, 'pending', NULL, NULL, 0, 'Venue: Demiren Hotel', 0, 1, 'pending', NULL, NULL, NULL, NULL, NULL, 4);
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_event_organizer_assignments`
+--
+
+CREATE TABLE `tbl_event_organizer_assignments` (
+  `assignment_id` int(11) NOT NULL,
+  `event_id` int(11) NOT NULL,
+  `organizer_id` int(11) NOT NULL,
+  `assigned_by` int(11) NOT NULL COMMENT 'Admin who assigned the organizer',
+  `assigned_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `status` enum('assigned','accepted','rejected','removed') DEFAULT 'assigned',
+  `notes` text DEFAULT NULL COMMENT 'Admin notes about the assignment',
+  `agreed_talent_fee` decimal(12,2) DEFAULT NULL,
+  `fee_currency` varchar(10) NOT NULL DEFAULT 'PHP',
+  `fee_status` enum('unset','proposed','confirmed','paid') NOT NULL DEFAULT 'unset',
+  `payment_status` enum('unpaid','partial','paid','cancelled') NOT NULL DEFAULT 'unpaid',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Track organizer assignments to events';
+
+--
+-- Dumping data for table `tbl_event_organizer_assignments`
+--
+
+INSERT INTO `tbl_event_organizer_assignments` (`assignment_id`, `event_id`, `organizer_id`, `assigned_by`, `assigned_at`, `status`, `notes`, `agreed_talent_fee`, `fee_currency`, `fee_status`, `payment_status`, `created_at`, `updated_at`) VALUES
+(1, 1, 3, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(2, 3, 4, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(3, 4, 3, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(4, 5, 3, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(5, 8, 4, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(6, 9, 3, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(7, 10, 4, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(8, 12, 3, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(9, 13, 3, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(10, 31, 3, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(11, 32, 3, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(12, 33, 4, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(13, 34, 4, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(14, 35, 4, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(15, 36, 4, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(16, 48, 6, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(17, 49, 5, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(18, 50, 5, 7, '2025-08-19 16:20:37', 'assigned', NULL, NULL, 'PHP', 'unset', 'unpaid', '2025-08-19 16:20:37', '2025-08-19 16:20:37'),
+(33, 62, 7, 7, '2025-08-20 04:35:17', 'assigned', 'Assigned during event creation', NULL, 'PHP', 'unset', 'unpaid', '2025-08-20 04:35:17', '2025-08-20 04:35:17'),
+(34, 63, 6, 7, '2025-08-30 04:34:47', 'assigned', 'Assigned during event creation', NULL, 'PHP', 'unset', 'unpaid', '2025-08-30 04:34:47', '2025-08-30 04:34:47'),
+(35, 64, 6, 7, '2025-08-30 07:44:02', 'assigned', 'Assigned during event creation', NULL, 'PHP', 'unset', 'unpaid', '2025-08-30 07:44:02', '2025-08-30 07:44:02'),
+(36, 60, 4, 7, '2025-09-08 16:57:26', 'assigned', 'Assigned from event page', NULL, 'PHP', 'unset', 'unpaid', '2025-09-08 16:57:26', '2025-09-08 16:57:26'),
+(38, 61, 6, 7, '2025-09-08 20:16:36', 'assigned', 'Assigned from event page', NULL, 'PHP', 'unset', 'unpaid', '2025-09-08 20:16:36', '2025-09-08 20:16:36'),
+(39, 66, 4, 7, '2025-09-09 23:01:51', 'accepted', 'Assigned during event creation', NULL, 'PHP', 'unset', 'unpaid', '2025-09-09 23:01:51', '2025-09-10 23:08:07');
+
+--
+-- Triggers `tbl_event_organizer_assignments`
+--
+DELIMITER $$
+CREATE TRIGGER `log_organizer_assignment` AFTER INSERT ON `tbl_event_organizer_assignments` FOR EACH ROW BEGIN
+    -- Log the assignment in organizer activity logs
+    INSERT INTO `tbl_organizer_activity_logs` (
+        `organizer_id`,
+        `activity_type`,
+        `description`,
+        `related_id`,
+        `metadata`
+    ) VALUES (
+        NEW.organizer_id,
+        'event_assigned',
+        CONCAT('Assigned to event #', NEW.event_id),
+        NEW.event_id,
+        JSON_OBJECT(
+            'assignment_id', NEW.assignment_id,
+            'assigned_by', NEW.assigned_by,
+            'status', NEW.status,
+            'notes', NEW.notes
+        )
+    );
+
+    -- Create notification for the organizer
+    CALL CreateNotification(
+        (SELECT user_id FROM tbl_organizer WHERE organizer_id = NEW.organizer_id),
+        'event_assigned',
+        'New Event Assignment',
+        CONCAT('You have been assigned to event #', NEW.event_id, '. Please review the event details.'),
+        'high',
+        'calendar-check',
+        CONCAT('/organizer/events/', NEW.event_id),
+        NEW.event_id, NULL, NULL, NULL, NULL, NULL, 72
+    );
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `log_organizer_assignment_update` AFTER UPDATE ON `tbl_event_organizer_assignments` FOR EACH ROW BEGIN
+    -- Log the assignment update in organizer activity logs
+    INSERT INTO `tbl_organizer_activity_logs` (
+        `organizer_id`,
+        `activity_type`,
+        `description`,
+        `related_id`,
+        `metadata`
+    ) VALUES (
+        NEW.organizer_id,
+        'event_assignment_updated',
+        CONCAT('Event assignment #', NEW.event_id, ' status changed to ', NEW.status),
+        NEW.event_id,
+        JSON_OBJECT(
+            'assignment_id', NEW.assignment_id,
+            'old_status', OLD.status,
+            'new_status', NEW.status,
+            'updated_by', NEW.assigned_by
+        )
+    );
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
@@ -1542,7 +1939,50 @@ INSERT INTO `tbl_event_timeline` (`timeline_id`, `event_id`, `component_id`, `ac
 (0, 50, NULL, 'sample_inclusion', '2025-10-18', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
 (0, 50, NULL, 'sample_inclusion 2', '2025-10-18', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
 (0, 50, NULL, 'Elegant Catering Services - Wedding Catering Package - Premium', '2025-10-18', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
-(0, 50, NULL, 'Test', '2025-10-18', '16:00:00', '17:00:00', '', '', NULL, 'pending', 4);
+(0, 50, NULL, 'Test', '2025-10-18', '16:00:00', '17:00:00', '', '', NULL, 'pending', 4),
+(0, 59, NULL, 'Venue Decoration', '2025-08-23', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 59, NULL, 'Pearlmont Hotel - Package 2', '2025-08-23', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 60, NULL, 'Full Wedding Coordination', '2025-10-29', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 60, NULL, 'Attire ', '2025-10-29', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 60, NULL, 'Hair and Makeup', '2025-10-29', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(0, 60, NULL, 'Wedding Cake', '2025-10-29', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
+(0, 60, NULL, 'Transport & Floral Decor ', '2025-10-29', '16:00:00', '17:00:00', '', '', NULL, 'pending', 4),
+(0, 60, NULL, 'Emcee & Program Flow', '2025-10-29', '18:00:00', '19:00:00', '', '', NULL, 'pending', 5),
+(0, 60, NULL, 'Photography & Videography', '2025-10-29', '20:00:00', '21:00:00', '', '', NULL, 'pending', 6),
+(0, 60, NULL, 'Remaining Buffer ', '2025-10-29', '22:00:00', '23:00:00', '', '', NULL, 'pending', 7),
+(0, 60, NULL, 'Inclusions', '2025-10-29', '00:00:00', '01:00:00', '', '', NULL, 'pending', 8),
+(0, 60, NULL, 'Pearlmont Hotel', '2025-10-29', '02:00:00', '03:00:00', '', '', NULL, 'pending', 9),
+(0, 61, NULL, 'sample_inclusion', '2025-10-30', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 61, NULL, 'sample_inclusion 2', '2025-10-30', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 61, NULL, 'Demiren Hotel', '2025-10-30', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(0, 62, NULL, 'Venue Decoration', '2025-10-20', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 62, NULL, 'Demiren Hotel', '2025-10-20', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 63, NULL, 'Pearlmont Hotel - Package 2', '2025-11-01', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 63, NULL, 'Venue Rental', '2025-11-01', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 63, NULL, 'Catering', '2025-11-01', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(0, 63, NULL, 'Lights & Sounds', '2025-11-01', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
+(0, 63, NULL, 'Host & Live Performer', '2025-11-01', '16:00:00', '17:00:00', '', '', NULL, 'pending', 4),
+(0, 63, NULL, 'Event Styling & Decorations', '2025-11-01', '18:00:00', '19:00:00', '', '', NULL, 'pending', 5),
+(0, 63, NULL, 'Photographer & Videographer', '2025-11-01', '20:00:00', '21:00:00', '', '', NULL, 'pending', 6),
+(0, 63, NULL, 'Invitation Design & Printing', '2025-11-01', '22:00:00', '23:00:00', '', '', NULL, 'pending', 7),
+(0, 63, NULL, 'Cake & Wine Set', '2025-11-01', '00:00:00', '01:00:00', '', '', NULL, 'pending', 8),
+(0, 63, NULL, 'Elegant Catering Services - Wedding Catering Package - Premium', '2025-11-01', '02:00:00', '03:00:00', '', '', NULL, 'pending', 9),
+(0, 64, NULL, 'Pearlmont Hotel', '2025-11-05', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 64, NULL, 'Food', '2025-11-05', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 64, NULL, 'External Food', '2025-11-05', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(0, 65, NULL, 'Pearlmont Hotel - Package 2', '2025-11-20', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 65, NULL, 'Full Wedding Coordination', '2025-11-20', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1),
+(0, 65, NULL, 'Attire ', '2025-11-20', '12:00:00', '13:00:00', '', '', NULL, 'pending', 2),
+(0, 65, NULL, 'Hair and Makeup', '2025-11-20', '14:00:00', '15:00:00', '', '', NULL, 'pending', 3),
+(0, 65, NULL, 'Wedding Cake', '2025-11-20', '16:00:00', '17:00:00', '', '', NULL, 'pending', 4),
+(0, 65, NULL, 'Transport & Floral Decor ', '2025-11-20', '18:00:00', '19:00:00', '', '', NULL, 'pending', 5),
+(0, 65, NULL, 'Emcee & Program Flow', '2025-11-20', '20:00:00', '21:00:00', '', '', NULL, 'pending', 6),
+(0, 65, NULL, 'Photography & Videography', '2025-11-20', '22:00:00', '23:00:00', '', '', NULL, 'pending', 7),
+(0, 65, NULL, 'Remaining Buffer ', '2025-11-20', '00:00:00', '01:00:00', '', '', NULL, 'pending', 8),
+(0, 65, NULL, 'Inclusions', '2025-11-20', '02:00:00', '03:00:00', '', '', NULL, 'pending', 9),
+(0, 65, NULL, 'Blooming Gardens Florals - Bridal Bouquet & Ceremony Florals', '2025-11-20', '04:00:00', '05:00:00', '', '', NULL, 'pending', 10),
+(0, 66, NULL, 'Venue Decoration', '2025-12-01', '08:00:00', '09:00:00', '', '', NULL, 'pending', 0),
+(0, 66, NULL, 'Demiren Hotel', '2025-12-01', '10:00:00', '11:00:00', '', '', NULL, 'pending', 1);
 
 -- --------------------------------------------------------
 
@@ -1622,289 +2062,198 @@ CREATE TABLE `tbl_notifications` (
 --
 
 INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venue_id`, `store_id`, `budget_id`, `booking_id`, `feedback_id`, `notification_message`, `notification_type`, `notification_title`, `notification_priority`, `notification_icon`, `notification_url`, `expires_at`, `read_at`, `notification_status`, `created_at`) VALUES
-(8, 7, NULL, NULL, NULL, NULL, 7, NULL, 'New booking created: BK-20250625-1100', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-25 06:02:06'),
 (9, 15, NULL, NULL, NULL, NULL, 7, NULL, 'Your booking BK-20250625-1100 for \'ad\' has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-25 06:05:07'),
-(10, 7, NULL, NULL, NULL, NULL, 8, NULL, 'New booking created: BK-20250625-4040', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-25 08:29:08'),
 (11, 15, NULL, NULL, NULL, NULL, 8, NULL, 'Your booking BK-20250625-4040 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-25 08:50:18'),
-(12, 7, NULL, NULL, NULL, NULL, 9, NULL, 'New booking created: BK-20250626-5133', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-26 10:36:30'),
 (13, 15, NULL, NULL, NULL, NULL, 9, NULL, 'Your booking BK-20250626-5133 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-06-26 10:37:05'),
-(14, 7, NULL, NULL, NULL, NULL, 10, NULL, 'New booking created: BK-20250709-2165', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-09 12:08:10'),
-(15, 20, NULL, NULL, NULL, NULL, 10, NULL, 'Your booking BK-20250709-2165 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-09 12:10:24'),
-(18, 7, NULL, 30, NULL, NULL, 13, NULL, 'New booking BK-20250710-2531 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/13', '2025-07-12 23:08:27', NULL, 'unread', '2025-07-09 23:08:27'),
-(19, 7, NULL, 30, NULL, NULL, 14, NULL, 'New booking BK-20250710-8764 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/14', '2025-07-13 06:24:10', NULL, 'unread', '2025-07-10 06:24:10'),
-(20, 20, NULL, 30, NULL, NULL, 14, NULL, 'Your booking BK-20250710-8764 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/14', '2025-07-17 06:24:28', NULL, 'unread', '2025-07-10 06:24:28'),
-(21, 20, NULL, NULL, NULL, NULL, 14, NULL, 'Your booking BK-20250710-8764 has been accepted! You can now proceed with event planning.', 'booking_confirmed', 'Confirmed Booking', 'high', 'check-circle', '/client/bookings/14', '2025-07-17 06:24:28', NULL, 'unread', '2025-07-10 06:24:28'),
 (30, 15, 57, 29, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/57', '2025-07-13 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
 (31, 15, 57, 29, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/57', '2025-07-13 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
 (32, 15, 57, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱125,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/21', '2025-07-12 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
-(33, 7, 57, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱125,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/21', '2025-07-13 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
 (34, 15, 57, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱125,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/21', '2025-07-12 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
-(35, 7, 57, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱125,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/21', '2025-07-13 17:42:14', NULL, 'unread', '2025-07-10 17:42:14'),
-(36, 20, 58, 34, NULL, NULL, NULL, NULL, 'Your event \"Some Random Event\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/58', '2025-07-14 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
-(37, 20, 58, 34, NULL, NULL, NULL, NULL, 'Your event \"Some Random Event\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/58', '2025-07-14 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
-(38, 20, 58, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱400,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/22', '2025-07-13 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
-(39, 7, 58, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱400,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/22', '2025-07-14 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
-(40, 20, 58, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱400,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/22', '2025-07-13 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
-(41, 7, 58, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱400,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/22', '2025-07-14 03:45:10', NULL, 'unread', '2025-07-11 03:45:10'),
-(0, 7, NULL, 30, NULL, NULL, 0, NULL, 'New booking BK-20250712-3518 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/0', '2025-07-15 09:25:34', NULL, 'unread', '2025-07-12 09:25:34'),
-(0, 7, NULL, NULL, NULL, NULL, 0, NULL, 'New booking created: BK-20250712-3518', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-12 09:25:34'),
-(0, 7, NULL, 30, NULL, NULL, 0, NULL, 'New booking BK-20250712-8869 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/0', '2025-07-15 10:27:11', NULL, 'unread', '2025-07-12 10:27:11'),
-(0, 7, NULL, NULL, NULL, NULL, 0, NULL, 'New booking created: BK-20250712-8869', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-12 10:27:11'),
-(0, 20, 0, 30, NULL, NULL, NULL, NULL, 'Your event \"sdf\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/0', '2025-07-17 15:40:28', NULL, 'unread', '2025-07-14 15:40:28'),
-(0, 20, 0, 30, NULL, NULL, NULL, NULL, 'Your event \"sdf\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/0', '2025-07-17 15:40:28', NULL, 'unread', '2025-07-14 15:40:28'),
-(0, 20, 0, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱16,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/0', '2025-07-16 15:40:28', NULL, 'unread', '2025-07-14 15:40:28'),
-(0, 7, 0, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱16,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/0', '2025-07-17 15:40:28', NULL, 'unread', '2025-07-14 15:40:28'),
-(0, 20, 0, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱16,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/0', '2025-07-16 15:40:28', NULL, 'unread', '2025-07-14 15:40:28'),
-(0, 7, 0, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱16,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/0', '2025-07-17 15:40:28', NULL, 'unread', '2025-07-14 15:40:28'),
-(0, 7, NULL, 30, NULL, NULL, 0, NULL, 'New booking BK-20250715-3121 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/0', '2025-07-18 04:18:11', NULL, 'unread', '2025-07-15 04:18:11'),
-(0, 7, NULL, NULL, NULL, NULL, 0, NULL, 'New booking created: BK-20250715-3121', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-15 04:18:11'),
-(0, 7, NULL, 34, NULL, NULL, 0, NULL, 'New booking BK-20250715-7783 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/0', '2025-07-18 04:19:35', NULL, 'unread', '2025-07-15 04:19:35'),
-(0, 7, NULL, NULL, NULL, NULL, 0, NULL, 'New booking created: BK-20250715-7783', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-15 04:19:35'),
 (0, 21, NULL, 30, NULL, NULL, 0, NULL, 'Your booking BK-20250715-3121 has been cancelled.', 'booking_cancelled', 'Booking Cancelled', 'high', 'x-circle', '/client/bookings/0', '2025-07-23 05:32:51', NULL, 'unread', '2025-07-16 05:32:51'),
 (0, 21, NULL, 34, NULL, NULL, 0, NULL, 'Your booking BK-20250715-7783 has been cancelled.', 'booking_cancelled', 'Booking Cancelled', 'high', 'x-circle', '/client/bookings/0', '2025-07-23 05:32:51', NULL, 'unread', '2025-07-16 05:32:51'),
 (0, 21, NULL, NULL, NULL, NULL, 0, NULL, 'Your booking BK-20250715-3121 has been cancelled.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-16 05:32:51'),
 (0, 21, 0, 34, NULL, NULL, NULL, NULL, 'Your event \"Montreal Wedding\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/0', '2025-07-19 15:46:39', NULL, 'unread', '2025-07-16 15:46:39'),
 (0, 21, 0, 34, NULL, NULL, NULL, NULL, 'Your event \"Montreal Wedding\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/0', '2025-07-19 15:46:39', NULL, 'unread', '2025-07-16 15:46:39'),
 (0, 21, 0, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/0', '2025-07-18 15:46:39', NULL, 'unread', '2025-07-16 15:46:39'),
-(0, 7, 0, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱84,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/0', '2025-07-19 15:46:39', NULL, 'unread', '2025-07-16 15:46:39'),
 (0, 21, 0, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/0', '2025-07-18 15:46:39', NULL, 'unread', '2025-07-16 15:46:39'),
-(0, 7, 0, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱84,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/0', '2025-07-19 15:46:39', NULL, 'unread', '2025-07-16 15:46:39'),
 (0, 21, 2, 30, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding v5\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/2', '2025-07-19 16:02:04', NULL, 'unread', '2025-07-16 16:02:04'),
 (0, 21, 2, 30, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding v5\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/2', '2025-07-19 16:02:04', NULL, 'unread', '2025-07-16 16:02:04'),
 (0, 21, 2, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱145,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/0', '2025-07-18 16:02:04', NULL, 'unread', '2025-07-16 16:02:04'),
-(0, 7, 2, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱145,600.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/0', '2025-07-19 16:02:04', NULL, 'unread', '2025-07-16 16:02:04'),
 (0, 21, 2, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱145,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/0', '2025-07-18 16:02:04', NULL, 'unread', '2025-07-16 16:02:04'),
-(0, 7, 2, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱145,600.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/0', '2025-07-19 16:02:04', NULL, 'unread', '2025-07-16 16:02:04'),
-(0, 20, 1, 29, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding v5\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/1', '2025-07-19 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
-(0, 20, 1, 29, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding v5\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/1', '2025-07-19 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
-(0, 20, 1, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱153,300.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/23', '2025-07-18 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
-(0, 7, 1, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱153,300.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/23', '2025-07-19 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
-(0, 20, 1, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱153,300.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/23', '2025-07-18 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
-(0, 7, 1, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱153,300.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/23', '2025-07-19 16:37:10', NULL, 'unread', '2025-07-16 16:37:10'),
 (0, 23, 2, 34, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding new\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/2', '2025-07-19 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
 (0, 23, 2, 34, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding new\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/2', '2025-07-19 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
 (0, 23, 2, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱282,150.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/24', '2025-07-18 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
-(0, 7, 2, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱282,150.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/24', '2025-07-19 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
 (0, 23, 2, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱282,150.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/24', '2025-07-18 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
-(0, 7, 2, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱282,150.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/24', '2025-07-19 18:19:46', NULL, 'unread', '2025-07-16 18:19:46'),
-(0, 7, NULL, 29, NULL, NULL, 0, NULL, 'New booking BK-20250716-6612 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/0', '2025-07-19 18:32:45', NULL, 'unread', '2025-07-16 18:32:45'),
-(0, 7, NULL, NULL, NULL, NULL, 0, NULL, 'New booking created: BK-20250716-6612', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-16 18:32:45'),
 (0, 21, NULL, 30, NULL, NULL, 0, NULL, 'Your booking BK-20250715-3121 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/0', '2025-07-23 18:33:08', NULL, 'unread', '2025-07-16 18:33:08'),
 (0, 21, NULL, 34, NULL, NULL, 0, NULL, 'Your booking BK-20250715-7783 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/0', '2025-07-23 18:33:08', NULL, 'unread', '2025-07-16 18:33:08'),
-(0, 20, NULL, 29, NULL, NULL, 0, NULL, 'Your booking BK-20250716-6612 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/0', '2025-07-23 18:33:08', NULL, 'unread', '2025-07-16 18:33:08'),
 (0, 21, NULL, NULL, NULL, NULL, 0, NULL, 'Your booking BK-20250715-3121 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-16 18:33:08'),
-(0, 7, NULL, 30, NULL, NULL, 1, NULL, 'New booking BK-20250717-1160 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/1', '2025-07-20 02:55:08', NULL, 'unread', '2025-07-17 02:55:08'),
-(0, 7, NULL, NULL, NULL, NULL, 1, NULL, 'New booking created: BK-20250717-1160', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 02:55:08'),
-(0, 7, NULL, 30, NULL, NULL, 2, NULL, 'New booking BK-20250717-5172 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/2', '2025-07-20 02:56:45', NULL, 'unread', '2025-07-17 02:56:45'),
-(0, 7, NULL, NULL, NULL, NULL, 2, NULL, 'New booking created: BK-20250717-5172', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 02:56:45'),
 (0, 23, NULL, 30, NULL, NULL, 2, NULL, 'Your booking BK-20250717-5172 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/2', '2025-07-24 02:59:31', NULL, 'unread', '2025-07-17 02:59:31'),
 (0, 23, NULL, NULL, NULL, NULL, 2, NULL, 'Your booking BK-20250717-5172 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 02:59:31'),
 (0, 23, 3, 30, NULL, NULL, NULL, NULL, 'Your event \"Wedding Package \" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/3', '2025-07-20 03:40:05', NULL, 'unread', '2025-07-17 03:40:05'),
 (0, 23, 3, 30, NULL, NULL, NULL, NULL, 'Your event \"Wedding Package \" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/3', '2025-07-20 03:40:05', NULL, 'unread', '2025-07-17 03:40:05'),
 (0, 23, 3, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱153,850.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/25', '2025-07-19 03:40:05', NULL, 'unread', '2025-07-17 03:40:05'),
-(0, 7, 3, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱153,850.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/25', '2025-07-20 03:40:05', NULL, 'unread', '2025-07-17 03:40:05'),
 (0, 23, 3, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱153,850.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/25', '2025-07-19 03:40:05', NULL, 'unread', '2025-07-17 03:40:05'),
-(0, 7, 3, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱153,850.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/25', '2025-07-20 03:40:05', NULL, 'unread', '2025-07-17 03:40:05'),
 (0, 23, NULL, 30, NULL, NULL, 2, NULL, 'Your booking BK-20250717-5172 status has been updated to converted.', 'general', 'Booking Status Updated', 'high', 'info', '/client/bookings/2', '2025-07-24 03:40:05', NULL, 'unread', '2025-07-17 03:40:05'),
-(0, 20, NULL, 30, NULL, NULL, 1, NULL, 'Your booking BK-20250717-1160 has been cancelled.', 'booking_cancelled', 'Booking Cancelled', 'high', 'x-circle', '/client/bookings/1', '2025-07-24 03:41:09', NULL, 'unread', '2025-07-17 03:41:09'),
-(0, 20, NULL, NULL, NULL, NULL, 1, NULL, 'Your booking BK-20250717-1160 has been cancelled.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 03:41:09'),
-(0, 7, NULL, 30, NULL, NULL, 3, NULL, 'New booking BK-20250717-4233 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/3', '2025-07-20 05:38:12', NULL, 'unread', '2025-07-17 05:38:12'),
-(0, 7, NULL, NULL, NULL, NULL, 3, NULL, 'New booking created: BK-20250717-4233', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 05:38:12'),
 (0, 21, NULL, 30, NULL, NULL, 3, NULL, 'Your booking BK-20250717-4233 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/3', '2025-07-24 05:39:25', NULL, 'unread', '2025-07-17 05:39:25'),
 (0, 21, NULL, NULL, NULL, NULL, 3, NULL, 'Your booking BK-20250717-4233 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 05:39:25'),
 (0, 21, 4, 30, NULL, NULL, NULL, NULL, 'Your event \"Gamon Wedding\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/4', '2025-07-20 05:46:14', NULL, 'unread', '2025-07-17 05:46:14'),
 (0, 21, 4, 30, NULL, NULL, NULL, NULL, 'Your event \"Gamon Wedding\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/4', '2025-07-20 05:46:14', NULL, 'unread', '2025-07-17 05:46:14'),
 (0, 21, 4, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱94,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/26', '2025-07-19 05:46:14', NULL, 'unread', '2025-07-17 05:46:14'),
-(0, 7, 4, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱94,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/26', '2025-07-20 05:46:14', NULL, 'unread', '2025-07-17 05:46:14'),
 (0, 21, 4, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱94,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/26', '2025-07-19 05:46:14', NULL, 'unread', '2025-07-17 05:46:14'),
-(0, 7, 4, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱94,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/26', '2025-07-20 05:46:14', NULL, 'unread', '2025-07-17 05:46:14'),
-(0, 7, NULL, 30, NULL, NULL, 4, NULL, 'New booking BK-20250717-9308 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/4', '2025-07-20 05:59:18', NULL, 'unread', '2025-07-17 05:59:18'),
-(0, 7, NULL, NULL, NULL, NULL, 4, NULL, 'New booking created: BK-20250717-9308', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 05:59:18'),
-(0, 29, NULL, 30, NULL, NULL, 4, NULL, 'Your booking BK-20250717-9308 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/4', '2025-07-24 06:00:44', NULL, 'unread', '2025-07-17 06:00:44'),
-(0, 29, NULL, NULL, NULL, NULL, 4, NULL, 'Your booking BK-20250717-9308 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-17 06:00:44'),
-(0, 29, 5, 30, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/5', '2025-07-20 06:10:22', NULL, 'unread', '2025-07-17 06:10:22'),
-(0, 29, 5, 30, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/5', '2025-07-20 06:10:22', NULL, 'unread', '2025-07-17 06:10:22'),
-(0, 29, 5, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱45,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/27', '2025-07-19 06:10:22', NULL, 'unread', '2025-07-17 06:10:22'),
-(0, 7, 5, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱45,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/27', '2025-07-20 06:10:22', NULL, 'unread', '2025-07-17 06:10:22'),
-(0, 29, 5, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱45,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/27', '2025-07-19 06:10:22', NULL, 'unread', '2025-07-17 06:10:22'),
-(0, 7, 5, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱45,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/27', '2025-07-20 06:10:22', NULL, 'unread', '2025-07-17 06:10:22'),
-(0, 29, 6, 34, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/6', '2025-07-20 15:16:52', NULL, 'unread', '2025-07-17 15:16:52'),
-(0, 29, 6, 34, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/6', '2025-07-20 15:16:52', NULL, 'unread', '2025-07-17 15:16:52'),
-(0, 29, 6, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱123,250.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/28', '2025-07-19 15:16:52', NULL, 'unread', '2025-07-17 15:16:52'),
-(0, 7, 6, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱123,250.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/28', '2025-07-20 15:16:52', NULL, 'unread', '2025-07-17 15:16:52'),
-(0, 29, 6, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱123,250.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/28', '2025-07-19 15:16:52', NULL, 'unread', '2025-07-17 15:16:52'),
-(0, 7, 6, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱123,250.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/28', '2025-07-20 15:16:52', NULL, 'unread', '2025-07-17 15:16:52'),
+(0, 29, NULL, 30, NULL, NULL, 4, NULL, 'Your booking BK-20250717-9308 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/4', '2025-07-24 06:00:44', '2025-09-09 21:58:34', 'read', '2025-07-17 06:00:44'),
+(0, 29, NULL, NULL, NULL, NULL, 4, NULL, 'Your booking BK-20250717-9308 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, '2025-09-09 21:58:34', 'read', '2025-07-17 06:00:44'),
+(0, 29, 5, 30, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/5', '2025-07-20 06:10:22', '2025-09-09 21:58:34', 'read', '2025-07-17 06:10:22'),
+(0, 29, 5, 30, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/5', '2025-07-20 06:10:22', '2025-09-09 21:58:34', 'read', '2025-07-17 06:10:22'),
+(0, 29, 5, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱45,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/27', '2025-07-19 06:10:22', '2025-09-09 21:58:34', 'read', '2025-07-17 06:10:22'),
+(0, 29, 5, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱45,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/27', '2025-07-19 06:10:22', '2025-09-09 21:58:34', 'read', '2025-07-17 06:10:22'),
+(0, 29, 6, 34, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/6', '2025-07-20 15:16:52', '2025-09-09 21:58:34', 'read', '2025-07-17 15:16:52'),
+(0, 29, 6, 34, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/6', '2025-07-20 15:16:52', '2025-09-09 21:58:34', 'read', '2025-07-17 15:16:52'),
+(0, 29, 6, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱123,250.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/28', '2025-07-19 15:16:52', '2025-09-09 21:58:34', 'read', '2025-07-17 15:16:52'),
+(0, 29, 6, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱123,250.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/28', '2025-07-19 15:16:52', '2025-09-09 21:58:34', 'read', '2025-07-17 15:16:52'),
 (0, 23, 7, 29, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/7', '2025-07-20 15:53:10', NULL, 'unread', '2025-07-17 15:53:10'),
 (0, 23, 7, 29, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/7', '2025-07-20 15:53:10', NULL, 'unread', '2025-07-17 15:53:10'),
 (0, 23, 7, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱130,900.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/29', '2025-07-19 15:53:10', NULL, 'unread', '2025-07-17 15:53:10'),
-(0, 7, 7, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱130,900.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/29', '2025-07-20 15:53:10', NULL, 'unread', '2025-07-17 15:53:10'),
 (0, 23, 7, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱130,900.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/29', '2025-07-19 15:53:10', NULL, 'unread', '2025-07-17 15:53:10'),
-(0, 7, 7, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱130,900.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/29', '2025-07-20 15:53:10', NULL, 'unread', '2025-07-17 15:53:10'),
-(0, 20, 8, 34, NULL, NULL, NULL, NULL, 'Your event \"Custom Event 3\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/8', '2025-07-20 16:14:22', NULL, 'unread', '2025-07-17 16:14:22'),
-(0, 20, 8, 34, NULL, NULL, NULL, NULL, 'Your event \"Custom Event 3\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/8', '2025-07-20 16:14:22', NULL, 'unread', '2025-07-17 16:14:22'),
-(0, 20, 8, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱8,633,450.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/30', '2025-07-19 16:14:22', NULL, 'unread', '2025-07-17 16:14:22'),
-(0, 7, 8, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱8,633,450.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/30', '2025-07-20 16:14:22', NULL, 'unread', '2025-07-17 16:14:22'),
-(0, 20, 8, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱8,633,450.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/30', '2025-07-19 16:14:22', NULL, 'unread', '2025-07-17 16:14:22'),
-(0, 7, 8, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱8,633,450.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/30', '2025-07-20 16:14:22', NULL, 'unread', '2025-07-17 16:14:22'),
-(0, 29, 9, 29, NULL, NULL, NULL, NULL, 'Your event \"Birthday Event\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/9', '2025-07-20 16:54:53', NULL, 'unread', '2025-07-17 16:54:53'),
-(0, 29, 9, 29, NULL, NULL, NULL, NULL, 'Your event \"Birthday Event\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/9', '2025-07-20 16:54:53', NULL, 'unread', '2025-07-17 16:54:53'),
-(0, 29, 9, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱613,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/31', '2025-07-19 16:54:53', NULL, 'unread', '2025-07-17 16:54:53'),
-(0, 7, 9, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱613,600.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/31', '2025-07-20 16:54:53', NULL, 'unread', '2025-07-17 16:54:53'),
-(0, 29, 9, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱613,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/31', '2025-07-19 16:54:53', NULL, 'unread', '2025-07-17 16:54:53'),
-(0, 7, 9, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱613,600.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/31', '2025-07-20 16:54:53', NULL, 'unread', '2025-07-17 16:54:53'),
-(0, 29, 10, 34, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 8\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/10', '2025-07-21 06:56:14', NULL, 'unread', '2025-07-18 06:56:14'),
-(0, 29, 10, 34, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 8\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/10', '2025-07-21 06:56:14', NULL, 'unread', '2025-07-18 06:56:14'),
-(0, 29, 10, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱37,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/32', '2025-07-20 06:56:14', NULL, 'unread', '2025-07-18 06:56:14'),
-(0, 7, 10, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱37,600.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/32', '2025-07-21 06:56:14', NULL, 'unread', '2025-07-18 06:56:14'),
-(0, 29, 10, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱37,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/32', '2025-07-20 06:56:14', NULL, 'unread', '2025-07-18 06:56:14'),
-(0, 7, 10, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱37,600.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/32', '2025-07-21 06:56:14', NULL, 'unread', '2025-07-18 06:56:14'),
+(0, 29, 9, 29, NULL, NULL, NULL, NULL, 'Your event \"Birthday Event\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/9', '2025-07-20 16:54:53', '2025-09-09 21:58:34', 'read', '2025-07-17 16:54:53'),
+(0, 29, 9, 29, NULL, NULL, NULL, NULL, 'Your event \"Birthday Event\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/9', '2025-07-20 16:54:53', '2025-09-09 21:58:34', 'read', '2025-07-17 16:54:53'),
+(0, 29, 9, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱613,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/31', '2025-07-19 16:54:53', '2025-09-09 21:58:34', 'read', '2025-07-17 16:54:53'),
+(0, 29, 9, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱613,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/31', '2025-07-19 16:54:53', '2025-09-09 21:58:34', 'read', '2025-07-17 16:54:53'),
+(0, 29, 10, 34, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 8\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/10', '2025-07-21 06:56:14', '2025-09-09 21:58:34', 'read', '2025-07-18 06:56:14'),
+(0, 29, 10, 34, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 8\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/10', '2025-07-21 06:56:14', '2025-09-09 21:58:34', 'read', '2025-07-18 06:56:14'),
+(0, 29, 10, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱37,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/32', '2025-07-20 06:56:14', '2025-09-09 21:58:34', 'read', '2025-07-18 06:56:14'),
+(0, 29, 10, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱37,600.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/32', '2025-07-20 06:56:14', '2025-09-09 21:58:34', 'read', '2025-07-18 06:56:14'),
 (0, 21, 11, 29, NULL, NULL, NULL, NULL, 'Your event \"CUSTOMIZED PACKAGE 9\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/11', '2025-07-21 07:44:00', NULL, 'unread', '2025-07-18 07:44:00'),
 (0, 21, 11, 29, NULL, NULL, NULL, NULL, 'Your event \"CUSTOMIZED PACKAGE 9\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/11', '2025-07-21 07:44:00', NULL, 'unread', '2025-07-18 07:44:00'),
 (0, 21, 11, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱91,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/33', '2025-07-20 07:44:00', NULL, 'unread', '2025-07-18 07:44:00'),
-(0, 7, 11, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱91,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/33', '2025-07-21 07:44:00', NULL, 'unread', '2025-07-18 07:44:00'),
 (0, 21, 11, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱91,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/33', '2025-07-20 07:44:00', NULL, 'unread', '2025-07-18 07:44:00'),
-(0, 7, 11, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱91,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/33', '2025-07-21 07:44:00', NULL, 'unread', '2025-07-18 07:44:00'),
 (0, 21, 11, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱91,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/34', '2025-07-20 08:24:20', NULL, 'unread', '2025-07-18 08:24:20'),
-(0, 7, 11, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱91,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/34', '2025-07-21 08:24:20', NULL, 'unread', '2025-07-18 08:24:20'),
 (0, 21, 11, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱91,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/34', '2025-07-20 08:24:20', NULL, 'unread', '2025-07-18 08:24:20'),
-(0, 7, 11, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱91,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/34', '2025-07-21 08:24:20', NULL, 'unread', '2025-07-18 08:24:20'),
-(0, 7, NULL, 30, NULL, NULL, 5, NULL, 'New booking BK-20250719-8510 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/5', '2025-07-22 03:06:00', NULL, 'unread', '2025-07-19 03:06:00'),
-(0, 7, NULL, NULL, NULL, NULL, 5, NULL, 'New booking created: BK-20250719-8510', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-19 03:06:00'),
 (0, 30, NULL, 30, NULL, NULL, 5, NULL, 'Your booking BK-20250719-8510 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/5', '2025-07-26 03:08:55', NULL, 'unread', '2025-07-19 03:08:55'),
 (0, 30, NULL, NULL, NULL, NULL, 5, NULL, 'Your booking BK-20250719-8510 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-19 03:08:55'),
 (0, 30, 12, 30, NULL, NULL, NULL, NULL, 'Your event \"Clyde Wedding Day!\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/12', '2025-07-22 03:10:50', NULL, 'unread', '2025-07-19 03:10:50'),
 (0, 30, 12, 30, NULL, NULL, NULL, NULL, 'Your event \"Clyde Wedding Day!\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/12', '2025-07-22 03:10:50', NULL, 'unread', '2025-07-19 03:10:50'),
 (0, 30, 12, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱176,800.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/35', '2025-07-21 03:10:50', NULL, 'unread', '2025-07-19 03:10:50'),
-(0, 7, 12, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱176,800.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/35', '2025-07-22 03:10:50', NULL, 'unread', '2025-07-19 03:10:50'),
 (0, 30, 12, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱176,800.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/35', '2025-07-21 03:10:50', NULL, 'unread', '2025-07-19 03:10:50'),
-(0, 7, 12, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱176,800.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/35', '2025-07-22 03:10:50', NULL, 'unread', '2025-07-19 03:10:50'),
-(0, 20, 13, 0, NULL, NULL, NULL, NULL, 'Your event \"Jesse Golden Wedding\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/13', '2025-07-22 04:50:36', NULL, 'unread', '2025-07-19 04:50:36'),
-(0, 20, 13, 0, NULL, NULL, NULL, NULL, 'Your event \"Jesse Golden Wedding\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/13', '2025-07-22 04:50:36', NULL, 'unread', '2025-07-19 04:50:36'),
-(0, 20, 13, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱385,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/36', '2025-07-21 04:50:36', NULL, 'unread', '2025-07-19 04:50:36'),
-(0, 7, 13, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱385,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/36', '2025-07-22 04:50:36', NULL, 'unread', '2025-07-19 04:50:36'),
-(0, 20, 13, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱385,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/36', '2025-07-21 04:50:36', NULL, 'unread', '2025-07-19 04:50:36'),
-(0, 7, 13, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱385,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/36', '2025-07-22 04:50:36', NULL, 'unread', '2025-07-19 04:50:36'),
-(0, 29, 31, 34, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/31', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-21 18:38:01'),
-(0, 29, 31, 34, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/31', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-21 18:38:01'),
-(0, 29, 31, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,084.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/37', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-21 18:38:01'),
-(0, 7, 31, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱84,084.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/37', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-21 18:38:01'),
-(0, 29, 31, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,084.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/37', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-21 18:38:01'),
-(0, 7, 31, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱84,084.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/37', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-21 18:38:01'),
-(0, 29, 32, 29, NULL, NULL, NULL, NULL, 'Your event \"Kimi K2 - Test 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/32', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:05:43'),
-(0, 29, 32, 29, NULL, NULL, NULL, NULL, 'Your event \"Kimi K2 - Test 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/32', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:05:43'),
-(0, 29, 32, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱120,750.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/38', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:05:43'),
-(0, 7, 32, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱120,750.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/38', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:05:43'),
-(0, 29, 32, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱120,750.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/38', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:05:43'),
-(0, 7, 32, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱120,750.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/38', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:05:43'),
+(0, 29, 31, 34, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/31', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-07-21 18:38:01'),
+(0, 29, 31, 34, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/31', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-07-21 18:38:01'),
+(0, 29, 31, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,084.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/37', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-07-21 18:38:01'),
+(0, 29, 31, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,084.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/37', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-07-21 18:38:01'),
+(0, 29, 32, 29, NULL, NULL, NULL, NULL, 'Your event \"Kimi K2 - Test 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/32', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-07-22 01:05:43'),
+(0, 29, 32, 29, NULL, NULL, NULL, NULL, 'Your event \"Kimi K2 - Test 2\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/32', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-07-22 01:05:43'),
+(0, 29, 32, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱120,750.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/38', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-07-22 01:05:43'),
+(0, 29, 32, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱120,750.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/38', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-07-22 01:05:43'),
 (0, 23, 33, 34, NULL, NULL, NULL, NULL, 'Your event \"Christine\'s Birthday\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/33', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:10:54'),
 (0, 23, 33, 34, NULL, NULL, NULL, NULL, 'Your event \"Christine\'s Birthday\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/33', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:10:54'),
 (0, 23, 33, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱96,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/39', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:10:54'),
-(0, 7, 33, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱96,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/39', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:10:54'),
 (0, 23, 33, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱96,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/39', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:10:54'),
-(0, 7, 33, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱96,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/39', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:10:54'),
-(0, 20, 34, 34, NULL, NULL, NULL, NULL, 'Your event \"Test Paymnet Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/34', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:42:11'),
-(0, 20, 34, 34, NULL, NULL, NULL, NULL, 'Your event \"Test Paymnet Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/34', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 01:42:11');
-INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venue_id`, `store_id`, `budget_id`, `booking_id`, `feedback_id`, `notification_message`, `notification_type`, `notification_title`, `notification_priority`, `notification_icon`, `notification_url`, `expires_at`, `read_at`, `notification_status`, `created_at`) VALUES
 (0, 15, 33, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱149,000.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/6', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:14:16'),
 (0, 15, 45, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱212,500.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/13', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:14:16'),
-(0, 20, 58, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱400,000.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/22', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:14:16'),
-(0, 20, 35, 29, NULL, NULL, NULL, NULL, 'Your event \"Payment Issue Fix\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/35', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
-(0, 20, 35, 29, NULL, NULL, NULL, NULL, 'Your event \"Payment Issue Fix\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/35', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
-(0, 20, 35, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱309,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/40', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
-(0, 7, 35, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱309,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/40', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
-(0, 20, 35, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱309,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/40', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
-(0, 7, 35, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱309,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/40', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:19:13'),
-(0, 20, 35, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱103,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/41', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:20:25'),
-(0, 7, 35, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱103,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/41', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:20:25'),
-(0, 20, 35, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱103,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/41', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:20:25'),
-(0, 7, 35, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱103,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/41', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 02:20:25'),
-(0, 7, NULL, 30, NULL, NULL, 6, NULL, 'New booking BK-20250722-3053 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/6', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:32:27'),
-(0, 7, NULL, NULL, NULL, NULL, 6, NULL, 'New booking created: BK-20250722-3053', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-22 06:32:27'),
 (0, 21, NULL, 30, NULL, NULL, 6, NULL, 'Your booking BK-20250722-3053 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/6', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:33:13'),
 (0, 21, NULL, NULL, NULL, NULL, 6, NULL, 'Your booking BK-20250722-3053 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-22 06:33:13'),
 (0, 21, 36, 30, NULL, NULL, NULL, NULL, 'Your event \"Debut\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/36', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
 (0, 21, 36, 30, NULL, NULL, NULL, NULL, 'Your event \"Debut\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/36', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
 (0, 21, 36, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱41,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/42', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
-(0, 7, 36, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱41,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/42', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
 (0, 21, 36, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱41,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/42', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
-(0, 7, 36, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱41,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/42', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-22 06:36:36'),
-(0, 7, NULL, 30, NULL, NULL, 7, NULL, 'New booking BK-20250723-9399 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/7', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:12:59'),
-(0, 7, NULL, NULL, NULL, NULL, 7, NULL, 'New booking created: BK-20250723-9399', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-23 07:12:59'),
 (0, 21, NULL, 30, NULL, NULL, 7, NULL, 'Your booking BK-20250723-9399 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/7', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:14:17'),
 (0, 21, NULL, NULL, NULL, NULL, 7, NULL, 'Your booking BK-20250723-9399 has been accepted! You can now proceed with event planning.', 'general', '', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-07-23 07:14:17'),
 (0, 21, 37, 30, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/37', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
 (0, 21, 37, 30, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/37', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
 (0, 21, 37, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/43', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
-(0, 7, 37, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱84,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/43', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
 (0, 21, 37, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱84,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/43', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
-(0, 7, 37, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱84,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/43', '0000-00-00 00:00:00', NULL, 'unread', '2025-07-23 07:25:44'),
 (0, 21, 48, 34, NULL, NULL, NULL, NULL, 'Your event \"Test 50\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/48', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
 (0, 21, 48, 34, NULL, NULL, NULL, NULL, 'Your event \"Test 50\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/48', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
 (0, 21, 48, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱40,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/44', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
-(0, 7, 48, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱40,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/44', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
 (0, 21, 48, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱40,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/44', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
-(0, 7, 48, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱40,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/44', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 07:53:36'),
 (0, 21, 11, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱91,000.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/33', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 08:06:30'),
-(0, 20, 48, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱37,500.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/20', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 08:15:36'),
-(0, 20, 48, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱212,500.00 for \"your event\" has been cancelled.', 'payment_rejected', 'Payment Cancelled', 'high', 'x-circle', '/client/payments/19', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 08:15:36'),
-(0, 29, 49, 30, NULL, NULL, NULL, NULL, 'Your event \"Event 80 - Fixed Ghost Payments\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/49', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 08:18:33'),
-(0, 29, 49, 30, NULL, NULL, NULL, NULL, 'Your event \"Event 80 - Fixed Ghost Payments\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/49', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 08:18:33'),
-(0, 29, 49, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱202,150.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/45', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 08:18:33'),
-(0, 7, 49, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱202,150.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/45', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-03 08:18:33'),
+(0, 29, 49, 30, NULL, NULL, NULL, NULL, 'Your event \"Event 80 - Fixed Ghost Payments\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/49', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-03 08:18:33'),
+(0, 29, 49, 30, NULL, NULL, NULL, NULL, 'Your event \"Event 80 - Fixed Ghost Payments\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/49', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-03 08:18:33'),
+(0, 29, 49, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱202,150.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/45', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-03 08:18:33'),
 (0, 21, 50, 34, NULL, NULL, NULL, NULL, 'Your event \"Wedding Ko Ya\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/50', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-08 17:16:58'),
 (0, 21, 50, 34, NULL, NULL, NULL, NULL, 'Your event \"Wedding Ko Ya\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/50', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-08 17:16:58'),
 (0, 21, 50, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱69,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/46', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-08 17:16:58'),
-(0, 7, 50, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱69,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/46', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-08 17:16:58'),
 (0, 21, 36, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱41,500.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/47', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 02:43:41'),
-(0, 7, 36, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱41,500.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/47', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 02:43:41'),
-(0, 20, 1, 29, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding v5\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/1', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
 (0, 23, 2, 34, NULL, NULL, NULL, NULL, 'Your event \"AAA Type of wedding new\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/2', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
 (0, 23, 3, 30, NULL, NULL, NULL, NULL, 'Your event \"Wedding Package \" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/3', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
 (0, 21, 4, 30, NULL, NULL, NULL, NULL, 'Your event \"Gamon Wedding\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/4', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 29, 5, 30, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/5', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 29, 6, 34, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/6', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
+(0, 29, 5, 30, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/5', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 03:15:53'),
+(0, 29, 6, 34, NULL, NULL, NULL, NULL, 'Your event \"Weeding Package 2\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/6', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 03:15:53'),
 (0, 23, 7, 29, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 2\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/7', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 20, 8, 34, NULL, NULL, NULL, NULL, 'Your event \"Custom Event 3\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/8', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 29, 9, 29, NULL, NULL, NULL, NULL, 'Your event \"Birthday Event\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/9', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 29, 10, 34, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 8\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/10', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
+(0, 29, 9, 29, NULL, NULL, NULL, NULL, 'Your event \"Birthday Event\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/9', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 03:15:53'),
+(0, 29, 10, 34, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 8\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/10', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 03:15:53'),
 (0, 21, 11, 29, NULL, NULL, NULL, NULL, 'Your event \"CUSTOMIZED PACKAGE 9\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/11', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
 (0, 30, 12, 30, NULL, NULL, NULL, NULL, 'Your event \"Clyde Wedding Day!\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/12', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 20, 13, 0, NULL, NULL, NULL, NULL, 'Your event \"Jesse Golden Wedding\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/13', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 29, 31, 34, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/31', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 29, 32, 29, NULL, NULL, NULL, NULL, 'Your event \"Kimi K2 - Test 2\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/32', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
+(0, 29, 31, 34, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/31', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 03:15:53'),
+(0, 29, 32, 29, NULL, NULL, NULL, NULL, 'Your event \"Kimi K2 - Test 2\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/32', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 03:15:53'),
 (0, 23, 33, 34, NULL, NULL, NULL, NULL, 'Your event \"Christine\'s Birthday\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/33', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 20, 34, 34, NULL, NULL, NULL, NULL, 'Your event \"Test Paymnet Test\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/34', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 20, 35, 29, NULL, NULL, NULL, NULL, 'Your event \"Payment Issue Fix\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/35', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
 (0, 21, 36, 30, NULL, NULL, NULL, NULL, 'Your event \"Debut\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/36', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
 (0, 21, 37, 30, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/37', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
 (0, 21, 48, 34, NULL, NULL, NULL, NULL, 'Your event \"Test 50\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/48', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 29, 49, 30, NULL, NULL, NULL, NULL, 'Your event \"Event 80 - Fixed Ghost Payments\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/49', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
+(0, 29, 49, 30, NULL, NULL, NULL, NULL, 'Your event \"Event 80 - Fixed Ghost Payments\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/49', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 03:15:53'),
 (0, 21, 50, 34, NULL, NULL, NULL, NULL, 'Your event \"Wedding Ko Ya\" has been completed successfully! We hope you had a wonderful time.', 'event_completed', 'Event Completed', 'high', 'check-circle-2', '/client/events/50', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 03:15:53'),
-(0, 29, 10, 34, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 8\" has been confirmed and is now scheduled for August 12, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/10', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
+(0, 29, 10, 34, NULL, NULL, NULL, NULL, 'Your event \"Customized Event 8\" has been confirmed and is now scheduled for August 12, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/10', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 11:18:14'),
 (0, 21, 11, 29, NULL, NULL, NULL, NULL, 'Your event \"CUSTOMIZED PACKAGE 9\" has been confirmed and is now scheduled for August 28, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/11', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
 (0, 30, 12, 30, NULL, NULL, NULL, NULL, 'Your event \"Clyde Wedding Day!\" has been confirmed and is now scheduled for August 15, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/12', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
-(0, 20, 13, 0, NULL, NULL, NULL, NULL, 'Your event \"Jesse Golden Wedding\" has been confirmed and is now scheduled for August 31, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/13', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
-(0, 29, 31, 34, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been confirmed and is now scheduled for September 10, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/31', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
-(0, 29, 32, 29, NULL, NULL, NULL, NULL, 'Your event \"Kimi K2 - Test 2\" has been confirmed and is now scheduled for September 18, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/32', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
+(0, 29, 31, 34, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been confirmed and is now scheduled for September 10, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/31', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 11:18:14'),
+(0, 29, 32, 29, NULL, NULL, NULL, NULL, 'Your event \"Kimi K2 - Test 2\" has been confirmed and is now scheduled for September 18, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/32', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 11:18:14'),
 (0, 23, 33, 34, NULL, NULL, NULL, NULL, 'Your event \"Christine\'s Birthday\" has been confirmed and is now scheduled for September 19, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/33', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
-(0, 20, 34, 34, NULL, NULL, NULL, NULL, 'Your event \"Test Paymnet Test\" has been confirmed and is now scheduled for September 20, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/34', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
-(0, 20, 35, 29, NULL, NULL, NULL, NULL, 'Your event \"Payment Issue Fix\" has been confirmed and is now scheduled for September 21, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/35', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
 (0, 21, 48, 34, NULL, NULL, NULL, NULL, 'Your event \"Test 50\" has been confirmed and is now scheduled for September 30, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/48', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
-(0, 29, 49, 30, NULL, NULL, NULL, NULL, 'Your event \"Event 80 - Fixed Ghost Payments\" has been confirmed and is now scheduled for October 01, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/49', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
+(0, 29, 49, 30, NULL, NULL, NULL, NULL, 'Your event \"Event 80 - Fixed Ghost Payments\" has been confirmed and is now scheduled for October 01, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/49', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-09 11:18:14'),
 (0, 21, 50, 34, NULL, NULL, NULL, NULL, 'Your event \"Wedding Ko Ya\" has been confirmed and is now scheduled for October 18, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/50', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 11:18:14'),
-(0, 7, NULL, 30, NULL, NULL, 8, NULL, 'New booking BK-20250809-7721 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/8', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 12:07:03'),
-(0, 20, NULL, 30, NULL, NULL, 8, NULL, 'Your booking BK-20250809-7721 has been submitted and is pending confirmation.', 'booking_created', 'Booking Submitted', 'medium', 'calendar-plus', '/client/bookings', '2025-08-12 06:07:03', NULL, 'unread', '2025-08-09 12:07:03'),
-(0, 7, NULL, 30, NULL, NULL, 8, NULL, 'New booking BK-20250809-7721 created by user #20.', 'booking_created', 'New Booking Created', 'medium', 'calendar-plus', '/admin/bookings', '2025-08-12 06:07:03', NULL, 'unread', '2025-08-09 12:07:03'),
-(0, 20, NULL, 30, NULL, NULL, 8, NULL, 'Your booking BK-20250809-7721 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/8', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 12:15:23'),
-(0, 20, NULL, NULL, NULL, NULL, 8, NULL, 'Your booking BK-20250809-7721 has been accepted! You can now proceed with event planning.', 'booking_confirmed', 'Booking Accepted', 'high', 'check-circle', '/client/bookings', '2025-08-12 06:15:23', NULL, 'unread', '2025-08-09 12:15:23'),
-(0, 7, NULL, 30, NULL, NULL, 9, NULL, 'New booking BK-20250809-4973 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/9', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 12:20:38'),
-(0, 20, NULL, 30, NULL, NULL, 9, NULL, 'Your booking BK-20250809-4973 has been submitted and is pending confirmation.', 'booking_created', 'Booking Submitted', 'medium', 'calendar-plus', '/client/bookings', '2025-08-12 06:20:38', NULL, 'unread', '2025-08-09 12:20:38'),
-(0, 7, NULL, 30, NULL, NULL, 9, NULL, 'New booking BK-20250809-4973 created by user #20.', 'booking_created', 'New Booking Created', 'medium', 'calendar-plus', '/admin/bookings', '2025-08-12 06:20:38', NULL, 'unread', '2025-08-09 12:20:38'),
-(0, 20, NULL, 30, NULL, NULL, 9, NULL, 'Your booking BK-20250809-4973 has been confirmed! You can now proceed with event planning.', 'booking_confirmed', 'Booking Confirmed', 'high', 'check-circle', '/client/bookings/9', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-09 12:20:47'),
-(0, 20, NULL, NULL, NULL, NULL, 9, NULL, 'Your booking BK-20250809-4973 has been accepted! You can now proceed with event planning.', 'booking_confirmed', 'Booking Accepted', 'high', 'check-circle', '/client/bookings', '2025-08-12 06:20:47', NULL, 'unread', '2025-08-09 12:20:47'),
-(0, 7, NULL, 29, NULL, NULL, 10, NULL, 'New booking BK-20250812-9325 has been created and requires your review.', 'booking_created', 'New Booking Created', 'high', 'calendar-plus', '/admin/bookings/10', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-12 17:41:27'),
-(0, 20, NULL, 29, NULL, NULL, 10, NULL, 'Your booking BK-20250812-9325 has been submitted and is pending confirmation.', 'booking_created', 'Booking Submitted', 'medium', 'calendar-plus', '/client/bookings', '2025-08-15 11:41:27', NULL, 'unread', '2025-08-12 17:41:27'),
-(0, 7, NULL, 29, NULL, NULL, 10, NULL, 'New booking BK-20250812-9325 created by Jesse Morcillos.', 'booking_created', 'New Booking Created', 'medium', 'calendar-plus', '/admin/bookings', '2025-08-15 11:41:27', NULL, 'unread', '2025-08-12 17:41:27');
+(0, 30, 12, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱44,200.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/48', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-13 05:22:10'),
+(0, 29, 59, 30, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/59', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-18 16:09:28'),
+(0, 29, 59, 30, NULL, NULL, NULL, NULL, 'Your event \"Test\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/59', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-18 16:09:28'),
+(0, 29, 59, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱79,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/49', '0000-00-00 00:00:00', '2025-09-09 21:58:34', 'read', '2025-08-18 16:09:28'),
+(0, 27, 1, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #1. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/1', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 28, 3, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #3. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/3', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 27, 4, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #4. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/4', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 27, 5, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #5. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/5', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 28, 8, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #8. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/8', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 27, 9, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #9. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/9', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 28, 10, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #10. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/10', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 27, 12, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #12. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/12', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 27, 13, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #13. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/13', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 27, 31, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #31. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/31', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 27, 32, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #32. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/32', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 28, 33, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #33. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/33', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 28, 34, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #34. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/34', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 28, 35, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #35. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/35', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 28, 36, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #36. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/36', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 32, 48, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #48. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/48', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 31, 49, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #49. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/49', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 31, 50, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #50. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/50', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:20:37'),
+(0, 21, 61, 34, NULL, NULL, NULL, NULL, 'Your event \"Organizer \" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/61', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:22:23'),
+(0, 21, 61, 34, NULL, NULL, NULL, NULL, 'Your event \"Organizer \" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/61', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:22:23'),
+(0, 21, 61, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱26,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/51', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:22:23'),
+(0, 33, 61, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #61. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/61', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-19 16:22:23'),
+(0, 5, 62, 34, NULL, NULL, NULL, NULL, 'Your event \"Organizer Birthday\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/62', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-20 04:35:17'),
+(0, 5, 62, 34, NULL, NULL, NULL, NULL, 'Your event \"Organizer Birthday\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/62', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-20 04:35:17'),
+(0, 33, 62, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #62. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/62', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-20 04:35:17'),
+(0, 5, 62, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱65,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/52', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-20 04:35:17'),
+(0, 21, 63, 30, NULL, NULL, NULL, NULL, 'Your event \"Sample\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/63', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-30 04:34:47'),
+(0, 21, 63, 30, NULL, NULL, NULL, NULL, 'Your event \"Sample\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/63', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-30 04:34:47'),
+(0, 32, 63, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #63. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/63', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-30 04:34:47'),
+(0, 21, 63, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱159,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/53', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-30 04:34:47'),
+(0, 32, 64, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #64. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/64', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-30 07:44:02');
+INSERT INTO `tbl_notifications` (`notification_id`, `user_id`, `event_id`, `venue_id`, `store_id`, `budget_id`, `booking_id`, `feedback_id`, `notification_message`, `notification_type`, `notification_title`, `notification_priority`, `notification_icon`, `notification_url`, `expires_at`, `read_at`, `notification_status`, `created_at`) VALUES
+(0, 30, 65, 30, NULL, NULL, NULL, NULL, 'Your event \"Montreal Wedding\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/65', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-30 08:25:58'),
+(0, 30, 65, 30, NULL, NULL, NULL, NULL, 'Your event \"Montreal Wedding\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/65', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-30 08:25:58'),
+(0, 30, 65, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱81,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/55', '0000-00-00 00:00:00', NULL, 'unread', '2025-08-30 08:25:58'),
+(0, 28, 60, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #60. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/60', '0000-00-00 00:00:00', NULL, 'unread', '2025-09-08 16:57:26'),
+(0, 21, 61, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱26,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/56', '0000-00-00 00:00:00', NULL, 'unread', '2025-09-08 17:43:07'),
+(0, 7, 61, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱26,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/56', '0000-00-00 00:00:00', '2025-09-10 23:09:06', 'read', '2025-09-08 17:43:07'),
+(0, 21, 61, 34, NULL, NULL, NULL, NULL, 'Your event \"Organizer \" has been confirmed and is now scheduled for October 30, 2025.', 'event_confirmed', 'Event Confirmed', 'high', 'check-circle', '/client/events/61', '0000-00-00 00:00:00', NULL, 'unread', '2025-09-08 18:35:09'),
+(0, 21, 61, NULL, NULL, NULL, NULL, NULL, 'Your event \'Organizer \' has been finalized. Please check your payment schedule for upcoming payments.', '', 'Event Finalized', 'medium', NULL, NULL, NULL, NULL, 'unread', '2025-09-08 18:35:09'),
+(0, 28, 61, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #61. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/61', '0000-00-00 00:00:00', NULL, 'unread', '2025-09-08 20:01:32'),
+(0, 32, 61, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #61. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/61', '0000-00-00 00:00:00', NULL, 'unread', '2025-09-08 20:16:36'),
+(0, 20, 60, NULL, NULL, NULL, NULL, NULL, 'The inclusion Hair and Makeup payment status is now paid.', '', 'Inclusion Payment Status Updated', 'medium', 'credit-card', '/client/events/60', '2025-09-16 00:30:23', '2025-09-09 06:30:38', 'read', '2025-09-09 06:30:23'),
+(0, 20, 60, NULL, NULL, NULL, NULL, NULL, 'The inclusion Wedding Cake payment status is now paid.', '', 'Inclusion Payment Status Updated', 'medium', 'credit-card', '/client/events/60', '2025-09-16 00:30:30', '2025-09-09 06:30:38', 'read', '2025-09-09 06:30:30'),
+(0, 20, 60, NULL, NULL, NULL, NULL, NULL, 'The inclusion Transport & Floral Decor  payment status is now paid.', '', 'Inclusion Payment Status Updated', 'medium', 'credit-card', '/client/events/60', '2025-09-16 00:30:33', '2025-09-09 06:30:38', 'read', '2025-09-09 06:30:33'),
+(0, 23, 66, 34, NULL, NULL, NULL, NULL, 'Your event \"b_day_sample\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/66', '0000-00-00 00:00:00', NULL, 'unread', '2025-09-09 23:01:51'),
+(0, 23, 66, 34, NULL, NULL, NULL, NULL, 'Your event \"b_day_sample\" has been created successfully! Check your payment schedule for upcoming payments.', 'event_created', 'Event Created Successfully', 'high', 'calendar-check', '/client/events/66', '0000-00-00 00:00:00', NULL, 'unread', '2025-09-09 23:01:51'),
+(0, 28, 66, NULL, NULL, NULL, NULL, NULL, 'You have been assigned to event #66. Please review the event details.', '', 'New Event Assignment', 'high', 'calendar-check', '/organizer/events/66', '0000-00-00 00:00:00', NULL, 'unread', '2025-09-09 23:01:51'),
+(0, 23, 66, NULL, NULL, NULL, NULL, NULL, 'Your payment of ₱112,000.00 for \"your event\" has been submitted and is pending admin confirmation.', 'payment_created', 'Payment Submitted', 'medium', 'credit-card', '/client/payments/57', '0000-00-00 00:00:00', NULL, 'unread', '2025-09-09 23:01:51'),
+(0, 7, 66, NULL, NULL, NULL, NULL, NULL, 'New payment of ₱112,000.00 received for \"event\" requiring confirmation.', 'payment_created', 'New Payment Received', 'high', 'dollar-sign', '/admin/payments/57', '0000-00-00 00:00:00', '2025-09-10 23:09:06', 'read', '2025-09-09 23:01:51'),
+(0, 7, 66, NULL, NULL, NULL, NULL, NULL, 'Rendon Labrabis has accepted the assignment for event \"b_day_sample\".', '', 'Organizer responded to assignment', 'high', 'user-check', '/admin/events/66', NULL, '2025-09-10 23:09:06', 'read', '2025-09-10 23:08:07');
 
 -- --------------------------------------------------------
 
@@ -1919,6 +2268,10 @@ CREATE TABLE `tbl_organizer` (
   `organizer_certifications` text DEFAULT NULL COMMENT 'Certifications and qualifications',
   `organizer_resume_path` varchar(500) DEFAULT NULL COMMENT 'Path to uploaded resume file',
   `organizer_portfolio_link` varchar(255) DEFAULT NULL COMMENT 'Optional portfolio website URL',
+  `talent_fee_min` decimal(12,2) DEFAULT NULL,
+  `talent_fee_max` decimal(12,2) DEFAULT NULL,
+  `talent_fee_currency` varchar(10) NOT NULL DEFAULT 'PHP',
+  `talent_fee_notes` text DEFAULT NULL,
   `organizer_availability` enum('flexible','weekdays','weekends','limited') DEFAULT 'flexible' COMMENT 'Availability schedule',
   `remarks` text DEFAULT NULL COMMENT 'Admin notes and remarks',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -1929,11 +2282,12 @@ CREATE TABLE `tbl_organizer` (
 -- Dumping data for table `tbl_organizer`
 --
 
-INSERT INTO `tbl_organizer` (`organizer_id`, `user_id`, `organizer_experience`, `organizer_certifications`, `organizer_resume_path`, `organizer_portfolio_link`, `organizer_availability`, `remarks`, `created_at`, `updated_at`) VALUES
-(3, 27, 'Years of Experience: 3\nAddress: CDO', '[\"uploads\\/certifications\\/1752506681_687521399564d.pdf\"]', 'uploads/resumes/1752506681_6875213991ce7.docx', '', 'flexible', '', '2025-07-14 15:24:41', '2025-07-14 15:24:41'),
-(4, 28, 'Years of Experience: 3\nAddress: ligan City', '[\"uploads\\/certifications\\/1752690715_6877f01bc3dc2.pdf\"]', 'uploads/resumes/1752690714_6877f01a83e0e.pdf', '', 'flexible', '', '2025-07-16 18:31:57', '2025-07-16 18:31:57'),
-(5, 31, 'Years of Experience: 0\nAddress: Iligan City', '[\"uploads\\/certifications\\/1753152283_687efb1b7aa37.jpg\"]', 'uploads/resumes/1753152286_687efb1e0930e.docx', '', 'flexible', '', '2025-07-22 02:44:52', '2025-07-22 02:44:52'),
-(6, 32, 'Years of Experience: 4\nAddress: Cagayan de Oro City', '[\"uploads\\/certifications\\/1753613279_688603df53254.pdf\"]', 'uploads/resumes/1753613281_688603e19c872.pdf', '', 'flexible', 'Great experience', '2025-07-27 10:48:21', '2025-07-27 10:48:21');
+INSERT INTO `tbl_organizer` (`organizer_id`, `user_id`, `organizer_experience`, `organizer_certifications`, `organizer_resume_path`, `organizer_portfolio_link`, `talent_fee_min`, `talent_fee_max`, `talent_fee_currency`, `talent_fee_notes`, `organizer_availability`, `remarks`, `created_at`, `updated_at`) VALUES
+(3, 27, 'Years of Experience: 3\nAddress: CDO', '[\"uploads\\/certifications\\/1752506681_687521399564d.pdf\"]', 'uploads/resumes/1752506681_6875213991ce7.docx', '', 4000.00, 5000.00, 'PHP', '', 'flexible', '', '2025-07-14 15:24:41', '2025-09-03 04:40:37'),
+(4, 28, 'Years of Experience: 3\nAddress: ligan City', '[\"uploads\\/certifications\\/1752690715_6877f01bc3dc2.pdf\"]', 'uploads/resumes/1752690714_6877f01a83e0e.pdf', '', 20000.00, 30000.00, 'PHP', '', 'flexible', '', '2025-07-16 18:31:57', '2025-09-03 04:21:16'),
+(5, 31, 'Years of Experience: 0\nAddress: Iligan City', '[\"uploads\\/certifications\\/1753152283_687efb1b7aa37.jpg\"]', 'uploads/resumes/1753152286_687efb1e0930e.docx', '', 5000.00, 10000.00, 'PHP', '', 'flexible', '', '2025-07-22 02:44:52', '2025-09-03 04:13:24'),
+(6, 32, 'Years of Experience: 4\nAddress: Cagayan de Oro City', '[\"uploads\\/certifications\\/1753613279_688603df53254.pdf\"]', 'uploads/resumes/1753613281_688603e19c872.pdf', '', 50000.00, 100000.00, 'PHP', '', 'flexible', 'Great experience', '2025-07-27 10:48:21', '2025-09-03 04:06:24'),
+(7, 33, 'Years of Experience: 5\nAddress: Iligan City', '[\"uploads\\/certifications\\/1755102156_689cbbccda46c.png\"]', 'uploads/resumes/1755102155_689cbbcb0b1e2.docx', '', 10000.00, 20000.00, 'PHP', '', 'flexible', 'Yeah', '2025-08-13 16:22:45', '2025-09-03 04:06:04');
 
 -- --------------------------------------------------------
 
@@ -1959,7 +2313,94 @@ INSERT INTO `tbl_organizer_activity_logs` (`log_id`, `organizer_id`, `activity_t
 (3, 3, 'created', 'Organizer account created', 27, 'null', '2025-07-14 15:24:43'),
 (4, 4, 'created', 'Organizer account created', 28, 'null', '2025-07-16 18:32:00'),
 (5, 5, 'created', 'Organizer account created', 31, 'null', '2025-07-22 02:44:55'),
-(6, 6, 'created', 'Organizer account created', 32, 'null', '2025-07-27 10:48:23');
+(6, 6, 'created', 'Organizer account created', 32, 'null', '2025-07-27 10:48:23'),
+(7, 7, 'created', 'Organizer account created', 33, 'null', '2025-08-13 16:22:48'),
+(8, 7, 'updated', 'Organizer profile updated', 33, 'null', '2025-08-13 16:22:57'),
+(9, 3, 'event_assigned', 'Assigned to event #1', 1, '{\"assignment_id\": 1, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(10, 4, 'event_assigned', 'Assigned to event #3', 3, '{\"assignment_id\": 2, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(11, 3, 'event_assigned', 'Assigned to event #4', 4, '{\"assignment_id\": 3, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(12, 3, 'event_assigned', 'Assigned to event #5', 5, '{\"assignment_id\": 4, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(13, 4, 'event_assigned', 'Assigned to event #8', 8, '{\"assignment_id\": 5, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(14, 3, 'event_assigned', 'Assigned to event #9', 9, '{\"assignment_id\": 6, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(15, 4, 'event_assigned', 'Assigned to event #10', 10, '{\"assignment_id\": 7, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(16, 3, 'event_assigned', 'Assigned to event #12', 12, '{\"assignment_id\": 8, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(17, 3, 'event_assigned', 'Assigned to event #13', 13, '{\"assignment_id\": 9, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(18, 3, 'event_assigned', 'Assigned to event #31', 31, '{\"assignment_id\": 10, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(19, 3, 'event_assigned', 'Assigned to event #32', 32, '{\"assignment_id\": 11, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(20, 4, 'event_assigned', 'Assigned to event #33', 33, '{\"assignment_id\": 12, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(21, 4, 'event_assigned', 'Assigned to event #34', 34, '{\"assignment_id\": 13, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(22, 4, 'event_assigned', 'Assigned to event #35', 35, '{\"assignment_id\": 14, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(23, 4, 'event_assigned', 'Assigned to event #36', 36, '{\"assignment_id\": 15, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(24, 6, 'event_assigned', 'Assigned to event #48', 48, '{\"assignment_id\": 16, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(25, 5, 'event_assigned', 'Assigned to event #49', 49, '{\"assignment_id\": 17, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(26, 5, 'event_assigned', 'Assigned to event #50', 50, '{\"assignment_id\": 18, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": null}', '2025-08-19 16:20:37'),
+(27, 7, 'event_assigned', 'Assigned to event #61', 61, '{\"assignment_id\": 32, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": \"Assigned during event creation\"}', '2025-08-19 16:22:23'),
+(28, 7, 'event_assigned', 'Assigned to event #62', 62, '{\"assignment_id\": 33, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": \"Assigned during event creation\"}', '2025-08-20 04:35:17'),
+(29, 6, 'event_assigned', 'Assigned to event #63', 63, '{\"assignment_id\": 34, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": \"Assigned during event creation\"}', '2025-08-30 04:34:47'),
+(30, 6, 'event_assigned', 'Assigned to event #64', 64, '{\"assignment_id\": 35, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": \"Assigned during event creation\"}', '2025-08-30 07:44:02'),
+(31, 7, 'updated', 'Organizer profile updated', 33, 'null', '2025-09-03 03:58:04'),
+(32, 7, 'updated', 'Organizer profile updated', 33, 'null', '2025-09-03 04:05:22'),
+(33, 7, 'updated', 'Organizer profile updated', 33, 'null', '2025-09-03 04:06:04'),
+(34, 6, 'updated', 'Organizer profile updated', 32, 'null', '2025-09-03 04:06:24'),
+(35, 5, 'updated', 'Organizer profile updated', 31, 'null', '2025-09-03 04:13:24'),
+(36, 4, 'updated', 'Organizer profile updated', 28, 'null', '2025-09-03 04:21:16'),
+(37, 4, 'updated', 'Organizer profile updated', 28, 'null', '2025-09-03 04:21:23'),
+(38, 3, 'updated', 'Organizer profile updated', 27, 'null', '2025-09-03 04:28:55'),
+(39, 3, 'updated', 'Organizer profile updated', 27, 'null', '2025-09-03 04:33:36'),
+(40, 3, 'updated', 'Organizer profile updated', 27, 'null', '2025-09-03 04:33:44'),
+(41, 3, 'updated', 'Organizer profile updated', 27, 'null', '2025-09-03 04:40:37'),
+(42, 3, 'event_assignment_updated', 'Event assignment #1 status changed to assigned', 1, '{\"assignment_id\": 1, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(43, 4, 'event_assignment_updated', 'Event assignment #3 status changed to assigned', 3, '{\"assignment_id\": 2, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(44, 3, 'event_assignment_updated', 'Event assignment #4 status changed to assigned', 4, '{\"assignment_id\": 3, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(45, 3, 'event_assignment_updated', 'Event assignment #5 status changed to assigned', 5, '{\"assignment_id\": 4, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(46, 4, 'event_assignment_updated', 'Event assignment #8 status changed to assigned', 8, '{\"assignment_id\": 5, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(47, 3, 'event_assignment_updated', 'Event assignment #9 status changed to assigned', 9, '{\"assignment_id\": 6, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(48, 4, 'event_assignment_updated', 'Event assignment #10 status changed to assigned', 10, '{\"assignment_id\": 7, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(49, 3, 'event_assignment_updated', 'Event assignment #12 status changed to assigned', 12, '{\"assignment_id\": 8, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(50, 3, 'event_assignment_updated', 'Event assignment #13 status changed to assigned', 13, '{\"assignment_id\": 9, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(51, 3, 'event_assignment_updated', 'Event assignment #31 status changed to assigned', 31, '{\"assignment_id\": 10, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(52, 3, 'event_assignment_updated', 'Event assignment #32 status changed to assigned', 32, '{\"assignment_id\": 11, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(53, 4, 'event_assignment_updated', 'Event assignment #33 status changed to assigned', 33, '{\"assignment_id\": 12, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(54, 4, 'event_assignment_updated', 'Event assignment #34 status changed to assigned', 34, '{\"assignment_id\": 13, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(55, 4, 'event_assignment_updated', 'Event assignment #35 status changed to assigned', 35, '{\"assignment_id\": 14, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(56, 4, 'event_assignment_updated', 'Event assignment #36 status changed to assigned', 36, '{\"assignment_id\": 15, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(57, 6, 'event_assignment_updated', 'Event assignment #48 status changed to assigned', 48, '{\"assignment_id\": 16, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(58, 5, 'event_assignment_updated', 'Event assignment #49 status changed to assigned', 49, '{\"assignment_id\": 17, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(59, 5, 'event_assignment_updated', 'Event assignment #50 status changed to assigned', 50, '{\"assignment_id\": 18, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(60, 7, 'event_assignment_updated', 'Event assignment #61 status changed to assigned', 61, '{\"assignment_id\": 32, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(61, 7, 'event_assignment_updated', 'Event assignment #62 status changed to assigned', 62, '{\"assignment_id\": 33, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(62, 6, 'event_assignment_updated', 'Event assignment #63 status changed to assigned', 63, '{\"assignment_id\": 34, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(63, 6, 'event_assignment_updated', 'Event assignment #64 status changed to assigned', 64, '{\"assignment_id\": 35, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 14:57:25'),
+(64, 3, 'event_assignment_updated', 'Event assignment #1 status changed to assigned', 1, '{\"assignment_id\": 1, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(65, 4, 'event_assignment_updated', 'Event assignment #3 status changed to assigned', 3, '{\"assignment_id\": 2, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(66, 3, 'event_assignment_updated', 'Event assignment #4 status changed to assigned', 4, '{\"assignment_id\": 3, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(67, 3, 'event_assignment_updated', 'Event assignment #5 status changed to assigned', 5, '{\"assignment_id\": 4, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(68, 4, 'event_assignment_updated', 'Event assignment #8 status changed to assigned', 8, '{\"assignment_id\": 5, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(69, 3, 'event_assignment_updated', 'Event assignment #9 status changed to assigned', 9, '{\"assignment_id\": 6, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(70, 4, 'event_assignment_updated', 'Event assignment #10 status changed to assigned', 10, '{\"assignment_id\": 7, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(71, 3, 'event_assignment_updated', 'Event assignment #12 status changed to assigned', 12, '{\"assignment_id\": 8, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(72, 3, 'event_assignment_updated', 'Event assignment #13 status changed to assigned', 13, '{\"assignment_id\": 9, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(73, 3, 'event_assignment_updated', 'Event assignment #31 status changed to assigned', 31, '{\"assignment_id\": 10, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(74, 3, 'event_assignment_updated', 'Event assignment #32 status changed to assigned', 32, '{\"assignment_id\": 11, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(75, 4, 'event_assignment_updated', 'Event assignment #33 status changed to assigned', 33, '{\"assignment_id\": 12, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(76, 4, 'event_assignment_updated', 'Event assignment #34 status changed to assigned', 34, '{\"assignment_id\": 13, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(77, 4, 'event_assignment_updated', 'Event assignment #35 status changed to assigned', 35, '{\"assignment_id\": 14, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(78, 4, 'event_assignment_updated', 'Event assignment #36 status changed to assigned', 36, '{\"assignment_id\": 15, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(79, 6, 'event_assignment_updated', 'Event assignment #48 status changed to assigned', 48, '{\"assignment_id\": 16, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(80, 5, 'event_assignment_updated', 'Event assignment #49 status changed to assigned', 49, '{\"assignment_id\": 17, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(81, 5, 'event_assignment_updated', 'Event assignment #50 status changed to assigned', 50, '{\"assignment_id\": 18, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(82, 7, 'event_assignment_updated', 'Event assignment #61 status changed to assigned', 61, '{\"assignment_id\": 32, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(83, 7, 'event_assignment_updated', 'Event assignment #62 status changed to assigned', 62, '{\"assignment_id\": 33, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(84, 6, 'event_assignment_updated', 'Event assignment #63 status changed to assigned', 63, '{\"assignment_id\": 34, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(85, 6, 'event_assignment_updated', 'Event assignment #64 status changed to assigned', 64, '{\"assignment_id\": 35, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:09'),
+(86, 7, 'event_assignment_updated', 'Event assignment #61 status changed to assigned', 61, '{\"assignment_id\": 32, \"old_status\": \"assigned\", \"new_status\": \"assigned\", \"updated_by\": 7}', '2025-09-08 15:00:33'),
+(87, 4, 'event_assigned', 'Assigned to event #60', 60, '{\"assignment_id\": 36, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": \"Assigned from event page\"}', '2025-09-08 16:57:26'),
+(88, 4, 'event_assigned', 'Assigned to event #61', 61, '{\"assignment_id\": 37, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": \"Assigned from event page\"}', '2025-09-08 20:01:32'),
+(89, 6, 'event_assigned', 'Assigned to event #61', 61, '{\"assignment_id\": 38, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": \"Assigned from event page\"}', '2025-09-08 20:16:36'),
+(90, 4, 'event_assigned', 'Assigned to event #66', 66, '{\"assignment_id\": 39, \"assigned_by\": 7, \"status\": \"assigned\", \"notes\": \"Assigned during event creation\"}', '2025-09-09 23:01:51'),
+(91, 4, 'event_assignment_updated', 'Event assignment #66 status changed to accepted', 66, '{\"assignment_id\": 39, \"old_status\": \"assigned\", \"new_status\": \"accepted\", \"updated_by\": 7}', '2025-09-10 23:08:07'),
+(92, 4, 'assignment_status_changed', 'Event assignment status changed to accepted', 66, '{\"assignment_id\": \"39\", \"new_status\": \"accepted\", \"updated_by\": \"4\"}', '2025-09-10 23:08:07'),
+(93, 4, 'assignment_status_updated', 'Updated assignment status to accepted', 39, NULL, '2025-09-10 23:08:07');
 
 -- --------------------------------------------------------
 
@@ -1995,7 +2436,9 @@ INSERT INTO `tbl_packages` (`package_id`, `package_title`, `package_description`
 (19, 'Anniversary Package 1', 'All-in-anniversary package', 250000.00, 100, 7, '2025-07-08 04:14:11', '2025-07-08 04:14:45', 1, 250000.00, 1, '2025-07-08 04:14:11', NULL, 0),
 (20, 'Sample Package', 'All-in-sample package', 500000.00, 100, 7, '2025-07-09 12:31:40', '2025-07-09 12:31:40', 1, 500000.00, 1, '2025-07-09 12:31:40', NULL, 0),
 (22, 'Debut Package 1', 'All-in-debut package', 350000.00, 100, 7, '2025-07-19 04:33:33', '2025-07-19 04:33:33', 1, 350000.00, 1, '2025-07-19 04:33:33', NULL, 0),
-(23, 'Golden Wedding Package', 'All-in Golden Wedding Package', 800000.00, 300, 7, '2025-07-19 04:49:08', '2025-07-19 04:49:08', 1, 800000.00, 1, '2025-07-19 04:49:08', NULL, 0);
+(23, 'Golden Wedding Package', 'All-in Golden Wedding Package', 800000.00, 300, 7, '2025-07-19 04:49:08', '2025-07-19 04:49:08', 1, 800000.00, 1, '2025-07-19 04:49:08', NULL, 0),
+(24, 'Golden Baptism Package', 'All-in-one package', 230000.00, 100, 7, '2025-08-30 07:24:34', '2025-08-30 07:24:34', 1, 230000.00, 1, '2025-08-30 07:24:34', NULL, 0),
+(25, 'Test 3', 'sdfsdg', 35000.00, 100, 7, '2025-09-01 18:36:28', '2025-09-01 18:36:28', 1, 35000.00, 1, '2025-09-01 18:36:28', NULL, 0);
 
 --
 -- Triggers `tbl_packages`
@@ -2115,7 +2558,10 @@ INSERT INTO `tbl_package_components` (`component_id`, `package_id`, `component_n
 (0, 23, 'Food and Beverages', 'Premium Large Size Buffet, Free Snacks, Full-blown Lunch, Golden Dinner', 120000.00, 0),
 (0, 23, 'Photo and Video', 'IMAX Equipments, High-resolution Edits, Multiple Same Edits, Multiple Photo and Video Booth, Drone Shots, Special Video Director', 50000.00, 1),
 (0, 23, 'Transporation', 'White Lamborghini Aventador, Free Cars for the main family', 300000.00, 2),
-(0, 23, 'Entertainment', 'Special Guess, Magic Performance, Live Band, Sing a long (Unlimited Hours)', 250000.00, 3);
+(0, 23, 'Entertainment', 'Special Guess, Magic Performance, Live Band, Sing a long (Unlimited Hours)', 250000.00, 3),
+(0, 24, 'Food', '', 12000.00, 0),
+(0, 25, 'Test', '', 12000.00, 0),
+(0, 25, 'test 2', '', 23000.00, 1);
 
 -- --------------------------------------------------------
 
@@ -2155,7 +2601,9 @@ INSERT INTO `tbl_package_event_types` (`id`, `package_id`, `event_type_id`) VALU
 (0, 0, 5),
 (0, 0, 5),
 (0, 22, 3),
-(0, 23, 1);
+(0, 23, 1),
+(0, 24, 10),
+(0, 25, 1);
 
 -- --------------------------------------------------------
 
@@ -2225,7 +2673,11 @@ INSERT INTO `tbl_package_freebies` (`freebie_id`, `package_id`, `freebie_name`, 
 (0, 23, 'All-in access to all areas', '', 0.00, 3),
 (0, 23, 'Golden Confetti', '', 0.00, 4),
 (0, 23, 'Free Room Accommodation', '', 0.00, 5),
-(0, 23, 'Free Breakfast for Couples', '', 0.00, 6);
+(0, 23, 'Free Breakfast for Couples', '', 0.00, 6),
+(0, 24, 'Flashdrive', '', 0.00, 0),
+(0, 24, 'Test', '', 0.00, 1),
+(0, 25, 'Test', '', 0.00, 0),
+(0, 25, 'test 2', '', 0.00, 1);
 
 -- --------------------------------------------------------
 
@@ -2287,7 +2739,14 @@ INSERT INTO `tbl_package_venues` (`id`, `package_id`, `venue_id`, `created_at`) 
 (0, 23, 0, '2025-07-19 04:49:08'),
 (0, 23, 34, '2025-07-19 04:49:08'),
 (0, 23, 30, '2025-07-19 04:49:08'),
-(0, 23, 29, '2025-07-19 04:49:08');
+(0, 23, 29, '2025-07-19 04:49:08'),
+(0, 24, 29, '2025-08-30 07:24:34'),
+(0, 24, 1, '2025-08-30 07:24:34'),
+(0, 24, 34, '2025-08-30 07:24:34'),
+(0, 24, 30, '2025-08-30 07:24:34'),
+(0, 25, 1, '2025-09-01 18:36:28'),
+(0, 25, 34, '2025-09-01 18:36:28'),
+(0, 25, 29, '2025-09-01 18:36:28');
 
 -- --------------------------------------------------------
 
@@ -2363,7 +2822,17 @@ INSERT INTO `tbl_payments` (`payment_id`, `event_id`, `schedule_id`, `client_id`
 (44, 48, NULL, 21, 'cash', 40000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-03', NULL, '2025-08-03 07:53:36', '2025-08-03 07:53:36', '[{\"file_name\":\"1754207094_688f13765ee9a.jpg\",\"original_name\":\"gallery_section_upscaled.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1754207094_688f13765ee9a.jpg\",\"file_size\":336420,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-08-03 09:53:36\"}]'),
 (45, 49, NULL, 29, 'cash', 202150.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-03', NULL, '2025-08-03 08:18:33', '2025-08-03 08:18:33', '[{\"file_name\":\"1754209107_688f1b5390838.jpg\",\"original_name\":\"gallery_section_upscaled.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1754209107_688f1b5390838.jpg\",\"file_size\":336420,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-08-03 10:18:33\"}]'),
 (46, 50, NULL, 21, 'cash', 69500.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-08', NULL, '2025-08-08 17:16:58', '2025-08-08 17:16:58', '[{\"file_name\":\"1754673417_689631096f9d6.jpg\",\"original_name\":\"photo_2025-08-05_09-57-51.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1754673417_689631096f9d6.jpg\",\"file_size\":104757,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-08-08 19:16:58\"}]'),
-(47, 36, NULL, 21, 'cash', 41500.00, 'Paid in cash sample', NULL, 'completed', '2025-08-09', '', '2025-08-09 02:43:41', '2025-08-09 02:43:41', '[{\"filename\":\"1754707421_6896b5dd2ed15.png\",\"original_name\":\"image_2025-08-09_104338371.png\",\"description\":\"Paid in cash sample\",\"file_size\":68013,\"file_type\":\"png\",\"uploaded_at\":\"2025-08-09 04:43:41\"}]');
+(47, 36, NULL, 21, 'cash', 41500.00, 'Paid in cash sample', NULL, 'completed', '2025-08-09', '', '2025-08-09 02:43:41', '2025-08-09 02:43:41', '[{\"filename\":\"1754707421_6896b5dd2ed15.png\",\"original_name\":\"image_2025-08-09_104338371.png\",\"description\":\"Paid in cash sample\",\"file_size\":68013,\"file_type\":\"png\",\"uploaded_at\":\"2025-08-09 04:43:41\"}]'),
+(48, 12, NULL, 30, 'gcash', 44200.00, '', NULL, 'completed', '2025-08-13', '99839292019', '2025-08-13 05:22:10', '2025-08-13 05:22:10', '[{\"filename\":\"1755062530_689c21026a43e.png\",\"original_name\":\"WHY A GREAT TEK THE NEXT GUD MEMECOIN ON BONK! (1).png\",\"description\":\"\",\"file_size\":962343,\"file_type\":\"png\",\"uploaded_at\":\"2025-08-13 07:22:10\"}]'),
+(49, 59, NULL, 29, 'cash', 79000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-18', NULL, '2025-08-18 16:09:28', '2025-08-18 16:09:28', '[{\"file_name\":\"1755532788_68a34df48ea97.jpg\",\"original_name\":\"Gxn2g-baMAA6Xpr.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1755532788_68a34df48ea97.jpg\",\"file_size\":128416,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-08-18 18:09:28\"}]'),
+(50, 60, NULL, 20, 'cash', 75000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-18', NULL, '2025-08-18 16:14:58', '2025-08-18 16:14:58', '[{\"file_name\":\"1755533461_68a35095dd073.jpg\",\"original_name\":\"Gxn2g-baMAA6Xpr.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1755533461_68a35095dd073.jpg\",\"file_size\":128416,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-08-18 18:14:58\"}]'),
+(51, 61, NULL, 21, 'cash', 26000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-19', NULL, '2025-08-19 16:22:23', '2025-08-19 16:22:23', '[{\"file_name\":\"1755620542_68a4a4be6c908.jpg\",\"original_name\":\"Gxn2g-baMAA6Xpr.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1755620542_68a4a4be6c908.jpg\",\"file_size\":128416,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-08-19 18:22:23\"}]'),
+(52, 62, NULL, 5, 'cash', 65000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-20', NULL, '2025-08-20 04:35:17', '2025-08-20 04:35:17', '[{\"file_name\":\"1755664516_68a55084c5016.jpg\",\"original_name\":\"GxmDg_0akAAWmOP.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1755664516_68a55084c5016.jpg\",\"file_size\":103752,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-08-20 06:35:17\"}]'),
+(53, 63, NULL, 21, 'cash', 159000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-30', NULL, '2025-08-30 04:34:47', '2025-08-30 04:34:47', '[{\"file_name\":\"1756528486_68b27f66346a1.pdf\",\"original_name\":\"money attachment.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1756528486_68b27f66346a1.pdf\",\"file_size\":572541,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-08-30 06:34:47\"}]'),
+(54, 64, NULL, 20, 'cash', 42750.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-30', NULL, '2025-08-30 07:44:02', '2025-08-30 07:44:02', '[{\"file_name\":\"1756539839_68b2abbf59230.pdf\",\"original_name\":\"money attachment.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1756539839_68b2abbf59230.pdf\",\"file_size\":572541,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-08-30 09:44:02\"}]'),
+(55, 65, NULL, 30, 'cash', 81000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-08-30', NULL, '2025-08-30 08:25:58', '2025-08-30 08:25:58', '[{\"file_name\":\"1756542246_68b2b526b2d90.pdf\",\"original_name\":\"money attachment.pdf\",\"file_path\":\"uploads\\/payment_proofs\\/1756542246_68b2b526b2d90.pdf\",\"file_size\":572541,\"file_type\":\"application\\/pdf\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"receipt\",\"uploaded_at\":\"2025-08-30 10:25:58\"}]'),
+(56, 61, NULL, 21, 'gcash', 26000.00, '', NULL, 'completed', '2025-09-08', '2131233423423', '2025-09-08 17:43:07', '2025-09-08 17:43:07', '[{\"filename\":\"1757353387_68bf15ab190e0.png\",\"original_name\":\"Gemini_Generated_Image_p2tivp2tivp2tivp.png\",\"description\":\"\",\"file_size\":1036276,\"file_type\":\"png\",\"uploaded_at\":\"2025-09-08 19:43:07\"}]'),
+(57, 66, NULL, 23, 'cash', 112000.00, 'Initial down payment for event creation', NULL, 'completed', '2025-09-10', NULL, '2025-09-09 23:01:51', '2025-09-09 23:01:51', '[{\"file_name\":\"1757458910_68c0b1de4256d.jpg\",\"original_name\":\"5b22c2c9-0744-4df9-b91f-a46043193dff.jpg\",\"file_path\":\"uploads\\/payment_proofs\\/1757458910_68c0b1de4256d.jpg\",\"file_size\":335979,\"file_type\":\"image\\/jpeg\",\"description\":\"Payment proof for cash payment\",\"proof_type\":\"screenshot\",\"uploaded_at\":\"2025-09-10 01:01:51\"}]');
 
 --
 -- Triggers `tbl_payments`
@@ -2589,6 +3058,14 @@ CREATE TABLE `tbl_payment_activity_logs` (
   `created_at` datetime DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `tbl_payment_activity_logs`
+--
+
+INSERT INTO `tbl_payment_activity_logs` (`id`, `payment_id`, `user_id`, `action`, `old_status`, `new_status`, `amount`, `description`, `metadata`, `created_at`) VALUES
+(1, 48, 30, 'created', NULL, 'completed', 44200.00, 'Payment of 44200 received via gcash for event ID 12', '{\"event_id\":12,\"payment_reference\":\"99839292019\",\"payment_date\":\"2025-08-13\"}', '2025-08-13 13:22:10'),
+(2, 56, 21, 'created', NULL, 'completed', 26000.00, 'Payment of 26000 received via gcash for event ID 61', '{\"event_id\":61,\"payment_reference\":\"2131233423423\",\"payment_date\":\"2025-09-08\"}', '2025-09-09 01:43:07');
+
 -- --------------------------------------------------------
 
 --
@@ -2671,7 +3148,18 @@ INSERT INTO `tbl_payment_logs` (`log_id`, `event_id`, `schedule_id`, `payment_id
 (0, 48, NULL, 19, 20, NULL, 'payment_confirmed', 212500.00, NULL, 'Status changed from completed to cancelled', '2025-08-03 08:15:36'),
 (0, 49, NULL, 45, 29, NULL, 'payment_received', 202150.00, NULL, 'Initial down payment for event creation', '2025-08-03 08:18:33'),
 (0, 50, NULL, 46, 21, NULL, 'payment_received', 69500.00, NULL, 'Initial down payment for event creation', '2025-08-08 17:16:58'),
-(0, 36, NULL, 47, 21, NULL, 'payment_received', 41500.00, '', 'Paid in cash sample', '2025-08-09 02:43:41');
+(0, 36, NULL, 47, 21, NULL, 'payment_received', 41500.00, '', 'Paid in cash sample', '2025-08-09 02:43:41'),
+(0, 12, NULL, 48, 30, NULL, 'payment_received', 44200.00, '99839292019', '', '2025-08-13 05:22:10'),
+(0, 59, NULL, 49, 29, NULL, 'payment_received', 79000.00, NULL, 'Initial down payment for event creation', '2025-08-18 16:09:28'),
+(0, 60, NULL, 50, 20, NULL, 'payment_received', 75000.00, NULL, 'Initial down payment for event creation', '2025-08-18 16:14:58'),
+(0, 61, NULL, 51, 21, NULL, 'payment_received', 26000.00, NULL, 'Initial down payment for event creation', '2025-08-19 16:22:23'),
+(0, 62, NULL, 52, 5, NULL, 'payment_received', 65000.00, NULL, 'Initial down payment for event creation', '2025-08-20 04:35:17'),
+(0, 63, NULL, 53, 21, NULL, 'payment_received', 159000.00, NULL, 'Initial down payment for event creation', '2025-08-30 04:34:47'),
+(0, 64, NULL, 54, 20, NULL, 'payment_received', 42750.00, NULL, 'Initial down payment for event creation', '2025-08-30 07:44:02'),
+(0, 65, NULL, 55, 30, NULL, 'payment_received', 81000.00, NULL, 'Initial down payment for event creation', '2025-08-30 08:25:58'),
+(0, 61, NULL, 56, 21, NULL, 'payment_received', 26000.00, '2131233423423', '', '2025-09-08 17:43:07'),
+(0, 61, NULL, NULL, 21, NULL, '', NULL, NULL, 'Event finalized by admin. Organizer notified about payment schedule.', '2025-09-08 18:35:09'),
+(0, 66, NULL, 57, 23, NULL, 'payment_received', 112000.00, NULL, 'Initial down payment for event creation', '2025-09-09 23:01:51');
 
 -- --------------------------------------------------------
 
@@ -2721,6 +3209,30 @@ CREATE TABLE `tbl_signup_otp` (
 
 INSERT INTO `tbl_signup_otp` (`id`, `user_id`, `email`, `otp_code`, `expires_at`, `created_at`, `updated_at`) VALUES
 (2, 22, 'chis.bacsarca.coc@phinmaed.com', '542417', '2025-07-14 14:27:39', '2025-07-14 06:17:39', '2025-07-14 06:17:39');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_staff`
+--
+
+CREATE TABLE `tbl_staff` (
+  `staff_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `role_title` enum('head_organizer','on_site') NOT NULL DEFAULT 'head_organizer' COMMENT 'Staff functional role',
+  `branch_name` varchar(100) DEFAULT NULL COMMENT 'Branch or location if applicable',
+  `can_handle_bookings` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'Can handle bookings on-site',
+  `remarks` text DEFAULT NULL COMMENT 'Admin notes and remarks',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Staff profiles linked to user accounts with staff role';
+
+--
+-- Dumping data for table `tbl_staff`
+--
+
+INSERT INTO `tbl_staff` (`staff_id`, `user_id`, `role_title`, `branch_name`, `can_handle_bookings`, `remarks`, `created_at`, `updated_at`) VALUES
+(1, 34, 'head_organizer', '', 1, '', '2025-09-04 20:44:04', '2025-09-04 20:44:04');
 
 -- --------------------------------------------------------
 
@@ -2881,8 +3393,8 @@ CREATE TABLE `tbl_supplier_activity` (
 --
 DELIMITER $$
 CREATE TRIGGER `tr_update_supplier_activity` AFTER INSERT ON `tbl_supplier_activity` FOR EACH ROW BEGIN
-    UPDATE tbl_suppliers
-    SET last_activity = NEW.created_at
+    UPDATE tbl_suppliers 
+    SET last_activity = NEW.created_at 
     WHERE supplier_id = NEW.supplier_id;
 END
 $$
@@ -3105,7 +3617,7 @@ CREATE TABLE `tbl_users` (
   `last_login` datetime DEFAULT NULL,
   `account_status` enum('active','inactive','suspended') DEFAULT 'active',
   `user_pfp` varchar(255) DEFAULT 'uploads/user_profile/default_pfp.png',
-  `user_role` enum('admin','organizer','client','supplier') NOT NULL,
+  `user_role` enum('admin','organizer','client','supplier','staff') NOT NULL,
   `is_verified` tinyint(1) NOT NULL DEFAULT 1,
   `email_verified_at` datetime DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
@@ -3117,16 +3629,18 @@ CREATE TABLE `tbl_users` (
 
 INSERT INTO `tbl_users` (`user_id`, `user_firstName`, `user_lastName`, `user_suffix`, `user_birthdate`, `user_email`, `user_contact`, `user_username`, `user_pwd`, `force_password_change`, `last_login`, `account_status`, `user_pfp`, `user_role`, `is_verified`, `email_verified_at`, `created_at`) VALUES
 (5, 'test', 'test', 'III', '1995-10-20', 'test@gmail.com', '0909090990', 'test', '$2y$10$kINW0dn.gMncgts2MHlwAeuJluo1eotovACTt.z5TUhZ5rf2Ewhhm', 0, NULL, 'active', 'uploads/user_profile/sample.jpg', 'client', 1, NULL, '2025-02-25 12:43:54'),
-(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 0, '2025-08-13 01:12:42', 'active', 'uploads/profile_pictures/profile_7_1752809428.jpg', 'admin', 1, NULL, '2025-02-25 16:41:22'),
-(20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 0, '2025-08-13 01:39:54', 'active', 'uploads/profile_pictures/profile_20_1752461113.jpg', 'client', 1, NULL, '2025-07-09 12:04:49'),
+(7, 'Mayette', 'Lagdamin', '', '1995-12-12', 'aizsingidas@gmail.com', '099909009', 'admin', '$2y$10$/kqcsB6g/loADYG7FIi09ufxRzrU7xF19ap7MpF0DibA77vmVhPAS', 0, '2025-09-10 07:00:33', 'active', 'uploads/profile_pictures/profile_7_1752809428.jpg', 'admin', 1, NULL, '2025-02-25 16:41:22'),
+(20, 'Jesse', 'Morcillos', '', '2000-01-09', 'projectlikha.archives@gmail.com', '09054135594', 'jessemorcillos', '$2y$10$A.P0FYybx2WtUt7ai7Ro/OYYLLhSlAGNWiVN/E.6fAF/wnHn4KdG6', 0, '2025-09-09 05:33:37', 'active', 'uploads/profile_pictures/profile_20_1752461113.jpg', 'client', 1, NULL, '2025-07-09 12:04:49'),
 (21, 'Richard', 'Gamon', NULL, '1995-01-01', 'contact.aizworks@gmail.com', '+630995059950', 'richardq20', '$2y$10$iSf.6ZlAVsOR0Gcuwazw4uHeGggmQetB2raODfOzAjhz8qqxjopaW', 0, '2025-07-22 10:21:55', 'active', 'uploads/profile_pictures/profile_21_1752549645.jpg', 'client', 1, '2025-07-14 14:03:53', '2025-07-14 06:03:28'),
 (23, 'Christine', 'Bacsarsa', NULL, '2003-07-26', 'chis.bacsarsa.coc@phinmaed.com', '+639059490590', 'christinegrace', '$2y$10$c82pB7cRnWdV2.GoMCBVqe.kHzB..MjSJy1EjMi1w0CmIkbO.XlM.', 0, '2025-07-17 10:56:17', 'active', 'uploads/profile_pictures/profile_23_1752474108.jpg', 'client', 1, '2025-07-14 14:20:03', '2025-07-14 06:19:38'),
 (27, 'Boss', 'Zata', NULL, '1998-12-12', 'lasi.anches.coc@phinmaed.com', '+639055455544', 'boss.zata22', '$2y$10$m0xfTZ0docbytsrYxzaHceDJgiwPZuDALih4KeVUZcy3ypexVOShK', 0, NULL, 'active', 'uploads/profile_pictures/1752506654_6875211e813a4.png', 'organizer', 1, NULL, '2025-07-14 15:24:41'),
-(28, 'Rendon', 'Labrabis', NULL, '1995-12-12', 'rendon@gmail.com', '+63 63 905 190 3994', 'rendon.labrabis', '$2y$10$5gfBKZ1ZevsTrvtUJ8nmVe53K4jQVorO1o4fkjN9RYV6ZtrICAMze', 0, '2025-07-17 02:33:46', 'active', NULL, 'organizer', 1, NULL, '2025-07-16 18:31:57'),
-(29, 'Ralph', 'Gallegos', NULL, '1995-10-10', 'ralp.pelino11@gmail.com', '+630977349175', 'ralphg48', '$2y$10$oTXf0C.ogNxflEcAux3BtuzC1cozvGsvZvFDU5WOeD5n2zSz8akgm', 0, '2025-07-17 13:51:51', 'active', 'uploads/user_profile/default_pfp.png', 'client', 1, '2025-07-17 13:51:07', '2025-07-17 05:50:39'),
+(28, 'Rendon', 'Labrabis', NULL, '1995-12-12', 'rendon@gmail.com', '+63 63 905 190 3994', 'rendon.labrabis', '$2y$10$5gfBKZ1ZevsTrvtUJ8nmVe53K4jQVorO1o4fkjN9RYV6ZtrICAMze', 0, '2025-09-11 05:25:36', 'active', NULL, 'organizer', 1, NULL, '2025-07-16 18:31:57'),
+(29, 'Ralph', 'Gallegos', NULL, '1995-10-10', 'ralp.pelino11@gmail.com', '+630977349175', 'ralphg48', '$2y$10$oTXf0C.ogNxflEcAux3BtuzC1cozvGsvZvFDU5WOeD5n2zSz8akgm', 0, '2025-09-10 05:58:27', 'active', 'uploads/user_profile/default_pfp.png', 'client', 1, '2025-07-17 13:51:07', '2025-07-17 05:50:39'),
 (30, 'Clyde', 'Parol', NULL, '2003-12-16', 'cllu.parol.coc@phinmaed.com', '+639274276461', 'clydeparol', '$2y$10$cEpVxZuLdvPPPeWjdmOIy.CYluyKi35gqx2glo/9fGi6ffLxA9bCO', 0, '2025-07-18 17:36:38', 'active', 'uploads/profile_pictures/profile_30_1752831457.jpg', 'client', 1, '2025-07-18 17:35:23', '2025-07-18 09:34:58'),
 (31, 'Rhein', 'Manoy', NULL, '0000-00-00', 'rhienmanoy@gmail.com', '+63 63 905 190 3994', 'rhein.manoy', '$2y$10$qRiBg2tCvZ0Vieifi58ssObSCMDeNgK1t2dktM5GAnMeJKn2w7.gu', 0, NULL, 'active', 'uploads/profile_pictures/1753152278_687efb166a675.jpg', 'organizer', 1, NULL, '2025-07-22 02:44:52'),
-(32, 'Brian', 'Renan', NULL, '1998-12-12', 'brianrenan@gmail.com', '+63 63 905 190 3994', 'brian.renan', '$2y$10$zIQ/3m1R4x.iJDoq/NcVJe.mkz2l2ayE.O07gbAoyYLCmAU9z4qja', 0, '2025-07-27 18:49:19', 'active', 'uploads/profile_pictures/1753613294_688603eeb6358.png', 'organizer', 1, NULL, '2025-07-27 10:48:21');
+(32, 'Brian', 'Renan', NULL, '1998-12-12', 'brianrenan@gmail.com', '+63 63 905 190 3994', 'brian.renan', '$2y$10$zIQ/3m1R4x.iJDoq/NcVJe.mkz2l2ayE.O07gbAoyYLCmAU9z4qja', 0, '2025-08-31 15:19:35', 'active', 'uploads/profile_pictures/1753613294_688603eeb6358.png', 'organizer', 1, NULL, '2025-07-27 10:48:21'),
+(33, 'Start', 'Up', NULL, '1995-10-12', 'startup@gmail.com', '+63 63 905 190 3994', 'start.up', '$2y$10$18ciwU.MyRVllT0MO3ZMrOUMcrchN.a3TXHG5OGIrDC6/73BoHCpW', 0, '2025-08-18 22:40:29', 'active', NULL, 'organizer', 1, NULL, '2025-08-13 16:22:45'),
+(34, 'Staff', 'Seryo', NULL, NULL, 'staff.seryo@gmail.com', '09059049', 'staffseryo', '$2y$10$dzVGwviI6.n7LMZi82d3aOqGHGDoc/26XWncR01V6sRJcHpnoK0QC', 0, NULL, 'active', 'uploads/profile_pictures/1757018612_68b9f9f4b57ef.jpg', 'staff', 1, NULL, '2025-09-04 20:44:04');
 
 -- --------------------------------------------------------
 
@@ -3159,7 +3673,60 @@ CREATE TABLE `tbl_user_activity_logs` (
 
 INSERT INTO `tbl_user_activity_logs` (`id`, `user_id`, `session_id`, `action_type`, `action_category`, `description`, `user_role`, `ip_address`, `user_agent`, `related_entity_type`, `related_entity_id`, `metadata`, `success`, `failure_reason`, `created_at`, `updated_at`) VALUES
 (1, 20, NULL, 'login', 'authentication', 'User Jesse Morcillos logged in successfully', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0', NULL, NULL, NULL, 1, NULL, '2025-08-13 01:39:54', '2025-08-13 01:39:54'),
-(2, 20, NULL, 'created', 'booking', 'Booking BK-20250812-9325 created for Test logs on 2025-10-03 with 100 guests', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0', 'booking', 10, '{\"booking_reference\":\"BK-20250812-9325\",\"event_type_id\":5,\"event_date\":\"2025-10-03\",\"guest_count\":100,\"venue_id\":29,\"package_id\":14}', 1, NULL, '2025-08-13 01:41:27', '2025-08-13 01:41:27');
+(2, 20, NULL, 'created', 'booking', 'Booking BK-20250812-9325 created for Test logs on 2025-10-03 with 100 guests', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0', 'booking', 10, '{\"booking_reference\":\"BK-20250812-9325\",\"event_type_id\":5,\"event_date\":\"2025-10-03\",\"guest_count\":100,\"venue_id\":29,\"package_id\":14}', 1, NULL, '2025-08-13 01:41:27', '2025-08-13 01:41:27'),
+(3, 7, NULL, 'logout', 'authentication', 'User Mayette Lagdamin logged out', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-08-13 02:16:52', '2025-08-13 02:16:52'),
+(4, 7, NULL, 'login', 'authentication', 'User Mayette Lagdamin logged in successfully', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-08-13 02:17:18', '2025-08-13 02:17:18'),
+(5, 7, NULL, 'login', 'authentication', 'User Mayette Lagdamin logged in successfully', 'admin', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0', NULL, NULL, NULL, 1, NULL, '2025-08-13 11:46:53', '2025-08-13 11:46:53'),
+(6, 7, NULL, 'logout', 'authentication', 'User Mayette Lagdamin logged out', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-08-13 11:47:24', '2025-08-13 11:47:24'),
+(7, 20, NULL, 'login', 'authentication', 'User Jesse Morcillos logged in successfully', 'client', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-08-13 11:48:11', '2025-08-13 11:48:11'),
+(8, 30, NULL, 'created', 'payment', 'Payment of 44200 received via gcash for event ID 12', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0', 'payment', 48, '{\"event_id\":12,\"payment_reference\":\"99839292019\",\"payment_date\":\"2025-08-13\"}', 1, NULL, '2025-08-13 13:22:10', '2025-08-13 13:22:10'),
+(9, 7, NULL, 'status_updated', 'booking', 'Booking BK-20250812-9325 status changed to cancelled', 'admin', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0', 'booking', 10, '{\"booking_reference\":\"BK-20250812-9325\"}', 1, NULL, '2025-08-13 13:23:00', '2025-08-13 13:23:00'),
+(10, 20, NULL, 'logout', 'authentication', 'User Jesse Morcillos logged out', 'client', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-08-13 22:28:42', '2025-08-13 22:28:42'),
+(11, 28, NULL, 'login_attempt', 'authentication', 'Failed login attempt for Rendon Labrabis', 'organizer', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 0, 'Invalid password', '2025-08-13 22:31:37', '2025-08-13 22:31:37'),
+(12, 28, NULL, 'login_attempt', 'authentication', 'Failed login attempt for Rendon Labrabis', 'organizer', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 0, 'Invalid password', '2025-08-13 22:31:53', '2025-08-13 22:31:53'),
+(13, 7, NULL, 'login', 'authentication', 'User Mayette Lagdamin logged in successfully', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-08-13 22:32:21', '2025-08-13 22:32:21'),
+(14, 7, NULL, 'created', 'organizer', 'Organizer account created for Start Up (startup@gmail.com)', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'organizer', 7, '{\"user_id\":\"33\",\"username\":\"start.up\",\"years_of_experience\":5,\"has_certifications\":true,\"has_resume\":true}', 1, NULL, '2025-08-14 00:22:48', '2025-08-14 00:22:48'),
+(15, 33, NULL, 'login', 'authentication', 'User Start Up logged in successfully', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0', NULL, NULL, NULL, 1, NULL, '2025-08-14 00:48:34', '2025-08-14 00:48:34'),
+(16, 33, NULL, 'login', 'authentication', 'User Start Up logged in successfully', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0', NULL, NULL, NULL, 1, NULL, '2025-08-14 01:48:47', '2025-08-14 01:48:47'),
+(17, 7, NULL, 'login', 'authentication', 'User Mayette Lagdamin logged in successfully', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-08-14 16:33:20', '2025-08-14 16:33:20'),
+(18, 33, NULL, 'login', 'authentication', 'User Start Up logged in successfully', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0', NULL, NULL, NULL, 1, NULL, '2025-08-18 22:40:29', '2025-08-18 22:40:29'),
+(19, 7, NULL, 'created', 'event', 'Event \'Test\' created for 100 guests on 2025-08-23', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'event', 59, '{\"event_type_id\":5,\"venue_id\":30,\"package_id\":22,\"total_budget\":158000,\"original_booking_reference\":null}', 1, NULL, '2025-08-19 00:09:28', '2025-08-19 00:09:28'),
+(20, 7, NULL, 'created', 'event', 'Event \'This is just a test\' created for 100 guests on 2025-10-29', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'event', 60, '{\"event_type_id\":1,\"venue_id\":29,\"package_id\":15,\"total_budget\":150000,\"original_booking_reference\":null}', 1, NULL, '2025-08-19 00:14:58', '2025-08-19 00:14:58'),
+(21, 7, NULL, 'created', 'event', 'Event \'Organizer \' created for 100 guests on 2025-10-30', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'event', 61, '{\"event_type_id\":5,\"venue_id\":34,\"package_id\":20,\"total_budget\":52000,\"original_booking_reference\":null}', 1, NULL, '2025-08-20 00:22:23', '2025-08-20 00:22:23'),
+(22, 7, NULL, 'organizer_assigned', 'authentication', 'Assigned organizer ID 7 to event ID 61', 'admin', NULL, NULL, NULL, NULL, NULL, 1, NULL, '2025-08-20 00:22:23', '2025-08-20 00:22:23'),
+(23, 7, NULL, 'created', 'event', 'Event \'Organizer Birthday\' created for 100 guests on 2025-10-20', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'event', 62, '{\"event_type_id\":3,\"venue_id\":34,\"package_id\":22,\"total_budget\":130000,\"original_booking_reference\":null}', 1, NULL, '2025-08-20 12:35:17', '2025-08-20 12:35:17'),
+(24, 7, NULL, 'login', 'authentication', 'User Mayette Lagdamin logged in successfully', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-08-30 12:29:31', '2025-08-30 12:29:31'),
+(25, 32, NULL, 'login', 'authentication', 'User Brian Renan logged in successfully', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-08-30 12:30:58', '2025-08-30 12:30:58'),
+(26, 20, NULL, 'login', 'authentication', 'User Jesse Morcillos logged in successfully', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-08-30 12:32:26', '2025-08-30 12:32:26'),
+(27, 7, NULL, 'created', 'event', 'Event \'Sample\' created for 150 guests on 2025-11-01', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'event', 63, '{\"event_type_id\":3,\"venue_id\":30,\"package_id\":19,\"total_budget\":318000,\"original_booking_reference\":null}', 1, NULL, '2025-08-30 12:34:47', '2025-08-30 12:34:47'),
+(28, 7, NULL, 'created', 'event', 'Event \'Baptism\' created for 150 guests on 2025-11-05', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'event', 64, '{\"event_type_id\":10,\"venue_id\":29,\"package_id\":24,\"total_budget\":85500,\"original_booking_reference\":null}', 1, NULL, '2025-08-30 15:44:02', '2025-08-30 15:44:02'),
+(29, 20, NULL, 'login', 'authentication', 'User Jesse Morcillos logged in successfully', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-08-30 15:51:05', '2025-08-30 15:51:05'),
+(30, 20, NULL, 'created', 'booking', 'Booking BK-20250830-1256 created for teedt on 2025-11-08 with 100 guests', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', 'booking', 11, '{\"booking_reference\":\"BK-20250830-1256\",\"event_type_id\":1,\"event_date\":\"2025-11-08\",\"guest_count\":100,\"venue_id\":29,\"package_id\":23}', 1, NULL, '2025-08-30 15:54:10', '2025-08-30 15:54:10'),
+(31, 7, NULL, 'status_updated', 'booking', 'Booking BK-20250830-1256 status changed to confirmed', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'booking', 11, '{\"booking_reference\":\"BK-20250830-1256\"}', 1, NULL, '2025-08-30 15:58:46', '2025-08-30 15:58:46'),
+(32, 20, NULL, 'created', 'booking', 'Booking BK-20250830-1779 created for Anniv on 2025-11-15 with 100 guests', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', 'booking', 12, '{\"booking_reference\":\"BK-20250830-1779\",\"event_type_id\":2,\"event_date\":\"2025-11-15\",\"guest_count\":100,\"venue_id\":29,\"package_id\":19}', 1, NULL, '2025-08-30 16:08:58', '2025-08-30 16:08:58'),
+(33, 7, NULL, 'status_updated', 'booking', 'Booking BK-20250830-1779 status changed to confirmed', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'booking', 12, '{\"booking_reference\":\"BK-20250830-1779\"}', 1, NULL, '2025-08-30 16:09:22', '2025-08-30 16:09:22'),
+(34, 7, NULL, 'created', 'event', 'Event \'Montreal Wedding\' created for 100 guests on 2025-11-20', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'event', 65, '{\"event_type_id\":5,\"venue_id\":30,\"package_id\":15,\"total_budget\":162000,\"original_booking_reference\":null}', 1, NULL, '2025-08-30 16:25:58', '2025-08-30 16:25:58'),
+(35, 32, NULL, 'login', 'authentication', 'User Brian Renan logged in successfully', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-08-31 15:19:35', '2025-08-31 15:19:35'),
+(36, 7, NULL, 'login', 'authentication', 'User Mayette Lagdamin logged in successfully', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-09-08 22:24:33', '2025-09-08 22:24:33'),
+(37, 7, NULL, 'organizer_assigned', 'authentication', 'Assigned organizer ID 4 to event ID 60', 'admin', NULL, NULL, NULL, NULL, NULL, 1, NULL, '2025-09-09 00:57:26', '2025-09-09 00:57:26'),
+(38, 20, NULL, 'login', 'authentication', 'User Jesse Morcillos logged in successfully', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-09-09 01:11:41', '2025-09-09 01:11:41'),
+(39, 20, NULL, 'created', 'booking', 'Booking BK-20250908-9174 created for test_wedding on 2025-10-24 with 100 guests', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', 'booking', 13, '{\"booking_reference\":\"BK-20250908-9174\",\"event_type_id\":1,\"event_date\":\"2025-10-24\",\"guest_count\":100,\"venue_id\":1,\"package_id\":25}', 1, NULL, '2025-09-09 01:12:17', '2025-09-09 01:12:17'),
+(40, 21, NULL, 'created', 'payment', 'Payment of 26000 received via gcash for event ID 61', 'client', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'payment', 56, '{\"event_id\":61,\"payment_reference\":\"2131233423423\",\"payment_date\":\"2025-09-08\"}', 1, NULL, '2025-09-09 01:43:07', '2025-09-09 01:43:07'),
+(41, 7, NULL, 'logout', 'authentication', 'User Mayette Lagdamin logged out', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-09-09 03:48:18', '2025-09-09 03:48:18'),
+(42, 7, NULL, 'login', 'authentication', 'User Mayette Lagdamin logged in successfully', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-09-09 03:48:38', '2025-09-09 03:48:38'),
+(43, 7, NULL, 'organizer_assigned', 'authentication', 'Assigned organizer ID 4 to event ID 61', 'admin', NULL, NULL, NULL, NULL, NULL, 1, NULL, '2025-09-09 04:01:32', '2025-09-09 04:01:32'),
+(44, 7, NULL, 'organizer_assigned', 'authentication', 'Assigned organizer ID 6 to event ID 61', 'admin', NULL, NULL, NULL, NULL, NULL, 1, NULL, '2025-09-09 04:16:36', '2025-09-09 04:16:36'),
+(45, 20, NULL, 'login', 'authentication', 'User Jesse Morcillos logged in successfully', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-09-09 05:33:37', '2025-09-09 05:33:37'),
+(46, 7, NULL, 'logout', 'authentication', 'User Mayette Lagdamin logged out', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-09-09 23:10:35', '2025-09-09 23:10:35'),
+(47, 29, NULL, 'login', 'authentication', 'User Ralph Gallegos logged in successfully', 'client', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-09-10 05:58:27', '2025-09-10 05:58:27'),
+(50, 27, NULL, 'login_attempt', 'authentication', 'Failed login attempt for Boss Zata', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 0, 'Invalid password', '2025-09-10 06:21:21', '2025-09-10 06:21:21'),
+(51, 27, NULL, 'login_attempt', 'authentication', 'Failed login attempt for Boss Zata', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 0, 'Invalid password', '2025-09-10 06:26:06', '2025-09-10 06:26:06'),
+(52, 28, NULL, 'login_attempt', 'authentication', 'Failed login attempt for Rendon Labrabis', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 0, 'Invalid password', '2025-09-10 06:26:26', '2025-09-10 06:26:26'),
+(53, 28, NULL, 'login', 'authentication', 'User Rendon Labrabis logged in successfully', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-09-10 06:27:19', '2025-09-10 06:27:19'),
+(54, 7, NULL, 'login', 'authentication', 'User Mayette Lagdamin logged in successfully', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', NULL, NULL, NULL, 1, NULL, '2025-09-10 07:00:33', '2025-09-10 07:00:33'),
+(55, 7, NULL, 'created', 'event', 'Event \'b_day_sample\' created for 150 guests on 2025-12-01', 'admin', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/120.0.0.0', 'event', 66, '{\"event_type_id\":3,\"venue_id\":34,\"package_id\":22,\"total_budget\":140000,\"original_booking_reference\":null}', 1, NULL, '2025-09-10 07:01:51', '2025-09-10 07:01:51'),
+(56, 28, NULL, 'login', 'authentication', 'User Rendon Labrabis logged in successfully', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-09-10 07:14:33', '2025-09-10 07:14:33'),
+(57, 28, NULL, 'login', 'authentication', 'User Rendon Labrabis logged in successfully', 'organizer', '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0', NULL, NULL, NULL, 1, NULL, '2025-09-11 05:25:36', '2025-09-11 05:25:36');
 
 -- --------------------------------------------------------
 
@@ -3218,7 +3785,8 @@ INSERT INTO `tbl_venue` (`venue_id`, `venue_title`, `user_id`, `feedback_id`, `v
 (1, 'Ultrawinds Mountain Resort', 7, NULL, 'Admin', 'Capistrano Street High Way, Cagayan de Oro City', '09176273275', 'Best overlooking place for your events or staycation! ', 'available', 1, 150, 50000.00, 300.00, 'outdoor', 'uploads/venue_profile_pictures/1752900046_687b21ce6a469.jpg', 'uploads/venue_cover_photos/1752900046_687b21ce6ab72.webp', '2025-07-19 04:40:46', '2025-07-19 04:40:46'),
 (29, 'Pearlmont Hotel', 7, NULL, 'Admin', 'Limketkai Drive, Cagayan de Oro City', '09176273275', 'Wedding Package 1', 'available', 1, 100, 44000.00, 350.00, '', 'uploads/venue_profile_pictures/1749899533_684d590da78aa.jpg', 'uploads/venue_cover_photos/1749899533_684d590da7bbd.jpg', '2025-06-14 11:12:13', '2025-07-16 17:09:36'),
 (30, 'Pearlmont Hotel - Package 2', 7, NULL, 'Admin', 'Limketkai Drive, Cagayan de Oro City', '09176273275', 'Package 2', 'available', 1, 100, 48000.00, 300.00, '', 'uploads/venue_profile_pictures/1749900114_684d5b5252fe9.jpg', 'uploads/venue_cover_photos/1749900114_684d5b5253360.jpg', '2025-06-14 11:21:54', '2025-07-16 17:09:36'),
-(34, 'Demiren Hotel', 7, NULL, 'Admin', 'Tiano Kalambaguhan Street, Brgy 14, Cagayan de Oro, Philippines', '0906 231 4236', 'Demiren Hotel & Restuarant has 87 air conditioned rooms w/ hot & cold showers.It has 2 function halls for all occasions. Wifi is free.It has an elevator & 2 standby generators.', 'available', 1, 100, 20000.00, 200.00, 'outdoor', 'uploads/venue_profile_pictures/1751980388_686d1964acfe5.jpg', 'uploads/venue_cover_photos/1751980388_686d1964ad3b8.jpg', '2025-07-08 13:13:08', '2025-07-16 17:09:36');
+(34, 'Demiren Hotel', 7, NULL, 'Admin', 'Tiano Kalambaguhan Street, Brgy 14, Cagayan de Oro, Philippines', '0906 231 4236', 'Demiren Hotel & Restuarant has 87 air conditioned rooms w/ hot & cold showers.It has 2 function halls for all occasions. Wifi is free.It has an elevator & 2 standby generators.', 'available', 1, 100, 20000.00, 200.00, 'outdoor', 'uploads/venue_profile_pictures/1751980388_686d1964acfe5.jpg', 'uploads/venue_cover_photos/1751980388_686d1964ad3b8.jpg', '2025-07-08 13:13:08', '2025-07-16 17:09:36'),
+(35, 'Ultrawinds Package 2', 7, NULL, 'Admin', 'Limketkai Drive, Cagayan de Oro City', '09176273275', '', 'available', 1, 100, 45000.00, 450.00, 'indoor', 'uploads/venue_profile_pictures/1757017207_68b9f4775064c.jpg', 'uploads/venue_cover_photos/1757017207_68b9f4775097b.jpg', '2025-09-04 20:20:07', '2025-09-04 20:20:07');
 
 -- --------------------------------------------------------
 
@@ -3291,7 +3859,10 @@ INSERT INTO `tbl_venue_inclusions` (`inclusion_id`, `venue_id`, `inclusion_name`
 (28, 1, 'Free Breakfast', 0.00, '', 0, 1, '2025-07-19 04:40:46', '2025-08-08 19:56:06'),
 (29, 1, 'Free Room Acomodation', 0.00, '', 0, 1, '2025-07-19 04:40:46', '2025-08-08 19:56:06'),
 (30, 1, 'Full Dinner Buffet', 0.00, '', 0, 1, '2025-07-19 04:40:46', '2025-08-08 19:56:06'),
-(31, 1, 'Live Bands', 0.00, '', 0, 1, '2025-07-19 04:40:46', '2025-08-08 19:56:06');
+(31, 1, 'Live Bands', 0.00, '', 0, 1, '2025-07-19 04:40:46', '2025-08-08 19:56:06'),
+(32, 35, 'Room Accomodation', 0.00, '', 0, 1, '2025-09-04 20:20:07', '2025-09-04 20:20:07'),
+(33, 35, 'Free Breakfast course meals', 0.00, '', 0, 1, '2025-09-04 20:20:07', '2025-09-04 20:20:07'),
+(34, 35, 'Free night party', 0.00, '', 0, 1, '2025-09-04 20:20:07', '2025-09-04 20:20:07');
 
 -- --------------------------------------------------------
 
@@ -3439,7 +4010,7 @@ CREATE TABLE `vw_activity_timeline` (
 -- (See below for the actual view)
 --
 CREATE TABLE `vw_session_analytics` (
-`user_role` enum('admin','organizer','client','supplier')
+`user_role` enum('admin','organizer','client','supplier','staff')
 ,`unique_users_logged_in` bigint(21)
 ,`total_logins` bigint(21)
 ,`total_logouts` bigint(21)
@@ -3510,7 +4081,8 @@ ALTER TABLE `tbl_email_logs`
 -- Indexes for table `tbl_events`
 --
 ALTER TABLE `tbl_events`
-  ADD PRIMARY KEY (`event_id`);
+  ADD PRIMARY KEY (`event_id`),
+  ADD KEY `idx_organizer_id` (`organizer_id`);
 
 --
 -- Indexes for table `tbl_event_activity_logs`
@@ -3534,13 +4106,26 @@ ALTER TABLE `tbl_event_components`
   ADD KEY `idx_event_components_payment_status` (`payment_status`);
 
 --
+-- Indexes for table `tbl_event_organizer_assignments`
+--
+ALTER TABLE `tbl_event_organizer_assignments`
+  ADD PRIMARY KEY (`assignment_id`),
+  ADD UNIQUE KEY `unique_organizer_event` (`organizer_id`,`event_id`),
+  ADD KEY `idx_event_id` (`event_id`),
+  ADD KEY `idx_organizer_id` (`organizer_id`),
+  ADD KEY `idx_assigned_by` (`assigned_by`),
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_assignment_fee_status` (`fee_status`,`organizer_id`);
+
+--
 -- Indexes for table `tbl_organizer`
 --
 ALTER TABLE `tbl_organizer`
   ADD PRIMARY KEY (`organizer_id`),
   ADD UNIQUE KEY `unique_user_organizer` (`user_id`),
   ADD KEY `idx_organizer_availability` (`organizer_availability`),
-  ADD KEY `idx_organizer_created` (`created_at`);
+  ADD KEY `idx_organizer_created` (`created_at`),
+  ADD KEY `idx_organizer_talent_fee_range` (`talent_fee_min`,`talent_fee_max`);
 
 --
 -- Indexes for table `tbl_organizer_activity_logs`
@@ -3582,6 +4167,15 @@ ALTER TABLE `tbl_signup_otp`
   ADD UNIQUE KEY `unique_user_email` (`user_id`,`email`),
   ADD KEY `idx_otp_email` (`email`),
   ADD KEY `idx_otp_expires` (`expires_at`);
+
+--
+-- Indexes for table `tbl_staff`
+--
+ALTER TABLE `tbl_staff`
+  ADD PRIMARY KEY (`staff_id`),
+  ADD UNIQUE KEY `unique_user_staff` (`user_id`),
+  ADD KEY `idx_staff_role` (`role_title`),
+  ADD KEY `idx_staff_created_at` (`created_at`);
 
 --
 -- Indexes for table `tbl_suppliers`
@@ -3713,13 +4307,13 @@ ALTER TABLE `tbl_venue_inclusions`
 -- AUTO_INCREMENT for table `tbl_bookings`
 --
 ALTER TABLE `tbl_bookings`
-  MODIFY `booking_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+  MODIFY `booking_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `tbl_booking_activity_logs`
 --
 ALTER TABLE `tbl_booking_activity_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT for table `tbl_document_types`
@@ -3731,13 +4325,13 @@ ALTER TABLE `tbl_document_types`
 -- AUTO_INCREMENT for table `tbl_email_logs`
 --
 ALTER TABLE `tbl_email_logs`
-  MODIFY `email_log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `email_log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT for table `tbl_events`
 --
 ALTER TABLE `tbl_events`
-  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=51;
+  MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=67;
 
 --
 -- AUTO_INCREMENT for table `tbl_event_activity_logs`
@@ -3749,43 +4343,55 @@ ALTER TABLE `tbl_event_activity_logs`
 -- AUTO_INCREMENT for table `tbl_event_components`
 --
 ALTER TABLE `tbl_event_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=353;
+  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=405;
+
+--
+-- AUTO_INCREMENT for table `tbl_event_organizer_assignments`
+--
+ALTER TABLE `tbl_event_organizer_assignments`
+  MODIFY `assignment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=40;
 
 --
 -- AUTO_INCREMENT for table `tbl_organizer`
 --
 ALTER TABLE `tbl_organizer`
-  MODIFY `organizer_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `organizer_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT for table `tbl_organizer_activity_logs`
 --
 ALTER TABLE `tbl_organizer_activity_logs`
-  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=94;
 
 --
 -- AUTO_INCREMENT for table `tbl_packages`
 --
 ALTER TABLE `tbl_packages`
-  MODIFY `package_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=24;
+  MODIFY `package_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
 
 --
 -- AUTO_INCREMENT for table `tbl_payments`
 --
 ALTER TABLE `tbl_payments`
-  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=48;
+  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=58;
 
 --
 -- AUTO_INCREMENT for table `tbl_payment_activity_logs`
 --
 ALTER TABLE `tbl_payment_activity_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `tbl_signup_otp`
 --
 ALTER TABLE `tbl_signup_otp`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+--
+-- AUTO_INCREMENT for table `tbl_staff`
+--
+ALTER TABLE `tbl_staff`
+  MODIFY `staff_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT for table `tbl_suppliers`
@@ -3839,25 +4445,25 @@ ALTER TABLE `tbl_system_activity_logs`
 -- AUTO_INCREMENT for table `tbl_users`
 --
 ALTER TABLE `tbl_users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
 
 --
 -- AUTO_INCREMENT for table `tbl_user_activity_logs`
 --
 ALTER TABLE `tbl_user_activity_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=58;
 
 --
 -- AUTO_INCREMENT for table `tbl_venue`
 --
 ALTER TABLE `tbl_venue`
-  MODIFY `venue_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
+  MODIFY `venue_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=36;
 
 --
 -- AUTO_INCREMENT for table `tbl_venue_inclusions`
 --
 ALTER TABLE `tbl_venue_inclusions`
-  MODIFY `inclusion_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
+  MODIFY `inclusion_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
 
 --
 -- Constraints for dumped tables
@@ -3885,6 +4491,14 @@ ALTER TABLE `tbl_event_components`
   ADD CONSTRAINT `fk_event_component_supplier` FOREIGN KEY (`supplier_id`) REFERENCES `tbl_suppliers` (`supplier_id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 --
+-- Constraints for table `tbl_event_organizer_assignments`
+--
+ALTER TABLE `tbl_event_organizer_assignments`
+  ADD CONSTRAINT `fk_event_organizer_admin` FOREIGN KEY (`assigned_by`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_event_organizer_event` FOREIGN KEY (`event_id`) REFERENCES `tbl_events` (`event_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_event_organizer_organizer` FOREIGN KEY (`organizer_id`) REFERENCES `tbl_organizer` (`organizer_id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `tbl_organizer`
 --
 ALTER TABLE `tbl_organizer`
@@ -3902,6 +4516,12 @@ ALTER TABLE `tbl_organizer_activity_logs`
 ALTER TABLE `tbl_payment_activity_logs`
   ADD CONSTRAINT `tbl_payment_activity_logs_ibfk_1` FOREIGN KEY (`payment_id`) REFERENCES `tbl_payments` (`payment_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `tbl_payment_activity_logs_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `tbl_staff`
+--
+ALTER TABLE `tbl_staff`
+  ADD CONSTRAINT `fk_staff_user` FOREIGN KEY (`user_id`) REFERENCES `tbl_users` (`user_id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
 -- Constraints for table `tbl_supplier_offers`

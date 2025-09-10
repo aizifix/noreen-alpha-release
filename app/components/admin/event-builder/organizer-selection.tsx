@@ -29,6 +29,9 @@ interface Organizer {
   organizer_specialties: string;
   organizer_status: string;
   organizer_profile_picture?: string;
+  talent_fee_min?: number | null;
+  talent_fee_max?: number | null;
+  talent_fee_currency?: string;
 }
 
 // Default organizers as fallback
@@ -108,6 +111,9 @@ export function OrganizerSelection({
               org.experience_summary || "Event Planning, Coordination",
             organizer_status: org.is_active ? "active" : "inactive",
             organizer_profile_picture: org.profile_picture || undefined,
+            talent_fee_min: org.talent_fee_min ?? null,
+            talent_fee_max: org.talent_fee_max ?? null,
+            talent_fee_currency: org.talent_fee_currency || "PHP",
           }));
 
           const finalOrganizers =
@@ -357,6 +363,19 @@ export function OrganizerSelection({
                         <div className="mt-2 text-sm">
                           <p>{organizer.organizer_phone}</p>
                           <p>{organizer.organizer_email}</p>
+                          {(organizer.talent_fee_min != null ||
+                            organizer.talent_fee_max != null) && (
+                            <p className="mt-1 text-muted-foreground">
+                              Fee: {organizer.talent_fee_currency || "PHP"}{" "}
+                              {organizer.talent_fee_min != null
+                                ? organizer.talent_fee_min.toLocaleString()
+                                : "?"}
+                              {" - "}
+                              {organizer.talent_fee_max != null
+                                ? organizer.talent_fee_max.toLocaleString()
+                                : "?"}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>

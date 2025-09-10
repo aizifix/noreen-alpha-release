@@ -1,14 +1,15 @@
 "use client";
 import type React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import Image from "next/image";
-import { SlidingAlert } from "../../components/ui/sliding-alert";
+import { toast } from "@/hooks/use-toast";
 import { redirectIfAuthenticated } from "@/app/utils/routeProtection";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
+import type ReCAPTCHAType from "react-google-recaptcha";
 
 // Dynamic import for ReCAPTCHA to prevent hydration issues
 const ReCAPTCHA = dynamic(() => import("react-google-recaptcha"), {
@@ -29,11 +30,10 @@ const LoginPage = () => {
     password: "",
   });
 
-  const [message, setMessage] = useState("");
-  const [showAlert, setShowAlert] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [captchaResponse, setCaptchaResponse] = useState("");
   const [isClient, setIsClient] = useState(false);
+  const recaptchaRef = useRef<ReCAPTCHAType | null>(null);
   const router = useRouter();
 
   // Fix hydration issues
@@ -79,30 +79,40 @@ const LoginPage = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Handle CAPTCHA change
+  // Handle visible reCAPTCHA token
   const handleCaptchaChange = (token: string | null) => {
     setCaptchaResponse(token || "");
+  };
+
+  const handleCaptchaExpired = () => {
+    setCaptchaResponse("");
+    toast({
+      title: "CAPTCHA expired",
+      description: "Please verify the CAPTCHA again.",
+    });
   };
 
   // Handle form submission (single step with captcha)
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setMessage("");
-    setShowAlert(false);
+
     setIsLoading(true);
 
-    if (!captchaResponse) {
-      setMessage("⚠ Please complete the CAPTCHA.");
-      setShowAlert(true);
-      setIsLoading(false);
-      return;
-    }
-
     try {
+      let shouldResetRecaptcha = false;
+
       const formDataToSend = new FormData();
       formDataToSend.append("operation", "login");
       formDataToSend.append("email", formData.email.trim());
       formDataToSend.append("password", formData.password);
+      if (!captchaResponse) {
+        toast({
+          title: "Complete CAPTCHA",
+          description: "Please complete the CAPTCHA to continue.",
+          variant: "destructive",
+        });
+        return;
+      }
       formDataToSend.append("captcha", captchaResponse);
 
       const response = await axios.post(`${API_URL}/auth.php`, formDataToSend, {
@@ -112,28 +122,53 @@ const LoginPage = () => {
       console.log("Login response:", response.data);
 
       if (response.data.status === "otp_sent") {
+        shouldResetRecaptcha = true;
         // Store user_id and email in cookie for OTP verification
         document.cookie = `pending_otp_user_id=${response.data.user_id}; path=/`;
         document.cookie = `pending_otp_email=${response.data.email}; path=/`;
 
-        setMessage(response.data.message || "OTP sent successfully!");
-        setShowAlert(true);
+        toast({
+          title: "OTP sent",
+          description:
+            response.data.message || "Check your email for the code.",
+        });
 
         // Immediate redirect to OTP page
         router.push("/auth/verify-otp");
       } else if (response.data.status === "error") {
-        setMessage(response.data.message || "⚠ Invalid credentials");
-        setShowAlert(true);
-        setCaptchaResponse("");
+        toast({
+          title: "Login failed",
+          description: response.data.message || "Invalid credentials.",
+          variant: "destructive",
+        });
       } else {
-        setMessage("⚠ Unexpected response from server");
-        setShowAlert(true);
+        toast({
+          title: "Unexpected response",
+          description: "Please try again.",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Login error:", error);
-      setMessage("⚠ Error logging in. Please try again.");
-      setShowAlert(true);
+      toast({
+        title: "Login error",
+        description: "Error logging in. Please try again.",
+        variant: "destructive",
+      });
     } finally {
+      // Only reset CAPTCHA on successful path; keep token on failures
+      try {
+        // If we navigated away, this is a no-op
+        // @ts-expect-error runtime guard
+        if (
+          typeof shouldResetRecaptcha !== "undefined" &&
+          shouldResetRecaptcha
+        ) {
+          recaptchaRef.current?.reset();
+        }
+      } catch (e) {
+        // no-op
+      }
       setIsLoading(false);
     }
   };
@@ -373,9 +408,14 @@ const LoginPage = () => {
                 />
               </div>
 
-              {/* CAPTCHA always visible */}
+              {/* Visible reCAPTCHA with token reuse until expiration */}
               <div className="flex justify-center">
-                <ReCAPTCHA sitekey={SITE_KEY} onChange={handleCaptchaChange} />
+                <ReCAPTCHA
+                  ref={recaptchaRef}
+                  sitekey={SITE_KEY}
+                  onChange={handleCaptchaChange}
+                  onExpired={handleCaptchaExpired}
+                />
               </div>
 
               <div className="flex items-center justify-between text-sm">
@@ -396,7 +436,7 @@ const LoginPage = () => {
               <motion.button
                 type="submit"
                 className="w-full bg-[#334746] text-white py-3 rounded-lg font-medium hover:bg-[#2a3a3a] focus:ring-2 focus:ring-[#334746] focus:ring-offset-2 transition-all duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                disabled={isLoading || !captchaResponse}
+                disabled={isLoading}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
@@ -464,12 +504,6 @@ const LoginPage = () => {
           </div>
         </motion.div>
       </motion.div>
-
-      <SlidingAlert
-        message={message}
-        show={showAlert}
-        onClose={() => setShowAlert(false)}
-      />
     </div>
   );
 };

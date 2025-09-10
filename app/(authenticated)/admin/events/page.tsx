@@ -209,8 +209,10 @@ export default function EventsPage() {
           bg: "bg-green-100",
           text: "text-green-700",
         };
-      // draft = yellow
+      // planning/pending/draft = yellow
       case "draft":
+      case "pending":
+      case "planning":
         return {
           border: "border-yellow-500",
           bg: "bg-yellow-100",
@@ -250,6 +252,65 @@ export default function EventsPage() {
           bg: "bg-gray-50",
           text: "text-gray-700",
         };
+    }
+  };
+
+  const getTodayString = () => {
+    const t = new Date();
+    const y = t.getFullYear();
+    const m = String(t.getMonth() + 1).padStart(2, "0");
+    const d = String(t.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const getDerivedEventStatus = (event: Event) => {
+    // Cancelled takes precedence
+    if (event.event_status === "cancelled") return "cancelled";
+
+    const today = getTodayString();
+
+    if (event.event_date === today) return "on_going";
+    if (event.event_date < today) return "done";
+
+    // Only treat as confirmed when explicitly finalized
+    if (event.finalized_at) return "confirmed";
+
+    // Otherwise, map to non-confirmed statuses; treat stray 'confirmed' as planning
+    const status = (event.event_status || "").toLowerCase().trim();
+    if (["draft", "pending", "planning"].includes(status)) return status;
+    if (["on_going", "done", "cancelled"].includes(status)) return status;
+    return "draft";
+  };
+
+  const formatEventStatusLabel = (status: string) => {
+    switch (status.toLowerCase()) {
+      case "draft":
+        return "Planning";
+      case "on_going":
+        return "On Going";
+      case "confirmed":
+        return "Confirmed";
+      case "done":
+        return "Done";
+      case "cancelled":
+        return "Cancelled";
+      default:
+        return status.charAt(0).toUpperCase() + status.slice(1);
+    }
+  };
+
+  const formatPaymentStatusLabel = (status: string) => {
+    switch (status.toLowerCase()) {
+      case "unpaid":
+        return "Unpaid";
+      case "partial":
+        return "Partial";
+      case "paid":
+        return "Paid";
+      case "refunded":
+        return "Refunded";
+      default:
+        return status;
     }
   };
 
@@ -312,7 +373,8 @@ export default function EventsPage() {
           </div>
           <div className="space-y-1">
             {dayEvents.slice(0, 3).map((event, index) => {
-              const colors = getStatusColor(event.event_status);
+              const derivedStatus = getDerivedEventStatus(event);
+              const colors = getStatusColor(derivedStatus);
               return (
                 <div
                   key={event.event_id}
@@ -441,7 +503,8 @@ export default function EventsPage() {
         ) : (
           <div className="space-y-4">
             {dayEvents.map((event, index) => {
-              const colors = getStatusColor(event.event_status);
+              const derivedStatus = getDerivedEventStatus(event);
+              const colors = getStatusColor(derivedStatus);
               const paymentColors = getPaymentStatusColor(event.payment_status);
 
               const getClientInitials = (name: string) => {
@@ -524,12 +587,12 @@ export default function EventsPage() {
                         <span
                           className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${colors.bg} ${colors.text}`}
                         >
-                          {event.event_status}
+                          {formatEventStatusLabel(getDerivedEventStatus(event))}
                         </span>
                         <span
                           className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
                         >
-                          {event.payment_status}
+                          {formatPaymentStatusLabel(event.payment_status)}
                         </span>
                       </div>
                     </div>
@@ -665,7 +728,7 @@ export default function EventsPage() {
 
             <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200">
               <option value="">All Statuses</option>
-              <option value="draft">Draft</option>
+              <option value="draft">Planning</option>
               <option value="confirmed">Confirmed</option>
               <option value="on_going">On Going</option>
               <option value="done">Done</option>
@@ -704,7 +767,7 @@ export default function EventsPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="w-4 h-4 bg-yellow-100 border-l-4 border-yellow-500 rounded-sm"></div>
-                  <span className="text-gray-700">Planning/Draft</span>
+                  <span className="text-gray-700">Planning</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="w-4 h-4 bg-blue-100 border-l-4 border-blue-500 rounded-sm"></div>
@@ -725,7 +788,8 @@ export default function EventsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {events.map((event, index) => {
-            const colors = getStatusColor(event.event_status);
+            const derivedStatus = getDerivedEventStatus(event);
+            const colors = getStatusColor(derivedStatus);
             const paymentColors = getPaymentStatusColor(event.payment_status);
             return (
               <div
@@ -747,7 +811,12 @@ export default function EventsPage() {
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-semibold ${colors.bg} ${colors.text}`}
                     >
-                      {event.event_status}
+                      {formatEventStatusLabel(derivedStatus)}
+                    </span>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${paymentColors.bg} ${paymentColors.text}`}
+                    >
+                      {formatPaymentStatusLabel(event.payment_status)}
                     </span>
                   </div>
 
@@ -879,6 +948,16 @@ export default function EventsPage() {
                         ₱{event.down_payment?.toLocaleString() || "0"}
                       </span>
                     </div>
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium text-gray-700">
+                        Payment Status:
+                      </span>
+                      <span
+                        className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
+                      >
+                        {formatPaymentStatusLabel(event.payment_status)}
+                      </span>
+                    </div>
                     {event.original_booking_reference && (
                       <div className="flex justify-between">
                         <span className="font-medium text-gray-700">
@@ -888,20 +967,6 @@ export default function EventsPage() {
                           {event.original_booking_reference}
                         </span>
                       </div>
-                    )}
-                  </div>
-
-                  {/* Payment Status */}
-                  <div className="mb-4">
-                    <span
-                      className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
-                    >
-                      Payment: {event.payment_status}
-                    </span>
-                    {event.payment_method && (
-                      <span className="ml-2 text-xs text-gray-500">
-                        via {event.payment_method}
-                      </span>
                     )}
                   </div>
 

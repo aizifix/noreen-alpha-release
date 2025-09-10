@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useMemo } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 import {
@@ -474,7 +474,7 @@ function EventFinalization({
           title: "Success",
           description:
             finalizationAction === "finalize"
-              ? "Event has been finalized. Editing is locked except payment status updates."
+              ? "Event has been finalized. Editing is locked."
               : "Event has been set back to draft status",
         });
         await onEventUpdate();
@@ -517,7 +517,7 @@ function EventFinalization({
 
             <p className="text-gray-600 mb-4">
               {finalizationAction === "finalize"
-                ? "Are you sure you want to finalize this event? Editing will be locked except for payment status updates. The organizer will be notified."
+                ? "Are you sure you want to finalize this event? Editing will be locked. The organizer will be notified."
                 : "Are you sure you want to set this event back to planning status? This will allow full editing again."}
             </p>
 
@@ -586,7 +586,7 @@ function EventFinalization({
               </h3>
               <p className="text-sm text-gray-500">
                 {isEventFinalized
-                  ? "Event is finalized. Editing is locked except for payment status updates."
+                  ? "Event is finalized. Editing is locked."
                   : "Event is in planning status and can be edited"}
               </p>
             </div>
@@ -732,8 +732,7 @@ function EventFinalization({
               </span>
             </div>
             <p className="text-sm text-green-700 mt-1">
-              This event has been finalized. Editing is locked except for
-              payment status updates.
+              This event has been finalized. Editing is locked.
             </p>
             {event.finalized_at && (
               <p className="text-xs text-green-600 mt-2">
@@ -1097,9 +1096,11 @@ function VenueSelection({
 function PackageInclusionsManagement({
   event,
   onEventUpdate,
+  readOnly = false,
 }: {
   event: Event;
   onEventUpdate: () => Promise<void>;
+  readOnly?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const isEventFinalized = !!event.finalized_at;
@@ -1204,6 +1205,7 @@ function PackageInclusionsManagement({
   };
 
   const handleEditToggle = () => {
+    if (readOnly) return;
     if (isEditing) {
       // If currently editing and there are changes, show confirmation
       if (hasChanges()) {
@@ -1495,31 +1497,6 @@ function PackageInclusionsManagement({
           description: `Payment status updated to ${newStatus}`,
         });
 
-        // Create client notification for this inclusion update
-        try {
-          const comp = components.find((c) => c.component_id === componentId);
-          const componentName =
-            (comp as any)?.component_name ||
-            (comp as any)?.name ||
-            `Component #${componentId}`;
-          if (event && event.user_id) {
-            await axios.post("http://localhost/events-api/notifications.php", {
-              operation: "create_notification",
-              user_id: event.user_id,
-              type: "payment_component_status",
-              title: "Inclusion Payment Status Updated",
-              message: `The inclusion ${componentName} payment status is now ${newStatus}.`,
-              priority: "medium",
-              icon: "credit-card",
-              url: `/client/events/${event.event_id}`,
-              event_id: event.event_id,
-              expires_hours: 168,
-            });
-          }
-        } catch (e) {
-          // Non-blocking: ignore notification errors
-        }
-
         // Refresh event data to get updated stats
         await onEventUpdate();
       } else {
@@ -1590,7 +1567,7 @@ function PackageInclusionsManagement({
               </div>
             </div>
             <div className="flex gap-2">
-              {isEditing && hasChanges() && (
+              {!readOnly && isEditing && hasChanges() && (
                 <>
                   <Button
                     onClick={handleSaveChanges}
@@ -1621,7 +1598,7 @@ function PackageInclusionsManagement({
                   </Button>
                 </>
               )}
-              {isEditing && !hasChanges() && (
+              {!readOnly && isEditing && !hasChanges() && (
                 <Button
                   onClick={handleEditToggle}
                   variant="outline"
@@ -1632,7 +1609,7 @@ function PackageInclusionsManagement({
                   Cancel
                 </Button>
               )}
-              {!isEditing && (
+              {!isEditing && !readOnly && (
                 <Button
                   onClick={handleEditToggle}
                   variant="default"
@@ -1862,7 +1839,7 @@ function PackageInclusionsManagement({
                   key={
                     component?.component_id && component.component_id !== 0
                       ? `component-${component.component_id}`
-                      : `component-temp-${index}-${component?.component_name || "unnamed"}`
+                      : `component-temp-${index}-${component?.component_name || component?.name || "unnamed"}`
                   }
                   className={`border rounded-lg p-4 transition-all ${
                     component.is_included
@@ -1904,9 +1881,14 @@ function PackageInclusionsManagement({
                             handleToggleInclusion(component.component_id)
                           }
                           loading={loading}
-                          onUpdateComponent={handleUpdateComponent}
-                          onSetPaymentStatus={(id, status) =>
-                            handlePaymentStatusChange(id, status)
+                          onUpdateComponent={
+                            readOnly ? undefined : handleUpdateComponent
+                          }
+                          onSetPaymentStatus={
+                            readOnly
+                              ? undefined
+                              : (id, status) =>
+                                  handlePaymentStatusChange(id, status)
                           }
                         />
                       </div>
@@ -1927,7 +1909,7 @@ function PackageInclusionsManagement({
           )}
 
           {/* Inline Payment Status Dropdown */}
-          {editingPaymentStatusFor && (
+          {editingPaymentStatusFor && !readOnly && (
             <div
               className="fixed inset-0 z-40"
               onClick={() => setEditingPaymentStatusFor(null)}
@@ -1946,7 +1928,7 @@ function PackageInclusionsManagement({
           </div>
 
           {/* Add New Component Button */}
-          {!showAddForm && !isEventFinalized && (
+          {!showAddForm && !isEventFinalized && !readOnly && (
             <div className="text-center">
               <Button
                 onClick={() => setShowAddForm(true)}
@@ -1962,7 +1944,7 @@ function PackageInclusionsManagement({
           )}
 
           {/* Add New Component Form */}
-          {showAddForm && (
+          {showAddForm && !readOnly && (
             <div className="border-2 border-dashed border-green-300 rounded-lg p-4 bg-green-50">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium text-green-900">
@@ -2171,75 +2153,35 @@ function ComponentDisplay({
                 </span>
               )}
             </div>
-            {/* Payment Status */}
+            {/* Payment Status - static for clients (no dropdown) */}
             {component.is_included && (
               <div className="flex items-center gap-2 mt-3">
                 <div className="text-xs text-gray-500">Payment Status:</div>
-                <div className="relative">
-                  <button
-                    onClick={() => setShowStatusMenu((v) => !v)}
-                    className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer hover:scale-105 active:scale-95 ${
-                      component.payment_status === "paid"
-                        ? "bg-green-100 text-green-800 border border-green-300"
-                        : component.payment_status === "cancelled"
-                          ? "bg-red-100 text-red-800 border border-red-300"
-                          : "bg-yellow-100 text-yellow-800 border border-yellow-300"
-                    }`}
-                  >
-                    {component.payment_status === "paid" && (
-                      <>
-                        <CheckCircle className="h-3 w-3 mr-1" /> Paid
-                      </>
-                    )}
-                    {component.payment_status === "pending" && (
-                      <>
-                        <Clock className="h-3 w-3 mr-1" /> Pending
-                      </>
-                    )}
-                    {component.payment_status === "cancelled" && (
-                      <>
-                        <X className="h-3 w-3 mr-1" /> Cancelled
-                      </>
-                    )}
-                  </button>
-                  {showStatusMenu && (
-                    <div className="absolute z-50 mt-2 w-40 bg-white border rounded-md shadow-lg p-1">
-                      <button
-                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
-                        onClick={() => {
-                          onSetPaymentStatus?.(component.component_id, "paid");
-                          setShowStatusMenu(false);
-                        }}
-                      >
-                        Mark as Paid
-                      </button>
-                      <button
-                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
-                        onClick={() => {
-                          onSetPaymentStatus?.(
-                            component.component_id,
-                            "pending"
-                          );
-                          setShowStatusMenu(false);
-                        }}
-                      >
-                        Mark as Pending
-                      </button>
-                      <button
-                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                        onClick={() => {
-                          onSetPaymentStatus?.(
-                            component.component_id,
-                            "cancelled"
-                          );
-                          setShowStatusMenu(false);
-                        }}
-                      >
-                        Mark as Cancelled
-                      </button>
-                    </div>
+                <span
+                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${
+                    component.payment_status === "paid"
+                      ? "bg-green-100 text-green-800 border-green-300"
+                      : component.payment_status === "cancelled"
+                        ? "bg-red-100 text-red-800 border-red-300"
+                        : "bg-yellow-100 text-yellow-800 border-yellow-300"
+                  }`}
+                >
+                  {component.payment_status === "paid" && (
+                    <>
+                      <CheckCircle className="h-3 w-3 mr-1" /> Paid
+                    </>
                   )}
-                </div>
+                  {component.payment_status === "pending" && (
+                    <>
+                      <Clock className="h-3 w-3 mr-1" /> Pending
+                    </>
+                  )}
+                  {component.payment_status === "cancelled" && (
+                    <>
+                      <X className="h-3 w-3 mr-1" /> Cancelled
+                    </>
+                  )}
+                </span>
                 {component.payment_date &&
                   component.payment_status === "paid" && (
                     <span className="text-xs text-gray-500">
@@ -2407,17 +2349,92 @@ function ComponentDisplay({
             )}
           </div>
           {/* Payment Status in Edit Mode */}
-          {component.is_included && (
-            <div className="flex items-center gap-2 mt-3">
-              <div className="relative">
-                <button
-                  onClick={() => setShowStatusMenu((v) => !v)}
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity ${
+          {component.is_included &&
+            (onSetPaymentStatus ? (
+              <div className="flex items-center gap-2 mt-3">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowStatusMenu((v) => !v)}
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity ${
+                      component.payment_status === "paid"
+                        ? "bg-green-100 text-green-800"
+                        : component.payment_status === "cancelled"
+                          ? "bg-red-100 text-red-800"
+                          : "bg-yellow-100 text-yellow-800"
+                    }`}
+                  >
+                    {component.payment_status === "paid" && (
+                      <>
+                        <CheckCircle className="h-3 w-3 mr-1" /> Paid
+                      </>
+                    )}
+                    {component.payment_status === "pending" && (
+                      <>
+                        <Clock className="h-3 w-3 mr-1" /> Pending
+                      </>
+                    )}
+                    {component.payment_status === "cancelled" && (
+                      <>
+                        <X className="h-3 w-3 mr-1" /> Cancelled
+                      </>
+                    )}
+                  </button>
+                  {showStatusMenu && (
+                    <div className="absolute z-50 mt-2 w-40 bg-white border rounded-md shadow-lg p-1">
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
+                        onClick={() => {
+                          onSetPaymentStatus?.(component.component_id, "paid");
+                          setShowStatusMenu(false);
+                        }}
+                      >
+                        Mark as Paid
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
+                        onClick={() => {
+                          onSetPaymentStatus?.(
+                            component.component_id,
+                            "pending"
+                          );
+                          setShowStatusMenu(false);
+                        }}
+                      >
+                        Mark as Pending
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                        onClick={() => {
+                          onSetPaymentStatus?.(
+                            component.component_id,
+                            "cancelled"
+                          );
+                          setShowStatusMenu(false);
+                        }}
+                      >
+                        Mark as Cancelled
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {component.payment_date &&
+                  component.payment_status === "paid" && (
+                    <span className="text-xs text-gray-500">
+                      Paid on{" "}
+                      {new Date(component.payment_date).toLocaleDateString()}
+                    </span>
+                  )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mt-3">
+                <div className="text-xs text-gray-500">Payment Status:</div>
+                <span
+                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${
                     component.payment_status === "paid"
-                      ? "bg-green-100 text-green-800"
+                      ? "bg-green-100 text-green-800 border-green-300"
                       : component.payment_status === "cancelled"
-                        ? "bg-red-100 text-red-800"
-                        : "bg-yellow-100 text-yellow-800"
+                        ? "bg-red-100 text-red-800 border-red-300"
+                        : "bg-yellow-100 text-yellow-800 border-yellow-300"
                   }`}
                 >
                   {component.payment_status === "paid" && (
@@ -2435,51 +2452,16 @@ function ComponentDisplay({
                       <X className="h-3 w-3 mr-1" /> Cancelled
                     </>
                   )}
-                </button>
-                {showStatusMenu && (
-                  <div className="absolute z-50 mt-2 w-40 bg-white border rounded-md shadow-lg p-1">
-                    <button
-                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
-                      onClick={() => {
-                        onSetPaymentStatus?.(component.component_id, "paid");
-                        setShowStatusMenu(false);
-                      }}
-                    >
-                      Mark as Paid
-                    </button>
-                    <button
-                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
-                      onClick={() => {
-                        onSetPaymentStatus?.(component.component_id, "pending");
-                        setShowStatusMenu(false);
-                      }}
-                    >
-                      Mark as Pending
-                    </button>
-                    <button
-                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                      onClick={() => {
-                        onSetPaymentStatus?.(
-                          component.component_id,
-                          "cancelled"
-                        );
-                        setShowStatusMenu(false);
-                      }}
-                    >
-                      Mark as Cancelled
-                    </button>
-                  </div>
-                )}
+                </span>
+                {component.payment_date &&
+                  component.payment_status === "paid" && (
+                    <span className="text-xs text-gray-500">
+                      Paid on{" "}
+                      {new Date(component.payment_date).toLocaleDateString()}
+                    </span>
+                  )}
               </div>
-              {component.payment_date &&
-                component.payment_status === "paid" && (
-                  <span className="text-xs text-gray-500">
-                    Paid on{" "}
-                    {new Date(component.payment_date).toLocaleDateString()}
-                  </span>
-                )}
-            </div>
-          )}
+            ))}
         </div>
         <div className="flex gap-2 ml-4">
           <Button
@@ -2829,7 +2811,13 @@ function ClientProfile({ event }: { event: Event }) {
 }
 
 // Payment History Component
-function PaymentHistoryTab({ event }: { event: Event }) {
+function PaymentHistoryTab({
+  event,
+  readOnly,
+}: {
+  event: Event;
+  readOnly?: boolean;
+}) {
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryItem[]>(
     []
   );
@@ -3066,415 +3054,421 @@ function PaymentHistoryTab({ event }: { event: Event }) {
   return (
     <div className="space-y-4">
       {/* Header actions */}
-      <div className="flex items-center justify-end">
-        <Button
-          onClick={() => setIsPaymentModalOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700"
-        >
-          Make Payment
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="flex items-center justify-end">
+          <Button
+            onClick={() => setIsPaymentModalOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            Make Payment
+          </Button>
+        </div>
+      )}
 
       {/* Make Payment Modal */}
-      <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-        <DialogContent
-          className="max-w-2xl lg:max-w-xl max-h-[85vh] overflow-y-auto pr-3 md:pr-4"
-          style={{ scrollbarGutter: "stable both-edges" }}
-        >
-          <DialogHeader>
-            <DialogTitle className="text-xl">Record Payment</DialogTitle>
-            <DialogDescription className="text-sm">
-              Add payment details and proof. Use custom amount or percentage of
-              package price.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-1 gap-6">
-            <div>
-              {/* Summary on top */}
-              <div className="rounded-lg border p-4 bg-blue-50/50 mb-4">
-                <h4 className="font-semibold text-blue-900 mb-3">
-                  Payment Summary
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                  <div>
-                    <div className="text-blue-700">Package Price</div>
-                    <div className="font-semibold text-blue-900">
-                      ₱
-                      {event.total_budget.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-blue-700">Amount Paid</div>
-                    <div className="font-semibold text-blue-900">
-                      ₱
-                      {(
-                        paymentHistory?.reduce(
-                          (sum, p) =>
-                            p.payment_status === "completed"
-                              ? sum + p.payment_amount
-                              : sum,
-                          0
-                        ) || 0
-                      ).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-blue-700">Balance Due</div>
-                    <div className="font-semibold text-blue-900">
-                      ₱
-                      {(
-                        event.total_budget -
-                        (paymentHistory?.reduce(
-                          (sum, p) =>
-                            p.payment_status === "completed"
-                              ? sum + p.payment_amount
-                              : sum,
-                          0
-                        ) || 0)
-                      ).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                  </div>
-                </div>
-                {(() => {
-                  const paid =
-                    paymentHistory?.reduce(
-                      (sum, p) =>
-                        p.payment_status === "completed"
-                          ? sum + p.payment_amount
-                          : sum,
-                      0
-                    ) || 0;
-                  const pct =
-                    event.total_budget > 0
-                      ? (paid / event.total_budget) * 100
-                      : 0;
-                  return (
-                    <div className="mt-3">
-                      <div className="text-blue-700 text-sm mb-1">
-                        Payment Progress
-                      </div>
-                      <div className="w-full h-2 rounded bg-blue-100 overflow-hidden">
-                        <div
-                          className="h-2 bg-blue-600"
-                          style={{ width: `${pct.toFixed(1)}%` }}
-                        />
-                      </div>
-                      <div className="text-xs text-blue-700 mt-1">
-                        {pct.toFixed(1)}% Complete
+      {!readOnly && (
+        <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
+          <DialogContent
+            className="max-w-2xl lg:max-w-xl max-h-[85vh] overflow-y-auto pr-3 md:pr-4"
+            style={{ scrollbarGutter: "stable both-edges" }}
+          >
+            <DialogHeader>
+              <DialogTitle className="text-xl">Record Payment</DialogTitle>
+              <DialogDescription className="text-sm">
+                Add payment details and proof. Use custom amount or percentage
+                of package price.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-1 gap-6">
+              <div>
+                {/* Summary on top */}
+                <div className="rounded-lg border p-4 bg-blue-50/50 mb-4">
+                  <h4 className="font-semibold text-blue-900 mb-3">
+                    Payment Summary
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <div className="text-blue-700">Package Price</div>
+                      <div className="font-semibold text-blue-900">
+                        ₱
+                        {event.total_budget.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </div>
                     </div>
-                  );
-                })()}
-              </div>
-
-              {/* Payment type buttons (Full, Percentage, Amount) */}
-              <div className="mb-4">
-                <div className="text-sm font-medium text-gray-700 mb-2">
-                  Payment Type
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant={
-                      newPayment.payment_type === "custom"
-                        ? "default"
-                        : "outline"
-                    }
-                    size="sm"
-                    onClick={() =>
-                      setNewPayment((p) => ({ ...p, payment_type: "custom" }))
-                    }
-                  >
-                    <DollarSign className="h-3 w-3 mr-1" /> Custom Amount
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={
-                      newPayment.payment_type === "percentage"
-                        ? "default"
-                        : "outline"
-                    }
-                    size="sm"
-                    onClick={() =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_type: "percentage",
-                      }))
-                    }
-                  >
-                    <Percent className="h-3 w-3 mr-1" /> Percentage
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={
-                      newPayment.payment_type === "full" ? "default" : "outline"
-                    }
-                    size="sm"
-                    onClick={() =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_type: "full",
-                        percentage: 100,
-                        payment_amount: Math.max(
-                          0,
+                    <div>
+                      <div className="text-blue-700">Amount Paid</div>
+                      <div className="font-semibold text-blue-900">
+                        ₱
+                        {(
+                          paymentHistory?.reduce(
+                            (sum, p) =>
+                              p.payment_status === "completed"
+                                ? sum + p.payment_amount
+                                : sum,
+                            0
+                          ) || 0
+                        ).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-blue-700">Balance Due</div>
+                      <div className="font-semibold text-blue-900">
+                        ₱
+                        {(
                           event.total_budget -
-                            (paymentHistory?.reduce(
-                              (s, pay) =>
-                                pay.payment_status === "completed"
-                                  ? s + pay.payment_amount
-                                  : s,
-                              0
-                            ) || 0)
-                        ).valueOf(),
-                      }))
-                    }
-                  >
-                    <Wallet className="h-3 w-3 mr-1" /> Pay Full Balance
-                  </Button>
+                          (paymentHistory?.reduce(
+                            (sum, p) =>
+                              p.payment_status === "completed"
+                                ? sum + p.payment_amount
+                                : sum,
+                            0
+                          ) || 0)
+                        ).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  {(() => {
+                    const paid =
+                      paymentHistory?.reduce(
+                        (sum, p) =>
+                          p.payment_status === "completed"
+                            ? sum + p.payment_amount
+                            : sum,
+                        0
+                      ) || 0;
+                    const pct =
+                      event.total_budget > 0
+                        ? (paid / event.total_budget) * 100
+                        : 0;
+                    return (
+                      <div className="mt-3">
+                        <div className="text-blue-700 text-sm mb-1">
+                          Payment Progress
+                        </div>
+                        <div className="w-full h-2 rounded bg-blue-100 overflow-hidden">
+                          <div
+                            className="h-2 bg-blue-600"
+                            style={{ width: `${pct.toFixed(1)}%` }}
+                          />
+                        </div>
+                        <div className="text-xs text-blue-700 mt-1">
+                          {pct.toFixed(1)}% Complete
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
-              </div>
 
-              {newPayment.payment_type === "percentage" && (
+                {/* Payment type buttons (Full, Percentage, Amount) */}
                 <div className="mb-4">
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Percentage
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    value={newPayment.percentage}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        percentage: parseFloat(e.target.value) || 0,
-                        payment_amount:
-                          (event.total_budget *
-                            (parseFloat(e.target.value) || 0)) /
-                            100 || 0,
-                      }))
-                    }
-                    placeholder="e.g., 25"
-                    className="w-28 px-3 py-2 border rounded-md"
-                  />
-                </div>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Payment Amount *
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={newPayment.payment_amount}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_amount: parseFloat(e.target.value) || 0,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border rounded-md"
-                    placeholder="0.00"
-                    disabled={newPayment.payment_type === "full"}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Payment Method *
-                  </label>
-                  <select
-                    value={newPayment.payment_method}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_method: e.target.value as any,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border rounded-md capitalize"
-                  >
-                    <option value="cash">Cash</option>
-                    <option value="gcash">GCash</option>
-                    <option value="bank-transfer">Bank Transfer</option>
-                  </select>
-                </div>
-                <div className="md:col-span-1">
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Payment Date *
-                  </label>
-                  <input
-                    type="date"
-                    value={newPayment.payment_date}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_date: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border rounded-md"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Status *
-                  </label>
-                  <select
-                    value={newPayment.payment_status}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_status: e.target.value as any,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border rounded-md capitalize"
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="completed">Completed</option>
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Reference Number (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={newPayment.payment_reference}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_reference: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border rounded-md"
-                    placeholder="Transaction reference"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Notes (Optional)
-                  </label>
-                  <textarea
-                    value={newPayment.payment_notes}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_notes: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-3 border rounded-md min-h-28 resize-vertical"
-                    rows={4}
-                    placeholder="Additional notes..."
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-gray-700 mb-2">
-                    📎 Payment Attachments (Optional)
-                  </label>
-                  <div
-                    className={`border-2 border-dashed rounded-lg p-5 text-center transition-colors ${dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"}`}
-                    onDragEnter={handleDrag}
-                    onDragLeave={handleDrag}
-                    onDragOver={handleDrag}
-                    onDrop={handleDrop}
-                  >
-                    <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-                    <p className="text-sm md:text-base font-medium text-gray-700 mb-1">
-                      Proof of Payment
-                    </p>
-                    <p className="text-xs md:text-sm text-gray-500 mb-3">
-                      Upload receipts, screenshots, or other payment proof
-                      documents
-                    </p>
+                  <div className="text-sm font-medium text-gray-700 mb-2">
+                    Payment Type
+                  </div>
+                  <div className="flex gap-2">
                     <Button
                       type="button"
-                      variant="outline"
-                      onClick={handleUploadClick}
-                      disabled={isCreating}
+                      variant={
+                        newPayment.payment_type === "custom"
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      onClick={() =>
+                        setNewPayment((p) => ({ ...p, payment_type: "custom" }))
+                      }
                     >
-                      Choose Files
+                      <DollarSign className="h-3 w-3 mr-1" /> Custom Amount
                     </Button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
+                    <Button
+                      type="button"
+                      variant={
+                        newPayment.payment_type === "percentage"
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      onClick={() =>
                         setNewPayment((p) => ({
                           ...p,
-                          attachments: files as File[],
-                        }));
-                      }}
-                      accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx"
-                    />
-                    <div className="text-xs md:text-sm text-gray-500 mt-3">
-                      Supported: JPG, PNG, PDF, DOC, DOCX (Max 5MB each)
-                    </div>
+                          payment_type: "percentage",
+                        }))
+                      }
+                    >
+                      <Percent className="h-3 w-3 mr-1" /> Percentage
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={
+                        newPayment.payment_type === "full"
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      onClick={() =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_type: "full",
+                          percentage: 100,
+                          payment_amount: Math.max(
+                            0,
+                            event.total_budget -
+                              (paymentHistory?.reduce(
+                                (s, pay) =>
+                                  pay.payment_status === "completed"
+                                    ? s + pay.payment_amount
+                                    : s,
+                                0
+                              ) || 0)
+                          ).valueOf(),
+                        }))
+                      }
+                    >
+                      <Wallet className="h-3 w-3 mr-1" /> Pay Full Balance
+                    </Button>
                   </div>
+                </div>
 
-                  {newPayment.attachments.length > 0 && (
-                    <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {newPayment.attachments.map((file, idx) => (
-                        <div
-                          key={`${file.name}-${idx}`}
-                          className="flex items-center gap-3 bg-gray-50 p-3 rounded border"
-                        >
-                          {file.type.startsWith("image/") ? (
-                            <img
-                              src={URL.createObjectURL(file)}
-                              alt={file.name}
-                              className="w-12 h-12 object-cover rounded"
-                            />
-                          ) : (
-                            <FileIcon className="w-7 h-7 text-gray-500" />
-                          )}
-                          <div className="min-w-0">
-                            <div className="text-xs md:text-sm font-medium text-gray-900 truncate max-w-[200px]">
-                              {file.name}
-                            </div>
-                            <div className="text-[10px] md:text-xs text-gray-500">
-                              {(file.size / 1024).toFixed(1)} KB
+                {newPayment.payment_type === "percentage" && (
+                  <div className="mb-4">
+                    <label className="block text-sm text-gray-700 mb-1">
+                      Percentage
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      value={newPayment.percentage}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          percentage: parseFloat(e.target.value) || 0,
+                          payment_amount:
+                            (event.total_budget *
+                              (parseFloat(e.target.value) || 0)) /
+                              100 || 0,
+                        }))
+                      }
+                      placeholder="e.g., 25"
+                      className="w-28 px-3 py-2 border rounded-md"
+                    />
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">
+                      Payment Amount *
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={newPayment.payment_amount}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_amount: parseFloat(e.target.value) || 0,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border rounded-md"
+                      placeholder="0.00"
+                      disabled={newPayment.payment_type === "full"}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">
+                      Payment Method *
+                    </label>
+                    <select
+                      value={newPayment.payment_method}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_method: e.target.value as any,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border rounded-md capitalize"
+                    >
+                      <option value="cash">Cash</option>
+                      <option value="gcash">GCash</option>
+                      <option value="bank-transfer">Bank Transfer</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-1">
+                    <label className="block text-sm text-gray-700 mb-1">
+                      Payment Date *
+                    </label>
+                    <input
+                      type="date"
+                      value={newPayment.payment_date}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_date: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">
+                      Status *
+                    </label>
+                    <select
+                      value={newPayment.payment_status}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_status: e.target.value as any,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border rounded-md capitalize"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm text-gray-700 mb-1">
+                      Reference Number (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={newPayment.payment_reference}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_reference: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border rounded-md"
+                      placeholder="Transaction reference"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm text-gray-700 mb-1">
+                      Notes (Optional)
+                    </label>
+                    <textarea
+                      value={newPayment.payment_notes}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_notes: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-3 border rounded-md min-h-28 resize-vertical"
+                      rows={4}
+                      placeholder="Additional notes..."
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm text-gray-700 mb-2">
+                      📎 Payment Attachments (Optional)
+                    </label>
+                    <div
+                      className={`border-2 border-dashed rounded-lg p-5 text-center transition-colors ${dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"}`}
+                      onDragEnter={handleDrag}
+                      onDragLeave={handleDrag}
+                      onDragOver={handleDrag}
+                      onDrop={handleDrop}
+                    >
+                      <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+                      <p className="text-sm md:text-base font-medium text-gray-700 mb-1">
+                        Proof of Payment
+                      </p>
+                      <p className="text-xs md:text-sm text-gray-500 mb-3">
+                        Upload receipts, screenshots, or other payment proof
+                        documents
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleUploadClick}
+                        disabled={isCreating}
+                      >
+                        Choose Files
+                      </Button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          setNewPayment((p) => ({
+                            ...p,
+                            attachments: files as File[],
+                          }));
+                        }}
+                        accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx"
+                      />
+                      <div className="text-xs md:text-sm text-gray-500 mt-3">
+                        Supported: JPG, PNG, PDF, DOC, DOCX (Max 5MB each)
+                      </div>
+                    </div>
+
+                    {newPayment.attachments.length > 0 && (
+                      <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {newPayment.attachments.map((file, idx) => (
+                          <div
+                            key={`${file.name}-${idx}`}
+                            className="flex items-center gap-3 bg-gray-50 p-3 rounded border"
+                          >
+                            {file.type.startsWith("image/") ? (
+                              <img
+                                src={URL.createObjectURL(file)}
+                                alt={file.name}
+                                className="w-12 h-12 object-cover rounded"
+                              />
+                            ) : (
+                              <FileIcon className="w-7 h-7 text-gray-500" />
+                            )}
+                            <div className="min-w-0">
+                              <div className="text-xs md:text-sm font-medium text-gray-900 truncate max-w-[200px]">
+                                {file.name}
+                              </div>
+                              <div className="text-[10px] md:text-xs text-gray-500">
+                                {(file.size / 1024).toFixed(1)} KB
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Right column removed (summary moved to top) */}
                 </div>
-                {/* Right column removed (summary moved to top) */}
-              </div>
-              {/* Right column summary */}
-              <div className="mt-5 flex justify-end gap-3">
-                <Button
-                  onClick={() => setIsPaymentModalOpen(false)}
-                  variant="outline"
-                  disabled={isCreating}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreatePayment}
-                  disabled={isCreating || newPayment.payment_amount <= 0}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  {isCreating ? "Saving..." : "Record Payment"}
-                </Button>
+                {/* Right column summary */}
+                <div className="mt-5 flex justify-end gap-3">
+                  <Button
+                    onClick={() => setIsPaymentModalOpen(false)}
+                    variant="outline"
+                    disabled={isCreating}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleCreatePayment}
+                    disabled={isCreating || newPayment.payment_amount <= 0}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {isCreating ? "Saving..." : "Record Payment"}
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
         <h4 className="font-semibold text-blue-900 mb-2">Payment Summary</h4>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
@@ -3634,17 +3628,28 @@ function PaymentHistoryTab({ event }: { event: Event }) {
 export default function EventDetailsPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const eventId = params.id as string;
   const [event, setEvent] = useState<Event | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+  const currentUser = secureStorage.getItem("user");
+  const isClient =
+    !!currentUser && (currentUser.user_role || "").toLowerCase() === "client";
+  const linkUserIdParam =
+    searchParams?.get("user_id") || searchParams?.get("uid");
+  const linkUserId = linkUserIdParam ? parseInt(linkUserIdParam) : 0;
   const [organizerMeta, setOrganizerMeta] = useState<{
     pending: string[];
     accepted: string[];
     rejected: string[];
     externalOrganizer?: string | null;
   } | null>(null);
+  const [eventNotifications, setEventNotifications] = useState<any[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [recentSince, setRecentSince] = useState<string | null>(null);
+  const notificationsPollRef = useRef<any>(null);
   const [showOrganizerStatusMenu, setShowOrganizerStatusMenu] = useState(false);
   const [showVenueStatusMenu, setShowVenueStatusMenu] = useState(false);
   const [venuePaymentSupported, setVenuePaymentSupported] = useState(true);
@@ -3710,11 +3715,180 @@ export default function EventDetailsPage() {
   };
 
   useEffect(() => {
-    protectRoute();
+    // Allow access if logged-in client or if link contains a user_id
+    if (!isClient && !linkUserId) {
+      try {
+        protectRoute();
+      } catch {}
+    }
     if (eventId) {
       fetchEventDetails();
     }
-  }, [eventId]);
+  }, [eventId, isClient, linkUserId]);
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!isClient || !event?.event_id) return;
+      try {
+        setLoadingNotifications(true);
+        const user = secureStorage.getItem("user");
+        const uid = user?.user_id;
+        if (!uid) return;
+        const res = await axios.get(
+          `http://localhost/events-api/notifications.php?operation=get_notifications&user_id=${uid}&limit=50`
+        );
+        if (res.data && res.data.status === "success") {
+          const list = Array.isArray(res.data.notifications)
+            ? res.data.notifications
+            : [];
+          const filtered = list.filter(
+            (n: any) => n.event_id === event.event_id
+          );
+          setEventNotifications(filtered);
+          // Initialize recentSince to now to avoid duplicating initial items in the polling loop
+          setRecentSince(new Date().toISOString());
+        } else {
+          setEventNotifications([]);
+        }
+      } catch {
+        setEventNotifications([]);
+      } finally {
+        setLoadingNotifications(false);
+      }
+    };
+    fetchNotifications();
+  }, [event?.event_id, isClient]);
+
+  // Real-time polling for recent notifications and UI refresh
+  useEffect(() => {
+    if (!isClient || !event?.event_id) return;
+    const user = secureStorage.getItem("user");
+    const uid = user?.user_id;
+    if (!uid) return;
+
+    // Clear any existing interval
+    if (notificationsPollRef.current) {
+      clearInterval(notificationsPollRef.current);
+      notificationsPollRef.current = null;
+    }
+
+    const poll = async () => {
+      try {
+        const sinceParam = recentSince
+          ? `&since=${encodeURIComponent(recentSince)}`
+          : "";
+        const url = `http://localhost/events-api/notifications.php?operation=get_recent&user_id=${uid}${sinceParam}`;
+        const res = await axios.get(url);
+        if (res.data && res.data.status === "success") {
+          const list = Array.isArray(res.data.notifications)
+            ? res.data.notifications
+            : [];
+          const relevant = list.filter(
+            (n: any) => n.event_id === event.event_id
+          );
+
+          if (relevant.length > 0) {
+            let createdNew: any[] = [];
+            // Merge and deduplicate by notification_id; capture newcomers
+            setEventNotifications((prev) => {
+              const prevIds = new Set(prev.map((n: any) => n.notification_id));
+              const newcomers = relevant.filter(
+                (n: any) => !prevIds.has(n.notification_id)
+              );
+              createdNew = newcomers;
+              const map = new Map<number, any>();
+              for (const n of prev) map.set(n.notification_id, n);
+              for (const n of relevant) map.set(n.notification_id, n);
+              const merged = Array.from(map.values());
+              merged.sort((a: any, b: any) => {
+                const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+                const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+                return tb - ta;
+              });
+              return merged;
+            });
+
+            // If any payment-related notification, refresh event details
+            const needsRefresh = relevant.some(
+              (n: any) =>
+                typeof n.notification_type === "string" &&
+                n.notification_type.startsWith("payment_")
+            );
+            if (needsRefresh) {
+              await fetchEventDetails();
+            }
+
+            // Toast newcomers (limit to 3 to avoid spam)
+            try {
+              if (createdNew.length > 0) {
+                const top = createdNew.slice(0, 3);
+                for (const n of top) {
+                  toast({
+                    title: n.notification_title || "New update",
+                    description:
+                      n.notification_message || "You have a new notification.",
+                  });
+                }
+                const remaining = createdNew.length - top.length;
+                if (remaining > 0) {
+                  toast({
+                    title: "More updates",
+                    description: `You have ${remaining} more new notifications.`,
+                  });
+                }
+              }
+            } catch {}
+          }
+
+          // Advance the since cursor using server-provided timestamp if available, else now
+          if (typeof res.data.timestamp === "string" && res.data.timestamp) {
+            setRecentSince(res.data.timestamp);
+          } else {
+            setRecentSince(new Date().toISOString());
+          }
+        }
+      } catch {
+        // silent
+      }
+    };
+
+    const startInterval = () => {
+      const visible =
+        typeof document !== "undefined"
+          ? document.visibilityState === "visible"
+          : true;
+      const intervalMs = visible ? 2000 : 10000;
+      notificationsPollRef.current = setInterval(poll, intervalMs);
+    };
+
+    // Start interval polling
+    startInterval();
+    // Immediate kick-off as well
+    poll();
+
+    const onVisibilityChange = () => {
+      if (notificationsPollRef.current) {
+        clearInterval(notificationsPollRef.current);
+        notificationsPollRef.current = null;
+      }
+      startInterval();
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+
+    return () => {
+      if (notificationsPollRef.current) {
+        clearInterval(notificationsPollRef.current);
+        notificationsPollRef.current = null;
+      }
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }
+    };
+    // Intentionally exclude recentSince from deps to avoid resetting interval; it's used inside poll closure
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isClient, event?.event_id]);
 
   const openAssignOrganizer = async () => {
     setShowAssignOrganizer(true);
@@ -3910,42 +4084,49 @@ export default function EventDetailsPage() {
     try {
       setIsLoading(true);
       console.log("🔍 Fetching event details for ID:", eventId);
-
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "getEventById",
-          event_id: parseInt(eventId),
+      if (isClient || linkUserId) {
+        const user = secureStorage.getItem("user");
+        const uid = isClient ? user?.user_id : linkUserId;
+        if (!uid || uid <= 0) {
+          toast({ title: "Error", description: "Missing client ID" });
+          return;
         }
-      );
-
-      console.log("📡 API Response:", response.data);
-
-      if (response.data.status === "success") {
-        setEvent(response.data.event);
-        console.log("✅ Event data loaded:", response.data.event);
-
-        // Debug profile picture
-        console.log("🖼️ Profile Picture Debug:", {
-          client_pfp: response.data.event.client_pfp,
-          has_pfp: !!response.data.event.client_pfp,
-          pfp_type: typeof response.data.event.client_pfp,
+        const res = await axios.get("http://localhost/events-api/client.php", {
+          params: {
+            operation: "getClientEventDetails",
+            user_id: uid,
+            event_id: parseInt(eventId),
+          },
         });
-
-        // Debug attachments
-        console.log("📎 Attachments Debug:", {
-          event_attachments: response.data.event.event_attachments,
-          attachments: response.data.event.attachments,
-          has_attachments: !!response.data.event.attachments,
-          attachments_length: response.data.event.attachments?.length || 0,
-        });
+        if (res.data && res.data.status === "success" && res.data.event) {
+          setEvent(res.data.event);
+        } else {
+          toast({
+            title: "Error",
+            description: res?.data?.message || "Failed to load event",
+            variant: "destructive",
+          });
+        }
       } else {
-        console.error("❌ API Error:", response.data.message);
-        toast({
-          title: "Error",
-          description: response.data.message || "Failed to fetch event details",
-          variant: "destructive",
-        });
+        const response = await axios.post(
+          "http://localhost/events-api/admin.php",
+          {
+            operation: "getEnhancedEventDetails",
+            event_id: parseInt(eventId),
+          }
+        );
+        console.log("📡 API Response:", response.data);
+        if (response.data.status === "success") {
+          setEvent(response.data.event);
+        } else {
+          console.error("❌ API Error:", response.data.message);
+          toast({
+            title: "Error",
+            description:
+              response.data.message || "Failed to fetch event details",
+            variant: "destructive",
+          });
+        }
       }
     } catch (error) {
       console.error("❌ Network Error:", error);
@@ -4027,25 +4208,6 @@ export default function EventDetailsPage() {
         setEvent((prev) =>
           prev ? { ...prev, organizer_payment_status: status } : prev
         );
-        // Create client notification for organizer payment update
-        try {
-          if (event && event.user_id) {
-            await axios.post("http://localhost/events-api/notifications.php", {
-              operation: "create_notification",
-              user_id: event.user_id,
-              type: "payment_organizer_status",
-              title: "Organizer Payment Status Updated",
-              message: `Organizer payment status is now ${status}.`,
-              priority: "medium",
-              icon: "wallet",
-              url: `/client/events/${event.event_id}`,
-              event_id: event.event_id,
-              expires_hours: 168,
-            });
-          }
-        } catch (e) {
-          // Non-blocking: ignore notification errors
-        }
         await fetchEventDetails();
       } else {
         toast({
@@ -4083,25 +4245,6 @@ export default function EventDetailsPage() {
         setEvent((prev) =>
           prev ? { ...prev, venue_payment_status: status } : prev
         );
-        // Create client notification for venue payment update
-        try {
-          if (event && event.user_id) {
-            await axios.post("http://localhost/events-api/notifications.php", {
-              operation: "create_notification",
-              user_id: event.user_id,
-              type: "payment_venue_status",
-              title: "Venue Payment Status Updated",
-              message: `Venue payment status is now ${status}.`,
-              priority: "medium",
-              icon: "building",
-              url: `/client/events/${event.event_id}`,
-              event_id: event.event_id,
-              expires_hours: 168,
-            });
-          }
-        } catch (e) {
-          // Non-blocking: ignore notification errors
-        }
         await fetchEventDetails();
       } else {
         toast({
@@ -4233,7 +4376,9 @@ export default function EventDetailsPage() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => router.push("/admin/events")}
+                onClick={() =>
+                  router.push(isClient ? "/client/events" : "/admin/events")
+                }
                 className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -4261,6 +4406,26 @@ export default function EventDetailsPage() {
         </div>
       </div>
 
+      {/* Client confirmation banner when all inclusions are paid */}
+      {isClient &&
+        derivedIncludedCount > 0 &&
+        derivedPaidComponents === derivedIncludedCount && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
+              <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+              <div>
+                <div className="text-green-800 font-medium">
+                  All inclusions paid
+                </div>
+                <div className="text-sm text-green-700">
+                  Your event is confirmed. We will keep you posted for any
+                  updates.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           {/* Left Sidebar - Client & Progress */}
@@ -4269,10 +4434,52 @@ export default function EventDetailsPage() {
             <BudgetProgress event={event} />
             <EventTimeline event={event} />
             <EventCountdown event={event} />
-            <EventFinalization
-              event={event}
-              onEventUpdate={fetchEventDetails}
-            />
+            {!isClient && (
+              <EventFinalization
+                event={event}
+                onEventUpdate={fetchEventDetails}
+              />
+            )}
+            {isClient && (
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Status Updates
+                  </h3>
+                </div>
+                {loadingNotifications ? (
+                  <div className="text-sm text-gray-500">
+                    Loading updates...
+                  </div>
+                ) : eventNotifications.length > 0 ? (
+                  <div className="space-y-3">
+                    {eventNotifications.slice(0, 6).map((n: any) => (
+                      <div
+                        key={n.notification_id}
+                        className="border rounded p-3 bg-gray-50"
+                      >
+                        <div className="text-sm font-medium text-gray-900">
+                          {n.notification_title}
+                        </div>
+                        <div className="text-xs text-gray-700 mt-1">
+                          {n.notification_message}
+                        </div>
+                        <div className="text-[11px] text-gray-500 mt-1">
+                          {n.created_at
+                            ? new Date(n.created_at).toLocaleString()
+                            : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-600">
+                    No server notifications yet. Recent inclusion changes will
+                    appear here once processed.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Main Content */}
@@ -4487,6 +4694,7 @@ export default function EventDetailsPage() {
                   <PackageInclusionsManagement
                     event={event}
                     onEventUpdate={fetchEventDetails}
+                    readOnly={isClient}
                   />
 
                   {/* Organizer Section */}
@@ -4495,34 +4703,36 @@ export default function EventDetailsPage() {
                       <h3 className="text-lg font-semibold text-gray-900">
                         Organizer Assignment
                       </h3>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant={isOrganizerEditing ? "outline" : "default"}
-                          size="sm"
-                          onClick={() => setIsOrganizerEditing((v) => !v)}
-                        >
-                          {isOrganizerEditing ? (
-                            <>
-                              <X className="h-4 w-4 mr-2" />
-                              Cancel
-                            </>
-                          ) : (
-                            <>
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit
-                            </>
-                          )}
-                        </Button>
-                        {isOrganizerEditing && (
+                      {!isClient && (
+                        <div className="flex items-center gap-2">
                           <Button
+                            variant={isOrganizerEditing ? "outline" : "default"}
                             size="sm"
-                            onClick={() => openAssignOrganizer()}
+                            onClick={() => setIsOrganizerEditing((v) => !v)}
                           >
-                            <Plus className="h-4 w-4 mr-2" /> Assign / Change
-                            Organizer
+                            {isOrganizerEditing ? (
+                              <>
+                                <X className="h-4 w-4 mr-2" />
+                                Cancel
+                              </>
+                            ) : (
+                              <>
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit
+                              </>
+                            )}
                           </Button>
-                        )}
-                      </div>
+                          {isOrganizerEditing && (
+                            <Button
+                              size="sm"
+                              onClick={() => openAssignOrganizer()}
+                            >
+                              <Plus className="h-4 w-4 mr-2" /> Assign / Change
+                              Organizer
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
@@ -4576,32 +4786,9 @@ export default function EventDetailsPage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-600">
                           <div className="flex items-center gap-2">
                             <span className="font-medium">Status:</span>
-                            {(() => {
-                              const status = (
-                                organizerDetails?.assignment_status ||
-                                event.assignment_status ||
-                                "assigned"
-                              ).toLowerCase();
-                              const classes =
-                                status === "accepted"
-                                  ? "bg-green-50 text-green-800 border-green-200"
-                                  : status === "rejected"
-                                    ? "bg-red-50 text-red-800 border-red-200"
-                                    : "bg-yellow-50 text-yellow-800 border-yellow-200";
-                              const label =
-                                status === "accepted"
-                                  ? "Accepted"
-                                  : status === "rejected"
-                                    ? "Rejected"
-                                    : "Pending";
-                              return (
-                                <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${classes}`}
-                                >
-                                  {label}
-                                </span>
-                              );
-                            })()}
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-yellow-50 text-yellow-800 border-yellow-200">
+                              Pending
+                            </span>
                           </div>
                           <div>
                             <span className="font-medium">Assigned by:</span>{" "}
@@ -4612,100 +4799,121 @@ export default function EventDetailsPage() {
                               Payment Status:
                             </div>
                             <div className="relative">
-                              <button
-                                disabled={!isOrganizerEditing}
-                                className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(event.organizer_payment_status || "unpaid")} ${!isOrganizerEditing ? "opacity-60 cursor-not-allowed" : ""}`}
-                                onClick={(e) => {
-                                  if (!isOrganizerEditing) return;
-                                  e.preventDefault();
-                                  setShowOrganizerStatusMenu((prev) => !prev);
-                                }}
-                              >
-                                {(event.organizer_payment_status ||
-                                  "unpaid") === "paid" && (
-                                  <CheckCircle className="h-3 w-3" />
-                                )}
-                                {(event.organizer_payment_status ||
-                                  "unpaid") === "partial" && (
-                                  <Percent className="h-3 w-3" />
-                                )}
-                                {(event.organizer_payment_status ||
-                                  "unpaid") === "unpaid" && (
-                                  <Wallet className="h-3 w-3" />
-                                )}
-                                {(event.organizer_payment_status ||
-                                  "unpaid") === "cancelled" && (
-                                  <X className="h-3 w-3" />
-                                )}
-                                {formatPaymentStatusLabel(
-                                  event.organizer_payment_status || "unpaid"
-                                )}
-                              </button>
-                              {showOrganizerStatusMenu &&
-                                isOrganizerEditing && (
-                                  <div className="absolute z-10 mt-1 w-40 bg-white border rounded shadow">
-                                    <button
-                                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
-                                      onClick={() => {
-                                        event.organizer_assignment_id &&
-                                          updateOrganizerPayment(
-                                            event.organizer_assignment_id,
-                                            "paid"
-                                          );
-                                        setShowOrganizerStatusMenu(false);
-                                      }}
-                                    >
-                                      <span className="inline-flex items-center gap-2">
-                                        <CheckCircle className="h-3 w-3" /> Paid
-                                      </span>
-                                    </button>
-                                    <button
-                                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
-                                      onClick={() => {
-                                        event.organizer_assignment_id &&
-                                          updateOrganizerPayment(
-                                            event.organizer_assignment_id,
-                                            "partial"
-                                          );
-                                        setShowOrganizerStatusMenu(false);
-                                      }}
-                                    >
-                                      <span className="inline-flex items-center gap-2">
-                                        <Percent className="h-3 w-3" /> Partial
-                                      </span>
-                                    </button>
-                                    <button
-                                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                                      onClick={() => {
-                                        event.organizer_assignment_id &&
-                                          updateOrganizerPayment(
-                                            event.organizer_assignment_id,
-                                            "cancelled"
-                                          );
-                                        setShowOrganizerStatusMenu(false);
-                                      }}
-                                    >
-                                      <span className="inline-flex items-center gap-2">
-                                        <X className="h-3 w-3" /> Cancelled
-                                      </span>
-                                    </button>
-                                    <button
-                                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                                      onClick={() => {
-                                        event.organizer_assignment_id &&
-                                          updateOrganizerPayment(
-                                            event.organizer_assignment_id,
-                                            "unpaid"
-                                          );
-                                        setShowOrganizerStatusMenu(false);
-                                      }}
-                                    >
-                                      <span className="inline-flex items-center gap-2">
-                                        <Wallet className="h-3 w-3" /> Unpaid
-                                      </span>
-                                    </button>
-                                  </div>
-                                )}
+                              {isClient ? (
+                                <span
+                                  className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(
+                                    event.organizer_payment_status || "unpaid"
+                                  )}`}
+                                >
+                                  {formatPaymentStatusLabel(
+                                    event.organizer_payment_status || "unpaid"
+                                  )}
+                                </span>
+                              ) : (
+                                <>
+                                  <button
+                                    disabled={!isOrganizerEditing}
+                                    className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(
+                                      event.organizer_payment_status || "unpaid"
+                                    )} ${!isOrganizerEditing ? "opacity-60 cursor-not-allowed" : ""}`}
+                                    onClick={(e) => {
+                                      if (!isOrganizerEditing) return;
+                                      e.preventDefault();
+                                      setShowOrganizerStatusMenu(
+                                        (prev) => !prev
+                                      );
+                                    }}
+                                  >
+                                    {(event.organizer_payment_status ||
+                                      "unpaid") === "paid" && (
+                                      <CheckCircle className="h-3 w-3" />
+                                    )}
+                                    {(event.organizer_payment_status ||
+                                      "unpaid") === "partial" && (
+                                      <Percent className="h-3 w-3" />
+                                    )}
+                                    {(event.organizer_payment_status ||
+                                      "unpaid") === "unpaid" && (
+                                      <Wallet className="h-3 w-3" />
+                                    )}
+                                    {(event.organizer_payment_status ||
+                                      "unpaid") === "cancelled" && (
+                                      <X className="h-3 w-3" />
+                                    )}
+                                    {formatPaymentStatusLabel(
+                                      event.organizer_payment_status || "unpaid"
+                                    )}
+                                  </button>
+                                  {showOrganizerStatusMenu &&
+                                    isOrganizerEditing && (
+                                      <div className="absolute z-10 mt-1 w-40 bg-white border rounded shadow">
+                                        <button
+                                          className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
+                                          onClick={() => {
+                                            event.organizer_assignment_id &&
+                                              updateOrganizerPayment(
+                                                event.organizer_assignment_id,
+                                                "paid"
+                                              );
+                                            setShowOrganizerStatusMenu(false);
+                                          }}
+                                        >
+                                          <span className="inline-flex items-center gap-2">
+                                            <CheckCircle className="h-3 w-3" />{" "}
+                                            Paid
+                                          </span>
+                                        </button>
+                                        <button
+                                          className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
+                                          onClick={() => {
+                                            event.organizer_assignment_id &&
+                                              updateOrganizerPayment(
+                                                event.organizer_assignment_id,
+                                                "partial"
+                                              );
+                                            setShowOrganizerStatusMenu(false);
+                                          }}
+                                        >
+                                          <span className="inline-flex items-center gap-2">
+                                            <Percent className="h-3 w-3" />{" "}
+                                            Partial
+                                          </span>
+                                        </button>
+                                        <button
+                                          className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                                          onClick={() => {
+                                            event.organizer_assignment_id &&
+                                              updateOrganizerPayment(
+                                                event.organizer_assignment_id,
+                                                "cancelled"
+                                              );
+                                            setShowOrganizerStatusMenu(false);
+                                          }}
+                                        >
+                                          <span className="inline-flex items-center gap-2">
+                                            <X className="h-3 w-3" /> Cancelled
+                                          </span>
+                                        </button>
+                                        <button
+                                          className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                                          onClick={() => {
+                                            event.organizer_assignment_id &&
+                                              updateOrganizerPayment(
+                                                event.organizer_assignment_id,
+                                                "unpaid"
+                                              );
+                                            setShowOrganizerStatusMenu(false);
+                                          }}
+                                        >
+                                          <span className="inline-flex items-center gap-2">
+                                            <Wallet className="h-3 w-3" />{" "}
+                                            Unpaid
+                                          </span>
+                                        </button>
+                                      </div>
+                                    )}
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -4750,92 +4958,124 @@ export default function EventDetailsPage() {
                   </div>
 
                   {/* Venue Selection */}
-                  <div className="bg-white rounded-lg p-6 border border-gray-200">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        Venue Selection
-                      </h3>
-                    </div>
-                    <div className="mb-3 flex items-center gap-3">
-                      <div className="text-xs text-gray-500">
-                        Payment Status:
+                  {!isClient && (
+                    <div className="bg-white rounded-lg p-6 border border-gray-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          Venue Selection
+                        </h3>
                       </div>
-                      <div className="relative">
-                        <button
-                          disabled={!venuePaymentSupported}
-                          className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(event.venue_payment_status || "unpaid")}`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setShowVenueStatusMenu((prev) => !prev);
-                          }}
-                        >
-                          {(event.venue_payment_status || "unpaid") ===
-                            "paid" && <CheckCircle className="h-3 w-3" />}
-                          {(event.venue_payment_status || "unpaid") ===
-                            "partial" && <Percent className="h-3 w-3" />}
-                          {(event.venue_payment_status || "unpaid") ===
-                            "unpaid" && <Wallet className="h-3 w-3" />}
-                          {(event.venue_payment_status || "unpaid") ===
-                            "cancelled" && <X className="h-3 w-3" />}
-                          {formatPaymentStatusLabel(
-                            event.venue_payment_status || "unpaid"
+                      <div className="mb-3 flex items-center gap-3">
+                        <div className="text-xs text-gray-500">
+                          Payment Status:
+                        </div>
+                        <div className="relative">
+                          {isClient ? (
+                            <span
+                              className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(
+                                event.venue_payment_status || "unpaid"
+                              )}`}
+                            >
+                              {formatPaymentStatusLabel(
+                                event.venue_payment_status || "unpaid"
+                              )}
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                disabled={!venuePaymentSupported}
+                                className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(
+                                  event.venue_payment_status || "unpaid"
+                                )}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setShowVenueStatusMenu((prev) => !prev);
+                                }}
+                              >
+                                {(event.venue_payment_status || "unpaid") ===
+                                  "paid" && <CheckCircle className="h-3 w-3" />}
+                                {(event.venue_payment_status || "unpaid") ===
+                                  "partial" && <Percent className="h-3 w-3" />}
+                                {(event.venue_payment_status || "unpaid") ===
+                                  "unpaid" && <Wallet className="h-3 w-3" />}
+                                {(event.venue_payment_status || "unpaid") ===
+                                  "cancelled" && <X className="h-3 w-3" />}
+                                {formatPaymentStatusLabel(
+                                  event.venue_payment_status || "unpaid"
+                                )}
+                              </button>
+                              {showVenueStatusMenu && venuePaymentSupported && (
+                                <div className="absolute z-10 mt-1 w-40 bg-white border rounded shadow">
+                                  <button
+                                    className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
+                                    onClick={() => {
+                                      updateVenuePayment(
+                                        event.event_id,
+                                        "paid"
+                                      );
+                                      setShowVenueStatusMenu(false);
+                                    }}
+                                  >
+                                    <span className="inline-flex items-center gap-2">
+                                      <CheckCircle className="h-3 w-3" /> Paid
+                                    </span>
+                                  </button>
+                                  <button
+                                    className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
+                                    onClick={() => {
+                                      updateVenuePayment(
+                                        event.event_id,
+                                        "partial"
+                                      );
+                                      setShowVenueStatusMenu(false);
+                                    }}
+                                  >
+                                    <span className="inline-flex items-center gap-2">
+                                      <Percent className="h-3 w-3" /> Partial
+                                    </span>
+                                  </button>
+                                  <button
+                                    className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                                    onClick={() => {
+                                      updateVenuePayment(
+                                        event.event_id,
+                                        "cancelled"
+                                      );
+                                      setShowVenueStatusMenu(false);
+                                    }}
+                                  >
+                                    <span className="inline-flex items-center gap-2">
+                                      <X className="h-3 w-3" /> Cancelled
+                                    </span>
+                                  </button>
+                                  <button
+                                    className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                                    onClick={() => {
+                                      updateVenuePayment(
+                                        event.event_id,
+                                        "unpaid"
+                                      );
+                                      setShowVenueStatusMenu(false);
+                                    }}
+                                  >
+                                    <span className="inline-flex items-center gap-2">
+                                      <Wallet className="h-3 w-3" /> Unpaid
+                                    </span>
+                                  </button>
+                                </div>
+                              )}
+                            </>
                           )}
-                        </button>
-                        {showVenueStatusMenu && venuePaymentSupported && (
-                          <div className="absolute z-10 mt-1 w-40 bg-white border rounded shadow">
-                            <button
-                              className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
-                              onClick={() => {
-                                updateVenuePayment(event.event_id, "paid");
-                                setShowVenueStatusMenu(false);
-                              }}
-                            >
-                              <span className="inline-flex items-center gap-2">
-                                <CheckCircle className="h-3 w-3" /> Paid
-                              </span>
-                            </button>
-                            <button
-                              className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
-                              onClick={() => {
-                                updateVenuePayment(event.event_id, "partial");
-                                setShowVenueStatusMenu(false);
-                              }}
-                            >
-                              <span className="inline-flex items-center gap-2">
-                                <Percent className="h-3 w-3" /> Partial
-                              </span>
-                            </button>
-                            <button
-                              className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                              onClick={() => {
-                                updateVenuePayment(event.event_id, "cancelled");
-                                setShowVenueStatusMenu(false);
-                              }}
-                            >
-                              <span className="inline-flex items-center gap-2">
-                                <X className="h-3 w-3" /> Cancelled
-                              </span>
-                            </button>
-                            <button
-                              className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                              onClick={() => {
-                                updateVenuePayment(event.event_id, "unpaid");
-                                setShowVenueStatusMenu(false);
-                              }}
-                            >
-                              <span className="inline-flex items-center gap-2">
-                                <Wallet className="h-3 w-3" /> Unpaid
-                              </span>
-                            </button>
-                          </div>
-                        )}
+                        </div>
                       </div>
+                      {!isClient && (
+                        <VenueSelection
+                          event={event}
+                          onEventUpdate={fetchEventDetails}
+                        />
+                      )}
                     </div>
-                    <VenueSelection
-                      event={event}
-                      onEventUpdate={fetchEventDetails}
-                    />
-                  </div>
+                  )}
 
                   {/* Wedding Details */}
                   {event.event_type_id === 1 && event.wedding_details && (
@@ -4880,104 +5120,107 @@ export default function EventDetailsPage() {
                     </div>
                   )}
 
-                  <Dialog
-                    open={showAssignOrganizer}
-                    onOpenChange={setShowAssignOrganizer}
-                  >
-                    <DialogContent className="max-w-3xl sm:max-w-4xl">
-                      <DialogHeader>
-                        <DialogTitle className="text-xl">
-                          Assign Organizer
-                        </DialogTitle>
-                        <DialogDescription className="text-sm">
-                          Select an organizer and optionally set an agreed fee.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="col-span-1">
-                          <Label>Organizer</Label>
-                          <div className="max-h-80 overflow-auto border rounded">
-                            {organizersLoading ? (
-                              <div className="p-3 text-sm text-gray-500">
-                                Loading...
-                              </div>
-                            ) : organizers.length === 0 ? (
-                              <div className="p-3 text-sm text-gray-500">
-                                No organizers found
-                              </div>
-                            ) : (
-                              organizers.map((o) => (
-                                <button
-                                  key={o.organizer_id}
-                                  className={`w-full text-left p-3 flex items-center gap-3 border-b last:border-b-0 ${String(selectedOrganizerId) === String(o.organizer_id) ? "bg-purple-50" : "bg-white"}`}
-                                  onClick={() =>
-                                    setSelectedOrganizerId(o.organizer_id)
-                                  }
-                                >
-                                  <img
-                                    src={
-                                      o.profile_picture
-                                        ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(
-                                            o.profile_picture
-                                          )}`
-                                        : "/default_pfp.png"
+                  {!isClient && (
+                    <Dialog
+                      open={showAssignOrganizer}
+                      onOpenChange={setShowAssignOrganizer}
+                    >
+                      <DialogContent className="max-w-3xl sm:max-w-4xl">
+                        <DialogHeader>
+                          <DialogTitle className="text-xl">
+                            Assign Organizer
+                          </DialogTitle>
+                          <DialogDescription className="text-sm">
+                            Select an organizer and optionally set an agreed
+                            fee.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="col-span-1">
+                            <Label>Organizer</Label>
+                            <div className="max-h-80 overflow-auto border rounded">
+                              {organizersLoading ? (
+                                <div className="p-3 text-sm text-gray-500">
+                                  Loading...
+                                </div>
+                              ) : organizers.length === 0 ? (
+                                <div className="p-3 text-sm text-gray-500">
+                                  No organizers found
+                                </div>
+                              ) : (
+                                organizers.map((o) => (
+                                  <button
+                                    key={o.organizer_id}
+                                    className={`w-full text-left p-3 flex items-center gap-3 border-b last:border-b-0 ${String(selectedOrganizerId) === String(o.organizer_id) ? "bg-purple-50" : "bg-white"}`}
+                                    onClick={() =>
+                                      setSelectedOrganizerId(o.organizer_id)
                                     }
-                                    alt="pfp"
-                                    className="h-8 w-8 rounded-full object-cover"
-                                  />
-                                  <div className="flex-1">
-                                    <div className="font-medium">
-                                      {o.first_name} {o.last_name}
+                                  >
+                                    <img
+                                      src={
+                                        o.profile_picture
+                                          ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(
+                                              o.profile_picture
+                                            )}`
+                                          : "/default_pfp.png"
+                                      }
+                                      alt="pfp"
+                                      className="h-8 w-8 rounded-full object-cover"
+                                    />
+                                    <div className="flex-1">
+                                      <div className="font-medium">
+                                        {o.first_name} {o.last_name}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        Fee:{" "}
+                                        {o.talent_fee_min
+                                          ? `₱${Number(o.talent_fee_min).toLocaleString()}`
+                                          : "-"}
+                                        {o.talent_fee_max
+                                          ? ` - ₱${Number(o.talent_fee_max).toLocaleString()}`
+                                          : ""}
+                                      </div>
                                     </div>
-                                    <div className="text-xs text-gray-500">
-                                      Fee:{" "}
-                                      {o.talent_fee_min
-                                        ? `₱${Number(o.talent_fee_min).toLocaleString()}`
-                                        : "-"}
-                                      {o.talent_fee_max
-                                        ? ` - ₱${Number(o.talent_fee_max).toLocaleString()}`
-                                        : ""}
-                                    </div>
-                                  </div>
-                                </button>
-                              ))
-                            )}
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                          <div className="col-span-1">
+                            <Label>Agreed Talent Fee (optional)</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={agreedFee as any}
+                              onChange={(e) =>
+                                setAgreedFee(
+                                  e.target.value === ""
+                                    ? ""
+                                    : Number(e.target.value)
+                                )
+                              }
+                              placeholder="e.g. 15000"
+                            />
+                            <p className="text-xs text-gray-500 mt-2">
+                              If provided, it will be saved with the assignment.
+                            </p>
                           </div>
                         </div>
-                        <div className="col-span-1">
-                          <Label>Agreed Talent Fee (optional)</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={agreedFee as any}
-                            onChange={(e) =>
-                              setAgreedFee(
-                                e.target.value === ""
-                                  ? ""
-                                  : Number(e.target.value)
-                              )
-                            }
-                            placeholder="e.g. 15000"
-                          />
-                          <p className="text-xs text-gray-500 mt-2">
-                            If provided, it will be saved with the assignment.
-                          </p>
+                        <div className="flex items-center justify-end gap-2 mt-4">
+                          <Button
+                            variant="outline"
+                            onClick={() => setShowAssignOrganizer(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button onClick={() => assignOrganizer()}>
+                            Assign
+                          </Button>
                         </div>
-                      </div>
-                      <div className="flex items-center justify-end gap-2 mt-4">
-                        <Button
-                          variant="outline"
-                          onClick={() => setShowAssignOrganizer(false)}
-                        >
-                          Cancel
-                        </Button>
-                        <Button onClick={() => assignOrganizer()}>
-                          Assign
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                      </DialogContent>
+                    </Dialog>
+                  )}
 
                   {/* Additional Notes */}
                   {event.additional_notes && (
@@ -4991,40 +5234,44 @@ export default function EventDetailsPage() {
                 </div>
               )}
 
-              {activeTab === "payments" && <PaymentHistoryTab event={event} />}
+              {activeTab === "payments" && (
+                <PaymentHistoryTab event={event} readOnly={isClient} />
+              )}
 
               {activeTab === "attachments" && (
                 <div className="space-y-6">
                   {/* Upload Section */}
-                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                    <h4 className="font-medium text-blue-900 mb-2">
-                      Upload New Attachment
-                    </h4>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="file"
-                        id="file-upload"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            console.log("📎 File selected:", file);
-                            // TODO: Implement file upload
-                          }
-                        }}
-                      />
-                      <label
-                        htmlFor="file-upload"
-                        className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors flex items-center space-x-2"
-                      >
-                        <Upload className="h-4 w-4" />
-                        <span>Choose File</span>
-                      </label>
-                      <span className="text-sm text-blue-700">
-                        Supported: PDF, DOC, DOCX, JPG, PNG, etc.
-                      </span>
+                  {!isClient && (
+                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                      <h4 className="font-medium text-blue-900 mb-2">
+                        Upload New Attachment
+                      </h4>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="file"
+                          id="file-upload"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              console.log("📎 File selected:", file);
+                              // TODO: Implement file upload
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor="file-upload"
+                          className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors flex items-center space-x-2"
+                        >
+                          <Upload className="h-4 w-4" />
+                          <span>Choose File</span>
+                        </label>
+                        <span className="text-sm text-blue-700">
+                          Supported: PDF, DOC, DOCX, JPG, PNG, etc.
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Attachments List */}
                   {event.attachments &&

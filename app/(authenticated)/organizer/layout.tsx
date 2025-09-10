@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -34,6 +34,7 @@ import {
 import { secureStorage } from "@/app/utils/encryption";
 import axios from "axios";
 import { useTheme } from "next-themes";
+import { toast } from "@/components/ui/use-toast";
 
 interface User {
   user_firstName: string;
@@ -69,6 +70,16 @@ export default function OrganizerLayout({
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [pendingInvites, setPendingInvites] = useState<any[]>([]);
+  const [decisions, setDecisions] = useState<
+    Record<string, { status: "accepted" | "rejected" }>
+  >({});
+  const [organizerId, setOrganizerId] = useState<number | null>(null);
+  const assignmentIdCacheRef = useRef<Record<number, number>>({});
+  const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
+  const [isNotifLoading, setIsNotifLoading] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   const menuSections: MenuSection[] = [
     {
@@ -84,17 +95,7 @@ export default function OrganizerLayout({
     },
     {
       label: "Event Management",
-      items: [
-        { icon: Calendar, label: "Events", href: "/organizer/events" },
-        { icon: CalendarCheck, label: "Bookings", href: "/organizer/bookings" },
-      ],
-    },
-    {
-      label: "Business",
-      items: [
-        { icon: Store, label: "Store", href: "/organizer/store" },
-        { icon: MapPin, label: "Venues", href: "/organizer/venues" },
-      ],
+      items: [{ icon: Calendar, label: "Events", href: "/organizer/events" }],
     },
   ];
 
@@ -151,12 +152,288 @@ export default function OrganizerLayout({
         return;
       }
       setUser(userData);
+      // Resolve organizer_id for this user for later accept/reject actions
+      resolveOrganizerId(userData.user_id);
+      try {
+        const stored = localStorage.getItem(
+          `organizer_decisions_${userData.user_id}`
+        );
+        if (stored) setDecisions(JSON.parse(stored));
+      } catch {}
+      fetchPendingInvites(userData.user_id);
     } catch (error) {
       console.error("Error in organizer layout:", error);
       secureStorage.removeItem("user");
       router.replace("/auth/login");
     }
   }, []);
+
+  const resolveOrganizerId = async (userId: number) => {
+    try {
+      const resp = await axios.post(
+        "http://localhost/events-api/organizer.php",
+        { operation: "getOrganizerProfile", user_id: userId }
+      );
+      if (resp.data?.status === "success") {
+        setOrganizerId(resp.data.data?.organizer_id || null);
+      } else {
+        // Fallback: use userId when mapping is unavailable
+        setOrganizerId(userId || null);
+      }
+    } catch {
+      setOrganizerId(userId || null);
+    }
+  };
+
+  const fetchPendingInvites = async (orgId: number) => {
+    try {
+      const res = await axios.post(
+        "http://localhost/events-api/organizer.php",
+        { operation: "getOrganizerEvents", organizer_id: orgId }
+      );
+      if (res.data?.status === "success") {
+        const assigned = (res.data.data || []).filter(
+          (evt: any) => (evt.assignment_status || evt.status) === "assigned"
+        );
+        // Exclude those already locally decided
+        const filtered = assigned.filter(
+          (e: any) => !decisions[String(e.event_id)]?.status
+        );
+        if (filtered.length > 0) {
+          setPendingInvites(filtered);
+        } else {
+          // Fallback to legacy invites via attachments if no rows returned
+          try {
+            const response = await axios.post(
+              "http://localhost/events-api/admin.php",
+              { operation: "getAllEvents" }
+            );
+            const allEvents =
+              response.data?.status === "success"
+                ? response.data.events || []
+                : [];
+            const invites = allEvents.filter((e: any) => {
+              try {
+                const attachments = e.event_attachments
+                  ? JSON.parse(e.event_attachments)
+                  : e.attachments;
+                if (!attachments || !Array.isArray(attachments)) return false;
+                const invite = attachments.find(
+                  (a: any) => a.attachment_type === "organizer_invites"
+                );
+                if (!invite || !invite.description) return false;
+                const data = JSON.parse(invite.description);
+                const isPending = Array.isArray(data.pending)
+                  ? data.pending.includes(String(orgId)) ||
+                    data.pending.includes(
+                      String(secureStorage.getItem("user")?.user_id)
+                    )
+                  : false;
+                const decision = decisions[String(e.event_id)]?.status;
+                return isPending && !decision;
+              } catch {
+                return false;
+              }
+            });
+            setPendingInvites(invites);
+          } catch {
+            setPendingInvites([]);
+          }
+        }
+      } else {
+        // API error: fallback to legacy invites via attachments
+        try {
+          const response = await axios.post(
+            "http://localhost/events-api/admin.php",
+            { operation: "getAllEvents" }
+          );
+          const allEvents =
+            response.data?.status === "success"
+              ? response.data.events || []
+              : [];
+          const invites = allEvents.filter((e: any) => {
+            try {
+              const attachments = e.event_attachments
+                ? JSON.parse(e.event_attachments)
+                : e.attachments;
+              if (!attachments || !Array.isArray(attachments)) return false;
+              const invite = attachments.find(
+                (a: any) => a.attachment_type === "organizer_invites"
+              );
+              if (!invite || !invite.description) return false;
+              const data = JSON.parse(invite.description);
+              const isPending = Array.isArray(data.pending)
+                ? data.pending.includes(String(orgId)) ||
+                  data.pending.includes(
+                    String(secureStorage.getItem("user")?.user_id)
+                  )
+                : false;
+              const decision = decisions[String(e.event_id)]?.status;
+              return isPending && !decision;
+            } catch {
+              return false;
+            }
+          });
+          setPendingInvites(invites);
+        } catch {
+          setPendingInvites([]);
+        }
+      }
+    } catch {
+      // Network/SQL error: fallback to legacy invites via attachments
+      try {
+        const response = await axios.post(
+          "http://localhost/events-api/admin.php",
+          { operation: "getAllEvents" }
+        );
+        const allEvents =
+          response.data?.status === "success" ? response.data.events || [] : [];
+        const invites = allEvents.filter((e: any) => {
+          try {
+            const attachments = e.event_attachments
+              ? JSON.parse(e.event_attachments)
+              : e.attachments;
+            if (!attachments || !Array.isArray(attachments)) return false;
+            const invite = attachments.find(
+              (a: any) => a.attachment_type === "organizer_invites"
+            );
+            if (!invite || !invite.description) return false;
+            const data = JSON.parse(invite.description);
+            const isPending = Array.isArray(data.pending)
+              ? data.pending.includes(String(orgId)) ||
+                data.pending.includes(
+                  String(secureStorage.getItem("user")?.user_id)
+                )
+              : false;
+            const decision = decisions[String(e.event_id)]?.status;
+            return isPending && !decision;
+          } catch {
+            return false;
+          }
+        });
+        setPendingInvites(invites);
+      } catch {
+        setPendingInvites([]);
+      }
+    }
+  };
+
+  const persistDecisions = (
+    userId: number,
+    next: Record<string, { status: "accepted" | "rejected" }>
+  ) => {
+    try {
+      localStorage.setItem(
+        `organizer_decisions_${userId}`,
+        JSON.stringify(next)
+      );
+    } catch {}
+  };
+
+  const handleInviteDecision = (
+    eventItem: any,
+    status: "accepted" | "rejected"
+  ) => {
+    const doUpdate = async () => {
+      try {
+        console.debug("[Organizer] handleInviteDecision:init", {
+          eventId: eventItem?.event_id,
+          status,
+        });
+      } catch {}
+      const currentUser = secureStorage.getItem("user");
+      if (!currentUser?.user_id) return;
+      // Ensure we have organizerId
+      const orgId = organizerId ?? currentUser.user_id;
+      // Resolve assignment_id for this event
+      const assignmentId = await getAssignmentIdForEvent(eventItem.event_id);
+      if (!assignmentId) {
+        console.warn("[Organizer] No assignment found for event", {
+          eventId: eventItem?.event_id,
+        });
+        toast({
+          title: "Unable to proceed",
+          description: "Assignment not found for this event.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      try {
+        console.debug("[Organizer] updateAssignmentStatus:request", {
+          url: "http://localhost/events-api/organizer.php",
+          payload: {
+            operation: "updateAssignmentStatus",
+            assignment_id: assignmentId,
+            status,
+            organizer_id: orgId,
+          },
+        });
+        const res = await axios.post(
+          "http://localhost/events-api/organizer.php",
+          {
+            operation: "updateAssignmentStatus",
+            assignment_id: assignmentId,
+            status,
+            organizer_id: orgId,
+          },
+          { headers: { "Content-Type": "application/json" } }
+        );
+        console.debug("[Organizer] updateAssignmentStatus:response", res?.data);
+        if (res.data?.status === "success") {
+          const key = String(eventItem.event_id);
+          const next = { ...decisions, [key]: { status } };
+          setDecisions(next);
+          persistDecisions(currentUser.user_id, next);
+          setPendingInvites((prev) =>
+            prev.filter((e) => e.event_id !== eventItem.event_id)
+          );
+          toast({
+            title:
+              status === "accepted" ? "Invite accepted" : "Invite rejected",
+            description:
+              status === "accepted"
+                ? "You are now assigned to this event."
+                : "You have declined this event assignment.",
+          });
+        } else {
+          const message = res?.data?.message || "Failed to update status";
+          console.error("[Organizer] updateAssignmentStatus:error", {
+            message,
+          });
+          throw new Error(message);
+        }
+      } catch (e) {
+        console.error("[Organizer] updateAssignmentStatus:exception", e);
+        toast({
+          title: "Action failed",
+          description: "Could not update assignment status. Please try again.",
+          variant: "destructive",
+        });
+      }
+    };
+    doUpdate();
+  };
+
+  const getAssignmentIdForEvent = async (eventId: number) => {
+    if (assignmentIdCacheRef.current[eventId]) {
+      return assignmentIdCacheRef.current[eventId];
+    }
+    try {
+      const res = await axios.get(
+        `http://localhost/events-api/admin.php?operation=getEventOrganizerDetails&event_id=${eventId}`
+      );
+      if (
+        res.data?.status === "success" &&
+        res.data?.data?.organizer_assignment_id
+      ) {
+        const id = Number(res.data.data.organizer_assignment_id);
+        assignmentIdCacheRef.current[eventId] = id;
+        return id;
+      }
+    } catch {}
+    return null;
+  };
 
   // Listen for user data changes (like profile picture updates)
   useEffect(() => {
@@ -185,6 +462,67 @@ export default function OrganizerLayout({
     return () => {
       window.removeEventListener("userDataChanged", handleUserDataChange);
     };
+  }, []);
+
+  // Refresh invites when organizerId is resolved or decisions change
+  useEffect(() => {
+    if (organizerId) {
+      fetchPendingInvites(organizerId);
+    }
+  }, [organizerId, decisions]);
+
+  // Organizer general notifications (counts + list on open)
+  const fetchNotificationCounts = async (currentUser: any) => {
+    try {
+      const userId = currentUser?.user_id;
+      if (!userId) return;
+      const res = await fetch(
+        `http://localhost/events-api/notifications.php?operation=get_counts&user_id=${encodeURIComponent(
+          userId
+        )}`
+      );
+      const data = await res.json();
+      if (data?.status === "success") {
+        setUnreadNotifCount(Number(data.counts?.unread || 0));
+      }
+    } catch {}
+  };
+
+  const fetchNotificationsList = async (currentUser: any) => {
+    try {
+      const userId = currentUser?.user_id;
+      if (!userId) return;
+      setIsNotifLoading(true);
+      const res = await fetch(
+        `http://localhost/events-api/notifications.php?operation=get_notifications&user_id=${encodeURIComponent(
+          userId
+        )}&limit=10&offset=0`
+      );
+      const data = await res.json();
+      if (data?.status === "success") {
+        setNotifications(
+          Array.isArray(data.notifications) ? data.notifications : []
+        );
+      } else {
+        setNotifications([]);
+      }
+    } catch {
+      setNotifications([]);
+    } finally {
+      setIsNotifLoading(false);
+    }
+  };
+
+  // Poll counts periodically
+  useEffect(() => {
+    const currentUser = secureStorage.getItem("user");
+    if (!currentUser?.user_id) return;
+    fetchNotificationCounts(currentUser);
+    const interval = setInterval(
+      () => fetchNotificationCounts(currentUser),
+      15000
+    );
+    return () => clearInterval(interval);
   }, []);
 
   const handleLogout = () => {
@@ -380,14 +718,102 @@ export default function OrganizerLayout({
               )}
             </button>
 
-            <div className="relative cursor-pointer">
-              <Calendar className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
-              <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
-                29
-              </span>
-            </div>
-            <div className="cursor-pointer">
-              <Bell className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setNotificationsOpen(!notificationsOpen);
+                  if (!notificationsOpen) {
+                    const currentUser = secureStorage.getItem("user");
+                    if (currentUser?.user_id) {
+                      fetchNotificationsList(currentUser);
+                    }
+                  }
+                }}
+                className="cursor-pointer relative"
+                aria-label="Notifications"
+              >
+                <Bell className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
+                {(pendingInvites?.length || 0) > 0 && (
+                  <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
+                    {pendingInvites.length}
+                  </span>
+                )}
+              </button>
+              {notificationsOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                  <div className="px-4 py-2 text-sm font-semibold text-gray-700 border-b">
+                    Notifications
+                  </div>
+                  <div className="max-h-80 overflow-auto">
+                    {/* Pending assignment invites */}
+                    {pendingInvites && pendingInvites.length > 0 && (
+                      <>
+                        {pendingInvites.map((evt: any) => (
+                          <div
+                            key={`invite-${evt.event_id}`}
+                            className="px-4 py-3 border-b last:border-b-0"
+                          >
+                            <div className="text-sm font-medium text-gray-900">
+                              Pending Organizer Invite
+                            </div>
+                            <div className="text-sm text-gray-700 truncate">
+                              {evt.event_title}
+                            </div>
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                onClick={() =>
+                                  handleInviteDecision(evt, "accepted")
+                                }
+                                className="px-2 py-1 rounded bg-green-600 text-white text-xs"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={() =>
+                                  handleInviteDecision(evt, "rejected")
+                                }
+                                className="px-2 py-1 rounded bg-red-600 text-white text-xs"
+                              >
+                                Reject
+                              </button>
+                              <button
+                                onClick={() => router.push("/organizer/events")}
+                                className="ml-auto px-2 py-1 rounded bg-gray-100 text-gray-700 text-xs border"
+                              >
+                                View
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {/* General notifications */}
+                    {notifications && notifications.length > 0 && (
+                      <>
+                        {notifications.map((n, idx) => (
+                          <div
+                            key={`n-${n.notification_id ?? idx}`}
+                            className="px-4 py-3 border-b last:border-b-0"
+                          >
+                            <div className="text-sm font-medium text-gray-900 truncate">
+                              {n.notification_title || "Notification"}
+                            </div>
+                            <div className="text-sm text-gray-700 truncate">
+                              {n.notification_message}
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {(!pendingInvites || pendingInvites.length === 0) &&
+                      (!notifications || notifications.length === 0) && (
+                        <div className="px-4 py-3 text-sm text-gray-600">
+                          No new notifications
+                        </div>
+                      )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* User Dropdown */}

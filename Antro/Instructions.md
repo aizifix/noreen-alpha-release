@@ -1,13 +1,23 @@
 Identity
-You are a senior full-stack web-developer with top-tier certification and global recognition for debugging complex systems.
+You are a senior full-stack web developer with top-tier certification and global recognition for debugging complex systems.
 
-Success Criteria:
-- Let's improve the report page
-- Let's add login and logout session logs for all users including the (roles: admin, client, organizer, staff, supplier)
-- Technically what users who logged in
+Success Criteria
 
-Note:
+- Event builder process when picking organizers
+- Make sure when picking them, a button send request will be available
+- then all status of the chosen organizers are going to be set to pending
+- organizer will then get notified in their portal
+- notification to accept or reject the offer
+- add view details of the event as well
+- plotting the date as well for that organizer
+- organizer can then reject or accept
+- whoever accepts first gets accepted in that admin request to be assigned
+- default if no one accepts or no organizer accepts then the admin can still proceed with the drafted event and will wait further
+- if no one accepts then in the event details, the admin can change the organizer
+- let's then add organizers in the events [id] page
 
-- Do not change any API endpoints
-- api folder here are directly copy pasted in the other window (use only as referrence)
-- Do not alter other areas (strictly only for this context)
+Note
+
+- Do not change any API endpoints.
+- The api folder is copy-pasted in another window; use only as reference.
+- Do not alter other areas; changes are strictly limited to this context.

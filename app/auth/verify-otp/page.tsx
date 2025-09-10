@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
+import { toast } from "@/hooks/use-toast";
 import { CheckCircle2, XCircle } from "lucide-react";
 import Image from "next/image";
 import Logo from "../../../public/logo.png";
@@ -29,6 +30,11 @@ const VerifyOTP = () => {
       const email = getCookie("pending_otp_email");
 
       if (!user_id || !email) {
+        toast({
+          title: "Session expired",
+          description: "Please log in again.",
+          variant: "destructive",
+        });
         router.push("/auth/login");
         return;
       }
@@ -109,7 +115,11 @@ const VerifyOTP = () => {
   const handleVerify = async () => {
     const user_id = getCookie("pending_otp_user_id");
     if (!user_id) {
-      setMessage("Session expired. Please login again.");
+      toast({
+        title: "Session expired",
+        description: "Please login again.",
+        variant: "destructive",
+      });
       router.push("/auth/login");
       return;
     }
@@ -156,8 +166,10 @@ const VerifyOTP = () => {
             "pending_otp_email=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
 
           // Show success message
-          setMessage("Verification successful! Redirecting...");
-          setShowAlert(true);
+          toast({
+            title: "Verification successful",
+            description: "Redirecting to your dashboard...",
+          });
 
           // Redirect based on user role
           const userRole = userData.user_role.toLowerCase();
@@ -172,14 +184,22 @@ const VerifyOTP = () => {
           }, 1000);
         } catch (error) {
           console.error("Error processing user data:", error);
-          setMessage("Error processing user data. Please try again.");
+          toast({
+            title: "Processing error",
+            description: "Please try again.",
+            variant: "destructive",
+          });
           setOtpValues(Array(6).fill(""));
           if (firstInputRef.current) {
             firstInputRef.current.focus();
           }
         }
       } else {
-        setMessage(response.data.message || "Invalid OTP");
+        toast({
+          title: "Invalid OTP",
+          description: response.data.message || "Please try again.",
+          variant: "destructive",
+        });
         setOtpValues(Array(6).fill(""));
         if (firstInputRef.current) {
           firstInputRef.current.focus();
@@ -187,7 +207,11 @@ const VerifyOTP = () => {
       }
     } catch (error) {
       console.error("Error during OTP verification:", error);
-      setMessage("An error occurred during verification");
+      toast({
+        title: "Verification error",
+        description: "An error occurred during verification.",
+        variant: "destructive",
+      });
       setOtpValues(Array(6).fill(""));
       if (firstInputRef.current) {
         firstInputRef.current.focus();
@@ -203,6 +227,11 @@ const VerifyOTP = () => {
     const email = getCookie("pending_otp_email");
 
     if (!user_id || !email) {
+      toast({
+        title: "Session expired",
+        description: "Please login again.",
+        variant: "destructive",
+      });
       router.push("/auth/login");
       return;
     }
@@ -224,19 +253,29 @@ const VerifyOTP = () => {
 
       if (response.data.status === "otp_sent") {
         setTimeLeft(300); // Reset timer
-        setMessage("New OTP has been sent to your email.");
+        toast({
+          title: "OTP sent",
+          description: "New OTP has been sent to your email.",
+        });
         setOtpValues(Array(6).fill(""));
         setIsValid(false);
         // Focus on first input
         inputRefs.current[0]?.focus();
       } else {
-        setMessage(
-          response.data.message || "Failed to resend OTP. Please try again."
-        );
+        toast({
+          title: "Resend failed",
+          description:
+            response.data.message || "Failed to resend OTP. Please try again.",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Error resending OTP:", error);
-      setMessage("Error resending OTP. Please try again.");
+      toast({
+        title: "Resend error",
+        description: "Error resending OTP. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }

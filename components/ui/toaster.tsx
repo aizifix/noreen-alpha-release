@@ -1,6 +1,6 @@
-"use client"
+"use client";
 
-import { useToast } from "@/hooks/use-toast"
+import { useToast } from "@/hooks/use-toast";
 import {
   Toast,
   ToastClose,
@@ -8,13 +8,13 @@ import {
   ToastProvider,
   ToastTitle,
   ToastViewport,
-} from "@/components/ui/toast"
+} from "@/components/ui/toast";
 
 export function Toaster() {
-  const { toasts } = useToast()
+  const { toasts } = useToast();
 
   return (
-    <ToastProvider>
+    <ToastProvider duration={3000}>
       {toasts.map(function ({ id, title, description, action, ...props }) {
         return (
           <Toast key={id} {...props}>
@@ -26,10 +26,26 @@ export function Toaster() {
             </div>
             {action}
             <ToastClose />
+            {/* Progress bar */}
+            <div
+              className={`absolute bottom-0 left-0 h-1 w-full bg-transparent`}
+            >
+              <div
+                className={`h-1 w-full toast-progress ${
+                  props.variant === "destructive"
+                    ? "bg-red-500"
+                    : "bg-emerald-500"
+                }`}
+                style={{
+                  // @ts-ignore custom CSS variable used by globals.css
+                  "--toast-duration": "3s",
+                }}
+              />
+            </div>
           </Toast>
-        )
+        );
       })}
       <ToastViewport />
     </ToastProvider>
-  )
+  );
 }

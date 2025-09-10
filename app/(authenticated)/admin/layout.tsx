@@ -90,6 +90,8 @@ export default function AdminLayout({
     notification_url?: string | null;
     event_id?: number | null;
     booking_id?: number | null;
+    notification_status?: string;
+    read_at?: string | null;
     created_at: string;
   }
 
@@ -272,6 +274,48 @@ export default function AdminLayout({
       setNotifications([]);
     } finally {
       setIsNotifLoading(false);
+    }
+  }
+
+  async function markAllNotificationsRead(currentUser: any) {
+    try {
+      const userId = currentUser?.user_id;
+      if (!userId) return;
+      const res = await fetch(
+        `http://localhost/events-api/notifications.php?operation=mark_read`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userId, operation: "mark_read" }),
+        }
+      );
+      const data = await res.json();
+      if (data?.status === "success") {
+        setUnreadNotifCount(0);
+      }
+    } catch (err) {
+      // ignore errors silently for UX
+    }
+  }
+
+  async function clearReadNotifications(currentUser: any) {
+    try {
+      const userId = currentUser?.user_id;
+      if (!userId) return;
+      const res = await fetch(
+        `http://localhost/events-api/notifications.php?operation=delete_notification&user_id=${encodeURIComponent(
+          userId
+        )}`,
+        {
+          method: "DELETE",
+        }
+      );
+      const data = await res.json();
+      if (data?.status === "success") {
+        await fetchNotificationsList(currentUser);
+      }
+    } catch (err) {
+      // ignore
     }
   }
 
@@ -458,6 +502,7 @@ export default function AdminLayout({
                 const nextOpen = !isNotifDropdownOpen;
                 setIsNotifDropdownOpen(nextOpen);
                 if (nextOpen && user) {
+                  await markAllNotificationsRead(user);
                   await fetchNotificationsList(user);
                 }
               }}
@@ -475,9 +520,31 @@ export default function AdminLayout({
                     <span className="text-sm font-semibold text-gray-700">
                       Notifications
                     </span>
-                    <span className="text-xs text-gray-500">
-                      {unreadNotifCount} unread
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (user) {
+                            await markAllNotificationsRead(user);
+                            await clearReadNotifications(user);
+                          }
+                        }}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Clear all
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (user) {
+                            await clearReadNotifications(user);
+                          }
+                        }}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Clear read
+                      </button>
+                    </div>
                   </div>
                   <div className="p-2">
                     {isNotifLoading ? (
@@ -627,6 +694,7 @@ export default function AdminLayout({
 
         {/* Page Content - Adjusted for Navbar */}
         <main className="pt-24 p-6 h-screen overflow-auto">{children}</main>
+        {/* Global Toaster moved to root layout */}
       </div>
     </div>
   );

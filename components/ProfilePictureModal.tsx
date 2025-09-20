@@ -31,12 +31,13 @@ import {
   X,
 } from "lucide-react";
 import axios from "axios";
+import { apiPost } from "@/app/utils/api";
 
 interface ProfilePictureModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUploadSuccess: (filePath: string) => void;
-  uploadEndpoint: string;
+  uploadEndpoint: string | any; // Support both string URL and API utility
   userId: number;
 }
 
@@ -222,9 +223,21 @@ export default function ProfilePictureModal({
       formData.append("fileType", "profile");
 
       // Upload to server
-      const response = await axios.post(uploadEndpoint, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      let response;
+
+      if (typeof uploadEndpoint === "string") {
+        // Legacy string URL
+        response = await axios.post(uploadEndpoint, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      } else if (typeof uploadEndpoint === "object" && uploadEndpoint.post) {
+        // API utility object
+        response = await uploadEndpoint.post(formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      } else {
+        throw new Error("Invalid upload endpoint");
+      }
 
       if (response.data.status === "success") {
         toast({

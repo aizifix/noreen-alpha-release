@@ -74,12 +74,10 @@ export interface EventDetails {
   title: string;
   type: string;
   date: string;
-  startTime: string;
-  endTime: string;
   capacity: number;
   notes: string;
-  venue: string;
-  package: string;
+  venue?: string;
+  package?: string;
   hasConflicts?: boolean;
   // Booking metadata for enhanced data flow
   bookingReference?: string;
@@ -87,6 +85,10 @@ export interface EventDetails {
   theme?: string;
   churchLocation?: string;
   churchStartTime?: string;
+  // Additional properties
+  description?: string;
+  startTime?: string;
+  endTime?: string;
 }
 
 // Add payment attachment types

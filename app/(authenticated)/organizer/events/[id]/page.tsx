@@ -309,10 +309,10 @@ export default function OrganizerEventDetailsPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           <div className="flex items-center justify-center min-h-[400px]">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500 mx-auto mb-4"></div>
               <p className="text-gray-500">Loading event details...</p>
             </div>
           </div>
@@ -324,7 +324,7 @@ export default function OrganizerEventDetailsPage() {
   if (!event) {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           <div className="text-center py-12">
             <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-gray-900 mb-2">
@@ -336,7 +336,7 @@ export default function OrganizerEventDetailsPage() {
             </p>
             <button
               onClick={() => router.push("/organizer/events")}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors"
             >
               Back to Events
             </button>
@@ -349,8 +349,8 @@ export default function OrganizerEventDetailsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+      <div className="bg-white border-b border-gray-200 animate-in slide-in-from-top-2 fade-in-50 duration-300">
+        <div className="max-w-5xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <button
@@ -382,12 +382,12 @@ export default function OrganizerEventDetailsPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
+      <div className="max-w-5xl mx-auto px-6 py-6 animate-in fade-in-50 duration-300">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Tabs */}
-            <div className="bg-white rounded-lg border border-gray-200">
+            <div className="bg-white rounded-lg border border-gray-200 animate-in fade-in-50 duration-300">
               <div className="border-b border-gray-200">
                 <nav className="flex space-x-8 px-6">
                   {tabs.map((tab) => {
@@ -398,7 +398,7 @@ export default function OrganizerEventDetailsPage() {
                         onClick={() => setActiveTab(tab.id)}
                         className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                           activeTab === tab.id
-                            ? "border-green-500 text-green-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}
                       >
@@ -574,9 +574,9 @@ export default function OrganizerEventDetailsPage() {
                         {event.timeline.map((item, index) => (
                           <div
                             key={index}
-                            className="flex items-start space-x-4"
+                            className="flex items-start space-x-4 animate-in slide-in-from-left-2 duration-300"
                           >
-                            <div className="flex-shrink-0 w-3 h-3 bg-green-500 rounded-full mt-2"></div>
+                            <div className="flex-shrink-0 w-3 h-3 bg-brand-500 rounded-full mt-2"></div>
                             <div className="flex-1 bg-gray-50 rounded-lg p-4">
                               <h4 className="font-semibold text-gray-900">
                                 {item.activity_title}
@@ -623,7 +623,7 @@ export default function OrganizerEventDetailsPage() {
                         {event.attachments.map((attachment, index) => (
                           <div
                             key={index}
-                            className="bg-gray-50 rounded-lg p-4"
+                            className="bg-gray-50 rounded-lg p-4 animate-in fade-in-50 duration-300"
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center space-x-3">
@@ -663,7 +663,7 @@ export default function OrganizerEventDetailsPage() {
           {/* Sidebar */}
           <div className="lg:col-span-1 space-y-6">
             {/* Assignment Status */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-6 animate-in slide-in-from-right-2 duration-300">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
                 Assignment Status
               </h3>
@@ -702,7 +702,7 @@ export default function OrganizerEventDetailsPage() {
             </div>
 
             {/* Payment Summary */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-6 animate-in slide-in-from-right-2 duration-300">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
                 Payment Summary
               </h3>
@@ -748,7 +748,7 @@ export default function OrganizerEventDetailsPage() {
             </div>
 
             {/* Quick Actions */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-6 animate-in slide-in-from-right-2 duration-300">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
                 Quick Actions
               </h3>
@@ -760,8 +760,8 @@ export default function OrganizerEventDetailsPage() {
                       disabled={updating !== null}
                       className={`w-full px-4 py-2 rounded-lg transition-colors font-medium text-white ${
                         updating === "accepted"
-                          ? "bg-green-400 cursor-not-allowed"
-                          : "bg-green-600 hover:bg-green-700"
+                          ? "bg-brand-400 cursor-not-allowed"
+                          : "bg-brand-500 hover:bg-brand-600"
                       }`}
                     >
                       <CheckCircle className="h-4 w-4 inline mr-2" />

@@ -787,7 +787,7 @@ export default function ClientDashboard() {
                       selectedPackage.components.length > 0 ? (
                         selectedPackage.components.map((component, idx) => (
                           <div
-                            key={idx}
+                            key={`item-${idx}-${Date.now()}`}
                             className="flex items-center p-4 bg-white border rounded-lg hover:bg-gray-50 transition-colors"
                           >
                             <CheckCircle className="h-4 w-4 mr-3 text-green-500" />
@@ -815,7 +815,7 @@ export default function ClientDashboard() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {selectedPackage.freebies.map((freebie, idx) => (
                             <div
-                              key={idx}
+                              key={`item-${idx}-${Date.now()}`}
                               className="flex items-start p-4 bg-orange-50 rounded-lg"
                             >
                               <Gift className="h-5 w-5 mr-3 text-orange-600 flex-shrink-0 mt-0.5" />
@@ -846,7 +846,7 @@ export default function ClientDashboard() {
                           {selectedPackage.event_type_names.map(
                             (eventType, idx) => (
                               <Badge
-                                key={idx}
+                                key={`item-${idx}-${Date.now()}`}
                                 variant="secondary"
                                 className="bg-[#028A75]/10 text-[#028A75] px-3 py-1 text-sm"
                               >
@@ -994,7 +994,7 @@ export default function ClientDashboard() {
                                 {selectedPackage.venue_previews.map(
                                   (_, idx) => (
                                     <button
-                                      key={idx}
+                                      key={`item-${idx}-${Date.now()}`}
                                       onClick={() => setCurrentVenueIndex(idx)}
                                       className={`h-2 rounded-full transition-all duration-300 ${
                                         idx === currentVenueIndex

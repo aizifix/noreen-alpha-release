@@ -3,13 +3,16 @@ You are a senior full-stack web developer with top-tier certification and global
 
 Success Criteria:
 
-- Organizer portal
-- Let's fix the event calendar
-- It's showing the same title and I cannot visit a specific event
-- Let's fix the event the organizer is assigend to in the previous data
-- refer on my sql dump for reference
+- Client portal
+- Booking page
 
-Note :
+  - In the step 1 package selection
+    - Let's make sure that the details is viewable
+    - the list of inclusions
+    - freebies
+    - venue choices and etc.,
+
+  Note :
 
 - Do not change any API endpoints.
 - The api folder is copy-pasted in another window; use only as reference.

@@ -450,7 +450,7 @@ export default function ClientLayout({
                       <ul className="space-y-1">
                         {notifications.map((n, idx) => (
                           <li
-                            key={`${n.notification_id ?? "n"}-${idx}`}
+                            key={`notification-${n.notification_id || "temp"}-${idx}-${Date.now()}`}
                             className="rounded-md hover:bg-gray-50"
                           >
                             {n.notification_url ? (
@@ -590,12 +590,113 @@ export default function ClientLayout({
           {/* Right Side - User Actions */}
           <div className="flex items-center gap-2">
             {/* Notifications */}
-            <button className="relative p-2 rounded-full hover:bg-gray-100">
+            <div
+              className="relative cursor-pointer"
+              ref={notifRef}
+              onClick={async () => {
+                const nextOpen = !isNotifDropdownOpen;
+                setIsNotifDropdownOpen(nextOpen);
+                if (nextOpen && user) {
+                  await markAllNotificationsRead(user);
+                  await fetchNotificationsList(user);
+                }
+              }}
+            >
               <Bell className="h-5 w-5 text-gray-600" />
-              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
-                3
-              </span>
-            </button>
+              {unreadNotifCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[1rem] h-4 rounded-full bg-red-500 text-white text-xs flex items-center justify-center px-1">
+                  {unreadNotifCount > 99 ? "99+" : unreadNotifCount}
+                </span>
+              )}
+
+              {isNotifDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-[280px] max-h-[80vh] overflow-auto bg-white rounded-lg shadow-lg border border-gray-200 z-50 fixed-dropdown">
+                  <div className="px-4 py-2 border-b flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-700">
+                      Notifications
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (user) {
+                            await markAllNotificationsRead(user);
+                            await clearReadNotifications(user);
+                          }
+                        }}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Clear all
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (user) {
+                            await clearReadNotifications(user);
+                          }
+                        }}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Clear read
+                      </button>
+                    </div>
+                  </div>
+                  <div className="p-2">
+                    {isNotifLoading ? (
+                      <div className="py-6 text-center text-sm text-gray-500">
+                        Loading...
+                      </div>
+                    ) : notifications.length === 0 ? (
+                      <div className="py-6 text-center text-sm text-gray-500">
+                        No notifications
+                      </div>
+                    ) : (
+                      <ul className="space-y-1">
+                        {notifications.map((n, idx) => (
+                          <li
+                            key={`notification-${n.notification_id || "temp"}-${idx}-${Date.now()}`}
+                            className="rounded-md hover:bg-gray-50"
+                          >
+                            {n.notification_url ? (
+                              <Link
+                                href={n.notification_url}
+                                className="block px-3 py-2"
+                              >
+                                <div className="text-sm font-medium text-gray-800 line-clamp-1">
+                                  {n.notification_title ||
+                                    n.notification_type ||
+                                    "Notification"}
+                                </div>
+                                <div className="text-xs text-gray-600 line-clamp-2">
+                                  {n.notification_message}
+                                </div>
+                                <div className="mt-1 text-[10px] text-gray-400">
+                                  {new Date(n.created_at).toLocaleString()}
+                                </div>
+                              </Link>
+                            ) : (
+                              <div className="px-3 py-2">
+                                <div className="text-sm font-medium text-gray-800 line-clamp-1">
+                                  {n.notification_title ||
+                                    n.notification_type ||
+                                    "Notification"}
+                                </div>
+                                <div className="text-xs text-gray-600 line-clamp-2">
+                                  {n.notification_message}
+                                </div>
+                                <div className="mt-1 text-[10px] text-gray-400">
+                                  {new Date(n.created_at).toLocaleString()}
+                                </div>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* User Dropdown */}
             <div className="relative">

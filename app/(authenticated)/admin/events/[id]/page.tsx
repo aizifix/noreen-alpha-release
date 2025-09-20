@@ -43,6 +43,7 @@ import {
   Banknote,
 } from "lucide-react";
 import axios from "axios";
+import { adminApi, notificationsApi } from "@/app/utils/api";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -96,6 +97,7 @@ interface Event {
     | "finalized";
   booking_date?: string;
   booking_time?: string;
+  assignment_status?: string;
   created_by?: number;
   updated_by?: number;
   created_at?: string;
@@ -1503,7 +1505,7 @@ function PackageInclusionsManagement({
             (comp as any)?.name ||
             `Component #${componentId}`;
           if (event && event.user_id) {
-            await axios.post("http://localhost/events-api/notifications.php", {
+            await notificationsApi.post({
               operation: "create_notification",
               user_id: event.user_id,
               type: "payment_component_status",
@@ -4013,7 +4015,7 @@ export default function EventDetailsPage() {
       return;
     }
     try {
-      const res = await axios.post("http://localhost/events-api/admin.php", {
+      const res = await adminApi.post({
         operation: "updateOrganizerPaymentStatus",
         assignment_id: assignmentId,
         payment_status: status,
@@ -4030,7 +4032,7 @@ export default function EventDetailsPage() {
         // Create client notification for organizer payment update
         try {
           if (event && event.user_id) {
-            await axios.post("http://localhost/events-api/notifications.php", {
+            await notificationsApi.post({
               operation: "create_notification",
               user_id: event.user_id,
               type: "payment_organizer_status",
@@ -4069,7 +4071,7 @@ export default function EventDetailsPage() {
     status: "unpaid" | "partial" | "paid" | "cancelled"
   ) => {
     try {
-      const res = await axios.post("http://localhost/events-api/admin.php", {
+      const res = await adminApi.post({
         operation: "updateVenuePaymentStatus",
         event_id: eventId,
         payment_status: status,
@@ -4086,7 +4088,7 @@ export default function EventDetailsPage() {
         // Create client notification for venue payment update
         try {
           if (event && event.user_id) {
-            await axios.post("http://localhost/events-api/notifications.php", {
+            await notificationsApi.post({
               operation: "create_notification",
               user_id: event.user_id,
               type: "payment_venue_status",

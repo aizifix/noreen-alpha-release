@@ -19,6 +19,7 @@ import {
   DollarSign,
 } from "lucide-react";
 import axios from "axios";
+import { adminApi, organizerApi } from "@/app/utils/api";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 
@@ -96,13 +97,10 @@ export default function OrganizerEventsPage() {
         }
         // Resolve organizer_id from profile (fallback to user_id)
         try {
-          const organizerResponse = await axios.post(
-            "http://localhost/events-api/organizer.php",
-            {
-              operation: "getOrganizerProfile",
-              user_id: userData.user_id,
-            }
-          );
+          const organizerResponse = await organizerApi.post({
+            operation: "getOrganizerProfile",
+            user_id: userData.user_id,
+          });
           if (organizerResponse.data?.status === "success") {
             setOrganizerId(
               organizerResponse.data.data?.organizer_id || userData.user_id
@@ -183,13 +181,10 @@ export default function OrganizerEventsPage() {
 
       // Try to get the actual organizer_id from the profile first
       try {
-        const organizerResponse = await axios.post(
-          "http://localhost/events-api/organizer.php",
-          {
-            operation: "getOrganizerProfile",
-            user_id: organizerUserId,
-          }
-        );
+        const organizerResponse = await organizerApi.post({
+          operation: "getOrganizerProfile",
+          user_id: organizerUserId,
+        });
 
         console.log("📡 Organizer profile response:", organizerResponse.data);
 
@@ -211,13 +206,10 @@ export default function OrganizerEventsPage() {
       // Fetch events assigned to this organizer using the organizer_id
       let assignedEvents: Event[] = [];
       try {
-        const eventsResponse = await axios.post(
-          "http://localhost/events-api/organizer.php",
-          {
-            operation: "getOrganizerEvents",
-            organizer_id: organizerId,
-          }
-        );
+        const eventsResponse = await organizerApi.post({
+          operation: "getOrganizerEvents",
+          organizer_id: organizerId,
+        });
         console.log("📡 Events API Response:", eventsResponse.data);
         if (eventsResponse.data.status === "success") {
           const raw = eventsResponse.data.data || [];
@@ -232,10 +224,7 @@ export default function OrganizerEventsPage() {
       if (assignedEvents.length === 0) {
         // Fallback path: parse organizer_invites from admin getAllEvents
         try {
-          const response = await axios.post(
-            "http://localhost/events-api/admin.php",
-            { operation: "getAllEvents" }
-          );
+          const response = await adminApi.post({ operation: "getAllEvents" });
           const allEvents =
             response.data?.status === "success"
               ? response.data.events || []
@@ -322,7 +311,7 @@ export default function OrganizerEventsPage() {
         assignmentId,
         organizerId,
       });
-      await axios.post("http://localhost/events-api/organizer.php", {
+      await organizerApi.post({
         operation: "updateAssignmentStatus",
         assignment_id: assignmentId,
         status: "accepted",
@@ -361,7 +350,7 @@ export default function OrganizerEventsPage() {
         assignmentId,
         organizerId,
       });
-      await axios.post("http://localhost/events-api/organizer.php", {
+      await organizerApi.post({
         operation: "updateAssignmentStatus",
         assignment_id: assignmentId,
         status: "rejected",
@@ -754,8 +743,8 @@ export default function OrganizerEventsPage() {
           <button
             className={`px-4 py-2 rounded-lg font-semibold border transition-colors ${
               view === "calendar"
-                ? "bg-green-600 text-white border-green-600"
-                : "bg-white text-green-700 border-green-600 hover:bg-green-50"
+                ? "bg-brand-500 text-white border-brand-500"
+                : "bg-white text-brand-700 border-brand-500 hover:bg-brand-50"
             }`}
             onClick={() => setView("calendar")}
           >
@@ -765,8 +754,8 @@ export default function OrganizerEventsPage() {
           <button
             className={`px-4 py-2 rounded-lg font-semibold border transition-colors ${
               view === "list"
-                ? "bg-green-600 text-white border-green-600"
-                : "bg-white text-green-700 border-green-600 hover:bg-green-50"
+                ? "bg-brand-500 text-white border-brand-500"
+                : "bg-white text-brand-700 border-brand-500 hover:bg-brand-50"
             }`}
             onClick={() => setView("list")}
           >
@@ -842,18 +831,18 @@ export default function OrganizerEventsPage() {
         <div className="relative flex-1 min-w-[300px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
             placeholder="Search events..."
           />
         </div>
-        <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
+        <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
           <option>All Types</option>
           <option>Wedding</option>
           <option>Birthday</option>
           <option>Corporate</option>
           <option>Others</option>
         </select>
-        <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
+        <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
           <option>All Statuses</option>
           <option>Draft</option>
           <option>Confirmed</option>
@@ -876,7 +865,7 @@ export default function OrganizerEventsPage() {
             {view === "calendar" ? (
               <CalendarView />
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-6 animate-in fade-in-50 duration-300">
                 {/* Pending invites first */}
                 {orderedInvites.length > 0 && (
                   <div>
@@ -921,7 +910,7 @@ export default function OrganizerEventsPage() {
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleAcceptInvite(event)}
-                              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                              className="flex-1 px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium"
                             >
                               Accept
                             </button>

@@ -559,7 +559,7 @@ export default function AdminLayout({
                       <ul className="space-y-1">
                         {notifications.map((n, idx) => (
                           <li
-                            key={`${n.notification_id ?? "n"}-${idx}`}
+                            key={`admin-notification-${n.notification_id || "temp"}-${idx}-${Date.now()}`}
                             className="rounded-md hover:bg-gray-50"
                           >
                             {n.notification_url ? (

@@ -1,6 +1,17 @@
 "use client";
 
 import { useEffect, useState, useRef, useMemo } from "react";
+
+// Helper function to create a stable hash for component IDs
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return hash;
+}
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
@@ -43,6 +54,7 @@ import {
   Banknote,
 } from "lucide-react";
 import axios from "axios";
+import { adminApi, clientApi } from "@/app/utils/api";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -464,10 +476,7 @@ function EventFinalization({
 
       // No admin password required when unfinalizing
 
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        payload
-      );
+      const response = await adminApi.post(payload);
 
       if (response.data.status === "success") {
         toast({
@@ -1395,8 +1404,12 @@ function PackageInclusionsManagement({
       return;
     }
 
+    // Create a stable negative ID that won't change between renders
+    const componentHash = hashString(
+      newComponent.component_name + newComponent.component_description
+    );
     const newComp: EventComponent = {
-      component_id: Date.now(), // Temporary ID
+      component_id: -1 * (Math.abs(componentHash) || 999999), // Temporary negative ID based on component content
       event_id: event.event_id,
       component_name: newComponent.component_name.trim(),
       component_description: newComponent.component_description?.trim() || "",
@@ -1837,9 +1850,9 @@ function PackageInclusionsManagement({
               {components.map((component, index) => (
                 <div
                   key={
-                    component?.component_id && component.component_id !== 0
+                    component?.component_id
                       ? `component-${component.component_id}`
-                      : `component-temp-${index}-${component?.component_name || component?.name || "unnamed"}`
+                      : `component-temp-${index}-${component?.component_name || component?.display_order || ""}`
                   }
                   className={`border rounded-lg p-4 transition-all ${
                     component.is_included
@@ -1919,9 +1932,9 @@ function PackageInclusionsManagement({
             {components.map((component, index) => (
               <div
                 key={
-                  component?.component_id && component.component_id !== 0
+                  component?.component_id
                     ? `dropdown-anchor-${component.component_id}`
-                    : `dropdown-anchor-temp-${index}`
+                    : `dropdown-anchor-temp-${index}-${component?.component_name || component?.display_order || ""}`
                 }
               />
             ))}
@@ -3537,9 +3550,9 @@ function PaymentHistoryTab({
           {paymentHistory.map((payment: any, index: number) => (
             <div
               key={
-                payment?.payment_id && payment.payment_id !== 0
+                payment?.payment_id
                   ? `payment-${payment.payment_id}`
-                  : `temp-${index}-${payment?.payment_reference || payment?.payment_date || "placeholder"}`
+                  : `payment-temp-${index}-${payment?.payment_reference || payment?.payment_date || ""}`
               }
               className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow"
             >
@@ -4091,12 +4104,10 @@ export default function EventDetailsPage() {
           toast({ title: "Error", description: "Missing client ID" });
           return;
         }
-        const res = await axios.get("http://localhost/events-api/client.php", {
-          params: {
-            operation: "getClientEventDetails",
-            user_id: uid,
-            event_id: parseInt(eventId),
-          },
+        const res = await clientApi.get({
+          operation: "getClientEventDetails",
+          user_id: uid,
+          event_id: parseInt(eventId),
         });
         if (res.data && res.data.status === "success" && res.data.event) {
           setEvent(res.data.event);
@@ -4194,7 +4205,7 @@ export default function EventDetailsPage() {
       return;
     }
     try {
-      const res = await axios.post("http://localhost/events-api/admin.php", {
+      const res = await adminApi.post({
         operation: "updateOrganizerPaymentStatus",
         assignment_id: assignmentId,
         payment_status: status,
@@ -4231,7 +4242,7 @@ export default function EventDetailsPage() {
     status: "unpaid" | "partial" | "paid" | "cancelled"
   ) => {
     try {
-      const res = await axios.post("http://localhost/events-api/admin.php", {
+      const res = await adminApi.post({
         operation: "updateVenuePaymentStatus",
         event_id: eventId,
         payment_status: status,
@@ -4453,24 +4464,26 @@ export default function EventDetailsPage() {
                   </div>
                 ) : eventNotifications.length > 0 ? (
                   <div className="space-y-3">
-                    {eventNotifications.slice(0, 6).map((n: any) => (
-                      <div
-                        key={n.notification_id}
-                        className="border rounded p-3 bg-gray-50"
-                      >
-                        <div className="text-sm font-medium text-gray-900">
-                          {n.notification_title}
+                    {eventNotifications
+                      .slice(0, 6)
+                      .map((n: any, idx: number) => (
+                        <div
+                          key={`event-notification-${n.notification_id || "temp"}-${idx}-${Date.now()}`}
+                          className="border rounded p-3 bg-gray-50"
+                        >
+                          <div className="text-sm font-medium text-gray-900">
+                            {n.notification_title}
+                          </div>
+                          <div className="text-xs text-gray-700 mt-1">
+                            {n.notification_message}
+                          </div>
+                          <div className="text-[11px] text-gray-500 mt-1">
+                            {n.created_at
+                              ? new Date(n.created_at).toLocaleString()
+                              : ""}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-700 mt-1">
-                          {n.notification_message}
-                        </div>
-                        <div className="text-[11px] text-gray-500 mt-1">
-                          {n.created_at
-                            ? new Date(n.created_at).toLocaleString()
-                            : ""}
-                        </div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 ) : (
                   <div className="text-sm text-gray-600">

@@ -11,7 +11,18 @@ export function middleware(request: NextRequest) {
   // Get stored data
   const userStr = request.cookies.get("user")?.value;
   const pendingOtpUserId = request.cookies.get("pending_otp_user_id")?.value;
-  const user = userStr ? JSON.parse(userStr) : null;
+  let user: any = null;
+  if (userStr) {
+    try {
+      user = JSON.parse(decodeURIComponent(userStr));
+      console.log("Middleware: Found user cookie:", user);
+    } catch (e) {
+      console.log("Middleware: Failed to parse user cookie:", e);
+      user = null;
+    }
+  } else {
+    console.log("Middleware: No user cookie found");
+  }
 
   // Handle OTP verification flow
   if (pathname === otpPath) {
@@ -27,8 +38,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/verify-otp", request.url));
   }
 
-  // If user is on a public path and is authenticated, redirect to appropriate dashboard
-  if (publicPaths.includes(pathname) && user) {
+  // If user is on a public path or root and is authenticated, redirect to appropriate dashboard
+  if ((publicPaths.includes(pathname) || pathname === "/") && user) {
+    console.log(
+      "Middleware: Redirecting authenticated user from",
+      pathname,
+      "to dashboard"
+    );
     const role = user.user_role.toLowerCase();
     if (role === "admin") {
       return NextResponse.redirect(new URL("/admin/dashboard", request.url));
@@ -93,6 +109,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/",
     "/admin/:path*",
     "/organizer/:path*",
     "/client/:path*",

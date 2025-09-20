@@ -117,6 +117,22 @@ export const secureStorage = {
       const encryptedData = encryptData(sanitizedData);
       localStorage.setItem(key, encryptedData);
 
+      // Mirror minimal session data in a cookie for middleware (cross-tab/SSR)
+      if (key === "user") {
+        try {
+          const minimal = {
+            user_id: sanitizedData.user_id,
+            user_role: String(sanitizedData.user_role || ""),
+          };
+          const cookieValue = encodeURIComponent(JSON.stringify(minimal));
+          // Session cookie (no max-age) with Lax same-site policy
+          document.cookie = `user=${cookieValue}; path=/; SameSite=Lax`;
+          console.log("secureStorage: Set user cookie:", minimal);
+        } catch (_e) {
+          console.log("secureStorage: Failed to set user cookie:", _e);
+        }
+      }
+
       // Verify storage worked
       const verify = localStorage.getItem(key);
       if (verify !== encryptedData) {
@@ -152,6 +168,11 @@ export const secureStorage = {
   removeItem: (key: string) => {
     try {
       localStorage.removeItem(key);
+      if (key === "user") {
+        // Clear mirrored cookie
+        document.cookie =
+          "user=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+      }
     } catch (error) {
       console.error("Error removing data:", error);
     }

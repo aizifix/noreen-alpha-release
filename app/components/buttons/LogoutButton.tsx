@@ -32,6 +32,9 @@ export const LogoutButton = () => {
       "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
     document.cookie =
       "pending_otp_email=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+    // Ensure mirrored user cookie is removed
+    document.cookie =
+      "user=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
 
     // Replace the current URL with login page (prevents going back)
     router.replace("/auth/login");

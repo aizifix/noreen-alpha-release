@@ -325,29 +325,41 @@ export default function BookingsPage() {
                 b.booking_status === "converted"
                   ? "opacity-75 bg-gray-50 border-purple-200"
                   : b.booking_status === "confirmed"
-                  ? "border-green-200 bg-green-50"
-                  : b.booking_status === "pending"
-                  ? "border-yellow-200 bg-yellow-50"
-                  : "border-gray-200"
+                    ? "border-green-200 bg-green-50"
+                    : b.booking_status === "pending"
+                      ? "border-yellow-200 bg-yellow-50"
+                      : "border-gray-200"
               }`}
             >
               {/* Header */}
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    b.booking_status === "confirmed" ? "bg-green-100" :
-                    b.booking_status === "pending" ? "bg-yellow-100" :
-                    b.booking_status === "completed" ? "bg-blue-100" :
-                    b.booking_status === "converted" ? "bg-purple-100" :
-                    "bg-red-100"
-                  }`}>
-                    <Calendar className={`h-5 w-5 ${
-                      b.booking_status === "confirmed" ? "text-green-600" :
-                      b.booking_status === "pending" ? "text-yellow-600" :
-                      b.booking_status === "completed" ? "text-blue-600" :
-                      b.booking_status === "converted" ? "text-purple-600" :
-                      "text-red-600"
-                    }`} />
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      b.booking_status === "confirmed"
+                        ? "bg-green-100"
+                        : b.booking_status === "pending"
+                          ? "bg-yellow-100"
+                          : b.booking_status === "completed"
+                            ? "bg-blue-100"
+                            : b.booking_status === "converted"
+                              ? "bg-purple-100"
+                              : "bg-red-100"
+                    }`}
+                  >
+                    <Calendar
+                      className={`h-5 w-5 ${
+                        b.booking_status === "confirmed"
+                          ? "text-green-600"
+                          : b.booking_status === "pending"
+                            ? "text-yellow-600"
+                            : b.booking_status === "completed"
+                              ? "text-blue-600"
+                              : b.booking_status === "converted"
+                                ? "text-purple-600"
+                                : "text-red-600"
+                      }`}
+                    />
                   </div>
                   <div>
                     <h3 className="font-semibold text-lg text-gray-900 capitalize">
@@ -369,7 +381,9 @@ export default function BookingsPage() {
               {/* Event Name */}
               {b.event_name && (
                 <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-sm text-gray-700 font-medium">{b.event_name}</p>
+                  <p className="text-sm text-gray-700 font-medium">
+                    {b.event_name}
+                  </p>
                 </div>
               )}
 
@@ -378,9 +392,13 @@ export default function BookingsPage() {
                 <div className="flex items-center gap-3 text-sm text-gray-700 bg-white p-3 rounded-lg border">
                   <Clock className="h-4 w-4 text-blue-600" />
                   <div>
-                    <div className="font-medium">{formatDate(b.event_date)}</div>
+                    <div className="font-medium">
+                      {formatDate(b.event_date)}
+                    </div>
                     {b.event_time && (
-                      <div className="text-xs text-gray-500">at {b.event_time}</div>
+                      <div className="text-xs text-gray-500">
+                        at {b.event_time}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -416,7 +434,8 @@ export default function BookingsPage() {
                     <span className="font-medium">Converted to Event</span>
                   </div>
                   <p className="text-xs text-purple-700 mt-1">
-                    Your booking has been successfully converted to an event by the admin.
+                    Your booking has been successfully converted to an event by
+                    the admin.
                   </p>
                 </div>
               )}
@@ -483,8 +502,8 @@ export default function BookingsPage() {
                 {search
                   ? "No bookings match your search criteria. Try adjusting your search terms."
                   : activeTab === "All Bookings"
-                  ? "You haven't made any bookings yet. Start planning your perfect event!"
-                  : `No ${activeTab.toLowerCase()} bookings found.`}
+                    ? "You haven't made any bookings yet. Start planning your perfect event!"
+                    : `No ${activeTab.toLowerCase()} bookings found.`}
               </p>
               <Link href="/client/bookings/create-booking">
                 <button className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">

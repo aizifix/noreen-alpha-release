@@ -34,9 +34,10 @@ import {
   isSameDay,
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import ComponentsStep from "./ComponentsStep";
+import InclusionsStep from "./InclusionsStep";
 import {
   Calendar as CalendarIcon,
-  Clock,
   Users,
   MapPin,
   Package,
@@ -55,6 +56,8 @@ import {
   Info,
   X,
   Check,
+  ListPlus,
+  Layers,
 } from "lucide-react";
 
 // Types for the booking process
@@ -69,6 +72,32 @@ interface EventType {
   event_type_id: number;
   event_name: string;
   event_description: string | null;
+}
+
+interface Component {
+  component_id: number;
+  component_name: string;
+  component_description: string | null;
+  component_price: number;
+  display_order: number;
+}
+
+interface Inclusion {
+  inclusion_id: number;
+  inclusion_name: string;
+  inclusion_description: string | null;
+  inclusion_price: number;
+  display_order: number;
+  is_supplier_service?: boolean;
+  supplier_id?: number;
+  supplier_name?: string;
+}
+
+interface CustomInclusion {
+  name: string;
+  description: string;
+  price: number;
+  is_external: boolean;
 }
 
 interface Package {
@@ -96,6 +125,7 @@ interface Package {
     venue_profile_picture: string | null;
     venue_cover_photo: string | null;
   }>;
+  inclusions?: Inclusion[];
 }
 
 interface Venue {
@@ -118,12 +148,18 @@ interface BookingFormData {
   eventType: string;
   eventName: string;
   eventDate: string;
-  startTime: string;
-  endTime: string;
   guestCount: number;
   packageId: number | null;
   venueId: number | null;
   notes: string;
+  startTime: string;
+  endTime: string;
+  // Inclusions
+  inclusions: Inclusion[];
+  customInclusions: Inclusion[];
+  removedInclusions: Inclusion[];
+  supplierServices: Inclusion[];
+  externalCustomizations: CustomInclusion[];
 }
 
 interface CalendarConflictData {
@@ -171,12 +207,18 @@ export default function EnhancedCreateBookingPage() {
     eventType: "",
     eventName: "",
     eventDate: "",
-    startTime: "10:00",
-    endTime: "18:00",
     guestCount: 100,
     packageId: preselectedPackageId ? parseInt(preselectedPackageId) : null,
     venueId: null,
     notes: "",
+    startTime: "12:00",
+    endTime: "17:00",
+    // Inclusions
+    inclusions: [],
+    customInclusions: [],
+    removedInclusions: [],
+    supplierServices: [],
+    externalCustomizations: [],
   });
 
   // Data fetching state
@@ -187,6 +229,17 @@ export default function EnhancedCreateBookingPage() {
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
   const [decideLater, setDecideLater] = useState(false);
   const [loadingEventTypes, setLoadingEventTypes] = useState(false);
+
+  // Components and inclusions state
+  const [availableComponents, setAvailableComponents] = useState<Component[]>(
+    []
+  );
+  const [availableInclusions, setAvailableInclusions] = useState<Inclusion[]>(
+    []
+  );
+  const [loadingComponents, setLoadingComponents] = useState(false);
+  const [loadingInclusions, setLoadingInclusions] = useState(false);
+  const [totalPrice, setTotalPrice] = useState<number>(0);
 
   // Calendar and conflict checking state
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -207,9 +260,11 @@ export default function EnhancedCreateBookingPage() {
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [bookingReference, setBookingReference] = useState<string | null>(null);
 
-  // Modal state for venue inclusions
+  // Modal states for venue and package details
   const [venueDetailsModalOpen, setVenueDetailsModalOpen] = useState(false);
   const [modalVenue, setModalVenue] = useState<Venue | null>(null);
+  const [packageDetailsModalOpen, setPackageDetailsModalOpen] = useState(false);
+  const [modalPackage, setModalPackage] = useState<Package | null>(null);
 
   // Helper function to format price with proper formatting
   const formatPrice = (amount: number): string => {
@@ -221,20 +276,23 @@ export default function EnhancedCreateBookingPage() {
     packagePrice?: number,
     guestCount?: number
   ): number => {
-    const price = packagePrice ?? selectedPackage?.package_price ?? 0;
+    // Base package price
+    const basePrice = packagePrice ?? selectedPackage?.package_price ?? 0;
     const guests = guestCount ?? formData.guestCount;
+
+    let totalPrice = basePrice;
 
     // If guest count exceeds 100, charge ₱350 per additional person
     if (guests > 100) {
       const extraGuests = guests - 100;
       const extraCost = extraGuests * 350;
-      return price + extraCost;
+      totalPrice += extraCost;
     }
 
-    return price;
+    return totalPrice > 0 ? totalPrice : 0; // Ensure we don't have negative price
   };
 
-  // Steps configuration
+  // Steps configuration - with venue selection before inclusions
   const steps: BookingStep[] = [
     {
       id: 1,
@@ -256,6 +314,12 @@ export default function EnhancedCreateBookingPage() {
     },
     {
       id: 4,
+      title: "Inclusions",
+      description: "Customize inclusions",
+      completed: false,
+    },
+    {
+      id: 5,
       title: "Review & Confirm",
       description: "Review your booking",
       completed: false,
@@ -290,6 +354,8 @@ export default function EnhancedCreateBookingPage() {
       }
     }
   }, [preselectedPackageId, packages]);
+
+  // No longer needed - we're focusing on inclusions
 
   // Reset modal only when leaving step 3
   useEffect(() => {
@@ -442,19 +508,17 @@ export default function EnhancedCreateBookingPage() {
     }
   }, []);
 
-  // Check for event conflicts
+  // Check for event conflicts - updated to only check date, not time
   const checkForConflicts = useCallback(async () => {
-    if (!formData.eventDate || !formData.startTime || !formData.endTime) return;
+    if (!formData.eventDate) return;
 
     setIsCheckingConflicts(true);
     try {
       const response = await axios.post(
         "http://localhost/events-api/client.php",
         {
-          operation: "checkEventConflicts",
+          operation: "checkEventDateConflicts",
           event_date: formData.eventDate,
-          start_time: formData.startTime,
-          end_time: formData.endTime,
         }
       );
 
@@ -467,7 +531,54 @@ export default function EnhancedCreateBookingPage() {
     } finally {
       setIsCheckingConflicts(false);
     }
-  }, [formData.eventDate, formData.startTime, formData.endTime]);
+  }, [formData.eventDate]);
+
+  // Recalculate total price when relevant factors change
+  useEffect(() => {
+    // Calculate base package price
+    let calculatedPrice = calculateTotalPackagePrice();
+
+    // Subtract removed inclusions
+    const removedInclusionsTotal = formData.removedInclusions.reduce(
+      (sum, inc) => sum + parseFloat(inc.inclusion_price as any),
+      0
+    );
+
+    // Add custom inclusion prices
+    const customInclusionsTotal = formData.customInclusions.reduce(
+      (sum, inc) => sum + parseFloat(inc.inclusion_price as any),
+      0
+    );
+
+    // Add supplier service prices
+    const supplierServicesTotal = formData.supplierServices.reduce(
+      (sum, service) => sum + parseFloat(service.inclusion_price as any),
+      0
+    );
+
+    // Add external customization prices
+    const externalCustomizationsTotal = formData.externalCustomizations.reduce(
+      (sum, custom) => sum + parseFloat(custom.price as any),
+      0
+    );
+
+    // Calculate final price
+    calculatedPrice =
+      calculatedPrice -
+      removedInclusionsTotal +
+      customInclusionsTotal +
+      supplierServicesTotal +
+      externalCustomizationsTotal;
+
+    setTotalPrice(calculatedPrice);
+  }, [
+    formData.guestCount,
+    formData.customInclusions,
+    formData.removedInclusions,
+    formData.supplierServices,
+    formData.externalCustomizations,
+    selectedPackage,
+  ]);
 
   // Handle date selection
   const handleDateSelect = async (date: Date | undefined) => {
@@ -574,6 +685,119 @@ export default function EnhancedCreateBookingPage() {
     );
   };
 
+  // Update inclusions when venue changes - following admin implementation
+  useEffect(() => {
+    // When a venue is selected, check if it has inclusions
+    if (selectedVenue) {
+      console.log(
+        "Updating inclusions with venue-specific data:",
+        selectedVenue.venue_title
+      );
+
+      // Add the venue itself as a component
+      const venuePrice = parseFloat(selectedVenue.venue_price) || 0;
+      const extraPaxRate = parseFloat(selectedVenue.extra_pax_rate || 0);
+      const guestCount = formData.guestCount || 100;
+
+      // Calculate venue price including overflow charges (matching admin implementation)
+      let calculatedVenuePrice = venuePrice;
+      if (extraPaxRate > 0 && guestCount > 100) {
+        const extraGuests = guestCount - 100;
+        const overflowCharge = extraGuests * extraPaxRate;
+        calculatedVenuePrice += overflowCharge;
+        console.log(
+          `Venue overflow calculation: ${extraGuests} extra guests × ${extraPaxRate} = ${overflowCharge}`
+        );
+      }
+
+      // Add venue as a main component
+      const venueComponent = {
+        inclusion_id: `venue-${selectedVenue.venue_id}`,
+        inclusion_name:
+          selectedVenue.venue_title ||
+          selectedVenue.venue_name ||
+          "Selected Venue",
+        inclusion_description: `Venue: ${selectedVenue.venue_title || selectedVenue.venue_name}${extraPaxRate > 0 && guestCount > 100 ? ` (includes overflow for ${guestCount - 100} extra guests)` : ""}`,
+        inclusion_price: calculatedVenuePrice,
+        display_order: 0,
+        category: "venue",
+        is_venue_inclusion: true,
+        included: true,
+        isRemovable: false,
+      };
+
+      // Add venue component to custom inclusions
+      let hasVenueComponent = false;
+      setFormData((prev) => {
+        // Check if venue already exists
+        const existingVenue = prev.customInclusions.find(
+          (inc) =>
+            inc.inclusion_id.toString().startsWith("venue-") &&
+            inc.is_venue_inclusion === true
+        );
+
+        if (existingVenue) {
+          hasVenueComponent = true;
+          // Update existing venue component
+          const updatedCustomInclusions = prev.customInclusions.map((inc) =>
+            inc.inclusion_id === existingVenue.inclusion_id
+              ? venueComponent
+              : inc
+          );
+          return {
+            ...prev,
+            customInclusions: updatedCustomInclusions,
+          };
+        } else {
+          // Add new venue component
+          return {
+            ...prev,
+            customInclusions: [...prev.customInclusions, venueComponent],
+          };
+        }
+      });
+
+      // Now handle additional venue inclusions if available
+      if (selectedVenue.inclusions && selectedVenue.inclusions.length > 0) {
+        // Add venue inclusions to custom inclusions if they don't exist already
+        const venueInclusions = selectedVenue.inclusions.map((inclusion) => ({
+          inclusion_id:
+            inclusion.inclusion_id || Math.floor(Math.random() * 1000000),
+          inclusion_name: inclusion.inclusion_name,
+          inclusion_description:
+            inclusion.inclusion_description ||
+            `Included with venue: ${selectedVenue.venue_title}`,
+          inclusion_price: 0, // Included with venue
+          display_order: 0,
+          is_venue_inclusion: true,
+          included: true, // Mark as included by default but allow unchecking
+        }));
+
+        // Only add new inclusions that don't already exist
+        setFormData((prev) => {
+          const existingIds = new Set(
+            [...prev.customInclusions, ...prev.inclusions].map(
+              (inc) => inc.inclusion_id
+            )
+          );
+
+          const newInclusions = venueInclusions.filter(
+            (inc) => !existingIds.has(inc.inclusion_id)
+          );
+
+          if (newInclusions.length > 0) {
+            return {
+              ...prev,
+              customInclusions: [...prev.customInclusions, ...newInclusions],
+            };
+          }
+          return prev;
+        });
+      }
+    }
+    // Only depend on selectedVenue and guestCount, not on the data we're updating
+  }, [selectedVenue, formData.guestCount]);
+
   // Handle form submission
   const handleSubmit = async () => {
     if (!clientInfo || !userId) {
@@ -593,12 +817,39 @@ export default function EnhancedCreateBookingPage() {
         event_type_id: getEventTypeId(formData.eventType),
         event_name: formData.eventName,
         event_date: formData.eventDate,
-        event_time: formData.startTime,
+        start_time: formData.startTime,
+        end_time: formData.endTime,
         guest_count: formData.guestCount,
         package_id: formData.packageId,
         venue_id: formData.venueId,
         notes: formData.notes,
         booking_status: "pending",
+        // Inclusions data - keep track of all inclusions but mark their status
+        custom_inclusions: formData.customInclusions.map((inc) => ({
+          inclusion_id: inc.inclusion_id,
+          is_included: !formData.removedInclusions.some(
+            (removed) => removed.inclusion_id === inc.inclusion_id
+          ),
+        })),
+        package_inclusions: formData.inclusions.map((inc) => ({
+          inclusion_id: inc.inclusion_id,
+          is_included: !formData.removedInclusions.some(
+            (removed) => removed.inclusion_id === inc.inclusion_id
+          ),
+        })),
+        // We still need to track which were explicitly removed
+        removed_inclusions: formData.removedInclusions.map(
+          (inc) => inc.inclusion_id
+        ),
+        supplier_services: formData.supplierServices.map((service) => ({
+          service_id: service.inclusion_id,
+          supplier_id: service.supplier_id,
+          is_included: !formData.removedInclusions.some(
+            (removed) => removed.inclusion_id === service.inclusion_id
+          ),
+        })),
+        external_customizations: formData.externalCustomizations,
+        total_price: totalPrice,
       };
 
       const response = await axios.post(
@@ -637,9 +888,21 @@ export default function EnhancedCreateBookingPage() {
       setModalVenue(null);
 
       setCurrentStep(currentStep + 1);
-      // Fetch venues when moving to step 3
+
+      // Handle specific step transitions
       if (currentStep + 1 === 3) {
+        // When moving to venue selection step, fetch venues
         fetchVenues(formData.packageId);
+      } else if (currentStep + 1 === 4) {
+        // When moving to inclusions step, make sure we have package inclusions if a package is selected
+        if (formData.packageId && formData.inclusions.length === 0) {
+          fetchPackageInclusions(formData.packageId);
+        }
+        // Also, use the selected venue to filter inclusions
+        if (selectedVenue && selectedVenue.inclusions) {
+          // Update inclusions with venue-specific data
+          console.log("Selected venue inclusions:", selectedVenue.inclusions);
+        }
       }
     }
   };
@@ -662,13 +925,128 @@ export default function EnhancedCreateBookingPage() {
       ...prev,
       packageId: pkg.package_id,
       eventType: pkg.event_type_names[0] || "", // Auto-populate event type
+      // Reset inclusions when changing packages
+      inclusions: [],
+      customInclusions: [],
+      removedInclusions: [],
+      supplierServices: [],
+      externalCustomizations: [],
     }));
     // Also fetch venues for this package
     fetchVenues(pkg.package_id);
+    // Fetch package inclusions
+    fetchPackageInclusions(pkg.package_id);
     console.log("Selected package and auto-populated:", {
       packageId: pkg.package_id,
       eventType: pkg.event_type_names[0],
     });
+  };
+
+  // Convert component to inclusion format
+  const componentToInclusion = (component: any): Inclusion => {
+    return {
+      inclusion_id:
+        component.component_id || Math.floor(Math.random() * 1000000),
+      inclusion_name: component.component_name,
+      inclusion_description: component.component_description || null,
+      inclusion_price: component.component_price || 0,
+      display_order: component.display_order || 0,
+      included: true,
+    };
+  };
+
+  // Fetch package inclusions
+  const fetchPackageInclusions = async (packageId: number) => {
+    setLoadingInclusions(true);
+    try {
+      const response = await axios.get(
+        "http://localhost/events-api/client.php",
+        {
+          params: {
+            operation: "getPackageInclusions",
+            package_id: packageId,
+          },
+        }
+      );
+
+      if (response.data.status === "success") {
+        if (response.data.inclusions) {
+          // If the API returns inclusions directly
+          setFormData((prev) => ({
+            ...prev,
+            inclusions: response.data.inclusions,
+          }));
+        } else if (response.data.components) {
+          // If the API returns components instead, convert them to inclusions
+          const convertedInclusions =
+            response.data.components.map(componentToInclusion);
+          setFormData((prev) => ({
+            ...prev,
+            inclusions: convertedInclusions,
+          }));
+        } else if (selectedPackage?.components) {
+          // If no direct API data but we have components from the package
+          const convertedInclusions =
+            selectedPackage.components.map(componentToInclusion);
+          setFormData((prev) => ({
+            ...prev,
+            inclusions: convertedInclusions,
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching package inclusions:", err);
+      // Fallback to using package components if available
+      if (selectedPackage?.components) {
+        const convertedInclusions =
+          selectedPackage.components.map(componentToInclusion);
+        setFormData((prev) => ({
+          ...prev,
+          inclusions: convertedInclusions,
+        }));
+      }
+    } finally {
+      setLoadingInclusions(false);
+    }
+  };
+
+  // Package details modal handler
+  const showPackageDetails = async (pkg: Package) => {
+    setModalPackage(pkg);
+    setPackageDetailsModalOpen(true);
+
+    try {
+      // Fetch venues for this package to show in the package details
+      const response = await axios.get(
+        "http://localhost/events-api/client.php",
+        {
+          params: {
+            operation: "getVenuesByPackage",
+            package_id: pkg.package_id,
+          },
+        }
+      );
+
+      if (response.data.status === "success" && response.data.venues) {
+        // Update the modal package with venue previews
+        setModalPackage((prev) =>
+          prev
+            ? {
+                ...prev,
+                venue_previews: response.data.venues,
+              }
+            : pkg
+        );
+      }
+    } catch (err) {
+      console.error("Error fetching venue previews for package:", err);
+    }
+  };
+
+  // Venue details modal handler
+  const showVenueDetails = (venue: Venue) => {
+    setModalVenue(venue);
+    setVenueDetailsModalOpen(true);
   };
 
   const handleDecideLater = () => {
@@ -678,6 +1056,12 @@ export default function EnhancedCreateBookingPage() {
       ...prev,
       packageId: null,
       eventType: "", // Reset event type so user can choose manually
+      // Reset all inclusions
+      inclusions: [],
+      customInclusions: [],
+      removedInclusions: [],
+      supplierServices: [],
+      externalCustomizations: [],
     }));
     // Fetch all venues since no package is selected
     fetchVenues(null);
@@ -697,41 +1081,34 @@ export default function EnhancedCreateBookingPage() {
           formData.eventName && formData.eventName.trim()
         );
         const isEventDateValid = Boolean(formData.eventDate);
-        const isTimeValid = Boolean(formData.startTime && formData.endTime);
-
-        // Validate time range
-        let isTimeRangeValid = true;
-        if (isTimeValid) {
-          const start = new Date(`2000-01-01T${formData.startTime}`);
-          const end = new Date(`2000-01-01T${formData.endTime}`);
-          isTimeRangeValid = start < end;
-        }
+        const isGuestCountValid = formData.guestCount > 0;
 
         // Log validation state for debugging
         console.log("Step 2 Validation:", {
           isEventTypeValid,
           isEventNameValid,
           isEventDateValid,
-          isTimeValid,
-          isTimeRangeValid,
+          isGuestCountValid,
           hasConflicts,
           eventType: formData.eventType,
           eventName: formData.eventName,
           eventDate: formData.eventDate,
-          startTime: formData.startTime,
-          endTime: formData.endTime,
+          guestCount: formData.guestCount,
         });
 
         return (
           isEventTypeValid &&
           isEventNameValid &&
           isEventDateValid &&
-          isTimeValid &&
-          isTimeRangeValid &&
+          isGuestCountValid &&
           !hasConflicts
         );
       case 3:
-        return formData.venueId !== null && formData.guestCount > 0;
+        // Venue selection step
+        return formData.venueId !== null;
+      case 4:
+        // Inclusions step - always allow proceeding
+        return true;
       default:
         return true;
     }
@@ -955,12 +1332,26 @@ export default function EnhancedCreateBookingPage() {
                                     </div>
                                   )}
                                   <div className="flex justify-between text-sm text-gray-600">
-                                    <span>
-                                      {pkg.components?.length || 0} components
+                                    <span className="flex items-center">
+                                      <Package className="h-3 w-3 mr-1" />
+                                      {pkg.components?.length || 0} inclusions
                                     </span>
-                                    <span>
+                                    <span className="flex items-center">
+                                      <Gift className="h-3 w-3 mr-1" />
                                       {pkg.freebies?.length || 0} freebies
                                     </span>
+                                  </div>
+                                  <div className="pt-2">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        showPackageDetails(pkg);
+                                      }}
+                                      className="w-full text-center text-sm py-1.5 px-3 bg-[#028A75]/10 text-[#028A75] rounded hover:bg-[#028A75]/20 transition-colors"
+                                    >
+                                      <Eye className="h-3 w-3 inline mr-1" />{" "}
+                                      View Details
+                                    </button>
                                   </div>
                                 </div>
                               </CardContent>
@@ -1256,72 +1647,39 @@ export default function EnhancedCreateBookingPage() {
                         </Dialog>
                       </div>
 
-                      {/* Time Selection */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                        <div className="space-y-2 animate-fadeSlideIn animation-delay-600">
-                          <Label>Start Time *</Label>
-                          <Input
-                            type="time"
-                            value={formData.startTime}
-                            onChange={(e) => {
-                              const newStartTime = e.target.value;
-                              setFormData((prev) => ({
-                                ...prev,
-                                startTime: newStartTime,
-                              }));
-                              // Check for conflicts immediately when time changes
-                              if (formData.eventDate) {
-                                checkForConflicts();
-                              }
-                            }}
-                            className={cn(
-                              !formData.startTime &&
-                                "border-red-200 focus:ring-red-500"
-                            )}
-                          />
-                          {!formData.startTime && (
-                            <p className="text-xs text-red-600 mt-1">
-                              Please select a start time
+                      {/* Guest Count Field - Moved from Venue step */}
+                      <div className="space-y-2 animate-fadeSlideIn animation-delay-600">
+                        <Label>Expected Guest Count *</Label>
+                        <Input
+                          type="number"
+                          value={formData.guestCount}
+                          onChange={(e) => {
+                            const newGuestCount = parseInt(e.target.value);
+                            if (isNaN(newGuestCount) || newGuestCount < 1)
+                              return;
+
+                            setFormData((prev) => ({
+                              ...prev,
+                              guestCount: newGuestCount,
+                            }));
+                          }}
+                          min="1"
+                          max="1000"
+                          placeholder="Enter number of guests"
+                          className="w-full"
+                        />
+                        <div className="space-y-1">
+                          <p className="text-sm text-gray-600">
+                            This will help us determine suitable venues
+                          </p>
+                          {formData.guestCount > 100 && (
+                            <p className="text-sm text-amber-600 font-medium">
+                              Additional cost: ₱350 per guest over 100 (
+                              {formData.guestCount - 100} extra guests ={" "}
+                              {formatPrice((formData.guestCount - 100) * 350)})
                             </p>
                           )}
                         </div>
-                        <div className="space-y-2 animate-fadeSlideIn animation-delay-750">
-                          <Label>End Time *</Label>
-                          <Input
-                            type="time"
-                            value={formData.endTime}
-                            onChange={(e) => {
-                              const newEndTime = e.target.value;
-                              setFormData((prev) => ({
-                                ...prev,
-                                endTime: newEndTime,
-                              }));
-                              // Check for conflicts immediately when time changes
-                              if (formData.eventDate) {
-                                checkForConflicts();
-                              }
-                            }}
-                            className={cn(
-                              !formData.endTime &&
-                                "border-red-200 focus:ring-red-500"
-                            )}
-                          />
-                          {!formData.endTime && (
-                            <p className="text-xs text-red-600 mt-1">
-                              Please select an end time
-                            </p>
-                          )}
-                        </div>
-                        {formData.startTime &&
-                          formData.endTime &&
-                          new Date(`2000-01-01T${formData.startTime}`) >=
-                            new Date(`2000-01-01T${formData.endTime}`) && (
-                            <div className="sm:col-span-2">
-                              <p className="text-xs text-red-600">
-                                End time must be after start time
-                              </p>
-                            </div>
-                          )}
                       </div>
 
                       {/* Conflict checking indicator */}
@@ -1342,7 +1700,10 @@ export default function EnhancedCreateBookingPage() {
                                 Scheduling conflicts detected:
                               </p>
                               {conflictingEvents.map((event, index) => (
-                                <div key={index} className="text-sm">
+                                <div
+                                  key={`conflict-${index}-${Date.now()}`}
+                                  className="text-sm"
+                                >
                                   • {event.event_title} ({event.start_time} -{" "}
                                   {event.end_time})
                                 </div>
@@ -1372,38 +1733,27 @@ export default function EnhancedCreateBookingPage() {
                   {/* Step 3: Venue Selection */}
                   {currentStep === 3 && (
                     <div className="space-y-6 animate-fadeSlideIn">
-                      {/* Guest Count */}
                       <div className="space-y-2 animate-fadeSlideIn animation-delay-150">
-                        <Label>Expected Guest Count *</Label>
-                        <Input
-                          type="number"
-                          value={formData.guestCount}
-                          onChange={(e) => {
-                            const newGuestCount = parseInt(e.target.value);
-                            setFormData((prev) => ({
-                              ...prev,
-                              guestCount: newGuestCount,
-                            }));
-                            // Refetch venues when guest count changes
-                            setTimeout(() => {
-                              fetchVenues(formData.packageId);
-                            }, 500);
-                          }}
-                          min="1"
-                          max="1000"
-                          placeholder="Enter number of guests"
-                        />
-                        <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <Label>Selected Guest Count</Label>
+                          <span className="text-[#028A75] font-medium">
+                            {formData.guestCount} guests
+                          </span>
+                        </div>
+                        <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                           <p className="text-sm text-gray-600">
-                            Venues will be filtered based on your guest count
+                            Venues will be filtered based on your guest count of{" "}
+                            {formData.guestCount} guests.
+                            {formData.guestCount > 100 && (
+                              <span className="block mt-2 text-amber-600">
+                                Note: Additional cost of ₱350 per guest over 100
+                                applies ({formData.guestCount - 100} extra
+                                guests ={" "}
+                                {formatPrice((formData.guestCount - 100) * 350)}
+                                )
+                              </span>
+                            )}
                           </p>
-                          {formData.guestCount > 100 && (
-                            <p className="text-sm text-amber-600 font-medium">
-                              Additional cost: ₱350 per guest over 100 (
-                              {formData.guestCount - 100} extra guests ={" "}
-                              {formatPrice((formData.guestCount - 100) * 350)})
-                            </p>
-                          )}
                         </div>
                       </div>
 
@@ -1442,28 +1792,6 @@ export default function EnhancedCreateBookingPage() {
                                 setSelectedVenue(venue);
                               }}
                             >
-                              {/* Cover Photo */}
-                              <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden relative">
-                                <img
-                                  src={
-                                    venue.venue_cover_photo
-                                      ? `http://localhost/events-api/${venue.venue_cover_photo}`
-                                      : "/placeholder.jpg"
-                                  }
-                                  alt={venue.venue_title}
-                                  className="w-full h-full object-cover"
-                                />
-                                {/* Profile Picture Overlay */}
-                                {venue.venue_profile_picture && (
-                                  <div className="absolute bottom-3 left-3">
-                                    <img
-                                      src={`http://localhost/events-api/${venue.venue_profile_picture}`}
-                                      alt={`${venue.venue_title} profile`}
-                                      className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-md"
-                                    />
-                                  </div>
-                                )}
-                              </div>
                               <CardHeader className="pb-2">
                                 <div className="flex justify-between items-start">
                                   <CardTitle className="text-lg">
@@ -1516,8 +1844,114 @@ export default function EnhancedCreateBookingPage() {
                     </div>
                   )}
 
-                  {/* Step 4: Review & Confirm */}
+                  {/* Step 4: Inclusions */}
                   {currentStep === 4 && (
+                    <div className="space-y-6 animate-fadeSlideIn">
+                      {selectedVenue && (
+                        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                          <div className="flex items-center text-blue-700 mb-2">
+                            <MapPin className="h-4 w-4 mr-2" />
+                            <h3 className="font-medium">
+                              Selected Venue: {selectedVenue.venue_title}
+                            </h3>
+                          </div>
+                          {selectedVenue.inclusions &&
+                            selectedVenue.inclusions.length > 0 && (
+                              <p className="text-sm text-blue-600">
+                                This venue includes{" "}
+                                {selectedVenue.inclusions.length} special
+                                inclusions that have been added below.
+                              </p>
+                            )}
+                        </div>
+                      )}
+                      <InclusionsStep
+                        packageId={formData.packageId}
+                        venueId={formData.venueId}
+                        packageInclusions={formData.inclusions}
+                        customInclusions={formData.customInclusions}
+                        removedInclusions={formData.removedInclusions}
+                        supplierServices={formData.supplierServices}
+                        externalCustomizations={formData.externalCustomizations}
+                        onAddInclusion={(inclusion) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            customInclusions: [
+                              ...prev.customInclusions,
+                              inclusion,
+                            ],
+                          }));
+                        }}
+                        onRemoveInclusion={(inclusionId) => {
+                          const allInclusions = [
+                            ...formData.inclusions,
+                            ...formData.customInclusions,
+                            ...formData.supplierServices,
+                          ];
+                          const inclusionToRemove = allInclusions.find(
+                            (inc) => inc.inclusion_id === inclusionId
+                          );
+
+                          if (inclusionToRemove) {
+                            setFormData((prev) => ({
+                              ...prev,
+                              removedInclusions: [
+                                ...prev.removedInclusions,
+                                inclusionToRemove,
+                              ],
+                            }));
+                          }
+                        }}
+                        onRestoreInclusion={(inclusionId) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            removedInclusions: prev.removedInclusions.filter(
+                              (inc) => inc.inclusion_id !== inclusionId
+                            ),
+                          }));
+                        }}
+                        onAddSupplierService={(service) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            supplierServices: [
+                              ...prev.supplierServices,
+                              service,
+                            ],
+                          }));
+                        }}
+                        onRemoveSupplierService={(serviceId) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            supplierServices: prev.supplierServices.filter(
+                              (service) => service.inclusion_id !== serviceId
+                            ),
+                          }));
+                        }}
+                        onAddExternalCustomization={(customization) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            externalCustomizations: [
+                              ...prev.externalCustomizations,
+                              customization,
+                            ],
+                          }));
+                        }}
+                        onRemoveExternalCustomization={(index) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            externalCustomizations:
+                              prev.externalCustomizations.filter(
+                                (_, i) => i !== index
+                              ),
+                          }));
+                        }}
+                        totalPrice={totalPrice}
+                      />
+                    </div>
+                  )}
+
+                  {/* Step 5: Review & Confirm */}
+                  {currentStep === 5 && (
                     <div className="space-y-6 animate-fadeSlideIn">
                       {/* Main Summary Card */}
                       <Card className="border shadow-sm rounded-xl">
@@ -1648,6 +2082,269 @@ export default function EnhancedCreateBookingPage() {
                             </div>
                           </div>
 
+                          {/* Inclusions Section - Show all inclusions including unchecked ones */}
+                          <div className="mt-8 pt-4 border-t">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                              Event Inclusions
+                            </h3>
+                            <div className="space-y-4">
+                              {/* Package Inclusions */}
+                              {formData.inclusions.length > 0 && (
+                                <div>
+                                  <h4 className="font-medium text-gray-700 mb-2">
+                                    Package Inclusions
+                                  </h4>
+                                  <div className="bg-white rounded-lg border border-gray-200 divide-y">
+                                    {formData.inclusions.map((inclusion) => {
+                                      const isRemoved =
+                                        formData.removedInclusions.some(
+                                          (inc) =>
+                                            inc.inclusion_id ===
+                                            inclusion.inclusion_id
+                                        );
+                                      return (
+                                        <div
+                                          key={`review-inc-${inclusion.inclusion_id}`}
+                                          className="p-3 flex items-center justify-between"
+                                        >
+                                          <div className="flex items-center gap-3">
+                                            <div
+                                              className={`w-4 h-4 rounded-sm flex items-center justify-center border ${isRemoved ? "border-gray-300" : "border-[#028A75] bg-[#028A75]"}`}
+                                            >
+                                              {!isRemoved && (
+                                                <Check className="h-3 w-3 text-white" />
+                                              )}
+                                            </div>
+                                            <div>
+                                              <div
+                                                className={`font-medium ${isRemoved ? "text-gray-500" : "text-gray-900"}`}
+                                              >
+                                                {inclusion.inclusion_name}
+                                              </div>
+                                              {inclusion.inclusion_description && (
+                                                <div className="text-xs text-gray-500">
+                                                  {
+                                                    inclusion.inclusion_description
+                                                  }
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div
+                                            className={`text-sm font-medium ${isRemoved ? "text-gray-400" : "text-[#028A75]"}`}
+                                          >
+                                            {formatPrice(
+                                              inclusion.inclusion_price
+                                            )}
+                                            {isRemoved && (
+                                              <span className="text-xs ml-2">
+                                                (Not included)
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Custom Inclusions */}
+                              {formData.customInclusions.length > 0 && (
+                                <div>
+                                  <h4 className="font-medium text-gray-700 mb-2">
+                                    Custom Inclusions
+                                  </h4>
+                                  <div className="bg-white rounded-lg border border-gray-200 divide-y">
+                                    {formData.customInclusions.map(
+                                      (inclusion) => {
+                                        const isRemoved =
+                                          formData.removedInclusions.some(
+                                            (inc) =>
+                                              inc.inclusion_id ===
+                                              inclusion.inclusion_id
+                                          );
+                                        const isVenueInclusion =
+                                          inclusion.is_venue_inclusion;
+                                        return (
+                                          <div
+                                            key={`review-custom-${inclusion.inclusion_id}`}
+                                            className={`p-3 flex items-center justify-between ${isVenueInclusion ? "bg-blue-50" : ""}`}
+                                          >
+                                            <div className="flex items-center gap-3">
+                                              <div
+                                                className={`w-4 h-4 rounded-sm flex items-center justify-center border ${isRemoved ? "border-gray-300" : "border-[#028A75] bg-[#028A75]"}`}
+                                              >
+                                                {!isRemoved && (
+                                                  <Check className="h-3 w-3 text-white" />
+                                                )}
+                                              </div>
+                                              <div>
+                                                <div
+                                                  className={`font-medium ${isRemoved ? "text-gray-500" : "text-gray-900"}`}
+                                                >
+                                                  {inclusion.inclusion_name}
+                                                  {isVenueInclusion && (
+                                                    <span className="ml-2 text-xs text-blue-600">
+                                                      (Venue Inclusion)
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {inclusion.inclusion_description && (
+                                                  <div className="text-xs text-gray-500">
+                                                    {
+                                                      inclusion.inclusion_description
+                                                    }
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div
+                                              className={`text-sm font-medium ${isRemoved ? "text-gray-400" : isVenueInclusion ? "text-blue-600" : "text-[#028A75]"}`}
+                                            >
+                                              {formatPrice(
+                                                inclusion.inclusion_price
+                                              )}
+                                              {isRemoved && (
+                                                <span className="text-xs ml-2">
+                                                  (Not included)
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Supplier Services */}
+                              {formData.supplierServices.length > 0 && (
+                                <div>
+                                  <h4 className="font-medium text-gray-700 mb-2">
+                                    Supplier Services
+                                  </h4>
+                                  <div className="bg-white rounded-lg border border-gray-200 divide-y">
+                                    {formData.supplierServices.map(
+                                      (service) => {
+                                        const isRemoved =
+                                          formData.removedInclusions.some(
+                                            (inc) =>
+                                              inc.inclusion_id ===
+                                              service.inclusion_id
+                                          );
+                                        return (
+                                          <div
+                                            key={`review-service-${service.inclusion_id}`}
+                                            className="p-3 flex items-center justify-between"
+                                          >
+                                            <div className="flex items-center gap-3">
+                                              <div
+                                                className={`w-4 h-4 rounded-sm flex items-center justify-center border ${isRemoved ? "border-gray-300" : "border-[#028A75] bg-[#028A75]"}`}
+                                              >
+                                                {!isRemoved && (
+                                                  <Check className="h-3 w-3 text-white" />
+                                                )}
+                                              </div>
+                                              <div>
+                                                <div
+                                                  className={`font-medium ${isRemoved ? "text-gray-500" : "text-gray-900"}`}
+                                                >
+                                                  {service.inclusion_name}
+                                                  {service.supplier_name && (
+                                                    <span className="ml-2 text-xs text-purple-600">
+                                                      (by{" "}
+                                                      {service.supplier_name})
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {service.inclusion_description && (
+                                                  <div className="text-xs text-gray-500">
+                                                    {
+                                                      service.inclusion_description
+                                                    }
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div
+                                              className={`text-sm font-medium ${isRemoved ? "text-gray-400" : "text-purple-600"}`}
+                                            >
+                                              {formatPrice(
+                                                service.inclusion_price
+                                              )}
+                                              {isRemoved && (
+                                                <span className="text-xs ml-2">
+                                                  (Not included)
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* External Customizations */}
+                              {formData.externalCustomizations.length > 0 && (
+                                <div>
+                                  <h4 className="font-medium text-gray-700 mb-2">
+                                    External Customizations
+                                  </h4>
+                                  <div className="bg-white rounded-lg border border-gray-200 divide-y">
+                                    {formData.externalCustomizations.map(
+                                      (custom, index) => (
+                                        <div
+                                          key={`review-custom-ext-${index}`}
+                                          className="p-3 flex items-center justify-between"
+                                        >
+                                          <div className="flex items-center gap-3">
+                                            <div className="w-4 h-4 rounded-sm flex items-center justify-center border border-[#028A75] bg-[#028A75]">
+                                              <Check className="h-3 w-3 text-white" />
+                                            </div>
+                                            <div>
+                                              <div className="font-medium text-gray-900">
+                                                {custom.name}
+                                                <span className="ml-2 text-xs text-orange-600">
+                                                  (External)
+                                                </span>
+                                              </div>
+                                              {custom.description && (
+                                                <div className="text-xs text-gray-500">
+                                                  {custom.description}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="text-sm font-medium text-orange-600">
+                                            {formatPrice(custom.price)}
+                                          </div>
+                                        </div>
+                                      )
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Show message if no inclusions */}
+                              {formData.inclusions.length === 0 &&
+                                formData.customInclusions.length === 0 &&
+                                formData.supplierServices.length === 0 &&
+                                formData.externalCustomizations.length ===
+                                  0 && (
+                                  <div className="text-center py-4 bg-gray-50 border border-gray-200 rounded-lg">
+                                    <p className="text-gray-500">
+                                      No inclusions have been selected for this
+                                      event.
+                                    </p>
+                                  </div>
+                                )}
+                            </div>
+                          </div>
+
                           {/* Additional Notes */}
                           <div className="mt-8 pt-6 border-t">
                             <Label className="text-sm font-medium text-gray-700">
@@ -1706,14 +2403,40 @@ export default function EnhancedCreateBookingPage() {
                       </p>
                     </div>
                   )}
-                  {formData.startTime && formData.endTime && (
-                    <div>
-                      <p className="text-sm text-gray-600">Time</p>
-                      <p className="font-medium">
-                        {formData.startTime} - {formData.endTime}
+
+                  {/* Inclusions summary */}
+                  <div>
+                    <p className="text-sm text-gray-600">Inclusions</p>
+                    <p className="font-medium">
+                      {formData.inclusions.length -
+                        formData.removedInclusions.length +
+                        formData.customInclusions.length +
+                        formData.supplierServices.length +
+                        formData.externalCustomizations.length}{" "}
+                      total inclusions
+                    </p>
+                    {formData.customInclusions.length > 0 && (
+                      <p className="text-xs text-[#028A75]">
+                        {formData.customInclusions.length} custom inclusion
+                        {formData.customInclusions.length !== 1 ? "s" : ""}
                       </p>
-                    </div>
-                  )}
+                    )}
+                    {formData.supplierServices.length > 0 && (
+                      <p className="text-xs text-blue-600">
+                        {formData.supplierServices.length} supplier service
+                        {formData.supplierServices.length !== 1 ? "s" : ""}
+                      </p>
+                    )}
+                    {formData.externalCustomizations.length > 0 && (
+                      <p className="text-xs text-purple-600">
+                        {formData.externalCustomizations.length} external
+                        customization
+                        {formData.externalCustomizations.length !== 1
+                          ? "s"
+                          : ""}
+                      </p>
+                    )}
+                  </div>
                   {selectedPackage && (
                     <div>
                       <p className="text-sm text-gray-600">Package</p>
@@ -1907,6 +2630,220 @@ export default function EnhancedCreateBookingPage() {
                     {formatPrice(modalVenue.venue_price)}
                   </p>
                 </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Package Details Modal */}
+      <Dialog
+        open={packageDetailsModalOpen}
+        onOpenChange={setPackageDetailsModalOpen}
+      >
+        <DialogContent className="max-w-[95vw] md:max-w-4xl max-h-[90vh] w-full overflow-y-auto overflow-x-hidden p-4 sm:p-6 md:p-8">
+          <DialogHeader className="mb-6">
+            <DialogTitle className="text-2xl font-bold flex items-center">
+              <Package className="h-6 w-6 mr-2 text-[#028A75]" />
+              {modalPackage?.package_title || "Package Details"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {modalPackage && (
+            <div className="mt-4 space-y-8">
+              <div className="animate-fadeSlideIn animation-delay-150">
+                <h3 className="font-medium text-lg text-gray-900 mb-3 flex items-center">
+                  <Info className="h-5 w-5 mr-2 text-gray-500" />
+                  Description
+                </h3>
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                  <p className="text-gray-700 leading-relaxed">
+                    {modalPackage.package_description}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-4 animate-fadeSlideIn animation-delay-300 w-full">
+                <div className="bg-gradient-to-br from-[#028A75]/10 to-[#028A75]/5 p-5 rounded-xl shadow-sm flex-grow transition-transform duration-300 hover:shadow-md hover:-translate-y-1">
+                  <div className="flex items-center text-[#028A75] mb-3">
+                    <DollarSign className="h-5 w-5 mr-2" />
+                    <h3 className="font-medium text-lg">Price</h3>
+                  </div>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {formatPrice(modalPackage.package_price)}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Base price for up to {modalPackage.guest_capacity} guests
+                  </p>
+                </div>
+
+                <div className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-5 rounded-xl shadow-sm flex-grow transition-transform duration-300 hover:shadow-md hover:-translate-y-1">
+                  <div className="flex items-center text-blue-600 mb-3">
+                    <Users className="h-5 w-5 mr-2" />
+                    <h3 className="font-medium text-lg">Capacity</h3>
+                  </div>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {modalPackage.guest_capacity} guests
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    ₱350 per additional guest
+                  </p>
+                </div>
+              </div>
+
+              {/* Inclusions */}
+              {modalPackage.components &&
+                modalPackage.components.length > 0 && (
+                  <div className="animate-fadeSlideIn animation-delay-450">
+                    <h3 className="font-medium text-lg text-gray-900 flex items-center mb-3">
+                      <Package className="h-5 w-5 mr-2 text-[#028A75]" />
+                      Inclusions
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full">
+                      {modalPackage.components.map((component, index) => (
+                        <div
+                          key={index}
+                          className="flex items-start gap-3 bg-[#028A75]/5 p-4 rounded-xl border border-[#028A75]/10 shadow-sm transform transition-all duration-300 hover:shadow hover:-translate-y-0.5 hover:bg-[#028A75]/10"
+                          style={{ animationDelay: `${index * 50}ms` }}
+                        >
+                          <Check className="h-5 w-5 text-[#028A75] mt-0.5" />
+                          <div>
+                            <p className="text-gray-800 font-medium">
+                              {component.component_name}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {/* Freebies */}
+              {modalPackage.freebies && modalPackage.freebies.length > 0 && (
+                <div className="animate-fadeSlideIn animation-delay-600">
+                  <h3 className="font-medium text-lg text-gray-900 flex items-center mb-3">
+                    <Gift className="h-5 w-5 mr-2 text-purple-600" />
+                    Freebies
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full">
+                    {modalPackage.freebies.map((freebie, index) => (
+                      <div
+                        key={index}
+                        className="flex items-start gap-3 bg-purple-50 p-4 rounded-xl border border-purple-100 shadow-sm transform transition-all duration-300 hover:shadow hover:-translate-y-0.5 hover:bg-purple-100/50"
+                        style={{ animationDelay: `${(index + 5) * 50}ms` }}
+                      >
+                        <Gift className="h-5 w-5 text-purple-600 mt-0.5" />
+                        <div>
+                          <p className="text-gray-800 font-medium">
+                            {freebie.freebie_name}
+                          </p>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {freebie.freebie_description}
+                          </p>
+                          {freebie.freebie_value > 0 && (
+                            <p className="text-sm text-purple-600 mt-2 font-medium">
+                              Value: {formatPrice(freebie.freebie_value)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Venue Choices as Carousel */}
+              {modalPackage.venue_previews &&
+                modalPackage.venue_previews.length > 0 && (
+                  <div className="animate-fadeIn">
+                    <h3 className="font-medium text-lg text-gray-900 flex items-center mb-4">
+                      <MapPin className="h-5 w-5 mr-2 text-red-500" />
+                      Venue Options
+                    </h3>
+
+                    <div className="relative overflow-hidden rounded-xl">
+                      {/* Venue Carousel */}
+                      <div className="venue-carousel relative">
+                        {/* Main Carousel */}
+                        <div className="overflow-hidden rounded-xl">
+                          <div className="flex snap-x snap-mandatory overflow-x-auto scrollbar-hide pb-4 mx-0">
+                            {modalPackage.venue_previews.map((venue, index) => (
+                              <div
+                                key={index}
+                                className="snap-start shrink-0 w-[85%] sm:w-[48%] md:w-[45%] px-2 transition-transform duration-300 hover:scale-[1.02]"
+                              >
+                                <div className="border rounded-xl overflow-hidden bg-white shadow-md hover:shadow-lg transition-all duration-300">
+                                  <div className="h-48 sm:h-56 bg-gray-100 relative overflow-hidden">
+                                    {venue.venue_cover_photo ? (
+                                      <img
+                                        src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(venue.venue_cover_photo)}`}
+                                        alt={venue.venue_title}
+                                        className="w-full h-full object-cover transform transition-transform duration-500 hover:scale-110"
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                                        <MapPin className="h-10 w-10 text-gray-400" />
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="p-4">
+                                    <h4 className="font-medium text-gray-900 text-lg">
+                                      {venue.venue_title}
+                                    </h4>
+                                    <p className="text-sm text-gray-600 flex items-center mt-1">
+                                      <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
+                                      {venue.venue_location}
+                                    </p>
+                                    <div className="flex items-center justify-between mt-3">
+                                      <span className="text-sm font-medium text-gray-700 flex items-center">
+                                        <Users className="h-3 w-3 mr-1" />
+                                        Up to {venue.venue_capacity} guests
+                                      </span>
+                                      <button
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          showVenueDetails(venue);
+                                        }}
+                                        className="text-xs text-[#028A75] hover:text-[#028A75]/80 underline"
+                                      >
+                                        Details
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Indicator Dots */}
+                        <div className="flex justify-center mt-4 space-x-2">
+                          {modalPackage.venue_previews.map((_, index) => (
+                            <div
+                              key={index}
+                              className={`w-2 h-2 rounded-full ${
+                                index === 0 ? "bg-[#028A75]" : "bg-gray-300"
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              <div className="pt-6 mt-4 flex justify-center sm:justify-end">
+                <Button
+                  onClick={() => {
+                    handlePackageSelect(modalPackage);
+                    setPackageDetailsModalOpen(false);
+                  }}
+                  className="bg-[#028A75] hover:bg-[#028A75]/90 w-full sm:w-auto px-6 py-5 text-base font-medium transform transition-all duration-300 hover:scale-[1.02] hover:shadow-lg animate-fadeIn animation-delay-750 flex items-center justify-center gap-2"
+                >
+                  <span>Select This Package</span>
+                  <CheckCircle className="h-5 w-5 ml-1" />
+                </Button>
               </div>
             </div>
           )}

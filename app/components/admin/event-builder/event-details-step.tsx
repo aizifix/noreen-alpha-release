@@ -144,171 +144,9 @@ export function EventDetailsStep({
     setIsInitialLoad(false);
   }, []); // Empty dependency array - only run once
 
-  // Trigger conflict check when component mounts with default times
+  // Check for conflicts when date changes
   useEffect(() => {
-    if (initialData.startTime && initialData.endTime && date) {
-      // Small delay to ensure state is updated
-      setTimeout(() => {
-        checkForConflicts();
-      }, 100);
-    }
-  }, [initialData.startTime, initialData.endTime, date]);
-
-  // Generate sample heat map data based on actual events from database
-  const generateSampleHeatMapData = (
-    startDate: string,
-    endDate: string
-  ): CalendarConflictData => {
-    const sampleData: CalendarConflictData = {};
-
-    // Based on actual events from database for July 2025
-    if (startDate.includes("2025-07")) {
-      // July 3: Multiple events (orange)
-      sampleData["2025-07-03"] = {
-        hasWedding: false,
-        hasOtherEvents: true,
-        eventCount: 2,
-        events: [{ event_type_id: 5, event_type_name: "Others", count: 2 }],
-      };
-
-      // July 8: Anniversary (yellow)
-      sampleData["2025-07-08"] = {
-        hasWedding: false,
-        hasOtherEvents: true,
-        eventCount: 1,
-        events: [
-          { event_type_id: 2, event_type_name: "Anniversary", count: 1 },
-        ],
-      };
-
-      // July 9: Jesse Wedding (yellow - but listed as Anniversary in DB)
-      sampleData["2025-07-09"] = {
-        hasWedding: false,
-        hasOtherEvents: true,
-        eventCount: 1,
-        events: [
-          { event_type_id: 2, event_type_name: "Anniversary", count: 1 },
-        ],
-      };
-
-      // July 10: Event with Payment Proof (yellow)
-      sampleData["2025-07-10"] = {
-        hasWedding: false,
-        hasOtherEvents: true,
-        eventCount: 1,
-        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
-      };
-
-      // July 11: Wedding + Montreal Wedding (red - multiple with wedding)
-      sampleData["2025-07-11"] = {
-        hasWedding: true,
-        hasOtherEvents: true,
-        eventCount: 2,
-        events: [
-          { event_type_id: 1, event_type_name: "Wedding", count: 1 },
-          { event_type_id: 1, event_type_name: "Wedding", count: 1 },
-        ],
-      };
-
-      // July 12: Another Fix v2 (yellow)
-      sampleData["2025-07-12"] = {
-        hasWedding: false,
-        hasOtherEvents: true,
-        eventCount: 1,
-        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
-      };
-
-      // July 13: V3 - Payment Method Attempt (yellow)
-      sampleData["2025-07-13"] = {
-        hasWedding: false,
-        hasOtherEvents: true,
-        eventCount: 1,
-        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
-      };
-
-      // July 18: Test Event (yellow)
-      sampleData["2025-07-18"] = {
-        hasWedding: false,
-        hasOtherEvents: true,
-        eventCount: 1,
-        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
-      };
-
-      // July 23: Montreal Wedding (yellow - Anniversary in DB)
-      sampleData["2025-07-23"] = {
-        hasWedding: false,
-        hasOtherEvents: true,
-        eventCount: 1,
-        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
-      };
-
-      // July 31: Event Name (yellow)
-      sampleData["2025-07-31"] = {
-        hasWedding: false,
-        hasOtherEvents: true,
-        eventCount: 1,
-        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
-      };
-    } else {
-      // For other months, generate generic sample data
-      const today = new Date();
-      const currentMonth = today.getMonth();
-      const currentYear = today.getFullYear();
-
-      // Sample wedding (red, blocked)
-      const weddingDate = new Date(currentYear, currentMonth, 15);
-      sampleData[format(weddingDate, "yyyy-MM-dd")] = {
-        hasWedding: true,
-        hasOtherEvents: false,
-        eventCount: 1,
-        events: [{ event_type_id: 1, event_type_name: "Wedding", count: 1 }],
-      };
-
-      // Sample events on different dates
-      const eventDates = [8, 22, 28];
-      eventDates.forEach((day, index) => {
-        const eventDate = new Date(currentYear, currentMonth, day);
-        const dateString = format(eventDate, "yyyy-MM-dd");
-
-        sampleData[dateString] = {
-          hasWedding: false,
-          hasOtherEvents: true,
-          eventCount: index + 1,
-          events: [
-            {
-              event_type_id: index + 2,
-              event_type_name: "Others",
-              count: index + 1,
-            },
-          ],
-        };
-      });
-    }
-
-    console.log(
-      "Generated sample data for date range:",
-      startDate,
-      "to",
-      endDate
-    );
-    console.log("Sample data:", sampleData);
-    return sampleData;
-  };
-
-  // Load calendar conflict data when component mounts or date changes
-  useEffect(() => {
-    if (date) {
-      loadCalendarConflictData();
-    } else {
-      // Load real data for July 2025 by default to show actual events from database
-      const july2025 = new Date(2025, 6, 1); // July 2025
-      loadCalendarConflictData(july2025);
-    }
-  }, [date]); // Only depend on date changes
-
-  // Check for conflicts when date or time changes
-  useEffect(() => {
-    if (initialData.date && initialData.startTime && initialData.endTime) {
+    if (initialData.date) {
       // Clear any existing timeout
       if (conflictCheckTimeoutRef.current) {
         clearTimeout(conflictCheckTimeoutRef.current);
@@ -325,7 +163,7 @@ export function EventDetailsStep({
         }
       };
     }
-  }, [initialData.date, initialData.startTime, initialData.endTime]);
+  }, [initialData.date]);
 
   // Notify parent component about conflicts - only when conflicts change
   useEffect(() => {
@@ -519,10 +357,7 @@ export function EventDetailsStep({
       updateField("date", formattedDate);
 
       // Always check for conflicts when a date is selected
-      if (initialData.startTime && initialData.endTime) {
-        // Force a fresh conflict check for the selected date
-        await checkForConflicts();
-      }
+      await checkForConflicts();
 
       // Show immediate feedback about the selected date
       if (dateData && (dateData.hasWedding || dateData.hasOtherEvents)) {
@@ -548,61 +383,10 @@ export function EventDetailsStep({
     }
   };
 
-  const handleTimeChange = (field: "startTime" | "endTime", value: string) => {
-    console.log(`Time changed - ${field}:`, value);
-
-    // Validate that start time is before end time
-    if (
-      field === "startTime" &&
-      initialData.endTime &&
-      value >= initialData.endTime
-    ) {
-      toast({
-        title: "Invalid Time",
-        description: "Start time must be before end time",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (
-      field === "endTime" &&
-      initialData.startTime &&
-      value <= initialData.startTime
-    ) {
-      toast({
-        title: "Invalid Time",
-        description: "End time must be after start time",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    console.log("Updating with time:", field, value);
-    updateField(field, value);
-
-    // Clear any existing timeout
-    if (conflictCheckTimeoutRef.current) {
-      clearTimeout(conflictCheckTimeoutRef.current);
-    }
-
-    // Check for conflicts when time changes - with debouncing
-    conflictCheckTimeoutRef.current = setTimeout(() => {
-      checkForConflicts();
-    }, 300); // Shorter delay for time changes
-  };
-
   const checkForConflicts = useCallback(async () => {
-    console.log(
-      "🔍 Checking conflicts - date:",
-      date,
-      "startTime:",
-      initialData.startTime,
-      "endTime:",
-      initialData.endTime
-    );
+    console.log("🔍 Checking conflicts - date:", date);
 
-    if (!date || !initialData.startTime || !initialData.endTime) {
+    if (!date) {
       console.log("⏭️ Skipping conflict check - missing required data");
       setHasConflicts(false);
       setHasWedding(false);
@@ -624,8 +408,8 @@ export function EventDetailsStep({
         {
           operation: "checkEventConflicts",
           event_date: eventDate,
-          start_time: initialData.startTime,
-          end_time: initialData.endTime,
+          start_time: "00:00:00",
+          end_time: "23:59:59",
           exclude_event_id: "", // New event
         }
       );
@@ -667,7 +451,159 @@ export function EventDetailsStep({
     } finally {
       setIsCheckingConflicts(false);
     }
-  }, [date, initialData.startTime, initialData.endTime, updateField]);
+  }, [date, updateField]);
+
+  // Generate sample heat map data based on actual events from database
+  const generateSampleHeatMapData = (
+    startDate: string,
+    endDate: string
+  ): CalendarConflictData => {
+    const sampleData: CalendarConflictData = {};
+
+    // Based on actual events from database for July 2025
+    if (startDate.includes("2025-07")) {
+      // July 3: Multiple events (orange)
+      sampleData["2025-07-03"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 2,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 2 }],
+      };
+
+      // July 8: Anniversary (yellow)
+      sampleData["2025-07-08"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [
+          { event_type_id: 2, event_type_name: "Anniversary", count: 1 },
+        ],
+      };
+
+      // July 9: Jesse Wedding (yellow - but listed as Anniversary in DB)
+      sampleData["2025-07-09"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [
+          { event_type_id: 2, event_type_name: "Anniversary", count: 1 },
+        ],
+      };
+
+      // July 10: Event with Payment Proof (yellow)
+      sampleData["2025-07-10"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 11: Wedding + Montreal Wedding (red - multiple with wedding)
+      sampleData["2025-07-11"] = {
+        hasWedding: true,
+        hasOtherEvents: true,
+        eventCount: 2,
+        events: [
+          { event_type_id: 1, event_type_name: "Wedding", count: 1 },
+          { event_type_id: 1, event_type_name: "Wedding", count: 1 },
+        ],
+      };
+
+      // July 12: Another Fix v2 (yellow)
+      sampleData["2025-07-12"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 13: V3 - Payment Method Attempt (yellow)
+      sampleData["2025-07-13"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 18: Test Event (yellow)
+      sampleData["2025-07-18"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 23: Montreal Wedding (yellow - Anniversary in DB)
+      sampleData["2025-07-23"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+
+      // July 31: Event Name (yellow)
+      sampleData["2025-07-31"] = {
+        hasWedding: false,
+        hasOtherEvents: true,
+        eventCount: 1,
+        events: [{ event_type_id: 5, event_type_name: "Others", count: 1 }],
+      };
+    } else {
+      // For other months, generate generic sample data
+      const today = new Date();
+      const currentMonth = today.getMonth();
+      const currentYear = today.getFullYear();
+
+      // Sample wedding (red, blocked)
+      const weddingDate = new Date(currentYear, currentMonth, 15);
+      sampleData[format(weddingDate, "yyyy-MM-dd")] = {
+        hasWedding: true,
+        hasOtherEvents: false,
+        eventCount: 1,
+        events: [{ event_type_id: 1, event_type_name: "Wedding", count: 1 }],
+      };
+
+      // Sample events on different dates
+      const eventDates = [8, 22, 28];
+      eventDates.forEach((day, index) => {
+        const eventDate = new Date(currentYear, currentMonth, day);
+        const dateString = format(eventDate, "yyyy-MM-dd");
+
+        sampleData[dateString] = {
+          hasWedding: false,
+          hasOtherEvents: true,
+          eventCount: index + 1,
+          events: [
+            {
+              event_type_id: index + 2,
+              event_type_name: "Others",
+              count: index + 1,
+            },
+          ],
+        };
+      });
+    }
+
+    console.log(
+      "Generated sample data for date range:",
+      startDate,
+      "to",
+      endDate
+    );
+    console.log("Sample data:", sampleData);
+    return sampleData;
+  };
+
+  // Load calendar conflict data when component mounts or date changes
+  useEffect(() => {
+    if (date) {
+      loadCalendarConflictData();
+    } else {
+      // Load real data for July 2025 by default to show actual events from database
+      const july2025 = new Date(2025, 6, 1); // July 2025
+      loadCalendarConflictData(july2025);
+    }
+  }, [date]); // Only depend on date changes
 
   // Get heat map color based on event count
   const getHeatMapColor = (eventCount: number, hasWedding: boolean) => {
@@ -1002,44 +938,7 @@ export function EventDetailsStep({
                 </PopoverContent>
               </Popover>
             </div>
-
-            {/* Start Time with Circular Picker */}
-            <div className="space-y-2">
-              <CircularTimePicker
-                value={initialData.startTime || "10:00"}
-                onChange={(value) => handleTimeChange("startTime", value)}
-                label={
-                  <span>
-                    Start Time <span className="text-red-500">*</span>
-                  </span>
-                }
-                hasConflict={hasConflicts}
-              />
-            </div>
           </div>
-
-          {/* Time Duration Display */}
-          {initialData.startTime && initialData.endTime && (
-            <div className="mt-4 p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Event Duration:</span>
-                <span className="font-medium text-gray-900">
-                  {(() => {
-                    const start = new Date(
-                      `2000-01-01T${initialData.startTime}`
-                    );
-                    const end = new Date(`2000-01-01T${initialData.endTime}`);
-                    const diffMs = end.getTime() - start.getTime();
-                    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-                    const diffMinutes = Math.floor(
-                      (diffMs % (1000 * 60 * 60)) / (1000 * 60)
-                    );
-                    return `${diffHours}h ${diffMinutes}m`;
-                  })()}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Conflict checking indicator and manual refresh */}
@@ -1061,7 +960,7 @@ export function EventDetailsStep({
           )}
 
           {/* Manual refresh button for debugging */}
-          {initialData.date && initialData.startTime && initialData.endTime && (
+          {initialData.date && (
             <Button
               variant="outline"
               size="sm"
@@ -1115,9 +1014,7 @@ export function EventDetailsStep({
         {!hasConflicts &&
           !isCheckingConflicts &&
           !isCheckingDateConflicts &&
-          initialData.date &&
-          initialData.startTime &&
-          initialData.endTime && (
+          initialData.date && (
             <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg p-6">
               <div className="flex items-center gap-4">
                 <div className="flex-shrink-0">
@@ -1132,7 +1029,7 @@ export function EventDetailsStep({
                     </h4>
                   </div>
                   <p className="text-green-700 font-medium mb-3">
-                    Your selected date and time slot is completely available.
+                    Your selected date is completely available.
                   </p>
                   <div className="bg-green-100 border-l-4 border-green-500 p-3 rounded-r-lg">
                     <div className="flex items-center gap-2">
@@ -1199,7 +1096,7 @@ export function EventDetailsStep({
                   )}
 
                 <p className="text-red-700 font-medium mb-4">
-                  The following events overlap with your selected time slot:
+                  The following events overlap with your selected date:
                 </p>
 
                 <div className="space-y-3 mb-4">
@@ -1262,9 +1159,9 @@ export function EventDetailsStep({
                         Action Required
                       </p>
                       <p className="text-red-800 text-sm mt-1">
-                        Please select a different date or time to avoid
-                        scheduling conflicts. You cannot proceed to the next
-                        step until this is resolved.
+                        Please select a different date to avoid scheduling
+                        conflicts. You cannot proceed to the next step until
+                        this is resolved.
                       </p>
                     </div>
                   </div>

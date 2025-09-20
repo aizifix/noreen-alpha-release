@@ -89,6 +89,32 @@
 }
 
 @layer utilities {
+  /* Hide scrollbar but maintain functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Chrome, Safari and Opera */
+  }
+
+  /* Mobile Notification Dropdown Positioning */
+  .fixed-dropdown {
+    position: fixed;
+    right: 8px;
+    left: auto;
+    max-width: calc(100vw - 16px);
+    transform-origin: top right;
+  }
+
+  @media (max-width: 640px) {
+    .fixed-dropdown {
+      top: auto;
+      bottom: 70px; /* Position above the bottom navigation */
+    }
+  }
+
   /* Animation Keyframes */
   @keyframes fadeIn {
     from {

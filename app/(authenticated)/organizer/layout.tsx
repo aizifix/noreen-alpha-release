@@ -613,7 +613,7 @@ export default function OrganizerLayout({
                     <button
                       onClick={() => toggleSection(section.label)}
                       className={`
-                        flex items-center justify-between w-full px-3 py-2 text-sm
+                        group flex items-center justify-between w-full px-3 py-2 text-sm
                         ${hasActiveItem ? "text-brand-500 font-medium" : "text-gray-600"}
                         hover:bg-gray-100 rounded-md transition-colors
                       `}
@@ -656,7 +656,7 @@ export default function OrganizerLayout({
                                   ${
                                     isActive
                                       ? "bg-brand-500 text-white"
-                                      : "text-gray-600 hover:bg-gray-100"
+                                      : "text-gray-600 hover:bg-brand-50"
                                   }
                                 `}
                               >
@@ -671,29 +671,6 @@ export default function OrganizerLayout({
                   </div>
                 );
               })}
-
-              {/* Settings at bottom */}
-              <div className="mt-auto pt-4">
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <Link
-                      href="/organizer/settings"
-                      className={`
-                        flex items-center gap-3 px-3 py-2 rounded-md transition
-                        text-sm
-                        ${
-                          pathname.startsWith("/organizer/settings")
-                            ? "bg-brand-500 text-white"
-                            : "text-gray-600 hover:bg-gray-100"
-                        }
-                      `}
-                    >
-                      <Settings className="h-4 w-4" />
-                      <span>Settings</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </div>
             </SidebarMenu>
           </SidebarContent>
         </Sidebar>
@@ -792,7 +769,7 @@ export default function OrganizerLayout({
                       <>
                         {notifications.map((n, idx) => (
                           <div
-                            key={`n-${n.notification_id ?? idx}`}
+                            key={`organizer-notification-${n.notification_id || "temp"}-${idx}-${Date.now()}`}
                             className="px-4 py-3 border-b last:border-b-0"
                           >
                             <div className="text-sm font-medium text-gray-900 truncate">
@@ -906,7 +883,9 @@ export default function OrganizerLayout({
         </header>
 
         {/* Page Content - Adjusted for Navbar */}
-        <main className="pt-24 p-6 h-screen overflow-auto">{children}</main>
+        <main className="pt-24 p-6 h-screen overflow-auto animate-in fade-in-50 duration-300">
+          {children}
+        </main>
       </div>
     </div>
   );

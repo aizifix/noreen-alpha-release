@@ -60,6 +60,15 @@ import AttachmentsStep from "@/app/components/admin/event-builder/attachments-st
 import { DraftHandler } from "@/app/components/admin/event-builder/draft-handler";
 import { ClearFormModal } from "@/app/components/admin/event-builder/clear-form-modal";
 import { LocalStorageRecoveryModal } from "@/app/components/admin/event-builder/localstorage-recovery-modal";
+import {
+  saveToLocalStorage,
+  loadFromLocalStorage,
+} from "@/app/utils/localStorage";
+import {
+  getEventTypeIdFromName,
+  mapEventType,
+} from "@/app/utils/eventTypeUtils";
+import { parseTime } from "@/app/utils/timeUtils"; // Utility to parse time strings
 
 // Function to format currency
 const formatCurrency = (amount: number) => {
@@ -94,22 +103,6 @@ interface FileAttachment {
   fileType: string;
   uploadedPath?: string;
   uploadedAt?: string;
-}
-
-// Enhanced event details interface
-interface EnhancedEventDetails extends EventDetails {
-  theme?: string;
-  description?: string;
-  bookingReference?: string;
-  isRecurring?: boolean;
-  recurrenceRule?: {
-    frequency: "daily" | "weekly" | "monthly" | "yearly";
-    interval: number;
-    endDate?: string;
-    endAfter?: number;
-  };
-  churchLocation?: string;
-  churchStartTime?: string;
 }
 
 interface WeddingFormData {
@@ -276,10 +269,7 @@ export default function EventBuilderPage() {
   };
 
   // Add current step state
-  const [currentStep, setCurrentStep] = useState(() => {
-    const saved = loadFromLocalStorage();
-    return Math.max(1, saved?.currentStep || 1);
-  });
+  const [currentStep, setCurrentStep] = useState(1);
 
   // Use refs to track initialization state
   const initializedRef = useRef(false);
@@ -302,49 +292,27 @@ export default function EventBuilderPage() {
 
   // State to track if wedding packages are available
 
-  const [clientData, setClientData] = useState<ClientData>(() => {
-    const saved = loadFromLocalStorage();
-    return (
-      saved?.clientData || {
-        id: "",
-        name: "",
-        email: "",
-        phone: "",
-        address: "",
-      }
-    );
+  const [clientData, setClientData] = useState<ClientData>({
+    id: "",
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
   });
 
   // Enhanced event details with new fields
-  const [eventDetails, setEventDetails] = useState<EnhancedEventDetails>(() => {
-    const saved = loadFromLocalStorage();
-    if (saved?.eventDetails) {
-      return saved.eventDetails;
-    }
-
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const defaultDate = tomorrow.toISOString().split("T")[0]; // YYYY-MM-DD format
-
-    return {
-      title: "",
-      type: "wedding",
-      date: defaultDate,
-      startTime: "10:00",
-      endTime: "18:00",
-      capacity: 100,
-      notes: "",
-      venue: "",
-      package: "",
-      theme: "",
-      description: "",
-      bookingReference: "",
-      isRecurring: false,
-      recurrenceRule: {
-        frequency: "monthly",
-        interval: 1,
-      },
-    };
+  const [eventDetails, setEventDetails] = useState<EventDetails>({
+    title: "",
+    type: "wedding",
+    date: "",
+    capacity: 100,
+    notes: "",
+    venue: "",
+    package: "",
+    theme: "",
+    description: "",
+    startTime: "",
+    endTime: "",
   });
 
   // File attachments state
@@ -846,40 +814,15 @@ export default function EventBuilderPage() {
 
   // Handle event details update
   const handleEventDetailsUpdate = useCallback(
-    (details: Partial<EnhancedEventDetails>) => {
+    (details: Partial<EventDetails>) => {
       console.log("Updating event details:", details);
-      setEventDetails((prev: EnhancedEventDetails) => ({
+      setEventDetails((prev: EventDetails) => ({
         ...prev,
         ...details,
       }));
-
-      // If a package is specified in the details (from booking selection), auto-select it
-      if (details.package && details.package !== selectedPackageId) {
-        console.log(
-          "Auto-selecting package from booking:",
-          details.package,
-          "current:",
-          selectedPackageId
-        );
-        setTimeout(() => {
-          handlePackageSelect(details.package!); // Non-null assertion since we checked above
-        }, 100); // Small delay to ensure state is updated
-      }
-
-      // If venue ID is specified from booking, store it for later selection
-      if (details.venueId) {
-        console.log("Venue ID from booking:", details.venueId);
-        // Store the venue ID to be used when package venues are loaded
-        setSelectedVenueId(details.venueId);
-      }
-
-      // Store booking reference for event creation
-      if (details.bookingReference) {
-        console.log("Booking reference:", details.bookingReference);
-        setBookingReference(details.bookingReference);
-      }
+      setIsFormDirty(true);
     },
-    [selectedPackageId]
+    []
   );
 
   // Handle package selection
@@ -1482,20 +1425,6 @@ export default function EventBuilderPage() {
       return;
     }
 
-    if (!eventDetails.startTime) {
-      console.log("❌ Event time validation failed");
-      console.log("Start time:", `"${eventDetails.startTime}"`);
-      toast({
-        title: "Validation Error",
-        description: "Start time is required",
-        variant: "destructive",
-      });
-      setLoading(false);
-      return;
-    }
-
-    // Church start time validation removed - now optional for wedding events
-
     if (!eventDetails.capacity || eventDetails.capacity <= 0) {
       console.log("❌ Event capacity validation failed");
       toast({
@@ -1507,15 +1436,17 @@ export default function EventBuilderPage() {
       return;
     }
 
-    // Set default theme if empty
-    if (!eventDetails.theme || eventDetails.theme.trim() === "") {
-      const eventTypeName = eventDetails.type || "Event";
-      const defaultTheme = `${eventTypeName.charAt(0).toUpperCase() + eventTypeName.slice(1)} Celebration`;
-      eventDetails.theme = defaultTheme;
-      console.log("✅ Set default event theme:", defaultTheme);
+    if (!eventDetails.theme) {
+      toast({
+        title: "Validation Error",
+        description: "Event theme is required",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
     }
 
-    // Check for scheduling conflicts (only start time matters since events are whole day)
+    // Check for scheduling conflicts
     if (eventDetails.hasConflicts) {
       console.log("Scheduling conflicts detected");
 
@@ -1531,7 +1462,7 @@ export default function EventBuilderPage() {
         toast({
           title: "Scheduling Conflict",
           description:
-            "There are scheduling conflicts with your selected date and time. Please resolve them before proceeding.",
+            "There are scheduling conflicts with your selected date. Please resolve them before proceeding.",
           variant: "destructive",
         });
       }
@@ -1568,11 +1499,11 @@ export default function EventBuilderPage() {
         admin_id: parseInt(userData.user_id),
         // Set organizer_id if one is selected, otherwise null
         organizer_id:
-          selectedOrganizers && selectedOrganizers.length > 0
-            ? selectedOrganizers[0]
+          selectedOrganizers.length > 0
+            ? parseInt(selectedOrganizers[0])
             : null,
         external_organizer: externalOrganizer || null,
-        event_title: eventDetails.title || "New Event",
+        event_title: eventDetails.title,
         event_theme: eventDetails.theme || null,
         event_description: eventDetails.description || null,
         church_location: eventDetails.churchLocation || null,
@@ -1580,10 +1511,8 @@ export default function EventBuilderPage() {
         event_type_id: getEventTypeIdFromName(eventDetails.type),
         guest_count: parseInt(eventDetails.capacity.toString()) || 100,
         event_date: eventDetails.date,
-        start_time: eventDetails.startTime
-          ? eventDetails.startTime + ":00"
-          : "10:00:00", // Ensure proper time format
-        end_time: "23:59:00", // All events are whole day events
+        start_time: "00:00:00", // Ensure proper time format
+        end_time: "23:59:59", // All events are whole day events
         package_id: selectedPackageId ? parseInt(selectedPackageId) : null, // No package for start from scratch events
         venue_id: selectedVenueId ? parseInt(selectedVenueId) : null,
         total_budget: parseFloat(getTotalBudget().toString()) || 0,
@@ -1594,11 +1523,6 @@ export default function EventBuilderPage() {
         additional_notes: eventDetails.notes || null,
         event_status: "draft",
         // Enhanced fields
-        is_recurring: eventDetails.isRecurring || false,
-        recurrence_rule:
-          eventDetails.isRecurring && eventDetails.recurrenceRule
-            ? JSON.stringify(eventDetails.recurrenceRule)
-            : null,
         client_signature: clientSignature || null,
         finalized_at: null,
         // Event attachments - include uploaded files and organizer invites metadata (if any)
@@ -1673,8 +1597,8 @@ export default function EventBuilderPage() {
               item.date instanceof Date
                 ? item.date.toISOString().split("T")[0]
                 : item.date,
-            start_time: item.startTime || "10:00",
-            end_time: item.endTime || "18:00",
+            start_time: "00:00:00",
+            end_time: "23:59:59",
             location: item.location || "",
             notes: item.notes || "",
             assigned_to: item.assignedTo || null,
@@ -2020,14 +1944,6 @@ export default function EventBuilderPage() {
         });
 
         // Set event details with proper time parsing and event type mapping
-        const parseTime = (timeStr: string) => {
-          if (!timeStr) return "";
-          // Handle both "HH:mm:ss" and "HH:mm" formats
-          const parts = timeStr.split(":");
-          return `${parts[0]}:${parts[1]}`;
-        };
-
-        // Map event type name to expected values
         const mapEventType = (eventTypeName: string): string => {
           if (!eventTypeName) return "other";
 
@@ -2051,11 +1967,9 @@ export default function EventBuilderPage() {
         };
 
         setEventDetails({
+          type: "birthday",
           title: booking.event_name || "",
-          type: mapEventType(booking.event_type_name),
           date: booking.event_date || "",
-          startTime: parseTime(booking.event_time) || "10:00",
-          endTime: "18:00", // Default end time
           capacity: parseInt(booking.guest_count) || 100,
           notes: booking.notes || "",
           venue: booking.venue_name || "",
@@ -2131,12 +2045,6 @@ export default function EventBuilderPage() {
 
   const loadBookingData = (booking: any) => {
     // Parse the booking data and populate the form
-    const parseTime = (timeStr: string) => {
-      if (!timeStr) return "10:00";
-      const time = new Date(`2000-01-01T${timeStr}`);
-      return time.toTimeString().slice(0, 5);
-    };
-
     const mapEventType = (eventTypeName: string): string => {
       const typeMap: { [key: string]: string } = {
         wedding: "wedding",
@@ -2169,11 +2077,9 @@ export default function EventBuilderPage() {
 
     // Populate event details - use correct field names from API
     setEventDetails({
+      type: "birthday",
       title: booking.event_name || "",
-      type: mapEventType(booking.event_type_name || ""),
       date: booking.event_date || "",
-      startTime: parseTime(booking.event_time || booking.start_time),
-      endTime: parseTime(booking.end_time) || "18:00", // Default end time
       capacity: booking.guest_count || 100,
       notes: booking.notes || "",
       venue: booking.venue_name || "",
@@ -2181,12 +2087,6 @@ export default function EventBuilderPage() {
       venueId: booking.venue_id?.toString() || "", // Add venue ID for auto-selection
       bookingReference: booking.booking_reference || "",
       theme: "", // Theme not available in booking data
-      description: booking.description || "", // Description not available in booking data
-      isRecurring: false,
-      recurrenceRule: {
-        frequency: "monthly",
-        interval: 1,
-      },
     });
 
     // Set package and venue IDs if available
@@ -2409,15 +2309,6 @@ export default function EventBuilderPage() {
               return;
             }
 
-            if (!eventDetails.startTime || !eventDetails.endTime) {
-              toast({
-                title: "Validation Error",
-                description: "Start time and end time are required",
-                variant: "destructive",
-              });
-              return;
-            }
-
             if (!eventDetails.capacity || eventDetails.capacity <= 0) {
               toast({
                 title: "Validation Error",
@@ -2452,7 +2343,7 @@ export default function EventBuilderPage() {
                 toast({
                   title: "Scheduling Conflict",
                   description:
-                    "There are scheduling conflicts with your selected date and time. Please resolve them before proceeding.",
+                    "There are scheduling conflicts with your selected date. Please resolve them before proceeding.",
                   variant: "destructive",
                 });
               }
@@ -2847,28 +2738,20 @@ export default function EventBuilderPage() {
       type: "birthday",
       title: "",
       date: "",
+      capacity: 50,
+      theme: "",
+      notes: "",
+      description: "",
       startTime: "",
       endTime: "",
-      capacity: 0,
-      notes: "",
       venue: "",
       package: "",
-      theme: "",
-      description: "",
-      bookingReference: "",
-      isRecurring: false,
-      recurrenceRule: {
-        frequency: "monthly",
-        interval: 1,
-      },
-      churchLocation: "",
-      churchStartTime: "",
     });
 
+    setComponents([]);
     setSelectedPackageId(null);
     setSelectedVenueId(null);
     setSelectedVenue(null);
-    setComponents([]);
     setOriginalPackagePrice(null);
     setSelectedOrganizers([]);
     setOrganizerData([]);

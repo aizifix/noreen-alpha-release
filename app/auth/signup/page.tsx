@@ -148,27 +148,21 @@ const SignUpPage = () => {
   const isFirstStep = currentStepIndex === 0;
   const isLastStep = currentStepIndex === steps.length - 1;
 
-  // Check if user is already logged in
+  // Check if user is already logged in (use secureStorage for consistency)
   useEffect(() => {
-    const user = localStorage.getItem("user");
-    if (user) {
-      try {
-        const userData = JSON.parse(user);
-        const userRole = userData.user_role.toLowerCase();
-
-        if (userRole === "admin") {
-          router.push("/admin/dashboard");
-        } else if (userRole === "client") {
-          router.push("/client/dashboard");
-        } else if (userRole === "organizer") {
-          router.push("/organizer/dashboard");
-        } else if (userRole === "supplier") {
-          router.push("/supplier/dashboard");
-        }
-      } catch (error) {
-        console.error("Error parsing user data:", error);
-        localStorage.removeItem("user");
+    try {
+      const userData: any =
+        require("@/app/utils/encryption").secureStorage.getItem("user");
+      const role = (userData?.user_role || "").toLowerCase();
+      if (role === "admin") {
+        router.push("/admin/dashboard");
+      } else if (role === "client") {
+        router.push("/client/dashboard");
+      } else if (role === "organizer" || role === "vendor") {
+        router.push("/organizer/dashboard");
       }
+    } catch (_e) {
+      // ignore
     }
   }, [router]);
 

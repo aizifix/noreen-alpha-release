@@ -102,7 +102,7 @@ export function ComponentCustomization({
   onUpdate,
   eventDetails,
   isStartFromScratch = false,
-}: ComponentCustomizationProps & { selectedVenue: any }) {
+}: ComponentCustomizationProps & { selectedVenue?: any }) {
   const [componentList, setComponentList] = useState<DataPackageComponent[]>(
     initialComponents as DataPackageComponent[]
   );
@@ -152,48 +152,45 @@ export function ComponentCustomization({
 
   // Load venue as a single component when venueId changes
   useEffect(() => {
-    if (selectedVenue) {
-      // Check if venue component already exists in the main components array
-      const existingVenueComponent = initialComponents.find(
-        (comp) => comp.category === "venue" && comp.isVenueInclusion
-      );
+    // Check if venue component already exists in the main components array
+    const existingVenueComponent = initialComponents.find(
+      (comp) => comp.category === "venue" && comp.isVenueInclusion
+    );
 
-      if (existingVenueComponent) {
-        // Use existing venue component
-        setVenueComponents([existingVenueComponent]);
-      } else {
-        // Calculate overflow charge based on guest count
-        const baseCapacity = 100; // Default venue capacity as per instructions
-        const extraPaxRate = parseFloat(selectedVenue.extra_pax_rate) || 0;
-        const guestCount = parseInt(
-          eventDetails?.capacity?.toString() || "100"
-        );
+    if (existingVenueComponent) {
+      // Use existing venue component
+      setVenueComponents([existingVenueComponent]);
+    } else if (selectedVenue) {
+      // Calculate overflow charge based on guest count
+      const baseCapacity = 100; // Default venue capacity as per instructions
+      const extraPaxRate = parseFloat(selectedVenue.extra_pax_rate) || 0;
+      const guestCount = parseInt(eventDetails?.capacity?.toString() || "100");
 
-        let totalVenuePrice = parseFloat(selectedVenue.venue_price) || 0;
-        let overflowCharge = 0;
+      let totalVenuePrice = parseFloat(selectedVenue.venue_price) || 0;
+      let overflowCharge = 0;
 
-        if (guestCount > baseCapacity && extraPaxRate > 0) {
-          const extraGuests = guestCount - baseCapacity;
-          overflowCharge = extraGuests * extraPaxRate;
-          totalVenuePrice += overflowCharge;
-        }
-
-        // Create a single venue component (not broken down into inclusions)
-        const venueComponent = {
-          id: `venue-${selectedVenue.venue_id}`,
-          name: selectedVenue.venue_title || selectedVenue.venue_name,
-          description: `Venue: ${selectedVenue.venue_title || selectedVenue.venue_name}${overflowCharge > 0 ? ` (includes ₱${overflowCharge.toLocaleString()} overflow charge for ${guestCount - baseCapacity} extra guests)` : ""}`,
-          price: totalVenuePrice,
-          category: "venue" as ComponentCategory,
-          included: true,
-          isVenueInclusion: true,
-          isRemovable: false,
-          isExpanded: false,
-          venueInclusions: selectedVenue.inclusions || [], // Store for display only
-        };
-        setVenueComponents([venueComponent]);
+      if (guestCount > baseCapacity && extraPaxRate > 0) {
+        const extraGuests = guestCount - baseCapacity;
+        overflowCharge = extraGuests * extraPaxRate;
+        totalVenuePrice += overflowCharge;
       }
+
+      // Create a single venue component (not broken down into inclusions)
+      const venueComponent = {
+        id: `venue-${selectedVenue.venue_id}`,
+        name: selectedVenue.venue_title || selectedVenue.venue_name,
+        description: `Venue: ${selectedVenue.venue_title || selectedVenue.venue_name}${overflowCharge > 0 ? ` (includes ₱${overflowCharge.toLocaleString()} overflow charge for ${guestCount - baseCapacity} extra guests)` : ""}`,
+        price: totalVenuePrice,
+        category: "venue" as ComponentCategory,
+        included: true,
+        isVenueInclusion: true,
+        isRemovable: false,
+        isExpanded: false,
+        venueInclusions: selectedVenue.inclusions || [], // Store for display only
+      };
+      setVenueComponents([venueComponent]);
     } else {
+      // No venue selected yet
       setVenueComponents([]);
     }
   }, [
@@ -589,9 +586,11 @@ export function ComponentCustomization({
             </div>
           ) : (
             <div className="text-center py-12 border rounded-lg">
-              <p className="text-muted-foreground">No venue selected.</p>
+              <p className="text-muted-foreground">No venue selected yet.</p>
+              <p className="mt-2">You will select a venue in the next step.</p>
               <p className="mt-2">
-                Please select a venue in the previous step.
+                The venue you select will determine what additional
+                venue-specific inclusions are available.
               </p>
             </div>
           )}

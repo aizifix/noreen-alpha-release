@@ -9360,6 +9360,27 @@ Event Coordination System Team
                 if (!$result) {
                     throw new Exception('Procedure returned no rows');
                 }
+                // Augment with profile picture if missing
+                if ($result && (!isset($result['profile_picture']) || empty($result['profile_picture']))) {
+                    try {
+                        $orgId = 0;
+                        if (isset($result['organizer_id'])) {
+                            $orgId = (int)$result['organizer_id'];
+                        } elseif (isset($result['organizer_organizer_id'])) {
+                            $orgId = (int)$result['organizer_organizer_id'];
+                        }
+                        if ($orgId > 0) {
+                            $q = $this->conn->prepare("SELECT u.user_pfp AS profile_picture FROM tbl_organizer o JOIN tbl_users u ON o.user_id = u.user_id WHERE o.organizer_id = ? LIMIT 1");
+                            $q->execute([$orgId]);
+                            $row = $q->fetch(PDO::FETCH_ASSOC);
+                    if ($row && isset($row['profile_picture'])) {
+                                $result['profile_picture'] = $row['profile_picture'];
+                            }
+                        }
+                    } catch (Exception $ie) {
+                        // no-op; optional enrichment
+                    }
+                }
             } catch (Exception $e) {
                 error_log("GetEventOrganizerDetails procedure failed, using direct query: " . $e->getMessage());
                 // Fallback to direct query using correct user field names
@@ -9372,6 +9393,7 @@ Event Coordination System Team
                         CONCAT(u.user_firstName, ' ', u.user_lastName) as organizer_name,
                         u.user_email as organizer_email,
                         u.user_contact as organizer_phone,
+                        u.user_pfp as profile_picture,
                         o.organizer_experience,
                         o.organizer_certifications,
                         o.organizer_availability,

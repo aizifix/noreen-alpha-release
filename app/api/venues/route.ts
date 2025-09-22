@@ -3,6 +3,9 @@ import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
 
+// Force static for export
+export const dynamic = "force-static";
+
 // Ensure upload directories exist
 async function ensureUploadDirectories() {
   const dirs = [

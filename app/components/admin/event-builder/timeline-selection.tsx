@@ -14,6 +14,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { format, addHours, parse, isValid, addMinutes } from "date-fns";
+import { generateStableId } from "@/app/utils/stableIds";
 import { cn } from "@/lib/utils";
 import {
   CalendarIcon,
@@ -117,7 +118,9 @@ export function TimelineStep({
         );
 
         const timelineItem = {
-          id: `timeline-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
+          id: generateStableId(
+            `timeline-${component.id || component.name}-${index}`
+          ),
           componentId: component.id || "",
           componentName: component.name || "Unknown Component",
           category: component.category || "",
@@ -194,7 +197,7 @@ export function TimelineStep({
     const endTime = addHours(startTime, 1);
 
     const newItem: TimelineItem = {
-      id: `timeline-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: generateStableId("timeline-new"),
       componentId: "",
       componentName: "",
       category: "",
@@ -352,7 +355,7 @@ export function TimelineStep({
               onClick={() => {
                 // Create a basic timeline item to allow progression
                 const basicTimelineItem: TimelineItem = {
-                  id: `timeline-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                  id: generateStableId("timeline-new"),
                   componentId: "manual",
                   componentName: "Manual Activity",
                   category: "general",
@@ -431,7 +434,7 @@ export function TimelineStep({
                       );
 
                       return {
-                        id: `timeline-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
+                        id: generateStableId(`timeline-item-${index}`),
                         componentId: component.id || "",
                         componentName:
                           component.name ||

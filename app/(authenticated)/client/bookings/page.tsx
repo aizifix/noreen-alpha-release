@@ -239,7 +239,7 @@ export default function BookingsPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">My Bookings</h1>
         <Link href="/client/bookings/create-booking">
-          <button className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg flex items-center gap-2">
+          <button className="bg-[#028A75] hover:bg-[#028A75]/90 text-white px-5 py-2 rounded-lg flex items-center gap-2">
             <Plus className="h-5 w-5" /> Book New Event
           </button>
         </Link>
@@ -255,7 +255,7 @@ export default function BookingsPage() {
                 placeholder="Search bookings by event type, venue, or booking reference..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 focus:border-green-600"
+                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75]"
               />
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <svg
@@ -278,8 +278,8 @@ export default function BookingsPage() {
                 key={tab}
                 className={`px-6 py-3 rounded-lg text-sm font-medium border transition-all duration-200 ${
                   activeTab === tab
-                    ? "bg-green-600 text-white border-green-600 shadow-lg"
-                    : "bg-white text-gray-700 border-gray-200 hover:bg-green-50 hover:border-green-300"
+                    ? "bg-[#028A75] text-white border-[#028A75] shadow-lg"
+                    : "bg-white text-gray-700 border-gray-200 hover:bg-[#028A75]/10 hover:border-[#028A75]/30"
                 }`}
                 onClick={() => setActiveTab(tab)}
               >
@@ -506,7 +506,7 @@ export default function BookingsPage() {
                     : `No ${activeTab.toLowerCase()} bookings found.`}
               </p>
               <Link href="/client/bookings/create-booking">
-                <button className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                <button className="bg-[#028A75] hover:bg-[#028A75]/90 text-white px-6 py-3 rounded-lg font-medium transition-colors">
                   Create Your First Booking
                 </button>
               </Link>

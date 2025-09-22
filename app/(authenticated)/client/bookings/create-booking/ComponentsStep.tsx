@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Package,
@@ -207,7 +208,7 @@ export default function ComponentsStep({
                                 <Checkbox
                                   id={`comp-${component.component_id}`}
                                   checked={!isRemoved}
-                                  onCheckedChange={() => {
+                                  onCheckedChange={(checked: boolean) => {
                                     if (isRemoved) {
                                       onRestoreComponent(
                                         component.component_id
@@ -373,7 +374,7 @@ export default function ComponentsStep({
                             <Checkbox
                               id={`add-comp-${component.component_id}`}
                               checked={isComponentAdded(component.component_id)}
-                              onCheckedChange={(checked) => {
+                              onCheckedChange={(checked: boolean) => {
                                 if (checked) {
                                   onAddComponent(component);
                                 } else {

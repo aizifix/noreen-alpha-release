@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
@@ -49,7 +49,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 
 interface Booking {
   booking_id: number;
@@ -88,12 +90,22 @@ export default function AdminBookingsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [bookingDetails, setBookingDetails] = useState<any | null>(null);
+  const [packageDetails, setPackageDetails] = useState<any | null>(null);
+  const [venuePricingInfo, setVenuePricingInfo] = useState<{
+    basePrice: number;
+    extraPaxRate: number;
+    overflowCharge: number;
+    estimatedTotal: number;
+  } | null>(null);
   const [convertingBookingId, setConvertingBookingId] = useState<number | null>(
     null
   );
   const [activeTab, setActiveTab] = useState<string>("cards");
   const [tableCurrentPage, setTableCurrentPage] = useState<number>(1);
   const [tableItemsPerPage, setTableItemsPerPage] = useState<number>(10);
+  const [detailsTab, setDetailsTab] = useState<string>("summary");
 
   useEffect(() => {
     try {
@@ -229,6 +241,254 @@ export default function AdminBookingsPage() {
     }
   };
 
+  // Parse component changes json either from explicit field or from notes suffix
+  const parseComponentChanges = (
+    booking: any
+  ): {
+    custom_components?: any[];
+    removed_components?: (string | number)[];
+  } => {
+    try {
+      if (!booking) return {};
+      if (booking.component_changes) {
+        if (typeof booking.component_changes === "string") {
+          try {
+            return JSON.parse(booking.component_changes);
+          } catch (_) {
+            // fallthrough to notes parsing
+          }
+        } else if (typeof booking.component_changes === "object") {
+          return booking.component_changes;
+        }
+      }
+      // Fallback: parse from notes if present as "Component changes: {json}"
+      const notes: string = booking.notes || "";
+      const marker = "Component changes:";
+      const idx = notes.indexOf(marker);
+      if (idx >= 0) {
+        const jsonPart = notes.substring(idx + marker.length).trim();
+        try {
+          return JSON.parse(jsonPart);
+        } catch (_) {
+          return {};
+        }
+      }
+      return {};
+    } catch (e) {
+      return {};
+    }
+  };
+
+  // When opening modal, fetch deeper booking + package/venue info
+  useEffect(() => {
+    const loadDetails = async () => {
+      if (!showDetailsModal || !selectedBooking) return;
+      setDetailsLoading(true);
+      setBookingDetails(null);
+      setPackageDetails(null);
+      setVenuePricingInfo(null);
+      try {
+        const ref = selectedBooking.booking_reference;
+        const pkgId = selectedBooking.package_id;
+        const venueId = selectedBooking.venue_id;
+        const guestCount = selectedBooking.guest_count;
+
+        const requests: Promise<any>[] = [];
+        // Detailed booking (includes b.* like total_price, component_changes)
+        requests.push(
+          axios.get("http://localhost/events-api/admin.php", {
+            params: { operation: "getBookingByReference", reference: ref },
+          })
+        );
+        if (pkgId) {
+          // Package details (inclusions list)
+          requests.push(
+            axios.get("http://localhost/events-api/admin.php", {
+              params: { operation: "getPackageDetails", package_id: pkgId },
+            })
+          );
+          // Venue pricing with extra pax rate via client endpoint
+          if (venueId) {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, "0");
+            const dd = String(today.getDate()).padStart(2, "0");
+            const dateStr = `${yyyy}-${mm}-${dd}`;
+            requests.push(
+              axios.get("http://localhost/events-api/client.php", {
+                params: {
+                  operation: "getVenuesByPackage",
+                  package_id: pkgId,
+                  event_date: dateStr,
+                  guest_count: guestCount,
+                },
+              })
+            );
+          }
+        }
+        const [bookingRes, pkgRes, venuesRes] = (await Promise.allSettled(
+          requests
+        )) as any;
+
+        if (
+          bookingRes?.status === "fulfilled" &&
+          bookingRes.value?.data?.status === "success"
+        ) {
+          setBookingDetails(bookingRes.value.data.booking);
+        }
+        if (
+          pkgRes?.status === "fulfilled" &&
+          pkgRes.value?.data?.status === "success"
+        ) {
+          setPackageDetails(pkgRes.value.data.package);
+        }
+
+        if (
+          venuesRes?.status === "fulfilled" &&
+          venuesRes.value?.data?.status === "success" &&
+          Array.isArray(venuesRes.value.data.venues)
+        ) {
+          const venues = venuesRes.value.data.venues as any[];
+          const v = venues.find(
+            (x) => Number(x.venue_id) === Number(selectedBooking.venue_id)
+          );
+          if (v) {
+            const base = parseFloat(String(v.venue_price)) || 0;
+            const rate =
+              v.extra_pax_rate !== undefined && v.extra_pax_rate !== null
+                ? parseFloat(String(v.extra_pax_rate))
+                : 0;
+            const extras =
+              guestCount > 100 && rate > 0 ? (guestCount - 100) * rate : 0;
+            setVenuePricingInfo({
+              basePrice: base,
+              extraPaxRate: Number.isFinite(rate) ? rate : 0,
+              overflowCharge: extras,
+              estimatedTotal: base + extras,
+            });
+          }
+        }
+      } catch (e) {
+        // silent; modal still shows base info
+      } finally {
+        setDetailsLoading(false);
+      }
+    };
+    loadDetails();
+  }, [showDetailsModal, selectedBooking]);
+
+  // Derived details for modal summary and breakdown
+  const detailsSummary = useMemo(() => {
+    const result: {
+      includedNames: string[];
+      removedNames: string[];
+      customItems: any[];
+      supplierServices: any[];
+      customAddOns: any[];
+      packagePrice: number;
+      supplierServicesTotal: number;
+      customAddOnsTotal: number;
+      submittedTotal: number | null;
+      estimatedVenueBase: number;
+      estimatedVenueExtras: number;
+      estimatedVenueTotal: number;
+      computedSubtotal: number;
+      computedGrandTotal: number;
+    } = {
+      includedNames: [],
+      removedNames: [],
+      customItems: [],
+      supplierServices: [],
+      customAddOns: [],
+      packagePrice: 0,
+      supplierServicesTotal: 0,
+      customAddOnsTotal: 0,
+      submittedTotal: null,
+      estimatedVenueBase: 0,
+      estimatedVenueExtras: 0,
+      estimatedVenueTotal: 0,
+      computedSubtotal: 0,
+      computedGrandTotal: 0,
+    };
+
+    try {
+      const changes = parseComponentChanges(bookingDetails);
+      const removed: (string | number)[] = Array.isArray(
+        changes?.removed_components
+      )
+        ? changes.removed_components
+        : [];
+      const custom = Array.isArray(changes?.custom_components)
+        ? changes.custom_components
+        : [];
+      result.customItems = custom;
+
+      // Split custom into supplier vs non-supplier
+      result.supplierServices = custom.filter(
+        (c: any) => c?.is_supplier_service || c?.supplier_id || c?.supplier_name
+      );
+      result.customAddOns = custom.filter(
+        (c: any) =>
+          !(c?.is_supplier_service || c?.supplier_id || c?.supplier_name)
+      );
+
+      // Build inclusion names from packageDetails.inclusions
+      const pkgInclusions: any[] = packageDetails?.inclusions || [];
+      const removedNames: string[] = [];
+      const includedNames: string[] = [];
+      if (Array.isArray(pkgInclusions) && pkgInclusions.length > 0) {
+        pkgInclusions.forEach((inc: any) => {
+          const id = inc.id || inc.component_id || inc.inclusion_id || inc.name;
+          const name = inc.name || inc.component_name || inc.inclusion_name;
+          if (removed.includes(id)) removedNames.push(String(name));
+          else includedNames.push(String(name));
+        });
+      }
+      result.removedNames = removedNames;
+      result.includedNames = includedNames;
+
+      // Prices
+      result.packagePrice = Number(packageDetails?.package_price || 0) || 0;
+      result.supplierServicesTotal = result.supplierServices.reduce(
+        (sum: number, c: any) =>
+          sum +
+          (Number(c.price || c.component_price || c.inclusion_price || 0) || 0),
+        0
+      );
+      result.customAddOnsTotal = result.customAddOns.reduce(
+        (sum: number, c: any) =>
+          sum +
+          (Number(c.price || c.component_price || c.inclusion_price || 0) || 0),
+        0
+      );
+      result.submittedTotal = bookingDetails?.total_price
+        ? Number(bookingDetails.total_price)
+        : null;
+
+      // Venue estimates
+      if (venuePricingInfo) {
+        result.estimatedVenueBase =
+          Number(venuePricingInfo.basePrice || 0) || 0;
+        result.estimatedVenueExtras =
+          Number(venuePricingInfo.overflowCharge || 0) || 0;
+        result.estimatedVenueTotal =
+          Number(venuePricingInfo.estimatedTotal || 0) || 0;
+      }
+
+      // Computed totals (best-effort, may differ from submitted)
+      result.computedSubtotal =
+        result.packagePrice +
+        result.supplierServicesTotal +
+        result.customAddOnsTotal;
+      result.computedGrandTotal =
+        result.computedSubtotal + (result.estimatedVenueTotal || 0);
+    } catch (_) {
+      // ignore
+    }
+
+    return result;
+  }, [bookingDetails, packageDetails, venuePricingInfo]);
+
   const handleAcceptBooking = async (booking: Booking) => {
     try {
       const response = await axios.post(
@@ -348,7 +608,7 @@ export default function AdminBookingsPage() {
       case "pending":
         return "bg-yellow-100 text-yellow-800 border-yellow-200";
       case "confirmed":
-        return "bg-green-100 text-green-800 border-green-200";
+        return "bg-[#E6F5F2] text-[#065f54] border-[#BFE8E0]";
       case "converted":
         return "bg-blue-100 text-blue-800 border-blue-200";
       case "completed":
@@ -387,7 +647,7 @@ export default function AdminBookingsPage() {
     return (
       <div
         className={`bg-white rounded-lg border shadow-sm p-6 hover:shadow-md transition-shadow ${
-          isConfirmed ? "border-green-200 bg-green-50" : ""
+          isConfirmed ? "border-[#BFE8E0] bg-[#F0FBF9]" : ""
         } ${isConverted ? "border-blue-200 bg-blue-50" : ""}`}
       >
         <div className="flex items-start justify-between mb-4">
@@ -481,7 +741,7 @@ export default function AdminBookingsPage() {
                   key="accept-button"
                   size="sm"
                   onClick={() => handleAcceptBooking(booking)}
-                  className="bg-green-600 hover:bg-green-700"
+                  className="bg-[#028A75] hover:bg-[#027563]"
                 >
                   <CheckCircle className="h-4 w-4 mr-1" />
                   Accept
@@ -1023,168 +1283,583 @@ export default function AdminBookingsPage() {
 
           {/* Booking Details Modal */}
           <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
-            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-              <DialogHeader>
+            <DialogContent className="sm:max-w-[720px] p-0">
+              <DialogHeader className="px-6 pt-6 pb-4">
                 <DialogTitle>Booking Details</DialogTitle>
                 <DialogDescription>
                   {selectedBooking?.booking_reference}
                 </DialogDescription>
               </DialogHeader>
+              <Separator />
 
               {selectedBooking && (
-                <div className="space-y-6">
-                  {/* Status and Actions */}
-                  <div className="flex items-center justify-between">
-                    <Badge
-                      className={`${getStatusColor(selectedBooking.booking_status)} flex items-center gap-1`}
-                    >
-                      {getStatusIcon(selectedBooking.booking_status)}
-                      {selectedBooking.booking_status}
-                    </Badge>
-                    <div className="flex gap-2">
-                      {selectedBooking.booking_status === "pending" && (
-                        <>
-                          <Button
-                            key="modal-confirm-btn"
-                            size="sm"
-                            onClick={() =>
-                              handleUpdateBookingStatus(
-                                selectedBooking.booking_id,
-                                "confirmed"
-                              )
-                            }
-                          >
-                            Confirm
-                          </Button>
-                          <Button
-                            key="modal-cancel-btn"
-                            size="sm"
-                            variant="destructive"
-                            onClick={() =>
-                              handleUpdateBookingStatus(
-                                selectedBooking.booking_id,
-                                "cancelled"
-                              )
-                            }
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      )}
-                      {selectedBooking.booking_status === "confirmed" && (
-                        <Button
-                          key="modal-create-event-btn"
-                          size="sm"
-                          className="bg-blue-600 hover:bg-blue-700"
-                          onClick={() => handleConvertToEvent(selectedBooking)}
-                        >
-                          Create an Event
-                        </Button>
-                      )}
-                      {selectedBooking.booking_status === "converted" && (
-                        <Button
-                          key="modal-view-event-btn"
-                          size="sm"
-                          variant="outline"
-                          className="border-blue-200 text-blue-700 hover:bg-blue-50"
-                          onClick={() => {
-                            router.push(
-                              `/admin/events?booking_ref=${selectedBooking.booking_reference}`
-                            );
-                          }}
-                        >
-                          View Event
-                        </Button>
-                      )}
-                    </div>
+                <div className="flex flex-col h-[80vh]">
+                  <div className="flex-1 overflow-y-auto px-6 py-4">
+                    {detailsLoading && (
+                      <div className="text-sm text-gray-500">
+                        Loading detailed summary…
+                      </div>
+                    )}
+                    <Tabs value={detailsTab} onValueChange={setDetailsTab}>
+                      <div className="flex items-center justify-between">
+                        <TabsList>
+                          <TabsTrigger value="summary">Summary</TabsTrigger>
+                          <TabsTrigger value="client">Client</TabsTrigger>
+                          <TabsTrigger value="event">Event</TabsTrigger>
+                          <TabsTrigger value="booking">Booking</TabsTrigger>
+                          <TabsTrigger value="package">
+                            Package & Inclusions
+                          </TabsTrigger>
+                        </TabsList>
+                      </div>
+
+                      <TabsContent value="summary">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="bg-white border rounded-lg p-4">
+                            <div className="text-sm text-gray-500 mb-1">
+                              Package Used
+                            </div>
+                            <div className="text-base font-medium text-gray-900">
+                              {packageDetails?.package_title ||
+                                selectedBooking?.package_name ||
+                                "-"}
+                            </div>
+                            <div className="text-sm text-gray-600 mt-1">
+                              Price: ₱
+                              {detailsSummary.packagePrice.toLocaleString(
+                                "en-PH",
+                                { minimumFractionDigits: 2 }
+                              )}
+                            </div>
+                            {Array.isArray(packageDetails?.freebies) &&
+                              packageDetails.freebies.length > 0 && (
+                                <div className="mt-3">
+                                  <div className="text-sm text-gray-500 mb-1">
+                                    Freebies
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {packageDetails.freebies
+                                      .slice(0, 6)
+                                      .map((f: any, i: number) => (
+                                        <span
+                                          key={`freebie-pill-${i}`}
+                                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700 border"
+                                        >
+                                          {typeof f === "string"
+                                            ? f
+                                            : f.freebie_name}
+                                        </span>
+                                      ))}
+                                    {packageDetails.freebies.length > 6 && (
+                                      <span className="text-xs text-gray-500">
+                                        +{packageDetails.freebies.length - 6}{" "}
+                                        more
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                          </div>
+
+                          <div className="bg-white border rounded-lg p-4">
+                            <div className="text-sm text-gray-500 mb-1">
+                              Venue Chosen
+                            </div>
+                            <div className="text-base font-medium text-gray-900">
+                              {selectedBooking?.venue_name || "-"}
+                            </div>
+                            {venuePricingInfo ? (
+                              <div className="text-sm text-gray-600 mt-1 space-y-1">
+                                <div>
+                                  Base: ₱
+                                  {detailsSummary.estimatedVenueBase.toLocaleString(
+                                    "en-PH"
+                                  )}
+                                </div>
+                                {detailsSummary.estimatedVenueExtras > 0 && (
+                                  <div>
+                                    Overflow: ₱
+                                    {detailsSummary.estimatedVenueExtras.toLocaleString(
+                                      "en-PH"
+                                    )}
+                                  </div>
+                                )}
+                                <div className="font-medium">
+                                  Estimated Venue Total: ₱
+                                  {detailsSummary.estimatedVenueTotal.toLocaleString(
+                                    "en-PH",
+                                    { minimumFractionDigits: 2 }
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-sm text-gray-500 mt-1">
+                                No venue pricing available
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="bg-white border rounded-lg p-4">
+                            <div className="text-sm text-gray-500 mb-2">
+                              Inclusions Overview
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <div className="text-gray-500">Included</div>
+                                <div className="text-gray-900 font-semibold">
+                                  {detailsSummary.includedNames.length}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-gray-500">Removed</div>
+                                <div className="text-gray-900 font-semibold">
+                                  {detailsSummary.removedNames.length}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-gray-500">
+                                  Custom Add-ons
+                                </div>
+                                <div className="text-gray-900 font-semibold">
+                                  {detailsSummary.customAddOns.length}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-gray-500">
+                                  Supplier Services
+                                </div>
+                                <div className="text-gray-900 font-semibold">
+                                  {detailsSummary.supplierServices.length}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="bg-white border rounded-lg p-4">
+                            <div className="text-sm text-gray-500 mb-2">
+                              Total Price
+                            </div>
+                            {detailsSummary.submittedTotal !== null ? (
+                              <div className="text-gray-900 text-lg font-semibold">
+                                Submitted Total: ₱
+                                {Number(
+                                  detailsSummary.submittedTotal
+                                ).toLocaleString("en-PH", {
+                                  minimumFractionDigits: 2,
+                                })}
+                              </div>
+                            ) : (
+                              <div className="text-sm text-gray-700 space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span>Package</span>
+                                  <span>
+                                    ₱
+                                    {detailsSummary.packagePrice.toLocaleString(
+                                      "en-PH",
+                                      { minimumFractionDigits: 2 }
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Supplier Services</span>
+                                  <span>
+                                    ₱
+                                    {detailsSummary.supplierServicesTotal.toLocaleString(
+                                      "en-PH",
+                                      { minimumFractionDigits: 2 }
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Custom Add-ons</span>
+                                  <span>
+                                    ₱
+                                    {detailsSummary.customAddOnsTotal.toLocaleString(
+                                      "en-PH",
+                                      { minimumFractionDigits: 2 }
+                                    )}
+                                  </span>
+                                </div>
+                                {detailsSummary.estimatedVenueTotal > 0 && (
+                                  <div className="flex items-center justify-between">
+                                    <span>Venue (est.)</span>
+                                    <span>
+                                      ₱
+                                      {detailsSummary.estimatedVenueTotal.toLocaleString(
+                                        "en-PH",
+                                        { minimumFractionDigits: 2 }
+                                      )}
+                                    </span>
+                                  </div>
+                                )}
+                                <Separator className="my-2" />
+                                <div className="flex items-center justify-between text-base font-semibold">
+                                  <span>Estimated Total</span>
+                                  <span>
+                                    ₱
+                                    {detailsSummary.computedGrandTotal.toLocaleString(
+                                      "en-PH",
+                                      { minimumFractionDigits: 2 }
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  Note: Estimated based on available data.
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="client">
+                        <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                          <div>
+                            <strong>Name:</strong> {selectedBooking.client_name}
+                          </div>
+                          <div>
+                            <strong>Email:</strong>{" "}
+                            {selectedBooking.client_email}
+                          </div>
+                          <div>
+                            <strong>Phone:</strong>{" "}
+                            {selectedBooking.client_phone}
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="event">
+                        <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                          <div>
+                            <strong>Event Name:</strong>{" "}
+                            {selectedBooking.event_name}
+                          </div>
+                          <div>
+                            <strong>Event Type:</strong>{" "}
+                            {selectedBooking.event_type_name}
+                          </div>
+                          <div>
+                            <strong>Date:</strong>{" "}
+                            {new Date(
+                              selectedBooking.event_date
+                            ).toLocaleDateString()}
+                          </div>
+                          <div>
+                            <strong>Time:</strong> {selectedBooking.event_time}
+                          </div>
+                          <div>
+                            <strong>Guest Count:</strong>{" "}
+                            {selectedBooking.guest_count}
+                          </div>
+                          {selectedBooking.venue_name && (
+                            <div>
+                              <strong>Venue:</strong>{" "}
+                              {selectedBooking.venue_name}
+                            </div>
+                          )}
+                          {selectedBooking.package_name && (
+                            <div>
+                              <strong>Package:</strong>{" "}
+                              {selectedBooking.package_name}
+                            </div>
+                          )}
+                          {selectedBooking.notes && (
+                            <div>
+                              <strong>Notes:</strong> {selectedBooking.notes}
+                            </div>
+                          )}
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="booking">
+                        <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                          <div>
+                            <strong>Reference:</strong>{" "}
+                            {selectedBooking.booking_reference}
+                          </div>
+                          <div>
+                            <strong>Created:</strong>{" "}
+                            {new Date(
+                              selectedBooking.created_at
+                            ).toLocaleDateString()}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <strong>Status:</strong>
+                            <Badge
+                              className={`${getStatusColor(selectedBooking.booking_status)} flex items-center gap-1`}
+                            >
+                              {getStatusIcon(selectedBooking.booking_status)}
+                              {selectedBooking.booking_status}
+                            </Badge>
+                          </div>
+                          {selectedBooking.converted_event_id && (
+                            <div>
+                              <strong>Event ID:</strong>{" "}
+                              {selectedBooking.converted_event_id}
+                            </div>
+                          )}
+                          {bookingDetails?.total_price ? (
+                            <div>
+                              <strong>Total Price (submitted):</strong> ₱
+                              {Number(
+                                bookingDetails.total_price
+                              ).toLocaleString("en-PH", {
+                                minimumFractionDigits: 2,
+                              })}
+                            </div>
+                          ) : venuePricingInfo ? (
+                            <div>
+                              <strong>Estimated Venue Total:</strong> ₱
+                              {venuePricingInfo.estimatedTotal.toLocaleString(
+                                "en-PH",
+                                { minimumFractionDigits: 2 }
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="package">
+                        {packageDetails || bookingDetails ? (
+                          <div className="bg-gray-50 p-4 rounded-lg space-y-4">
+                            {packageDetails && (
+                              <div className="text-sm">
+                                <div>
+                                  <strong>Package:</strong>{" "}
+                                  {packageDetails.package_title} (₱
+                                  {Number(
+                                    packageDetails.package_price
+                                  ).toLocaleString("en-PH", {
+                                    minimumFractionDigits: 2,
+                                  })}
+                                  )
+                                </div>
+                                {selectedBooking.venue_name && (
+                                  <div className="mt-1">
+                                    <strong>Venue:</strong>{" "}
+                                    {selectedBooking.venue_name}
+                                    {venuePricingInfo && (
+                                      <span className="text-gray-600">
+                                        {" "}
+                                        — Base ₱
+                                        {venuePricingInfo.basePrice.toLocaleString()}{" "}
+                                        {venuePricingInfo.extraPaxRate > 0 &&
+                                        selectedBooking.guest_count > 100
+                                          ? `+ Overflow ₱${venuePricingInfo.overflowCharge.toLocaleString()}`
+                                          : ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {Array.isArray(packageDetails.freebies) &&
+                                  packageDetails.freebies.length > 0 && (
+                                    <div className="mt-3">
+                                      <strong>Freebies:</strong>
+                                      <div className="mt-1 flex flex-wrap gap-2">
+                                        {packageDetails.freebies.map(
+                                          (f: any, i: number) => (
+                                            <span
+                                              key={`freebie-chip-${i}`}
+                                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700 border"
+                                            >
+                                              {typeof f === "string"
+                                                ? f
+                                                : f.freebie_name}
+                                            </span>
+                                          )
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <div className="font-medium mb-1">Included</div>
+                                <ul className="text-sm list-disc pl-5 space-y-1 max-h-48 overflow-auto bg-white p-3 rounded border">
+                                  {detailsSummary.includedNames
+                                    .slice(0, 100)
+                                    .map((n, i) => (
+                                      <li key={`inc-${i}`}>{n}</li>
+                                    ))}
+                                  {detailsSummary.includedNames.length ===
+                                    0 && (
+                                    <li className="text-gray-500">No data</li>
+                                  )}
+                                </ul>
+                              </div>
+                              <div>
+                                <div className="font-medium mb-1">
+                                  Removed / Unchecked
+                                </div>
+                                <ul className="text-sm list-disc pl-5 space-y-1 max-h-48 overflow-auto bg-white p-3 rounded border">
+                                  {detailsSummary.removedNames
+                                    .slice(0, 100)
+                                    .map((n, i) => (
+                                      <li key={`rem-${i}`}>{n}</li>
+                                    ))}
+                                  {detailsSummary.removedNames.length === 0 && (
+                                    <li className="text-gray-500">
+                                      None indicated
+                                    </li>
+                                  )}
+                                </ul>
+                              </div>
+                            </div>
+
+                            {(detailsSummary.supplierServices.length > 0 ||
+                              detailsSummary.customAddOns.length > 0) && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {detailsSummary.supplierServices.length > 0 && (
+                                  <div>
+                                    <div className="font-medium mb-1">
+                                      Supplier Services
+                                    </div>
+                                    <ul className="text-sm list-disc pl-5 space-y-1 max-h-48 overflow-auto bg-white p-3 rounded border">
+                                      {detailsSummary.supplierServices.map(
+                                        (c: any, i: number) => (
+                                          <li key={`supp-${i}`}>
+                                            {(c.supplier_name
+                                              ? `${c.supplier_name} — `
+                                              : "") +
+                                              (c.name ||
+                                                c.component_name ||
+                                                c.inclusion_name ||
+                                                "Service")}{" "}
+                                            — ₱
+                                            {Number(
+                                              c.price ||
+                                                c.component_price ||
+                                                c.inclusion_price ||
+                                                0
+                                            ).toLocaleString()}
+                                          </li>
+                                        )
+                                      )}
+                                    </ul>
+                                    <div className="text-sm text-gray-700 mt-1">
+                                      <strong>Total:</strong> ₱
+                                      {detailsSummary.supplierServicesTotal.toLocaleString(
+                                        "en-PH",
+                                        { minimumFractionDigits: 2 }
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                {detailsSummary.customAddOns.length > 0 && (
+                                  <div>
+                                    <div className="font-medium mb-1">
+                                      Custom Add-ons
+                                    </div>
+                                    <ul className="text-sm list-disc pl-5 space-y-1 max-h-48 overflow-auto bg-white p-3 rounded border">
+                                      {detailsSummary.customAddOns.map(
+                                        (c: any, i: number) => (
+                                          <li key={`cust-${i}`}>
+                                            {c.name ||
+                                              c.component_name ||
+                                              c.inclusion_name ||
+                                              "Item"}{" "}
+                                            — ₱
+                                            {Number(
+                                              c.price ||
+                                                c.component_price ||
+                                                c.inclusion_price ||
+                                                0
+                                            ).toLocaleString()}
+                                          </li>
+                                        )
+                                      )}
+                                    </ul>
+                                    <div className="text-sm text-gray-700 mt-1">
+                                      <strong>Total:</strong> ₱
+                                      {detailsSummary.customAddOnsTotal.toLocaleString(
+                                        "en-PH",
+                                        { minimumFractionDigits: 2 }
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-500">
+                            No package data.
+                          </div>
+                        )}
+                      </TabsContent>
+                    </Tabs>
                   </div>
 
-                  {/* Client Information */}
-                  <div>
-                    <h4 className="font-semibold mb-2">Client Information</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                      <div>
-                        <strong>Name:</strong> {selectedBooking.client_name}
-                      </div>
-                      <div>
-                        <strong>Email:</strong> {selectedBooking.client_email}
-                      </div>
-                      <div>
-                        <strong>Phone:</strong> {selectedBooking.client_phone}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Event Information */}
-                  <div>
-                    <h4 className="font-semibold mb-2">Event Information</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                      <div>
-                        <strong>Event Name:</strong>{" "}
-                        {selectedBooking.event_name}
-                      </div>
-                      <div>
-                        <strong>Event Type:</strong>{" "}
-                        {selectedBooking.event_type_name}
-                      </div>
-                      <div>
-                        <strong>Date:</strong>{" "}
-                        {new Date(
-                          selectedBooking.event_date
-                        ).toLocaleDateString()}
-                      </div>
-                      <div>
-                        <strong>Time:</strong> {selectedBooking.event_time}
-                      </div>
-                      <div>
-                        <strong>Guest Count:</strong>{" "}
-                        {selectedBooking.guest_count}
-                      </div>
-                      {selectedBooking.venue_name && (
-                        <div>
-                          <strong>Venue:</strong> {selectedBooking.venue_name}
-                        </div>
-                      )}
-                      {selectedBooking.package_name && (
-                        <div>
-                          <strong>Package:</strong>{" "}
-                          {selectedBooking.package_name}
-                        </div>
-                      )}
-                      {selectedBooking.notes && (
-                        <div>
-                          <strong>Notes:</strong> {selectedBooking.notes}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Booking Information */}
-                  <div>
-                    <h4 className="font-semibold mb-2">Booking Information</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                      <div>
-                        <strong>Reference:</strong>{" "}
-                        {selectedBooking.booking_reference}
-                      </div>
-                      <div>
-                        <strong>Created:</strong>{" "}
-                        {new Date(
-                          selectedBooking.created_at
-                        ).toLocaleDateString()}
-                      </div>
-                      <div>
-                        <strong>Status:</strong>{" "}
+                  <DialogFooter className="sticky bottom-0 border-t bg-background px-6 py-4">
+                    <div className="w-full flex items-center justify-between gap-4">
+                      <Badge
+                        className={`${getStatusColor(selectedBooking.booking_status)} flex items-center gap-1`}
+                      >
+                        {getStatusIcon(selectedBooking.booking_status)}
                         {selectedBooking.booking_status}
+                      </Badge>
+                      <div className="flex gap-2">
+                        {selectedBooking.booking_status === "pending" && (
+                          <>
+                            <Button
+                              key="modal-confirm-btn"
+                              size="sm"
+                              onClick={() =>
+                                handleUpdateBookingStatus(
+                                  selectedBooking.booking_id,
+                                  "confirmed"
+                                )
+                              }
+                            >
+                              Confirm
+                            </Button>
+                            <Button
+                              key="modal-cancel-btn"
+                              size="sm"
+                              variant="destructive"
+                              onClick={() =>
+                                handleUpdateBookingStatus(
+                                  selectedBooking.booking_id,
+                                  "cancelled"
+                                )
+                              }
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        )}
+                        {selectedBooking.booking_status === "confirmed" && (
+                          <Button
+                            key="modal-create-event-btn"
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700"
+                            onClick={() =>
+                              handleConvertToEvent(selectedBooking)
+                            }
+                          >
+                            Create an Event
+                          </Button>
+                        )}
+                        {selectedBooking.booking_status === "converted" && (
+                          <Button
+                            key="modal-view-event-btn"
+                            size="sm"
+                            variant="outline"
+                            className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                            onClick={() => {
+                              router.push(
+                                `/admin/events?booking_ref=${selectedBooking.booking_reference}`
+                              );
+                            }}
+                          >
+                            View Event
+                          </Button>
+                        )}
                       </div>
-                      {selectedBooking.converted_event_id && (
-                        <div>
-                          <strong>Event ID:</strong>{" "}
-                          {selectedBooking.converted_event_id}
-                        </div>
-                      )}
                     </div>
-                  </div>
+                  </DialogFooter>
                 </div>
               )}
             </DialogContent>

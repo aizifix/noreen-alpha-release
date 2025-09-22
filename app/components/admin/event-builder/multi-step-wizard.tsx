@@ -26,6 +26,9 @@ interface MultiStepWizardProps {
   currentStepIndex?: number;
   onStepChange?: (index: number) => void;
   disableNext?: boolean;
+  loading?: boolean;
+  completionText?: string;
+  isValid?: (stepId: string) => boolean;
 }
 
 export function MultiStepWizard({
@@ -34,6 +37,9 @@ export function MultiStepWizard({
   currentStepIndex: externalCurrentStepIndex,
   onStepChange,
   disableNext = false,
+  loading = false,
+  completionText = "Create Event",
+  isValid = () => true,
 }: MultiStepWizardProps) {
   // Defensive check: ensure steps is a valid array
   const validSteps = Array.isArray(steps)
@@ -331,10 +337,14 @@ export function MultiStepWizard({
           </Button>
           <Button
             onClick={handleNext}
-            disabled={disableNext}
+            disabled={disableNext || loading || !isValid(currentStep.id)}
             className="px-6 bg-[#028A75] hover:bg-[#026B5C] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLastStep ? "Create Event" : "Next Step"}
+            {isLastStep
+              ? loading
+                ? "Creating..."
+                : completionText
+              : "Next Step"}
           </Button>
         </CardFooter>
       </Card>

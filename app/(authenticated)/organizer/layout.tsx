@@ -35,6 +35,8 @@ import { secureStorage } from "@/app/utils/encryption";
 import axios from "axios";
 import { useTheme } from "next-themes";
 import { toast } from "@/components/ui/use-toast";
+import { startSessionWatcher } from "@/app/utils/session";
+import { useRealtimeNotifications } from "@/app/hooks/useRealtimeNotifications";
 
 interface User {
   user_firstName: string;
@@ -123,6 +125,28 @@ export default function OrganizerLayout({
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isUserDropdownOpen]);
+
+  useEffect(() => {
+    // Start session timeout watcher for organizer portal
+    const stopWatcher = startSessionWatcher({
+      storageKeyPrefix: "session_organizer",
+      onTimeout: () => {
+        try {
+          secureStorage.removeItem("user");
+        } catch {}
+        try {
+          document.cookie =
+            "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+          document.cookie =
+            "pending_otp_email=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+        } catch {}
+        router.replace("/auth/login");
+      },
+    });
+    return () => {
+      stopWatcher && stopWatcher();
+    };
+  }, [router]);
 
   useEffect(() => {
     try {
@@ -524,6 +548,27 @@ export default function OrganizerLayout({
     );
     return () => clearInterval(interval);
   }, []);
+
+  // Realtime notifications: get_recent + counts
+  useRealtimeNotifications({
+    userId: user?.user_id as any,
+    onCounts: ({ unread }) => setUnreadNotifCount(unread),
+    onNew: (items) => {
+      if (!notificationsOpen) return;
+      setNotifications((prev) => {
+        const map = new Map<number, any>();
+        for (const n of prev) map.set(n.notification_id, n);
+        for (const n of items as any[]) map.set(n.notification_id, n);
+        const merged = Array.from(map.values());
+        merged.sort((a: any, b: any) => {
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return tb - ta;
+        });
+        return merged;
+      });
+    },
+  });
 
   const handleLogout = () => {
     try {

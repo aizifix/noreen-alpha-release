@@ -4582,42 +4582,50 @@ This is an automated message. Please do not reply.
                 }
             }
 
-                        // Check for duplicate payment (same event, amount, date, method) to prevent ghost payments
+            // Check for accidental duplicate payment within a very short window (same payload)
+            // Allow legitimate multiple payments on the same day with same amount/method
+            $dupWindowMinutes = 2; // treat same submissions within 2 minutes as accidental duplicates
             $duplicateCheckSql = "SELECT payment_id FROM tbl_payments
-                                 WHERE event_id = ? AND payment_amount = ? AND payment_date = ?
-                                 AND payment_method = ? AND payment_status != 'cancelled'
+                                 WHERE event_id = ?
+                                   AND payment_amount = ?
+                                   AND payment_method = ?
+                                   AND payment_status != 'cancelled'
+                                   AND created_at > DATE_SUB(NOW(), INTERVAL {$dupWindowMinutes} MINUTE)
                                  LIMIT 1";
             $duplicateCheckStmt = $this->pdo->prepare($duplicateCheckSql);
             $duplicateCheckStmt->execute([
                 $data['event_id'],
                 $data['payment_amount'],
-                $data['payment_date'] ?? date('Y-m-d'),
                 $data['payment_method']
             ]);
             if ($duplicateCheckStmt->fetch(PDO::FETCH_ASSOC)) {
                 $this->pdo->rollback();
                 return json_encode([
                     "status" => "error",
-                    "message" => "Duplicate payment detected. A payment with the same amount, date, and method already exists for this event."
+                    "message" => "Duplicate payment detected. A similar payment was just recorded for this event. Please wait a moment and try again."
                 ]);
             }
 
-            // Additional check: Prevent multiple payments within 5 minutes for same event
+            // Additional check: Prevent multiple payments within 1 minute for same event and exact amount/method
+            $recentWindowMinutes = 1;
             $recentPaymentCheckSql = "SELECT payment_id FROM tbl_payments
                                      WHERE event_id = ? AND client_id = ?
-                                     AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
-                                     AND payment_status != 'cancelled'
+                                       AND payment_amount = ? AND payment_method = ?
+                                       AND created_at > DATE_SUB(NOW(), INTERVAL {$recentWindowMinutes} MINUTE)
+                                       AND payment_status != 'cancelled'
                                      LIMIT 1";
             $recentPaymentStmt = $this->pdo->prepare($recentPaymentCheckSql);
             $recentPaymentStmt->execute([
                 $data['event_id'],
-                $data['client_id']
+                $data['client_id'],
+                $data['payment_amount'],
+                $data['payment_method']
             ]);
             if ($recentPaymentStmt->fetch(PDO::FETCH_ASSOC)) {
                 $this->pdo->rollback();
                 return json_encode([
                     "status" => "error",
-                    "message" => "Payment creation too frequent. Please wait at least 5 minutes between payments for the same event."
+                    "message" => "Payment creation too frequent. Please wait a moment before submitting the same amount again."
                 ]);
             }
 

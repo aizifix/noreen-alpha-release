@@ -5,11 +5,12 @@
     "scripts": {
         "dev": "next dev --turbopack",
         "build": "next build",
+        "export:landing": "node landing-export.js",
         "start": "next start",
         "lint": "next lint",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "clean": "rm -rf .next && npm run dev"
+        "clean": "rm -rf .next out && npm run dev"
     },
     "dependencies": {
         "@hookform/resolvers": "^5.0.1",
@@ -71,6 +72,7 @@
         "@types/react-dom": "^19",
         "@types/react-google-recaptcha": "^2.1.9",
         "@types/recharts": "^1.8.29",
+        "cross-env": "^7.0.3",
         "eslint": "^9",
         "eslint-config-next": "15.1.6",
         "postcss": "^8",

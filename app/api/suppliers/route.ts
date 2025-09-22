@@ -3,6 +3,9 @@ import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
 
+// Force static for export
+export const dynamic = "force-static";
+
 // Ensure upload directories exist
 async function ensureUploadDirectories() {
   const dirs = [
@@ -42,7 +45,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         status: "error",
-        message: error instanceof Error ? error.message : "Internal server error",
+        message:
+          error instanceof Error ? error.message : "Internal server error",
       },
       { status: 500 }
     );
@@ -77,7 +81,11 @@ async function handleCreateSupplier(formData: FormData) {
           const bytes = await file.arrayBuffer();
           const buffer = Buffer.from(bytes);
           const filename = `${Date.now()}_${file.name}`;
-          const filePath = join(process.cwd(), "public/uploads/supplier_docs", filename);
+          const filePath = join(
+            process.cwd(),
+            "public/uploads/supplier_docs",
+            filename
+          );
 
           await writeFile(filePath, buffer);
 
@@ -132,13 +140,13 @@ async function handleCreateSupplier(formData: FormData) {
 
     const data = await response.json();
     return NextResponse.json(data);
-
   } catch (error) {
     console.error("Error creating supplier:", error);
     return NextResponse.json(
       {
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to create supplier",
+        message:
+          error instanceof Error ? error.message : "Failed to create supplier",
       },
       { status: 500 }
     );
@@ -164,14 +172,20 @@ async function handleCreateOffer(formData: FormData) {
 
     while (formData.has(`offer_attachment_${fileIndex}`)) {
       const file = formData.get(`offer_attachment_${fileIndex}`) as File;
-      const attachmentType = formData.get(`attachment_type_${fileIndex}`) as string;
+      const attachmentType = formData.get(
+        `attachment_type_${fileIndex}`
+      ) as string;
 
       if (file && file.size > 0) {
         try {
           const bytes = await file.arrayBuffer();
           const buffer = Buffer.from(bytes);
           const filename = `${Date.now()}_${file.name}`;
-          const filePath = join(process.cwd(), "public/uploads/supplier_offers", filename);
+          const filePath = join(
+            process.cwd(),
+            "public/uploads/supplier_offers",
+            filename
+          );
 
           await writeFile(filePath, buffer);
 
@@ -225,13 +239,13 @@ async function handleCreateOffer(formData: FormData) {
 
     const data = await response.json();
     return NextResponse.json(data);
-
   } catch (error) {
     console.error("Error creating offer:", error);
     return NextResponse.json(
       {
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to create offer",
+        message:
+          error instanceof Error ? error.message : "Failed to create offer",
       },
       { status: 500 }
     );
@@ -270,13 +284,13 @@ export async function GET(request: NextRequest) {
 
     const data = await response.json();
     return NextResponse.json(data);
-
   } catch (error) {
     console.error("Error fetching supplier data:", error);
     return NextResponse.json(
       {
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to fetch data",
+        message:
+          error instanceof Error ? error.message : "Failed to fetch data",
       },
       { status: 500 }
     );
@@ -291,7 +305,10 @@ export async function PUT(request: NextRequest) {
 
     if (!operation || !supplier_id) {
       return NextResponse.json(
-        { status: "error", message: "Operation and supplier_id parameters required" },
+        {
+          status: "error",
+          message: "Operation and supplier_id parameters required",
+        },
         { status: 400 }
       );
     }
@@ -316,13 +333,13 @@ export async function PUT(request: NextRequest) {
 
     const data = await response.json();
     return NextResponse.json(data);
-
   } catch (error) {
     console.error("Error updating supplier:", error);
     return NextResponse.json(
       {
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to update supplier",
+        message:
+          error instanceof Error ? error.message : "Failed to update supplier",
       },
       { status: 500 }
     );
@@ -337,7 +354,10 @@ export async function DELETE(request: NextRequest) {
 
     if (!operation || !supplier_id) {
       return NextResponse.json(
-        { status: "error", message: "Operation and supplier_id parameters required" },
+        {
+          status: "error",
+          message: "Operation and supplier_id parameters required",
+        },
         { status: 400 }
       );
     }
@@ -359,13 +379,13 @@ export async function DELETE(request: NextRequest) {
 
     const data = await response.json();
     return NextResponse.json(data);
-
   } catch (error) {
     console.error("Error deleting supplier:", error);
     return NextResponse.json(
       {
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to delete supplier",
+        message:
+          error instanceof Error ? error.message : "Failed to delete supplier",
       },
       { status: 500 }
     );

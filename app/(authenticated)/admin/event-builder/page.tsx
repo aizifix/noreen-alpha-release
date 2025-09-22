@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { generateStableId } from "@/app/utils/stableIds";
 import axios from "axios";
 import { secureStorage } from "@/app/utils/encryption";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1769,6 +1770,17 @@ export default function EventBuilderPage() {
         // Show success modal
         setShowSuccessModal(true);
 
+        // If the event came from a booking, proactively remove it from the lookup list
+        if (bookingReference) {
+          setBookingSearchResults((prev) =>
+            Array.isArray(prev)
+              ? prev.filter(
+                  (b: any) => b.booking_reference !== bookingReference
+                )
+              : prev
+          );
+        }
+
         // Clear local storage and draft after successful event creation
         clearLocalStorage();
         handleClearDraft();
@@ -1914,7 +1926,7 @@ export default function EventBuilderPage() {
       if (response.data.status === "success" && response.data.booking) {
         const booking = response.data.booking;
 
-        // Check if booking is confirmed
+        // Check if booking is confirmed (accepted only)
         if (booking.booking_status !== "confirmed") {
           toast({
             title: "Booking Not Available",
@@ -1925,7 +1937,10 @@ export default function EventBuilderPage() {
         }
 
         // Check if booking has already been converted
-        if (booking.is_converted && booking.converted_event_id) {
+        if (
+          (booking.is_converted && booking.converted_event_id) ||
+          booking.booking_status === "converted"
+        ) {
           toast({
             title: "Booking Already Converted",
             description: `This booking has already been converted to an event (ID: ${booking.converted_event_id}). A booking can only be converted once.`,
@@ -1991,6 +2006,75 @@ export default function EventBuilderPage() {
           await handlePackageSelect(String(booking.package_id));
         }
 
+        // Apply client modifications (custom/removed inclusions, supplier services) if available
+        try {
+          const changesRaw = booking.component_changes || booking.notes || "";
+          let parsed: any = null;
+          if (typeof changesRaw === "string") {
+            // Try direct JSON first
+            try {
+              parsed = JSON.parse(changesRaw);
+            } catch (_) {
+              // Fallback: extract after marker in notes
+              const marker = "Component changes:";
+              const idx = changesRaw.indexOf(marker);
+              if (idx >= 0) {
+                const jsonPart = changesRaw
+                  .substring(idx + marker.length)
+                  .trim();
+                try {
+                  parsed = JSON.parse(jsonPart);
+                } catch (_) {}
+              }
+            }
+          } else if (typeof changesRaw === "object") {
+            parsed = changesRaw;
+          }
+
+          // Merge parsed changes into current components list
+          if (parsed) {
+            const removedIds = new Set(
+              Array.isArray(parsed.removed_components)
+                ? parsed.removed_components.map((x: any) => String(x))
+                : []
+            );
+            const customList = Array.isArray(parsed.custom_components)
+              ? parsed.custom_components
+              : [];
+
+            setComponents((prev) => {
+              // Mark removed components as not included based on id/name
+              const updated = prev.map((comp) => {
+                const compKey = String(comp.id ?? comp.name ?? "");
+                if (
+                  removedIds.has(compKey) ||
+                  removedIds.has(String((comp as any).originalId ?? ""))
+                ) {
+                  return { ...comp, included: false };
+                }
+                return comp;
+              });
+
+              // Add custom components
+              const customComponents = customList.map((c: any) => ({
+                id: `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                name: c.name || c.component_name || "Custom Item",
+                description: c.description || c.component_description || "",
+                price: Number(c.price || c.component_price || 0),
+                category: c.category || "extras",
+                included: true,
+                isCustom: true,
+                isRemovable: true,
+                isExpanded: false,
+              }));
+
+              return [...updated, ...customComponents];
+            });
+          }
+        } catch (e) {
+          // Ignore parsing errors; proceed with base data
+        }
+
         toast({
           title: "Success",
           description:
@@ -2029,8 +2113,22 @@ export default function EventBuilderPage() {
       console.log("📡 API Response:", response.data);
 
       if (response.data.status === "success") {
-        console.log("✅ Found bookings:", response.data.bookings?.length || 0);
-        setBookingSearchResults(response.data.bookings || []);
+        // Filter to only accepted (confirmed) and not-converted bookings per new flow
+        const allResults = response.data.bookings || [];
+        const filtered = allResults.filter((b: any) => {
+          const status = (b.booking_status || b.status || "").toString();
+          const isConfirmed = status === "confirmed";
+          const isConverted =
+            Boolean(b.is_converted) ||
+            status === "converted" ||
+            Boolean(b.converted_event_id);
+          return isConfirmed && !isConverted;
+        });
+        console.log(
+          "✅ Found accepted, not-converted bookings:",
+          filtered.length
+        );
+        setBookingSearchResults(filtered);
       } else {
         console.log("❌ API Error:", response.data.message);
         setBookingSearchResults([]);
@@ -2088,6 +2186,11 @@ export default function EventBuilderPage() {
       bookingReference: booking.booking_reference || "",
       theme: "", // Theme not available in booking data
     });
+
+    // Ensure booking reference state is set so event creation marks it converted
+    if (booking.booking_reference) {
+      setBookingReference(String(booking.booking_reference));
+    }
 
     // Set package and venue IDs if available
     if (booking.package_id) {
@@ -2160,27 +2263,53 @@ export default function EventBuilderPage() {
               <Label htmlFor="event-type" className="text-base font-medium">
                 Event Type *
               </Label>
-              <Select
-                value={selectedEventType}
-                onValueChange={(value) => {
-                  setSelectedEventType(value);
-                  setEventDetails((prev) => ({ ...prev, type: value }));
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select event type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {eventTypes.map((type) => (
-                    <SelectItem
-                      key={type.event_type_id}
-                      value={type.event_name}
-                    >
-                      {type.event_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-3">
+                <div className="flex-grow">
+                  <Select
+                    value={selectedEventType}
+                    onValueChange={(value) => {
+                      setSelectedEventType(value);
+                      setEventDetails((prev) => ({ ...prev, type: value }));
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select event type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {eventTypes.map((type) => (
+                        <SelectItem
+                          key={type.event_type_id}
+                          value={type.event_name}
+                        >
+                          {type.event_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  onClick={() => {
+                    if (selectedEventType) {
+                      // Proceed with the selected event type
+                      toast({
+                        title: "Event Type Selected",
+                        description: `You've selected: ${selectedEventType}`,
+                        variant: "default",
+                      });
+                    } else {
+                      toast({
+                        title: "Please select an event type",
+                        description:
+                          "You need to select an event type to continue",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                  className="bg-[#028A75] hover:bg-[#027A65] text-white"
+                >
+                  Select Event Type
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -2832,9 +2961,7 @@ export default function EventBuilderPage() {
     setEventData({
       eventTitle: "",
       eventDate: "",
-      eventId: `EV-${Math.floor(Math.random() * 10000)
-        .toString()
-        .padStart(4, "0")}`,
+      eventId: `EV-${generateStableId("event").slice(-4).padStart(4, "0")}`,
     });
 
     // Reset step to first step

@@ -3132,19 +3132,24 @@ function PaymentHistoryTab({
                       <div className="text-blue-700">Balance Due</div>
                       <div className="font-semibold text-blue-900">
                         ₱
-                        {(
-                          event.total_budget -
-                          (paymentHistory?.reduce(
-                            (sum, p) =>
-                              p.payment_status === "completed"
-                                ? sum + p.payment_amount
-                                : sum,
-                            0
-                          ) || 0)
-                        ).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
+                        {(() => {
+                          const paidAmt =
+                            paymentHistory?.reduce(
+                              (sum, p) =>
+                                p.payment_status === "completed"
+                                  ? sum + p.payment_amount
+                                  : sum,
+                              0
+                            ) || 0;
+                          const remaining = Math.max(
+                            0,
+                            event.total_budget - paidAmt
+                          );
+                          return remaining.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          });
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -3159,7 +3164,10 @@ function PaymentHistoryTab({
                       ) || 0;
                     const pct =
                       event.total_budget > 0
-                        ? (paid / event.total_budget) * 100
+                        ? Math.min(
+                            100,
+                            Math.max(0, (paid / event.total_budget) * 100)
+                          )
                         : 0;
                     return (
                       <div className="mt-3">
@@ -4104,17 +4112,21 @@ export default function EventDetailsPage() {
           toast({ title: "Error", description: "Missing client ID" });
           return;
         }
-        const res = await clientApi.get({
+        const res: any = await clientApi.get({
           operation: "getClientEventDetails",
           user_id: uid,
           event_id: parseInt(eventId),
         });
-        if (res.data && res.data.status === "success" && res.data.event) {
-          setEvent(res.data.event);
+        // Support both direct JSON (res.status) and wrapped shape (res.data.status)
+        const status = res?.status ?? res?.data?.status;
+        const eventPayload = res?.event ?? res?.data?.event;
+        const message = res?.message ?? res?.data?.message;
+        if (status === "success" && eventPayload) {
+          setEvent(eventPayload);
         } else {
           toast({
             title: "Error",
-            description: res?.data?.message || "Failed to load event",
+            description: message || "Failed to load event",
             variant: "destructive",
           });
         }

@@ -89,6 +89,12 @@ interface SupplierDocument {
   verification_notes?: string;
 }
 
+interface SupplierTier {
+  name: string;
+  price: number | "";
+  description?: string;
+}
+
 interface SupplierStats {
   total_suppliers: number;
   internal_suppliers: number;
@@ -890,6 +896,9 @@ function EnhancedSupplierModal({
   } | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
 
+  // Pricing tiers state
+  const [tiers, setTiers] = useState<SupplierTier[]>([]);
+
   // Auto-generate username based on business name
   const generateUsername = (businessName: string) => {
     return (
@@ -934,6 +943,34 @@ function EnhancedSupplierModal({
         create_user_account: supplier.supplier_type === "internal",
       });
 
+      // Parse existing tiers from registration_docs if present
+      try {
+        const docs: any = supplier.registration_docs as any;
+        let parsed: any = docs;
+        if (typeof docs === "string") {
+          parsed = JSON.parse(docs);
+        }
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const docTiers = parsed.tiers;
+          if (Array.isArray(docTiers)) {
+            const normalized: SupplierTier[] = docTiers.map((t: any) => ({
+              name: String(t.name ?? t.tier_name ?? ""),
+              price:
+                typeof t.price === "number"
+                  ? t.price
+                  : Number(t.price ?? t.tier_price ?? 0) || 0,
+              description:
+                typeof t.description === "string"
+                  ? t.description
+                  : String(t.tier_description ?? ""),
+            }));
+            setTiers(normalized);
+          }
+        }
+      } catch {
+        // ignore malformed docs
+      }
+
       // Fetch existing documents if editing
       if (mode === "edit" || mode === "view") {
         fetchSupplierDocuments(supplier.supplier_id);
@@ -974,6 +1011,34 @@ function EnhancedSupplierModal({
       Object.entries(formData).forEach(([key, value]) => {
         formDataToSend.append(key, value.toString());
       });
+
+      // Add pricing tiers under registration_docs
+      const cleanedTiers: SupplierTier[] = (tiers || [])
+        .map((t) => ({
+          name: (t.name || "").trim(),
+          price: typeof t.price === "number" ? t.price : Number(t.price),
+          description: (t.description || "").trim(),
+        }))
+        .filter((t) => t.name && !Number.isNaN(t.price) && t.price >= 0);
+
+      if (cleanedTiers.length > 0) {
+        cleanedTiers.forEach((tier, index) => {
+          formDataToSend.append(
+            `registration_docs[tiers][${index}][name]`,
+            tier.name
+          );
+          formDataToSend.append(
+            `registration_docs[tiers][${index}][price]`,
+            String(tier.price)
+          );
+          if (tier.description) {
+            formDataToSend.append(
+              `registration_docs[tiers][${index}][description]`,
+              tier.description
+            );
+          }
+        });
+      }
 
       // Add files
       Object.entries(documents).forEach(([type, file]) => {
@@ -1304,6 +1369,125 @@ function EnhancedSupplierModal({
                 readOnly={isReadOnly}
                 placeholder="Brief description of services and expertise..."
               />
+            </div>
+          </div>
+
+          {/* Pricing Tiers */}
+          <div className="bg-gray-50 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Pricing Tiers</h3>
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTiers((prev) => [
+                      ...prev,
+                      { name: "", price: "", description: "" },
+                    ])
+                  }
+                  className="inline-flex items-center px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                >
+                  <Plus className="w-4 h-4 mr-1" /> Add Tier
+                </button>
+              )}
+            </div>
+
+            {tiers.length === 0 && (
+              <p className="text-sm text-gray-600">
+                No tiers yet.{" "}
+                {isReadOnly ? "" : "Click Add Tier to create one."}
+              </p>
+            )}
+
+            <div className="space-y-3">
+              {tiers.map((tier, index) => (
+                <div
+                  key={index}
+                  className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-white p-3 border rounded-lg"
+                >
+                  <div className="md:col-span-4">
+                    <label className="block text-sm font-medium mb-1">
+                      Tier Name
+                    </label>
+                    <input
+                      type="text"
+                      value={tier.name}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setTiers((prev) =>
+                          prev.map((t, i) =>
+                            i === index ? { ...t, name: value } : t
+                          )
+                        );
+                      }}
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                      readOnly={isReadOnly}
+                      placeholder="e.g., Basic / Premium"
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <label className="block text-sm font-medium mb-1">
+                      Price
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={tier.price}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setTiers((prev) =>
+                          prev.map((t, i) =>
+                            i === index
+                              ? {
+                                  ...t,
+                                  price: value === "" ? "" : Number(value),
+                                }
+                              : t
+                          )
+                        );
+                      }}
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                      readOnly={isReadOnly}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="md:col-span-4">
+                    <label className="block text-sm font-medium mb-1">
+                      Description
+                    </label>
+                    <input
+                      type="text"
+                      value={tier.description || ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setTiers((prev) =>
+                          prev.map((t, i) =>
+                            i === index ? { ...t, description: value } : t
+                          )
+                        );
+                      }}
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                      readOnly={isReadOnly}
+                      placeholder="Short notes (optional)"
+                    />
+                  </div>
+                  {!isReadOnly && (
+                    <div className="md:col-span-1 flex items-end">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTiers((prev) => prev.filter((_, i) => i !== index))
+                        }
+                        className="px-3 py-2 border rounded text-red-600 hover:bg-red-50 w-full"
+                        title="Remove tier"
+                      >
+                        <Trash2 className="w-4 h-4 mx-auto" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 

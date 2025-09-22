@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -83,7 +83,7 @@ interface Component {
 }
 
 interface Inclusion {
-  inclusion_id: number;
+  inclusion_id: number | string;
   inclusion_name: string;
   inclusion_description: string | null;
   inclusion_price: number;
@@ -91,6 +91,10 @@ interface Inclusion {
   is_supplier_service?: boolean;
   supplier_id?: number;
   supplier_name?: string;
+  is_venue_inclusion?: boolean;
+  included?: boolean;
+  category?: string;
+  isRemovable?: boolean;
 }
 
 interface CustomInclusion {
@@ -124,6 +128,7 @@ interface Package {
     venue_price: number;
     venue_profile_picture: string | null;
     venue_cover_photo: string | null;
+    extra_pax_rate?: number;
   }>;
   inclusions?: Inclusion[];
 }
@@ -137,6 +142,8 @@ interface Venue {
   venue_price: number;
   venue_profile_picture: string | null;
   venue_cover_photo: string | null;
+  extra_pax_rate?: number;
+  venue_name?: string;
   inclusions?: Array<{
     inclusion_id: number;
     inclusion_name: string;
@@ -225,6 +232,18 @@ export default function EnhancedCreateBookingPage() {
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [venues, setVenues] = useState<Venue[]>([]);
+  const [packageEventTypeFilter, setPackageEventTypeFilter] =
+    useState<string>("all");
+  const venueCarouselRef = useRef<HTMLDivElement | null>(null);
+  const scrollVenueCarousel = (direction: number) => {
+    const container = venueCarouselRef.current;
+    if (!container) return;
+    const card = container.querySelector<HTMLDivElement>(".venue-card-width");
+    const scrollBy = card
+      ? card.offsetWidth
+      : Math.floor(container.clientWidth * 0.8);
+    container.scrollBy({ left: direction * scrollBy, behavior: "smooth" });
+  };
   const [selectedPackage, setSelectedPackage] = useState<Package | null>(null);
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
   const [decideLater, setDecideLater] = useState(false);
@@ -262,34 +281,81 @@ export default function EnhancedCreateBookingPage() {
 
   // Modal states for venue and package details
   const [venueDetailsModalOpen, setVenueDetailsModalOpen] = useState(false);
+  const [venueDetailsLoading, setVenueDetailsLoading] = useState(false);
   const [modalVenue, setModalVenue] = useState<Venue | null>(null);
   const [packageDetailsModalOpen, setPackageDetailsModalOpen] = useState(false);
   const [modalPackage, setModalPackage] = useState<Package | null>(null);
 
-  // Helper function to format price with proper formatting
-  const formatPrice = (amount: number): string => {
-    return `₱${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Helper function to format price with proper formatting (handles string or number)
+  const formatPrice = (amount: number | string): string => {
+    const numericValue =
+      typeof amount === "number"
+        ? amount
+        : Number(String(amount).replace(/[^0-9.-]/g, ""));
+    if (!isFinite(numericValue)) return "₱0.00";
+    return new Intl.NumberFormat("en-PH", {
+      style: "currency",
+      currency: "PHP",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(numericValue);
   };
 
-  // Helper function to calculate total package price with guest count adjustments
+  // Extra pax rate helpers and calculations
+  const getExtraPaxRate = (
+    venue?: { extra_pax_rate?: number | string } | null
+  ): number => {
+    const raw = venue?.extra_pax_rate ?? selectedVenue?.extra_pax_rate;
+    const parsed = typeof raw === "string" ? Number(raw) : raw;
+    return Number.isFinite(parsed as number) && (parsed as number) > 0
+      ? (parsed as number)
+      : 350; // fallback default
+  };
+
+  // Calculate total with venue-specific extra pax rate when guests > 100
   const calculateTotalPackagePrice = (
     packagePrice?: number,
-    guestCount?: number
+    guestCount?: number,
+    venueForRate?: Venue | null
   ): number => {
-    // Base package price
-    const basePrice = packagePrice ?? selectedPackage?.package_price ?? 0;
-    const guests = guestCount ?? formData.guestCount;
+    const baseRaw = packagePrice ?? selectedPackage?.package_price ?? 0;
+    const basePrice = typeof baseRaw === "string" ? Number(baseRaw) : baseRaw;
+    const guests = Number.isFinite(guestCount as number)
+      ? (guestCount as number)
+      : formData.guestCount;
+    const rate = getExtraPaxRate(venueForRate ?? selectedVenue ?? null);
+    const extras = guests > 100 ? (guests - 100) * rate : 0;
+    const totalPrice = (Number(basePrice) || 0) + (Number(extras) || 0);
+    return Number.isFinite(totalPrice) && totalPrice > 0 ? totalPrice : 0;
+  };
 
-    let totalPrice = basePrice;
+  // Estimate venue-specific price with extra pax
+  const computeVenueEstimatedPrice = (
+    venue: { venue_price: number | string; extra_pax_rate?: number | string },
+    guests: number
+  ): number => {
+    const base =
+      typeof venue.venue_price === "string"
+        ? Number(venue.venue_price)
+        : venue.venue_price;
+    const safeBase = Number.isFinite(base) ? (base as number) : 0;
+    const rate = getExtraPaxRate(venue);
+    const extras = guests > 100 ? (guests - 100) * rate : 0;
+    const total = safeBase + extras;
+    return Number.isFinite(total) ? total : 0;
+  };
 
-    // If guest count exceeds 100, charge ₱350 per additional person
-    if (guests > 100) {
-      const extraGuests = guests - 100;
-      const extraCost = extraGuests * 350;
-      totalPrice += extraCost;
-    }
-
-    return totalPrice > 0 ? totalPrice : 0; // Ensure we don't have negative price
+  // Overall estimate: package total (with extra pax) + venue total (with extra pax)
+  const computeOverallEstimate = (): number => {
+    const packageTotal = calculateTotalPackagePrice(
+      selectedPackage?.package_price,
+      formData.guestCount,
+      selectedVenue
+    );
+    const venueTotal = selectedVenue
+      ? computeVenueEstimatedPrice(selectedVenue, formData.guestCount)
+      : 0;
+    return packageTotal + venueTotal;
   };
 
   // Steps configuration - with venue selection before inclusions
@@ -364,6 +430,17 @@ export default function EnhancedCreateBookingPage() {
       setModalVenue(null);
     }
   }, [currentStep]);
+
+  // Ensure inclusions are loaded whenever Step 4 is shown
+  useEffect(() => {
+    if (
+      currentStep === 4 &&
+      formData.packageId !== null &&
+      formData.inclusions.length === 0
+    ) {
+      fetchPackageInclusions(formData.packageId);
+    }
+  }, [currentStep, formData.packageId]);
 
   // Initialize client information
   const initializeClientInfo = () => {
@@ -477,7 +554,89 @@ export default function EnhancedCreateBookingPage() {
       }
 
       if (response.data.status === "success") {
-        setVenues(response.data.venues || []);
+        const baseVenues: Venue[] = response.data.venues || [];
+        // Enrich with extra_pax_rate if missing by fetching details in parallel
+        let enrichedVenues: Venue[] = await Promise.all(
+          baseVenues.map(async (v) => {
+            if (typeof v.extra_pax_rate === "number") return v;
+            try {
+              const detailsRes = await fetch(
+                `http://localhost/events-api/admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
+                  v.venue_id
+                )}`
+              );
+              const detailsData = await detailsRes.json();
+              const rate = detailsData?.venue?.extra_pax_rate;
+              if (typeof rate === "number") {
+                return { ...v, extra_pax_rate: rate } as Venue;
+              }
+            } catch {}
+            return v;
+          })
+        );
+
+        // Ensure all package-linked venues are present (some APIs may filter by date/guest_count)
+        if (
+          packageId &&
+          selectedPackage &&
+          selectedPackage.package_id === packageId &&
+          Array.isArray(selectedPackage.venue_previews)
+        ) {
+          const currentIds = new Set(enrichedVenues.map((v) => v.venue_id));
+          const missingPreviews = selectedPackage.venue_previews.filter(
+            (vp) => !currentIds.has(vp.venue_id)
+          );
+
+          if (missingPreviews.length > 0) {
+            const fetchedMissing = await Promise.all(
+              missingPreviews.map(async (vp) => {
+                try {
+                  const res = await fetch(
+                    `http://localhost/events-api/admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
+                      vp.venue_id
+                    )}`
+                  );
+                  const data = await res.json();
+                  const venue = data?.venue;
+                  if (venue) {
+                    return {
+                      venue_id: venue.venue_id,
+                      venue_title: venue.venue_title,
+                      venue_details: venue.venue_details ?? null,
+                      venue_location: venue.venue_location,
+                      venue_capacity: Number(venue.venue_capacity) || 0,
+                      venue_price: Number(venue.venue_price) || 0,
+                      venue_profile_picture:
+                        venue.venue_profile_picture ?? null,
+                      venue_cover_photo: venue.venue_cover_photo ?? null,
+                      extra_pax_rate:
+                        typeof venue.extra_pax_rate === "number"
+                          ? venue.extra_pax_rate
+                          : undefined,
+                      inclusions: Array.isArray(venue.inclusions)
+                        ? venue.inclusions
+                        : [],
+                    } as Venue;
+                  }
+                } catch {}
+                // Fallback to the preview data shape
+                return {
+                  venue_id: vp.venue_id,
+                  venue_title: vp.venue_title,
+                  venue_details: null,
+                  venue_location: vp.venue_location,
+                  venue_capacity: vp.venue_capacity,
+                  venue_price: vp.venue_price,
+                  venue_profile_picture: vp.venue_profile_picture ?? null,
+                  venue_cover_photo: vp.venue_cover_photo ?? null,
+                } as Venue;
+              })
+            );
+            enrichedVenues = [...enrichedVenues, ...fetchedMissing];
+          }
+        }
+
+        setVenues(enrichedVenues);
       }
     } catch (err) {
       console.error("Error fetching venues:", err);
@@ -676,8 +835,8 @@ export default function EnhancedCreateBookingPage() {
   };
 
   // Update the Day component with proper typing
-  const CalendarDay: React.FC<DayProps> = ({ date: dayDate, ...props }) => {
-    const day = new Date(dayDate);
+  const CalendarDay: React.FC<DayProps> = ({ date, ...props }) => {
+    const day = new Date(date);
     return (
       <div className="flex items-center justify-center p-0 w-full aspect-square">
         {renderCalendarDay(day)}
@@ -695,8 +854,10 @@ export default function EnhancedCreateBookingPage() {
       );
 
       // Add the venue itself as a component
-      const venuePrice = parseFloat(selectedVenue.venue_price) || 0;
-      const extraPaxRate = parseFloat(selectedVenue.extra_pax_rate || 0);
+      const venuePrice = parseFloat(String(selectedVenue.venue_price)) || 0;
+      const extraPaxRate = parseFloat(
+        String(selectedVenue.extra_pax_rate || 0)
+      );
       const guestCount = formData.guestCount || 100;
 
       // Calculate venue price including overflow charges (matching admin implementation)
@@ -757,43 +918,7 @@ export default function EnhancedCreateBookingPage() {
         }
       });
 
-      // Now handle additional venue inclusions if available
-      if (selectedVenue.inclusions && selectedVenue.inclusions.length > 0) {
-        // Add venue inclusions to custom inclusions if they don't exist already
-        const venueInclusions = selectedVenue.inclusions.map((inclusion) => ({
-          inclusion_id:
-            inclusion.inclusion_id || Math.floor(Math.random() * 1000000),
-          inclusion_name: inclusion.inclusion_name,
-          inclusion_description:
-            inclusion.inclusion_description ||
-            `Included with venue: ${selectedVenue.venue_title}`,
-          inclusion_price: 0, // Included with venue
-          display_order: 0,
-          is_venue_inclusion: true,
-          included: true, // Mark as included by default but allow unchecking
-        }));
-
-        // Only add new inclusions that don't already exist
-        setFormData((prev) => {
-          const existingIds = new Set(
-            [...prev.customInclusions, ...prev.inclusions].map(
-              (inc) => inc.inclusion_id
-            )
-          );
-
-          const newInclusions = venueInclusions.filter(
-            (inc) => !existingIds.has(inc.inclusion_id)
-          );
-
-          if (newInclusions.length > 0) {
-            return {
-              ...prev,
-              customInclusions: [...prev.customInclusions, ...newInclusions],
-            };
-          }
-          return prev;
-        });
-      }
+      // Do not import venue inclusions into event inclusions
     }
     // Only depend on selectedVenue and guestCount, not on the data we're updating
   }, [selectedVenue, formData.guestCount]);
@@ -898,11 +1023,7 @@ export default function EnhancedCreateBookingPage() {
         if (formData.packageId && formData.inclusions.length === 0) {
           fetchPackageInclusions(formData.packageId);
         }
-        // Also, use the selected venue to filter inclusions
-        if (selectedVenue && selectedVenue.inclusions) {
-          // Update inclusions with venue-specific data
-          console.log("Selected venue inclusions:", selectedVenue.inclusions);
-        }
+        // Do NOT merge venue inclusions into package inclusions per requirements
       }
     }
   };
@@ -949,7 +1070,7 @@ export default function EnhancedCreateBookingPage() {
         component.component_id || Math.floor(Math.random() * 1000000),
       inclusion_name: component.component_name,
       inclusion_description: component.component_description || null,
-      inclusion_price: component.component_price || 0,
+      inclusion_price: Number(component.component_price || 0),
       display_order: component.display_order || 0,
       included: true,
     };
@@ -959,40 +1080,55 @@ export default function EnhancedCreateBookingPage() {
   const fetchPackageInclusions = async (packageId: number) => {
     setLoadingInclusions(true);
     try {
+      // Primary: getPackageComponents (exists in API)
       const response = await axios.get(
         "http://localhost/events-api/client.php",
         {
           params: {
-            operation: "getPackageInclusions",
+            operation: "getPackageComponents",
             package_id: packageId,
           },
         }
       );
 
       if (response.data.status === "success") {
-        if (response.data.inclusions) {
-          // If the API returns inclusions directly
-          setFormData((prev) => ({
-            ...prev,
-            inclusions: response.data.inclusions,
-          }));
-        } else if (response.data.components) {
-          // If the API returns components instead, convert them to inclusions
-          const convertedInclusions =
-            response.data.components.map(componentToInclusion);
+        const components =
+          response.data.components || response.data.inclusions || [];
+        if (Array.isArray(components) && components.length > 0) {
+          const convertedInclusions = components.map(componentToInclusion);
           setFormData((prev) => ({
             ...prev,
             inclusions: convertedInclusions,
           }));
-        } else if (selectedPackage?.components) {
-          // If no direct API data but we have components from the package
-          const convertedInclusions =
-            selectedPackage.components.map(componentToInclusion);
-          setFormData((prev) => ({
-            ...prev,
-            inclusions: convertedInclusions,
-          }));
+          return;
         }
+      }
+
+      // Fallback 1: getPackageDetails.components
+      try {
+        const detailsRes = await axios.get(
+          "http://localhost/events-api/client.php",
+          { params: { operation: "getPackageDetails", package_id: packageId } }
+        );
+        const comps = detailsRes?.data?.package?.components;
+        if (Array.isArray(comps) && comps.length > 0) {
+          const convertedInclusions = comps.map(componentToInclusion);
+          setFormData((prev) => ({
+            ...prev,
+            inclusions: convertedInclusions,
+          }));
+          return;
+        }
+      } catch {}
+
+      // Fallback 2: selectedPackage.components already loaded in client
+      if (selectedPackage?.components) {
+        const convertedInclusions =
+          selectedPackage.components.map(componentToInclusion);
+        setFormData((prev) => ({
+          ...prev,
+          inclusions: convertedInclusions,
+        }));
       }
     } catch (err) {
       console.error("Error fetching package inclusions:", err);
@@ -1043,10 +1179,52 @@ export default function EnhancedCreateBookingPage() {
     }
   };
 
-  // Venue details modal handler
-  const showVenueDetails = (venue: Venue) => {
-    setModalVenue(venue);
-    setVenueDetailsModalOpen(true);
+  // Venue details modal handler - fetch details and inclusions
+  const showVenueDetails = async (venue: Venue) => {
+    try {
+      setVenueDetailsModalOpen(true);
+      setVenueDetailsLoading(true);
+      // Fetch details and inclusions in parallel
+      const [detailsRes, inclusionsRes] = await Promise.all([
+        fetch(
+          `http://localhost/events-api/admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
+            venue.venue_id
+          )}`
+        ).then((r) => r.json()),
+        fetch(
+          `http://localhost/events-api/client.php?operation=getVenueInclusions&venue_id=${encodeURIComponent(
+            venue.venue_id
+          )}`
+        ).then((r) => r.json()),
+      ]);
+
+      const fetchedVenue = detailsRes?.venue || {};
+      const inclusions = Array.isArray(inclusionsRes?.inclusions)
+        ? inclusionsRes.inclusions
+        : [];
+
+      setModalVenue({
+        ...venue,
+        venue_details:
+          fetchedVenue.venue_details ?? venue.venue_details ?? null,
+        inclusions,
+        extra_pax_rate:
+          typeof fetchedVenue.extra_pax_rate === "number"
+            ? fetchedVenue.extra_pax_rate
+            : (venue.extra_pax_rate ?? undefined),
+        venue_profile_picture:
+          fetchedVenue.venue_profile_picture ??
+          venue.venue_profile_picture ??
+          null,
+        venue_cover_photo:
+          fetchedVenue.venue_cover_photo ?? venue.venue_cover_photo ?? null,
+      });
+    } catch (err) {
+      console.error("Failed to load venue details", err);
+      setModalVenue(venue);
+    } finally {
+      setVenueDetailsLoading(false);
+    }
   };
 
   const handleDecideLater = () => {
@@ -1161,7 +1339,7 @@ export default function EnhancedCreateBookingPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
@@ -1281,8 +1459,53 @@ export default function EnhancedCreateBookingPage() {
                           </p>
                         </div>
 
+                        {/* Event type filter */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 mb-2">
+                          <div className="w-full sm:w-64">
+                            <Label>Filter by Event Type</Label>
+                            <Select
+                              value={packageEventTypeFilter}
+                              onValueChange={(value) =>
+                                setPackageEventTypeFilter(value)
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="All event types">
+                                  {packageEventTypeFilter === "all"
+                                    ? "All event types"
+                                    : packageEventTypeFilter}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">
+                                  All event types
+                                </SelectItem>
+                                {eventTypes.map((type) => (
+                                  <SelectItem
+                                    key={type.event_type_id}
+                                    value={type.event_name}
+                                  >
+                                    {type.event_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          {packages.map((pkg, index) => (
+                          {(packageEventTypeFilter !== "all"
+                            ? packages.filter((p) =>
+                                Array.isArray(p.event_type_names)
+                                  ? p.event_type_names.some(
+                                      (n) =>
+                                        n.toLowerCase() ===
+                                        packageEventTypeFilter.toLowerCase()
+                                    )
+                                  : false
+                              )
+                            : packages
+                          ).map((pkg, index) => (
                             <Card
                               key={pkg.package_id}
                               className={cn(
@@ -1312,25 +1535,14 @@ export default function EnhancedCreateBookingPage() {
                                 <div className="space-y-3">
                                   <div className="flex justify-between items-center">
                                     <span className="text-2xl font-bold text-[#028A75]">
-                                      {formatPrice(
-                                        calculateTotalPackagePrice(
-                                          pkg.package_price,
-                                          formData.guestCount
-                                        )
-                                      )}
+                                      {formatPrice(pkg.package_price)}
                                     </span>
                                     <div className="flex items-center text-sm text-gray-600">
                                       <Users className="h-4 w-4 mr-1" />
                                       {pkg.guest_capacity} guests
                                     </div>
                                   </div>
-                                  {formData.guestCount > 100 && (
-                                    <div className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded mt-2">
-                                      Base: {formatPrice(pkg.package_price)} +{" "}
-                                      {formData.guestCount - 100} extra guests @
-                                      ₱350 each
-                                    </div>
-                                  )}
+                                  {/* No extra pax breakdown in Step 1 package cards */}
                                   <div className="flex justify-between text-sm text-gray-600">
                                     <span className="flex items-center">
                                       <Package className="h-3 w-3 mr-1" />
@@ -1647,40 +1859,7 @@ export default function EnhancedCreateBookingPage() {
                         </Dialog>
                       </div>
 
-                      {/* Guest Count Field - Moved from Venue step */}
-                      <div className="space-y-2 animate-fadeSlideIn animation-delay-600">
-                        <Label>Expected Guest Count *</Label>
-                        <Input
-                          type="number"
-                          value={formData.guestCount}
-                          onChange={(e) => {
-                            const newGuestCount = parseInt(e.target.value);
-                            if (isNaN(newGuestCount) || newGuestCount < 1)
-                              return;
-
-                            setFormData((prev) => ({
-                              ...prev,
-                              guestCount: newGuestCount,
-                            }));
-                          }}
-                          min="1"
-                          max="1000"
-                          placeholder="Enter number of guests"
-                          className="w-full"
-                        />
-                        <div className="space-y-1">
-                          <p className="text-sm text-gray-600">
-                            This will help us determine suitable venues
-                          </p>
-                          {formData.guestCount > 100 && (
-                            <p className="text-sm text-amber-600 font-medium">
-                              Additional cost: ₱350 per guest over 100 (
-                              {formData.guestCount - 100} extra guests ={" "}
-                              {formatPrice((formData.guestCount - 100) * 350)})
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                      {/* Guest count input removed from Step 2; handled in Step 3 */}
 
                       {/* Conflict checking indicator */}
                       {isCheckingConflicts && (
@@ -1735,10 +1914,35 @@ export default function EnhancedCreateBookingPage() {
                     <div className="space-y-6 animate-fadeSlideIn">
                       <div className="space-y-2 animate-fadeSlideIn animation-delay-150">
                         <div className="flex items-center justify-between">
-                          <Label>Selected Guest Count</Label>
-                          <span className="text-[#028A75] font-medium">
-                            {formData.guestCount} guests
-                          </span>
+                          <Label htmlFor="venue-guest-count">
+                            Selected Guest Count
+                          </Label>
+                          <div className="flex items-center gap-3">
+                            <Input
+                              id="venue-guest-count"
+                              type="number"
+                              min={1}
+                              max={1000}
+                              value={formData.guestCount}
+                              onChange={(e) => {
+                                const val = Math.max(
+                                  1,
+                                  Math.min(
+                                    1000,
+                                    parseInt(e.target.value || "0", 10)
+                                  )
+                                );
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  guestCount: val,
+                                }));
+                              }}
+                              className="w-28"
+                            />
+                            <span className="text-[#028A75] font-medium">
+                              {formData.guestCount} guests
+                            </span>
+                          </div>
                         </div>
                         <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                           <p className="text-sm text-gray-600">
@@ -1746,10 +1950,14 @@ export default function EnhancedCreateBookingPage() {
                             {formData.guestCount} guests.
                             {formData.guestCount > 100 && (
                               <span className="block mt-2 text-amber-600">
-                                Note: Additional cost of ₱350 per guest over 100
-                                applies ({formData.guestCount - 100} extra
-                                guests ={" "}
-                                {formatPrice((formData.guestCount - 100) * 350)}
+                                Note: Additional cost of{" "}
+                                {formatPrice(getExtraPaxRate(selectedVenue))}{" "}
+                                per guest over 100 applies (
+                                {formData.guestCount - 100} extra guests ={" "}
+                                {formatPrice(
+                                  (formData.guestCount - 100) *
+                                    getExtraPaxRate(selectedVenue)
+                                )}
                                 )
                               </span>
                             )}
@@ -1774,12 +1982,12 @@ export default function EnhancedCreateBookingPage() {
                           </Button>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 items-stretch">
                           {venues.map((venue, index) => (
                             <Card
                               key={venue.venue_id}
                               className={cn(
-                                "cursor-pointer transition-all duration-200 hover:shadow-md animate-fadeSlideIn",
+                                "cursor-pointer transition-all duration-200 hover:shadow-md animate-fadeSlideIn h-full flex flex-col",
                                 `animation-delay-${(index + 2) * 150}`,
                                 formData.venueId === venue.venue_id &&
                                   "ring-2 ring-[#028A75] border-[#028A75]"
@@ -1806,7 +2014,17 @@ export default function EnhancedCreateBookingPage() {
                                   {venue.venue_location}
                                 </p>
                               </CardHeader>
-                              <CardContent>
+                              <CardContent className="flex-1 flex flex-col">
+                                <div className="mb-2">
+                                  <span className="text-lg font-bold text-[#028A75]">
+                                    {formatPrice(
+                                      computeVenueEstimatedPrice(
+                                        venue,
+                                        formData.guestCount
+                                      )
+                                    )}
+                                  </span>
+                                </div>
                                 <div className="flex justify-between items-center mb-3">
                                   <div className="flex items-center text-sm text-gray-600">
                                     <Users className="h-4 w-4 mr-1" />
@@ -1827,6 +2045,13 @@ export default function EnhancedCreateBookingPage() {
                                     View Details
                                   </Button>
                                 </div>
+                                {typeof venue.extra_pax_rate === "number" && (
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    Extra pax rate:{" "}
+                                    {formatPrice(venue.extra_pax_rate)} per
+                                    guest
+                                  </div>
+                                )}
                                 {formData.guestCount > venue.venue_capacity && (
                                   <div className="text-xs text-red-600 flex items-center">
                                     <AlertTriangle className="h-3 w-3 mr-1" />
@@ -1860,7 +2085,8 @@ export default function EnhancedCreateBookingPage() {
                               <p className="text-sm text-blue-600">
                                 This venue includes{" "}
                                 {selectedVenue.inclusions.length} special
-                                inclusions that have been added below.
+                                inclusions. View them in the Venue Inclusions
+                                tab.
                               </p>
                             )}
                         </div>
@@ -1873,6 +2099,16 @@ export default function EnhancedCreateBookingPage() {
                         removedInclusions={formData.removedInclusions}
                         supplierServices={formData.supplierServices}
                         externalCustomizations={formData.externalCustomizations}
+                        guestCount={formData.guestCount}
+                        venueTitle={selectedVenue?.venue_title || null}
+                        venuePriceEstimate={
+                          selectedVenue
+                            ? computeVenueEstimatedPrice(
+                                selectedVenue,
+                                formData.guestCount
+                              )
+                            : 0
+                        }
                         onAddInclusion={(inclusion) => {
                           setFormData((prev) => ({
                             ...prev,
@@ -2035,7 +2271,13 @@ export default function EnhancedCreateBookingPage() {
                                     Package Price
                                   </span>
                                   <span className="font-bold text-emerald-600">
-                                    {formatPrice(calculateTotalPackagePrice())}
+                                    {formatPrice(
+                                      calculateTotalPackagePrice(
+                                        selectedPackage?.package_price,
+                                        formData.guestCount,
+                                        selectedVenue
+                                      )
+                                    )}
                                   </span>
                                   {formData.guestCount > 100 && (
                                     <div className="text-xs text-gray-600 mt-1">
@@ -2044,7 +2286,11 @@ export default function EnhancedCreateBookingPage() {
                                         selectedPackage?.package_price || 0
                                       )}{" "}
                                       + {formData.guestCount - 100} extra guests
-                                      @ ₱350 each
+                                      @{" "}
+                                      {formatPrice(
+                                        getExtraPaxRate(selectedVenue)
+                                      )}{" "}
+                                      each
                                     </div>
                                   )}
                                 </div>
@@ -2062,7 +2308,12 @@ export default function EnhancedCreateBookingPage() {
                                   </span>
                                   <span className="font-bold text-emerald-600">
                                     {formatPrice(
-                                      selectedVenue?.venue_price || 0
+                                      selectedVenue
+                                        ? computeVenueEstimatedPrice(
+                                            selectedVenue,
+                                            formData.guestCount
+                                          )
+                                        : 0
                                     )}
                                   </span>
                                 </div>
@@ -2073,7 +2324,13 @@ export default function EnhancedCreateBookingPage() {
                                     </span>
                                     <span className="text-xl font-bold text-emerald-600">
                                       {formatPrice(
-                                        calculateTotalPackagePrice()
+                                        (selectedPackage ? totalPrice : 0) +
+                                          (selectedVenue
+                                            ? computeVenueEstimatedPrice(
+                                                selectedVenue,
+                                                formData.guestCount
+                                              )
+                                            : 0) || 0
                                       )}
                                     </span>
                                   </div>
@@ -2095,56 +2352,58 @@ export default function EnhancedCreateBookingPage() {
                                     Package Inclusions
                                   </h4>
                                   <div className="bg-white rounded-lg border border-gray-200 divide-y">
-                                    {formData.inclusions.map((inclusion) => {
-                                      const isRemoved =
-                                        formData.removedInclusions.some(
-                                          (inc) =>
-                                            inc.inclusion_id ===
-                                            inclusion.inclusion_id
-                                        );
-                                      return (
-                                        <div
-                                          key={`review-inc-${inclusion.inclusion_id}`}
-                                          className="p-3 flex items-center justify-between"
-                                        >
-                                          <div className="flex items-center gap-3">
-                                            <div
-                                              className={`w-4 h-4 rounded-sm flex items-center justify-center border ${isRemoved ? "border-gray-300" : "border-[#028A75] bg-[#028A75]"}`}
-                                            >
-                                              {!isRemoved && (
-                                                <Check className="h-3 w-3 text-white" />
-                                              )}
-                                            </div>
-                                            <div>
-                                              <div
-                                                className={`font-medium ${isRemoved ? "text-gray-500" : "text-gray-900"}`}
-                                              >
-                                                {inclusion.inclusion_name}
-                                              </div>
-                                              {inclusion.inclusion_description && (
-                                                <div className="text-xs text-gray-500">
-                                                  {
-                                                    inclusion.inclusion_description
-                                                  }
-                                                </div>
-                                              )}
-                                            </div>
-                                          </div>
+                                    {formData.inclusions.map(
+                                      (inclusion, index) => {
+                                        const isRemoved =
+                                          formData.removedInclusions.some(
+                                            (inc) =>
+                                              inc.inclusion_id ===
+                                              inclusion.inclusion_id
+                                          );
+                                        return (
                                           <div
-                                            className={`text-sm font-medium ${isRemoved ? "text-gray-400" : "text-[#028A75]"}`}
+                                            key={`review-inc-${String(inclusion.inclusion_id)}-${index}`}
+                                            className="p-3 flex items-center justify-between"
                                           >
-                                            {formatPrice(
-                                              inclusion.inclusion_price
-                                            )}
-                                            {isRemoved && (
-                                              <span className="text-xs ml-2">
-                                                (Not included)
-                                              </span>
-                                            )}
+                                            <div className="flex items-center gap-3">
+                                              <div
+                                                className={`w-4 h-4 rounded-sm flex items-center justify-center border ${isRemoved ? "border-gray-300" : "border-[#028A75] bg-[#028A75]"}`}
+                                              >
+                                                {!isRemoved && (
+                                                  <Check className="h-3 w-3 text-white" />
+                                                )}
+                                              </div>
+                                              <div>
+                                                <div
+                                                  className={`font-medium ${isRemoved ? "text-gray-500" : "text-gray-900"}`}
+                                                >
+                                                  {inclusion.inclusion_name}
+                                                </div>
+                                                {inclusion.inclusion_description && (
+                                                  <div className="text-xs text-gray-500">
+                                                    {
+                                                      inclusion.inclusion_description
+                                                    }
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div
+                                              className={`text-sm font-medium ${isRemoved ? "text-gray-400" : "text-[#028A75]"}`}
+                                            >
+                                              {formatPrice(
+                                                inclusion.inclusion_price
+                                              )}
+                                              {isRemoved && (
+                                                <span className="text-xs ml-2">
+                                                  (Not included)
+                                                </span>
+                                              )}
+                                            </div>
                                           </div>
-                                        </div>
-                                      );
-                                    })}
+                                        );
+                                      }
+                                    )}
                                   </div>
                                 </div>
                               )}
@@ -2157,7 +2416,7 @@ export default function EnhancedCreateBookingPage() {
                                   </h4>
                                   <div className="bg-white rounded-lg border border-gray-200 divide-y">
                                     {formData.customInclusions.map(
-                                      (inclusion) => {
+                                      (inclusion, index) => {
                                         const isRemoved =
                                           formData.removedInclusions.some(
                                             (inc) =>
@@ -2168,7 +2427,7 @@ export default function EnhancedCreateBookingPage() {
                                           inclusion.is_venue_inclusion;
                                         return (
                                           <div
-                                            key={`review-custom-${inclusion.inclusion_id}`}
+                                            key={`review-custom-${String(inclusion.inclusion_id)}-${index}`}
                                             className={`p-3 flex items-center justify-between ${isVenueInclusion ? "bg-blue-50" : ""}`}
                                           >
                                             <div className="flex items-center gap-3">
@@ -2227,7 +2486,7 @@ export default function EnhancedCreateBookingPage() {
                                   </h4>
                                   <div className="bg-white rounded-lg border border-gray-200 divide-y">
                                     {formData.supplierServices.map(
-                                      (service) => {
+                                      (service, index) => {
                                         const isRemoved =
                                           formData.removedInclusions.some(
                                             (inc) =>
@@ -2236,7 +2495,7 @@ export default function EnhancedCreateBookingPage() {
                                           );
                                         return (
                                           <div
-                                            key={`review-service-${service.inclusion_id}`}
+                                            key={`review-service-${String(service.inclusion_id)}-${index}`}
                                             className="p-3 flex items-center justify-between"
                                           >
                                             <div className="flex items-center gap-3">
@@ -2444,14 +2703,8 @@ export default function EnhancedCreateBookingPage() {
                         {selectedPackage.package_title}
                       </p>
                       <p className="text-sm text-[#028A75]">
-                        {formatPrice(calculateTotalPackagePrice())}
+                        {formatPrice(selectedPackage.package_price)}
                       </p>
-                      {formData.guestCount > 100 && (
-                        <p className="text-xs text-gray-600">
-                          Base: {formatPrice(selectedPackage.package_price)} +{" "}
-                          {formData.guestCount - 100} extra guests
-                        </p>
-                      )}
                     </div>
                   )}
                   {decideLater && (
@@ -2473,7 +2726,12 @@ export default function EnhancedCreateBookingPage() {
                       <p className="text-sm text-gray-600">Venue</p>
                       <p className="font-medium">{selectedVenue.venue_title}</p>
                       <p className="text-sm text-[#028A75]">
-                        {formatPrice(selectedVenue.venue_price)}
+                        {formatPrice(
+                          computeVenueEstimatedPrice(
+                            selectedVenue,
+                            formData.guestCount
+                          )
+                        )}
                       </p>
                     </div>
                   )}
@@ -2481,7 +2739,15 @@ export default function EnhancedCreateBookingPage() {
                     <div className="border-t pt-4">
                       <p className="text-sm text-gray-600">Estimated Total</p>
                       <p className="text-xl font-bold text-[#028A75]">
-                        {formatPrice(calculateTotalPackagePrice())}
+                        {formatPrice(
+                          (selectedPackage ? totalPrice : 0) +
+                            (selectedVenue
+                              ? computeVenueEstimatedPrice(
+                                  selectedVenue,
+                                  formData.guestCount
+                                )
+                              : 0) || 0
+                        )}
                       </p>
                       {decideLater && (
                         <p className="text-xs text-gray-500 mt-1">
@@ -2555,7 +2821,12 @@ export default function EnhancedCreateBookingPage() {
           <DialogHeader>
             <DialogTitle>Venue Details</DialogTitle>
           </DialogHeader>
-          {modalVenue && (
+          {venueDetailsLoading && (
+            <div className="py-8 text-center text-sm text-gray-500">
+              Loading...
+            </div>
+          )}
+          {modalVenue && !venueDetailsLoading && (
             <div className="space-y-4">
               {/* Venue Images */}
               <div className="space-y-3">
@@ -2641,76 +2912,113 @@ export default function EnhancedCreateBookingPage() {
         open={packageDetailsModalOpen}
         onOpenChange={setPackageDetailsModalOpen}
       >
-        <DialogContent className="max-w-[95vw] md:max-w-4xl max-h-[90vh] w-full overflow-y-auto overflow-x-hidden p-4 sm:p-6 md:p-8">
-          <DialogHeader className="mb-6">
+        <DialogContent className="max-w-[95vw] md:max-w-4xl max-h-[90vh] w-full overflow-hidden p-0 flex flex-col">
+          <DialogHeader className="p-4 sm:p-6 md:p-8 border-b">
             <DialogTitle className="text-2xl font-bold flex items-center">
               <Package className="h-6 w-6 mr-2 text-[#028A75]" />
               {modalPackage?.package_title || "Package Details"}
             </DialogTitle>
           </DialogHeader>
 
-          {modalPackage && (
-            <div className="mt-4 space-y-8">
-              <div className="animate-fadeSlideIn animation-delay-150">
-                <h3 className="font-medium text-lg text-gray-900 mb-3 flex items-center">
-                  <Info className="h-5 w-5 mr-2 text-gray-500" />
-                  Description
-                </h3>
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                  <p className="text-gray-700 leading-relaxed">
-                    {modalPackage.package_description}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-4 animate-fadeSlideIn animation-delay-300 w-full">
-                <div className="bg-gradient-to-br from-[#028A75]/10 to-[#028A75]/5 p-5 rounded-xl shadow-sm flex-grow transition-transform duration-300 hover:shadow-md hover:-translate-y-1">
-                  <div className="flex items-center text-[#028A75] mb-3">
-                    <DollarSign className="h-5 w-5 mr-2" />
-                    <h3 className="font-medium text-lg">Price</h3>
+          {/* Scrollable content area */}
+          <div className="overflow-y-auto flex-grow">
+            {modalPackage && (
+              <div className="p-4 sm:p-6 md:p-8 space-y-8">
+                <div className="animate-fadeSlideIn animation-delay-150">
+                  <h3 className="font-medium text-lg text-gray-900 mb-3 flex items-center">
+                    <Info className="h-5 w-5 mr-2 text-gray-500" />
+                    Description
+                  </h3>
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                    <p className="text-gray-700 leading-relaxed">
+                      {modalPackage.package_description}
+                    </p>
                   </div>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {formatPrice(modalPackage.package_price)}
-                  </p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Base price for up to {modalPackage.guest_capacity} guests
-                  </p>
                 </div>
 
-                <div className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-5 rounded-xl shadow-sm flex-grow transition-transform duration-300 hover:shadow-md hover:-translate-y-1">
-                  <div className="flex items-center text-blue-600 mb-3">
-                    <Users className="h-5 w-5 mr-2" />
-                    <h3 className="font-medium text-lg">Capacity</h3>
+                <div className="flex flex-col sm:flex-row gap-4 animate-fadeSlideIn animation-delay-300 w-full">
+                  <div className="bg-gradient-to-br from-[#028A75]/10 to-[#028A75]/5 p-5 rounded-xl shadow-sm flex-grow transition-transform duration-300 hover:shadow-md hover:-translate-y-1">
+                    <div className="flex items-center text-[#028A75] mb-3">
+                      <DollarSign className="h-5 w-5 mr-2" />
+                      <h3 className="font-medium text-lg">Price</h3>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {formatPrice(modalPackage.package_price)}
+                    </p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Base price for up to {modalPackage.guest_capacity} guests
+                    </p>
                   </div>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {modalPackage.guest_capacity} guests
-                  </p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    ₱350 per additional guest
-                  </p>
-                </div>
-              </div>
 
-              {/* Inclusions */}
-              {modalPackage.components &&
-                modalPackage.components.length > 0 && (
-                  <div className="animate-fadeSlideIn animation-delay-450">
+                  <div className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-5 rounded-xl shadow-sm flex-grow transition-transform duration-300 hover:shadow-md hover:-translate-y-1">
+                    <div className="flex items-center text-blue-600 mb-3">
+                      <Users className="h-5 w-5 mr-2" />
+                      <h3 className="font-medium text-lg">Capacity</h3>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {modalPackage.guest_capacity} guests
+                    </p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {formatPrice(getExtraPaxRate(selectedVenue))} per
+                      additional guest
+                    </p>
+                  </div>
+                </div>
+
+                {/* Inclusions */}
+                {modalPackage.components &&
+                  modalPackage.components.length > 0 && (
+                    <div className="animate-fadeSlideIn animation-delay-450">
+                      <h3 className="font-medium text-lg text-gray-900 flex items-center mb-3">
+                        <Package className="h-5 w-5 mr-2 text-[#028A75]" />
+                        Inclusions
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full">
+                        {modalPackage.components.map((component, index) => (
+                          <div
+                            key={index}
+                            className="flex items-start gap-3 bg-[#028A75]/5 p-4 rounded-xl border border-[#028A75]/10 shadow-sm transform transition-all duration-300 hover:shadow hover:-translate-y-0.5 hover:bg-[#028A75]/10"
+                            style={{ animationDelay: `${index * 50}ms` }}
+                          >
+                            <Check className="h-5 w-5 text-[#028A75] mt-0.5" />
+                            <div>
+                              <p className="text-gray-800 font-medium">
+                                {component.component_name}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                {/* Freebies */}
+                {modalPackage.freebies && modalPackage.freebies.length > 0 && (
+                  <div className="animate-fadeSlideIn animation-delay-600">
                     <h3 className="font-medium text-lg text-gray-900 flex items-center mb-3">
-                      <Package className="h-5 w-5 mr-2 text-[#028A75]" />
-                      Inclusions
+                      <Gift className="h-5 w-5 mr-2 text-purple-600" />
+                      Freebies
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full">
-                      {modalPackage.components.map((component, index) => (
+                      {modalPackage.freebies.map((freebie, index) => (
                         <div
                           key={index}
-                          className="flex items-start gap-3 bg-[#028A75]/5 p-4 rounded-xl border border-[#028A75]/10 shadow-sm transform transition-all duration-300 hover:shadow hover:-translate-y-0.5 hover:bg-[#028A75]/10"
-                          style={{ animationDelay: `${index * 50}ms` }}
+                          className="flex items-start gap-3 bg-purple-50 p-4 rounded-xl border border-purple-100 shadow-sm transform transition-all duration-300 hover:shadow hover:-translate-y-0.5 hover:bg-purple-100/50"
+                          style={{ animationDelay: `${(index + 5) * 50}ms` }}
                         >
-                          <Check className="h-5 w-5 text-[#028A75] mt-0.5" />
+                          <Gift className="h-5 w-5 text-purple-600 mt-0.5" />
                           <div>
                             <p className="text-gray-800 font-medium">
-                              {component.component_name}
+                              {freebie.freebie_name}
                             </p>
+                            <p className="text-sm text-gray-600 mt-1">
+                              {freebie.freebie_description}
+                            </p>
+                            {freebie.freebie_value > 0 && (
+                              <p className="text-sm text-purple-600 mt-2 font-medium">
+                                Value: {formatPrice(freebie.freebie_value)}
+                              </p>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -2718,128 +3026,136 @@ export default function EnhancedCreateBookingPage() {
                   </div>
                 )}
 
-              {/* Freebies */}
-              {modalPackage.freebies && modalPackage.freebies.length > 0 && (
-                <div className="animate-fadeSlideIn animation-delay-600">
-                  <h3 className="font-medium text-lg text-gray-900 flex items-center mb-3">
-                    <Gift className="h-5 w-5 mr-2 text-purple-600" />
-                    Freebies
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full">
-                    {modalPackage.freebies.map((freebie, index) => (
-                      <div
-                        key={index}
-                        className="flex items-start gap-3 bg-purple-50 p-4 rounded-xl border border-purple-100 shadow-sm transform transition-all duration-300 hover:shadow hover:-translate-y-0.5 hover:bg-purple-100/50"
-                        style={{ animationDelay: `${(index + 5) * 50}ms` }}
-                      >
-                        <Gift className="h-5 w-5 text-purple-600 mt-0.5" />
-                        <div>
-                          <p className="text-gray-800 font-medium">
-                            {freebie.freebie_name}
-                          </p>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {freebie.freebie_description}
-                          </p>
-                          {freebie.freebie_value > 0 && (
-                            <p className="text-sm text-purple-600 mt-2 font-medium">
-                              Value: {formatPrice(freebie.freebie_value)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                {/* Venue Choices as Carousel */}
+                {modalPackage.venue_previews &&
+                  modalPackage.venue_previews.length > 0 && (
+                    <div className="animate-fadeIn">
+                      <h3 className="font-medium text-lg text-gray-900 flex items-center mb-4">
+                        <MapPin className="h-5 w-5 mr-2 text-red-500" />
+                        Venue Options
+                      </h3>
 
-              {/* Venue Choices as Carousel */}
-              {modalPackage.venue_previews &&
-                modalPackage.venue_previews.length > 0 && (
-                  <div className="animate-fadeIn">
-                    <h3 className="font-medium text-lg text-gray-900 flex items-center mb-4">
-                      <MapPin className="h-5 w-5 mr-2 text-red-500" />
-                      Venue Options
-                    </h3>
-
-                    <div className="relative overflow-hidden rounded-xl">
-                      {/* Venue Carousel */}
-                      <div className="venue-carousel relative">
-                        {/* Main Carousel */}
-                        <div className="overflow-hidden rounded-xl">
-                          <div className="flex snap-x snap-mandatory overflow-x-auto scrollbar-hide pb-4 mx-0">
-                            {modalPackage.venue_previews.map((venue, index) => (
-                              <div
-                                key={index}
-                                className="snap-start shrink-0 w-[85%] sm:w-[48%] md:w-[45%] px-2 transition-transform duration-300 hover:scale-[1.02]"
-                              >
-                                <div className="border rounded-xl overflow-hidden bg-white shadow-md hover:shadow-lg transition-all duration-300">
-                                  <div className="h-48 sm:h-56 bg-gray-100 relative overflow-hidden">
-                                    {venue.venue_cover_photo ? (
-                                      <img
-                                        src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(venue.venue_cover_photo)}`}
-                                        alt={venue.venue_title}
-                                        className="w-full h-full object-cover transform transition-transform duration-500 hover:scale-110"
-                                      />
-                                    ) : (
-                                      <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                                        <MapPin className="h-10 w-10 text-gray-400" />
+                      <div className="relative overflow-hidden rounded-xl">
+                        {/* Carousel Arrows (always visible) */}
+                        <button
+                          type="button"
+                          aria-label="Previous venues"
+                          onClick={() => scrollVenueCarousel(-1)}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 z-20 bg-white/90 hover:bg-white text-gray-700 border rounded-full p-2 shadow"
+                        >
+                          <ChevronLeft className="h-5 w-5" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Next venues"
+                          onClick={() => scrollVenueCarousel(1)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 z-20 bg-white/90 hover:bg-white text-gray-700 border rounded-full p-2 shadow"
+                        >
+                          <ChevronRight className="h-5 w-5" />
+                        </button>
+                        {/* Venue Carousel */}
+                        <div className="venue-carousel relative">
+                          {/* Main Carousel */}
+                          <div className="overflow-hidden rounded-xl">
+                            <div
+                              className="flex snap-x snap-mandatory overflow-x-auto scrollbar-hide pb-4 mx-0"
+                              ref={venueCarouselRef}
+                            >
+                              {modalPackage.venue_previews.map(
+                                (venue, index) => (
+                                  <div
+                                    key={index}
+                                    className="snap-start shrink-0 w-[85%] sm:w-[48%] md:w-[45%] px-2 transition-transform duration-300 hover:scale-[1.02] venue-card-width"
+                                  >
+                                    <div className="border rounded-xl overflow-hidden bg-white shadow-md hover:shadow-lg transition-all duration-300 h-full flex flex-col">
+                                      <div className="h-48 sm:h-56 bg-gray-100 relative overflow-hidden">
+                                        {venue.venue_cover_photo ? (
+                                          <img
+                                            src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(venue.venue_cover_photo)}`}
+                                            alt={venue.venue_title}
+                                            className="w-full h-full object-cover transform transition-transform duration-500 hover:scale-110"
+                                          />
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                                            <MapPin className="h-10 w-10 text-gray-400" />
+                                          </div>
+                                        )}
                                       </div>
-                                    )}
-                                  </div>
-
-                                  <div className="p-4">
-                                    <h4 className="font-medium text-gray-900 text-lg">
-                                      {venue.venue_title}
-                                    </h4>
-                                    <p className="text-sm text-gray-600 flex items-center mt-1">
-                                      <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
-                                      {venue.venue_location}
-                                    </p>
-                                    <div className="flex items-center justify-between mt-3">
-                                      <span className="text-sm font-medium text-gray-700 flex items-center">
-                                        <Users className="h-3 w-3 mr-1" />
-                                        Up to {venue.venue_capacity} guests
-                                      </span>
-                                      <button
-                                        onClick={(e) => {
-                                          e.preventDefault();
-                                          showVenueDetails(venue);
-                                        }}
-                                        className="text-xs text-[#028A75] hover:text-[#028A75]/80 underline"
-                                      >
-                                        Details
-                                      </button>
+                                      <div className="p-4 flex-1 flex flex-col">
+                                        <h4 className="font-medium text-gray-900 text-lg">
+                                          {venue.venue_title}
+                                        </h4>
+                                        <div className="mt-1">
+                                          <span className="text-base font-semibold text-[#028A75]">
+                                            {formatPrice(venue.venue_price)}
+                                          </span>
+                                        </div>
+                                        <p className="text-sm text-gray-600 flex items-center mt-1">
+                                          <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
+                                          {venue.venue_location}
+                                        </p>
+                                        <div className="flex items-center justify-between mt-3">
+                                          <span className="text-sm font-medium text-gray-700 flex items-center">
+                                            <Users className="h-3 w-3 mr-1" />
+                                            Up to {venue.venue_capacity} guests
+                                          </span>
+                                          <button
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              showVenueDetails({
+                                                ...venue,
+                                                venue_details: null, // Add required property that was missing
+                                              });
+                                            }}
+                                            className="text-xs text-[#028A75] hover:text-[#028A75]/80 underline"
+                                          >
+                                            Details
+                                          </button>
+                                        </div>
+                                        {venue.extra_pax_rate && (
+                                          <p className="text-xs text-gray-600 mt-1">
+                                            Extra pax rate:{" "}
+                                            {formatPrice(venue.extra_pax_rate)}{" "}
+                                            per guest
+                                          </p>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              </div>
+                                )
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Indicator Dots */}
+                          <div className="flex justify-center mt-4 space-x-2">
+                            {modalPackage.venue_previews.map((_, index) => (
+                              <div
+                                key={index}
+                                className={`w-2 h-2 rounded-full ${
+                                  index === 0 ? "bg-[#028A75]" : "bg-gray-300"
+                                }`}
+                              />
                             ))}
                           </div>
                         </div>
-
-                        {/* Indicator Dots */}
-                        <div className="flex justify-center mt-4 space-x-2">
-                          {modalPackage.venue_previews.map((_, index) => (
-                            <div
-                              key={index}
-                              className={`w-2 h-2 rounded-full ${
-                                index === 0 ? "bg-[#028A75]" : "bg-gray-300"
-                              }`}
-                            />
-                          ))}
-                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+              </div>
+            )}
+          </div>
 
-              <div className="pt-6 mt-4 flex justify-center sm:justify-end">
+          {/* Horizontal divider and fixed button area */}
+          {modalPackage && (
+            <div className="border-t border-gray-200 p-4 sm:p-6 bg-white mt-auto">
+              <div className="flex justify-center sm:justify-end">
                 <Button
                   onClick={() => {
                     handlePackageSelect(modalPackage);
                     setPackageDetailsModalOpen(false);
                   }}
-                  className="bg-[#028A75] hover:bg-[#028A75]/90 w-full sm:w-auto px-6 py-5 text-base font-medium transform transition-all duration-300 hover:scale-[1.02] hover:shadow-lg animate-fadeIn animation-delay-750 flex items-center justify-center gap-2"
+                  className="bg-[#028A75] hover:bg-[#028A75]/90 w-full sm:w-auto px-6 py-5 text-base font-medium transform transition-all duration-300 hover:scale-[1.02] hover:shadow-lg flex items-center justify-center gap-2"
                 >
                   <span>Select This Package</span>
                   <CheckCircle className="h-5 w-5 ml-1" />

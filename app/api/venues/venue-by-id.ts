@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+// Force static export for this API route
+export const dynamic = "force-static";
+
+export async function GET(request: NextRequest) {
   try {
-    const venueId = params.id;
+    const { searchParams } = new URL(request.url);
+    const venueId = searchParams.get("id");
 
     if (!venueId) {
       return NextResponse.json(

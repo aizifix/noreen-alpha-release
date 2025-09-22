@@ -336,6 +336,13 @@ export function PackageSelection({
         console.log("Fetching packages for event type:", eventType);
         console.log("Initial package ID:", initialPackageId);
 
+        // If no event type is selected, show a message instead of fetching all packages
+        if (!eventType) {
+          setError("Please select an event type to view available packages");
+          setIsLoading(false);
+          return;
+        }
+
         // Get event type ID
         const eventTypeId = getEventTypeId(eventType);
         console.log("Event type ID:", eventTypeId);
@@ -355,7 +362,7 @@ export function PackageSelection({
             },
           });
         } else {
-          // If no event type selected or invalid, fetch all packages
+          // If event type is provided but ID mapping failed, fetch all packages
           response = await axios.get<{
             status: string;
             packages?: DbPackage[];
@@ -582,12 +589,15 @@ export function PackageSelection({
     return (
       <div className="rounded-lg bg-[#028A75]/10 p-6 text-center border border-[#028A75]/50">
         <p className="text-[#028A75] text-md font-semibold">
-          No event type selected
+          {!eventType ? "No event type selected" : "No packages available"}
         </p>
         <p className="text-[#028A75] text-sm">{error}</p>
-        {/* <Button variant="outline" onClick={() => window.location.reload()}>
-          Try Again
-        </Button> */}
+        {!eventType && (
+          <p className="mt-3 text-sm text-gray-600">
+            Please select an event type from the dropdown above and click the
+            "Select Event Type" button
+          </p>
+        )}
       </div>
     );
   }
@@ -979,8 +989,10 @@ export function PackageSelection({
             ) : null}
           </div>
 
-          {/* Footer with Action Button */}
-          <div className="px-6 py-4 border-t bg-gray-50 flex-shrink-0">
+          {/* Footer with Action Button - Fixed position */}
+          <div className="px-6 py-4 border-t bg-gray-50 flex-shrink-0 sticky bottom-0">
+            <div className="border-t border-gray-200 pt-4 -mt-4 mb-4"></div>{" "}
+            {/* Horizontal divider */}
             <Button
               onClick={() => {
                 if (selectedPackageForDetails) {

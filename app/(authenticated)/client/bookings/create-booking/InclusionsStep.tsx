@@ -29,6 +29,7 @@ import {
   Info,
   Lock,
   Edit,
+  Gift,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -45,11 +46,13 @@ import axios from "axios";
 
 // Types
 interface Inclusion {
-  inclusion_id: number;
+  inclusion_id: number | string;
   inclusion_name: string;
   inclusion_description: string | null;
   inclusion_price: number;
   display_order: number;
+  category?: string;
+  is_venue_inclusion?: boolean;
   is_supplier_service?: boolean;
   supplier_id?: number;
   supplier_name?: string;
@@ -78,6 +81,15 @@ interface CustomInclusion {
   is_external: boolean;
 }
 
+// Freebie type (from package details)
+interface Freebie {
+  freebie_id: number | string;
+  freebie_name: string;
+  freebie_description?: string | null;
+  freebie_value?: number | null;
+  display_order?: number | null;
+}
+
 interface InclusionsStepProps {
   packageId: number | null;
   venueId: number | null; // Add venueId to props
@@ -86,11 +98,14 @@ interface InclusionsStepProps {
   removedInclusions: Inclusion[];
   supplierServices: Inclusion[];
   externalCustomizations: CustomInclusion[];
+  guestCount: number;
+  venueTitle?: string | null;
+  venuePriceEstimate?: number;
   onAddInclusion: (inclusion: Inclusion) => void;
-  onRemoveInclusion: (inclusionId: number) => void;
-  onRestoreInclusion: (inclusionId: number) => void;
+  onRemoveInclusion: (inclusionId: number | string) => void;
+  onRestoreInclusion: (inclusionId: number | string) => void;
   onAddSupplierService: (service: Inclusion) => void;
-  onRemoveSupplierService: (serviceId: number) => void;
+  onRemoveSupplierService: (serviceId: number | string) => void;
   onAddExternalCustomization: (customization: CustomInclusion) => void;
   onRemoveExternalCustomization: (index: number) => void;
   totalPrice: number;
@@ -104,6 +119,9 @@ export default function InclusionsStep({
   removedInclusions,
   supplierServices,
   externalCustomizations,
+  guestCount,
+  venueTitle,
+  venuePriceEstimate,
   onAddInclusion,
   onRemoveInclusion,
   onRestoreInclusion,
@@ -137,20 +155,42 @@ export default function InclusionsStep({
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(
     null
   );
+  // Removed price/notes overrides per supplier tier - not required
+  const [packageFreebies, setPackageFreebies] = useState<Freebie[]>([]);
+  const [venueBasePrice, setVenueBasePrice] = useState<number | null>(null);
+  const [venueExtraPaxRate, setVenueExtraPaxRate] = useState<number | null>(
+    null
+  );
 
   // Format price with proper formatting
   const formatPrice = (amount: number): string => {
     return `₱${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  // Fetch data on mount
+  // Fetch only package-related inclusions and suppliers on mount
   useEffect(() => {
     fetchAvailableInclusions();
     fetchSuppliers();
     if (venueId) {
       fetchVenueInclusions(venueId);
+    } else {
+      setVenueInclusions([]);
+      setVenueInclusionsPrice(0);
     }
-  }, [venueId]);
+    // Fetch freebies for selected package
+    if (packageId) {
+      fetchPackageFreebies(packageId);
+    } else {
+      setPackageFreebies([]);
+    }
+    // Fetch venue pricing details (base + extra pax rate) when both are present
+    if (packageId && venueId) {
+      fetchVenuePricingDetails(packageId, venueId, guestCount);
+    } else {
+      setVenueBasePrice(null);
+      setVenueExtraPaxRate(null);
+    }
+  }, [venueId, packageId]);
 
   // Fetch venue inclusions
   const fetchVenueInclusions = async (venueId: number) => {
@@ -179,19 +219,39 @@ export default function InclusionsStep({
     }
   };
 
-  // Fetch available inclusions
+  // Fetch available inclusions (package-only)
   const fetchAvailableInclusions = async () => {
     setLoading(true);
     try {
       const response = await axios.get(
         "http://localhost/events-api/client.php",
         {
-          params: { operation: "getAllInclusions" },
+          params: {
+            operation: "getPackageComponents",
+            package_id: packageId ?? 0,
+          },
         }
       );
 
       if (response.data.status === "success") {
-        setAvailableInclusions(response.data.inclusions || []);
+        const raw = response.data.inclusions || response.data.components || [];
+        const mapped: Inclusion[] = raw.map((item: any) => ({
+          inclusion_id:
+            item.inclusion_id ?? item.component_id ?? item.id ?? Math.random(),
+          inclusion_name:
+            item.inclusion_name ?? item.component_name ?? item.name ?? "",
+          inclusion_description:
+            item.inclusion_description ??
+            item.component_description ??
+            item.description ??
+            null,
+          inclusion_price:
+            Number(
+              item.inclusion_price ?? item.component_price ?? item.price ?? 0
+            ) || 0,
+          display_order: Number(item.display_order ?? 0) || 0,
+        }));
+        setAvailableInclusions(mapped);
       }
     } catch (err) {
       console.error("Error fetching inclusions:", err);
@@ -203,23 +263,171 @@ export default function InclusionsStep({
   // Fetch suppliers
   const fetchSuppliers = async () => {
     try {
-      const response = await axios.get(
-        "http://localhost/events-api/client.php",
-        {
+      // Fetch suppliers with offers (primary) and admin suppliers (for registration_docs fallback) in parallel
+      const [clientRes, adminRes] = await Promise.all([
+        axios.get("http://localhost/events-api/client.php", {
           params: { operation: "getSuppliersWithTiers" },
-        }
-      );
+        }),
+        axios.get("http://localhost/events-api/admin.php", {
+          params: {
+            operation: "getAllSuppliers",
+            page: 1,
+            limit: 500,
+            is_verified: 1,
+          },
+        }),
+      ]);
 
-      if (response.data.status === "success") {
-        setSuppliers(response.data.suppliers || []);
+      const clientOk = clientRes.data?.status === "success";
+      const adminOk = adminRes.data?.status === "success";
+
+      const clientSuppliers: Supplier[] = clientOk
+        ? clientRes.data.suppliers || []
+        : [];
+      const adminSuppliers: any[] = adminOk
+        ? adminRes.data.suppliers || []
+        : [];
+
+      // Build a map of fallback services from registration_docs.tiers
+      const fallbackServicesBySupplier = new Map<number, Service[]>();
+      for (const s of adminSuppliers) {
+        const docs = s.registration_docs;
+        let parsed: any = docs;
+        try {
+          if (typeof docs === "string") parsed = JSON.parse(docs);
+        } catch {
+          parsed = null;
+        }
+        const tiers =
+          parsed && typeof parsed === "object" ? parsed.tiers : null;
+        if (Array.isArray(tiers) && tiers.length > 0) {
+          const services: Service[] = tiers
+            .map((t: any, idx: number) => ({
+              service_id: Number(`${s.supplier_id}000${idx}`),
+              service_name: String(t.name ?? t.tier_name ?? "Unnamed Tier"),
+              service_description: t.description ?? t.tier_description ?? null,
+              service_price: Number(t.price ?? t.tier_price ?? 0) || 0,
+            }))
+            .filter((sv: Service) => !!sv.service_name);
+          if (services.length > 0) {
+            fallbackServicesBySupplier.set(Number(s.supplier_id), services);
+          }
+        }
       }
+
+      // Merge: prefer offers from client endpoint; fallback to registration_docs tiers
+      const mergedFromClient: Supplier[] = clientSuppliers.map((s) => {
+        const services =
+          Array.isArray(s.services) && s.services.length > 0
+            ? s.services
+            : fallbackServicesBySupplier.get(s.supplier_id) || [];
+        return { ...s, services };
+      });
+
+      // Add any admin suppliers that are missing from client list but have tiers
+      const presentIds = new Set(
+        mergedFromClient.map((s) => Number(s.supplier_id))
+      );
+      const extras: Supplier[] = [];
+      for (const s of adminSuppliers) {
+        const sid = Number(s.supplier_id);
+        if (presentIds.has(sid)) continue;
+        const fallback = fallbackServicesBySupplier.get(sid) || [];
+        if (fallback.length > 0) {
+          extras.push({
+            supplier_id: sid,
+            supplier_name: String(
+              s.business_name || s.supplier_name || "Supplier"
+            ),
+            supplier_category: String(
+              s.specialty_category || s.supplier_category || ""
+            ),
+            services: fallback,
+          });
+        }
+      }
+
+      setSuppliers([...mergedFromClient, ...extras]);
     } catch (err) {
       console.error("Error fetching suppliers:", err);
     }
   };
 
+  // Fetch freebies for the current package
+  const fetchPackageFreebies = async (pkgId: number) => {
+    try {
+      const response = await axios.get(
+        "http://localhost/events-api/client.php",
+        {
+          params: {
+            operation: "getPackageDetails",
+            package_id: pkgId,
+          },
+        }
+      );
+
+      if (response.data.status === "success") {
+        const freebies: Freebie[] = response.data?.package?.freebies || [];
+        setPackageFreebies(freebies);
+      } else {
+        setPackageFreebies([]);
+      }
+    } catch (err) {
+      console.error("Error fetching freebies:", err);
+      setPackageFreebies([]);
+    }
+  };
+
+  // Fetch venue base price and extra pax rate for breakdown
+  const fetchVenuePricingDetails = async (
+    pkgId: number,
+    vId: number,
+    guests: number
+  ) => {
+    try {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const dd = String(today.getDate()).padStart(2, "0");
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+
+      const response = await axios.get(
+        "http://localhost/events-api/client.php",
+        {
+          params: {
+            operation: "getVenuesByPackage",
+            package_id: pkgId,
+            event_date: dateStr,
+            guest_count: guests,
+          },
+        }
+      );
+
+      if (response.data.status === "success") {
+        const venues: any[] = response.data?.venues || [];
+        const venue = venues.find((v) => Number(v.venue_id) === Number(vId));
+        if (venue) {
+          const base = parseFloat(String(venue.venue_price)) || 0;
+          const rate =
+            venue.extra_pax_rate !== undefined && venue.extra_pax_rate !== null
+              ? parseFloat(String(venue.extra_pax_rate))
+              : 0;
+          setVenueBasePrice(base);
+          setVenueExtraPaxRate(Number.isFinite(rate) ? rate : 0);
+        } else {
+          setVenueBasePrice(null);
+          setVenueExtraPaxRate(null);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching venue pricing details:", err);
+      setVenueBasePrice(null);
+      setVenueExtraPaxRate(null);
+    }
+  };
+
   // Toggle inclusion status (included/excluded)
-  const toggleInclusionStatus = (inclusionId: number) => {
+  const toggleInclusionStatus = (inclusionId: number | string) => {
     const isRemoved = removedInclusions.some(
       (inc) => inc.inclusion_id === inclusionId
     );
@@ -234,7 +442,7 @@ export default function InclusionsStep({
   // Check if inclusion is already added
   const isInclusionAdded = (inclusionId: number): boolean => {
     // Check if it's in package inclusions but not removed
-    const isPackageInclusion = packageInclusions.some(
+    const isPackageInclusion = eventInclusionsOnly.some(
       (inc) => inc.inclusion_id === inclusionId
     );
     const isRemoved = removedInclusions.some(
@@ -297,6 +505,22 @@ export default function InclusionsStep({
   const handleSelectSupplierService = (service: Service) => {
     if (!selectedSupplier) return;
 
+    // Enforce one tier per supplier: remove existing different tier
+    const existingForSupplier = supplierServices.find(
+      (inc) => inc.supplier_id === selectedSupplier.supplier_id
+    );
+    if (existingForSupplier) {
+      if (existingForSupplier.inclusion_id === service.service_id) {
+        // Already added
+        toast({
+          title: "Already added",
+          description: `${service.service_name} is already selected for ${selectedSupplier.supplier_name}`,
+        });
+        return;
+      }
+      onRemoveSupplierService(existingForSupplier.inclusion_id);
+    }
+
     const supplierService: Inclusion = {
       inclusion_id: service.service_id,
       inclusion_name: service.service_name,
@@ -311,39 +535,46 @@ export default function InclusionsStep({
     onAddSupplierService(supplierService);
 
     toast({
-      title: "Service added",
-      description: `Added ${service.service_name} from ${selectedSupplier.supplier_name}`,
+      title: existingForSupplier ? "Service replaced" : "Service added",
+      description: `${service.service_name} for ${selectedSupplier.supplier_name}`,
     });
   };
 
   // Filter inclusions based on search
   const filteredInclusions = availableInclusions.filter((inclusion) => {
-    // Filter by search query
-    const matchesSearch =
-      inclusion.inclusion_name
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase()) ||
-      (inclusion.inclusion_description &&
-        inclusion.inclusion_description
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase()));
-
-    return matchesSearch;
+    const name = (inclusion?.inclusion_name ?? "").toString().toLowerCase();
+    const desc = (inclusion?.inclusion_description ?? "")
+      .toString()
+      .toLowerCase();
+    const q = (searchQuery ?? "").toString().toLowerCase();
+    return name.includes(q) || desc.includes(q);
   });
 
-  // Calculate total inclusions
+  // Derive event inclusions only (exclude explicitly flagged venue ones)
+  const eventInclusionsOnly: Inclusion[] = packageInclusions.filter(
+    (inc) => inc.is_venue_inclusion !== true
+  );
+
+  // Also remove explicitly flagged venue entries from custom inclusions
+  const eventCustomInclusionsOnly: Inclusion[] = customInclusions.filter(
+    (inc) => inc.is_venue_inclusion !== true
+  );
+
+  // Calculate total inclusions using event-only items
   const totalInclusionsCount =
-    packageInclusions.length -
+    eventInclusionsOnly.length -
     removedInclusions.length +
-    customInclusions.length +
+    eventCustomInclusionsOnly.length +
     supplierServices.length +
     externalCustomizations.length;
 
-  // Get all current inclusions (package, custom and supplier)
+  // Get all current inclusions (event-only, custom and supplier)
   const getAllInclusions = () => {
-    return [...packageInclusions, ...customInclusions, ...supplierServices].map(
-      (inc) => ({ ...inc, isRemovable: true })
-    );
+    return [
+      ...eventInclusionsOnly,
+      ...eventCustomInclusionsOnly,
+      ...supplierServices,
+    ].map((inc) => ({ ...inc, isRemovable: true }));
   };
 
   // Group inclusions by category
@@ -409,9 +640,9 @@ export default function InclusionsStep({
       </Card>
 
       {/* Informational Alert */}
-      <Alert className="border-green-500 bg-green-50">
+      <Alert className="border-[#028A75]/50 bg-[#028A75]/10">
         <AlertDescription className="flex items-center">
-          <Info className="h-4 w-4 mr-2 text-green-600" />
+          <Info className="h-4 w-4 mr-2 text-[#028A75]" />
           <span>
             <strong>Customize your event</strong> by selecting inclusions that
             match your needs. You can also add external customizations or
@@ -468,6 +699,13 @@ export default function InclusionsStep({
                 <Lock className="h-4 w-4 mr-2" />
                 Venue Inclusions
               </TabsTrigger>
+              <TabsTrigger
+                value="freebies"
+                className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-[#028A75]"
+              >
+                <Gift className="h-4 w-4 mr-2" />
+                Freebies
+              </TabsTrigger>
             </TabsList>
 
             {/* Current Inclusions Tab */}
@@ -493,14 +731,14 @@ export default function InclusionsStep({
                       </div>
 
                       <div className="divide-y">
-                        {inclusions.map((inclusion) => {
+                        {inclusions.map((inclusion, index) => {
                           const isRemoved = removedInclusions.some(
                             (inc) => inc.inclusion_id === inclusion.inclusion_id
                           );
 
                           return (
                             <div
-                              key={`inclusion-${inclusion.inclusion_id}`}
+                              key={`inclusion-${String(inclusion.inclusion_id)}-${index}`}
                               className="p-4 transition-colors"
                             >
                               <div className="flex items-center justify-between">
@@ -508,11 +746,13 @@ export default function InclusionsStep({
                                   <Checkbox
                                     id={`inclusion-${inclusion.inclusion_id}`}
                                     checked={!isRemoved}
-                                    onCheckedChange={() =>
+                                    onCheckedChange={(
+                                      checked: boolean | "indeterminate"
+                                    ) => {
                                       toggleInclusionStatus(
                                         inclusion.inclusion_id
-                                      )
-                                    }
+                                      );
+                                    }}
                                     className="mt-1"
                                   />
                                   <div>
@@ -642,32 +882,64 @@ export default function InclusionsStep({
               )}
             </TabsContent>
 
-            {/* Venue Inclusions Tab */}
+            {/* Venue Inclusions Tab (locked, read-only) */}
             <TabsContent value="venue" className="p-4 space-y-4">
+              {/* Venue summary (price and pax) */}
               <Card className="bg-gray-50 border-gray-200">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="font-medium text-gray-800">
-                        Venue Inclusions Total
+                        {venueTitle || "Selected Venue"}
                       </h3>
-                      <p className="text-sm text-gray-600">
-                        {venueInclusions.length} items included with your venue
-                      </p>
+                      <p className="text-sm text-gray-600">Pax: {guestCount}</p>
                     </div>
                     <div className="text-right">
+                      <div className="text-sm text-gray-600">
+                        Total (base + extra pax)
+                      </div>
                       <div className="text-xl font-bold text-gray-800">
-                        {formatPrice(venueInclusionsPrice)}
+                        {formatPrice(
+                          (() => {
+                            const base = venueBasePrice ?? 0;
+                            const rate = venueExtraPaxRate ?? 0;
+                            const extras =
+                              guestCount > 100 ? (guestCount - 100) * rate : 0;
+                            const total =
+                              base > 0 || rate > 0
+                                ? base + extras
+                                : venuePriceEstimate || 0;
+                            return total;
+                          })()
+                        )}
                       </div>
                     </div>
                   </div>
+                  {(venueBasePrice !== null || venueExtraPaxRate !== null) && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      <div>Base: {formatPrice(venueBasePrice ?? 0)}</div>
+                      <div>
+                        Extra pax: {guestCount > 100 ? guestCount - 100 : 0} ×{" "}
+                        {formatPrice(venueExtraPaxRate ?? 0)} ={" "}
+                        {formatPrice(
+                          (guestCount > 100 ? guestCount - 100 : 0) *
+                            (venueExtraPaxRate ?? 0)
+                        )}
+                      </div>
+                      <div className="text-[11px] text-gray-500 mt-1">
+                        Includes the price + the extra pax rate (total)
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
+
+              {/* Venue inclusions list */}
               {venueInclusions.length > 0 ? (
                 <div className="space-y-2">
-                  {venueInclusions.map((inclusion) => (
+                  {venueInclusions.map((inclusion, index) => (
                     <Card
-                      key={`venue-inc-${inclusion.inclusion_id}`}
+                      key={`venue-inc-${String(inclusion.inclusion_id)}-${index}`}
                       className="bg-gray-50 border-gray-200"
                     >
                       <CardContent className="p-3 flex items-center justify-between">
@@ -684,6 +956,7 @@ export default function InclusionsStep({
                             )}
                           </div>
                         </div>
+                        {/* Price retained but not added into editable totals */}
                         <div className="text-sm font-medium text-gray-600">
                           {formatPrice(inclusion.inclusion_price)}
                         </div>
@@ -701,29 +974,58 @@ export default function InclusionsStep({
                 </div>
               )}
             </TabsContent>
+
+            {/* Freebies Tab */}
+            <TabsContent value="freebies" className="p-4 space-y-4">
+              {packageFreebies.length > 0 ? (
+                <div className="space-y-2">
+                  {packageFreebies.map((freebie, index) => (
+                    <Card
+                      key={`freebie-${String(
+                        (freebie as any)?.freebie_id ??
+                          freebie.freebie_name ??
+                          index
+                      )}-${index}`}
+                      className="bg-white border-gray-200"
+                    >
+                      <CardContent className="p-3 flex items-center justify-between">
+                        <div className="flex items-center">
+                          <Gift className="h-4 w-4 mr-3 text-purple-500" />
+                          <div>
+                            <div className="font-medium text-gray-800">
+                              {freebie.freebie_name}
+                            </div>
+                            {freebie.freebie_description && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                {freebie.freebie_description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {typeof freebie.freebie_value === "number" && (
+                          <div className="text-sm font-medium text-gray-600">
+                            {formatPrice(freebie.freebie_value || 0)}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Gift className="h-12 w-12 mx-auto text-gray-300 mb-2" />
+                  <p className="text-gray-600">No freebies for this package</p>
+                  <p className="text-sm text-gray-500">
+                    Freebies tied to the selected package will appear here.
+                  </p>
+                </div>
+              )}
+            </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
 
-      {/* Summary Footer */}
-      <Card className="bg-gray-50 border-gray-200">
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-medium">Total Selections</h3>
-              <p className="text-sm text-gray-600">
-                {totalInclusionsCount} inclusions
-              </p>
-            </div>
-            <div className="text-right">
-              <div className="text-sm text-gray-600">Total Value</div>
-              <div className="text-xl font-bold text-[#028A75] flex items-center">
-                {formatPrice(totalPrice)}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Removed bottom Total Selections price to avoid duplicate pricing display */}
 
       {/* External Customization Dialog */}
       <Dialog open={showCustomDialog} onOpenChange={setShowCustomDialog}>
@@ -840,36 +1142,72 @@ export default function InclusionsStep({
               {selectedSupplier ? (
                 <div className="space-y-3 max-h-[400px] overflow-y-auto">
                   {selectedSupplier.services?.length > 0 ? (
-                    selectedSupplier.services.map((service) => (
-                      <Card key={service.service_id}>
-                        <CardContent className="p-3">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h4 className="font-medium">
-                                {service.service_name}
-                              </h4>
-                              {service.service_description && (
-                                <p className="text-xs text-gray-600 mt-1">
-                                  {service.service_description}
+                    selectedSupplier.services.map((service) => {
+                      const isSelected = supplierServices.some(
+                        (s) =>
+                          s.supplier_id === selectedSupplier.supplier_id &&
+                          s.inclusion_id === service.service_id
+                      );
+                      const existingForSupplier = supplierServices.find(
+                        (s) => s.supplier_id === selectedSupplier.supplier_id
+                      );
+                      return (
+                        <Card key={service.service_id}>
+                          <CardContent className="p-3">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h4 className="font-medium">
+                                  {service.service_name}
+                                </h4>
+                                {service.service_description && (
+                                  <p className="text-xs text-gray-600 mt-1">
+                                    {service.service_description}
+                                  </p>
+                                )}
+                                <p className="text-sm font-semibold text-blue-600 mt-1">
+                                  {formatPrice(service.service_price)}
                                 </p>
-                              )}
-                              <p className="text-sm font-semibold text-blue-600 mt-1">
-                                {formatPrice(service.service_price)}
-                              </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                {existingForSupplier && !isSelected && (
+                                  <span className="text-[10px] text-gray-500">
+                                    Currently added:{" "}
+                                    {existingForSupplier.inclusion_name}
+                                  </span>
+                                )}
+                                <Button
+                                  size="sm"
+                                  onClick={() =>
+                                    handleSelectSupplierService(service)
+                                  }
+                                  className={
+                                    isSelected
+                                      ? "bg-[#028A75] hover:bg-[#028A75]/90"
+                                      : "bg-blue-600 hover:bg-blue-700"
+                                  }
+                                  disabled={isSelected}
+                                >
+                                  {isSelected ? (
+                                    <>
+                                      <Check className="h-4 w-4 mr-1" /> Added
+                                    </>
+                                  ) : existingForSupplier ? (
+                                    <>
+                                      <RefreshCw className="h-4 w-4 mr-1" />{" "}
+                                      Replace
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Plus className="h-4 w-4 mr-1" /> Add
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
                             </div>
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                handleSelectSupplierService(service)
-                              }
-                              className="bg-blue-600 hover:bg-blue-700"
-                            >
-                              <Plus className="h-4 w-4 mr-1" /> Add
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))
+                          </CardContent>
+                        </Card>
+                      );
+                    })
                   ) : (
                     <div className="text-center py-8 text-gray-500">
                       No services available from this supplier

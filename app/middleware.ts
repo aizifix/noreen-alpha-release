@@ -5,8 +5,14 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public paths that don't require authentication
-  const publicPaths = ["/auth/login", "/auth/signup"];
+  const publicPaths = [
+    "/auth/login",
+    "/auth/signup",
+    "/auth/verify-otp",
+    "/auth/verify-signup-otp",
+  ];
   const otpPath = "/auth/verify-otp";
+  const isAuthPath = pathname.startsWith("/auth");
 
   // Get stored data
   const userStr = request.cookies.get("user")?.value;
@@ -38,8 +44,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/verify-otp", request.url));
   }
 
-  // If user is on a public path or root and is authenticated, redirect to appropriate dashboard
-  if ((publicPaths.includes(pathname) || pathname === "/") && user) {
+  // If user is on root and is authenticated, redirect to appropriate dashboard.
+  // IMPORTANT: Do NOT auto-redirect away from explicit auth pages to avoid cross-portal auto-login.
+  if (pathname === "/" && user) {
     console.log(
       "Middleware: Redirecting authenticated user from",
       pathname,

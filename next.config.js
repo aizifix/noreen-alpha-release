@@ -1,6 +1,12 @@
-import type { NextConfig } from "next";
+/** @type {import('next').NextConfig} */
 
-const nextConfig: NextConfig = {
+// Check if we're in export mode
+const isExport = process.env.NODE_ENV === "export-static";
+
+const nextConfig = {
+  // Static HTML export for cPanel hosting
+  ...(isExport && { output: "export" }),
+
   // Disable source maps for better performance
   productionBrowserSourceMaps: false,
 
@@ -25,12 +31,9 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["clsx", "lucide-react"],
   },
 
-  // Handle hydration errors more gracefully
-  reactStrictMode: true,
-
   // Image configuration
   images: {
-    unoptimized: true, // Required for static export
+    ...(isExport && { unoptimized: true }),
     remotePatterns: [
       {
         protocol: "http",
@@ -43,25 +46,31 @@ const nextConfig: NextConfig = {
         hostname: "noreen-events.online",
         pathname: "/events-api/uploads/**",
       },
-      {
-        protocol: "https",
-        hostname: "**",
-        pathname: "/**",
-      },
+      ...(isExport
+        ? [
+            {
+              protocol: "https",
+              hostname: "**",
+              pathname: "/**",
+            },
+          ]
+        : []),
     ],
     domains: ["localhost", "noreen-events.online"],
   },
 
-  // Required for static export with App Router
-  // No need to specify distDir for static export
-  // The out directory is used by default
-  trailingSlash: true,
+  // Include only static routes
+  ...(isExport && {
+    // For App Router, we need to skip dynamic routes
+    // and can't use exportPathMap
+    trailingSlash: true,
+    skipTrailingSlashRedirect: true,
+  }),
 
-  // Security headers for development mode
-  // In export mode, configure these in your .htaccess file or cPanel
+  // Security headers
   async headers() {
     // Skip headers in export mode
-    if (process.env.NEXT_EXPORT === "true") {
+    if (isExport) {
       return [];
     }
 
@@ -80,9 +89,11 @@ const nextConfig: NextConfig = {
               "font-src 'self' data: blob: https://fonts.googleapis.com https://fonts.gstatic.com; " +
               "connect-src 'self' http://localhost http://localhost:3000 ws://localhost:3000 http://localhost/events-api " +
               "http://192.168.0.100 http://192.168.0.100:3000 ws://192.168.0.100:3000 http://192.168.0.100/events-api " +
+              "https://noreen-events.online https://noreen-events.online/events-api " +
               "https://www.google.com https://www.gstatic.com https://www.google-analytics.com data: blob:; " +
               "img-src 'self' data: blob: https: http: http://localhost:3000/uploads/ http://localhost/events-api/uploads/ " +
-              "http://192.168.0.100:3000/uploads/ http://192.168.0.100/events-api/uploads/; " +
+              "http://192.168.0.100:3000/uploads/ http://192.168.0.100/events-api/uploads/ " +
+              "https://noreen-events.online/uploads/ https://noreen-events.online/events-api/uploads/; " +
               "frame-src 'self' https://www.google.com/recaptcha/ https://www.recaptcha.net;",
           },
           {
@@ -99,4 +110,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;

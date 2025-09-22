@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Force static for export
+export const dynamic = "force-static";
+
 // This is a Next.js API route that acts as a proxy to the PHP admin.php file
 // It handles organizer-related operations
 

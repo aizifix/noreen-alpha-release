@@ -39,8 +39,11 @@ import {
 import { secureStorage } from "@/app/utils/encryption";
 import axios from "axios";
 import { useTheme } from "next-themes";
+import { startSessionWatcher } from "@/app/utils/session";
+import { useRealtimeNotifications } from "@/app/hooks/useRealtimeNotifications";
 
 interface User {
+  user_id?: number;
   user_firstName: string;
   user_lastName: string;
   user_role: string;
@@ -166,6 +169,28 @@ export default function AdminLayout({
   }, [isUserDropdownOpen]);
 
   useEffect(() => {
+    // Start session timeout watcher for admin portal
+    const stopWatcher = startSessionWatcher({
+      storageKeyPrefix: "session_admin",
+      onTimeout: () => {
+        try {
+          secureStorage.removeItem("user");
+        } catch {}
+        try {
+          document.cookie =
+            "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+          document.cookie =
+            "pending_otp_email=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+        } catch {}
+        router.replace("/auth/login");
+      },
+    });
+    return () => {
+      stopWatcher && stopWatcher();
+    };
+  }, [router]);
+
+  useEffect(() => {
     try {
       let userData: any = secureStorage.getItem("user");
       if (typeof userData === "string") {
@@ -232,6 +257,27 @@ export default function AdminLayout({
     const interval = setInterval(() => fetchNotificationCounts(user), 30000);
     return () => clearInterval(interval);
   }, [user]);
+
+  // Realtime notifications: get_recent + counts
+  useRealtimeNotifications({
+    userId: user?.user_id,
+    onCounts: ({ unread }) => setUnreadNotifCount(unread),
+    onNew: (items) => {
+      if (!isNotifDropdownOpen) return;
+      setNotifications((prev) => {
+        const map = new Map<number, NotificationItem>();
+        for (const n of prev) map.set(n.notification_id, n);
+        for (const n of items) map.set(n.notification_id, n as any);
+        const merged = Array.from(map.values());
+        merged.sort((a: any, b: any) => {
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return tb - ta;
+        });
+        return merged;
+      });
+    },
+  });
 
   async function fetchNotificationCounts(currentUser: any) {
     try {

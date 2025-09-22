@@ -117,19 +117,36 @@ export const secureStorage = {
       const encryptedData = encryptData(sanitizedData);
       localStorage.setItem(key, encryptedData);
 
-      // Mirror minimal session data in a cookie for middleware (cross-tab/SSR)
+      // Mirror minimal session data in role-scoped cookies for middleware (portal isolation)
       if (key === "user") {
         try {
           const minimal = {
             user_id: sanitizedData.user_id,
             user_role: String(sanitizedData.user_role || ""),
-          };
+          } as { user_id: number; user_role: string };
+
+          // Clear legacy root-scoped cookie to prevent cross-portal auto-redirects
+          document.cookie =
+            "user=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+
           const cookieValue = encodeURIComponent(JSON.stringify(minimal));
-          // Session cookie (no max-age) with Lax same-site policy
-          document.cookie = `user=${cookieValue}; path=/; SameSite=Lax`;
-          console.log("secureStorage: Set user cookie:", minimal);
+          const role = minimal.user_role.toLowerCase();
+
+          // Write role-scoped cookie only for the relevant portal path
+          if (role === "admin") {
+            document.cookie = `user_admin=${cookieValue}; path=/admin; SameSite=Lax`;
+          } else if (role === "organizer" || role === "vendor") {
+            document.cookie = `user_organizer=${cookieValue}; path=/organizer; SameSite=Lax`;
+          } else if (role === "client") {
+            document.cookie = `user_client=${cookieValue}; path=/client; SameSite=Lax`;
+          }
+
+          console.log("secureStorage: Set role-scoped user cookie:", minimal);
         } catch (_e) {
-          console.log("secureStorage: Failed to set user cookie:", _e);
+          console.log(
+            "secureStorage: Failed to set role-scoped user cookie:",
+            _e
+          );
         }
       }
 
@@ -169,9 +186,15 @@ export const secureStorage = {
     try {
       localStorage.removeItem(key);
       if (key === "user") {
-        // Clear mirrored cookie
+        // Clear mirrored cookies (root and portal-scoped)
         document.cookie =
           "user=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+        document.cookie =
+          "user_admin=; path=/admin; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+        document.cookie =
+          "user_organizer=; path=/organizer; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+        document.cookie =
+          "user_client=; path=/client; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
       }
     } catch (error) {
       console.error("Error removing data:", error);

@@ -39,6 +39,8 @@ import {
 import { secureStorage } from "@/app/utils/encryption";
 import axios from "axios";
 import { useTheme } from "next-themes";
+import { startSessionWatcher } from "@/app/utils/session";
+import { useRealtimeNotifications } from "@/app/hooks/useRealtimeNotifications";
 
 interface User {
   user_firstName: string;
@@ -111,6 +113,28 @@ export default function ClientLayout({
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isUserDropdownOpen, isMobileMenuOpen, isNotifDropdownOpen]);
+
+  useEffect(() => {
+    // Start session timeout watcher for client portal
+    const stopWatcher = startSessionWatcher({
+      storageKeyPrefix: "session_client",
+      onTimeout: () => {
+        try {
+          secureStorage.removeItem("user");
+        } catch {}
+        try {
+          document.cookie =
+            "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+          document.cookie =
+            "pending_otp_email=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+        } catch {}
+        router.replace("/auth/login");
+      },
+    });
+    return () => {
+      stopWatcher && stopWatcher();
+    };
+  }, [router]);
 
   useEffect(() => {
     try {
@@ -215,6 +239,30 @@ export default function ClientLayout({
     const interval = setInterval(() => fetchNotificationCounts(user), 30000);
     return () => clearInterval(interval);
   }, [user]);
+
+  // Realtime notifications: get_recent + counts
+  useRealtimeNotifications({
+    userId: user?.user_id,
+    onCounts: ({ unread }) => {
+      setUnreadNotifCount(unread);
+    },
+    onNew: (items) => {
+      // If dropdown is open, merge into the current list for immediate visibility
+      if (!isNotifDropdownOpen) return;
+      setNotifications((prev) => {
+        const map = new Map<number, NotificationItem>();
+        for (const n of prev) map.set(n.notification_id, n);
+        for (const n of items) map.set(n.notification_id, n as any);
+        const merged = Array.from(map.values());
+        merged.sort((a: any, b: any) => {
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return tb - ta;
+        });
+        return merged;
+      });
+    },
+  });
 
   async function fetchNotificationCounts(currentUser: any) {
     try {
@@ -322,7 +370,7 @@ export default function ClientLayout({
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-gray-100 w-full overflow-x-hidden lg:pl-64">
       {/* Desktop Sidebar (Fixed) - Hidden on mobile */}
       <div className="hidden lg:block fixed inset-y-0 left-0 z-20 w-64">
         <Sidebar className="h-full w-64 bg-white border-r">
@@ -365,7 +413,7 @@ export default function ClientLayout({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 lg:ml-64">
+      <div className="flex-1 min-w-0">
         {/* Desktop Navbar - Hidden on mobile */}
         <header className="hidden lg:flex fixed top-0 right-0 left-64 z-10 bg-white border-b px-6 py-4 h-16 justify-end items-center">
           {/* User Info on the Right */}
@@ -575,7 +623,7 @@ export default function ClientLayout({
         </header>
 
         {/* Mobile Header - Only shown on mobile */}
-        <header className="lg:hidden bg-white border-b px-4 py-3 flex items-center justify-between relative z-30">
+        <header className="lg:hidden bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-30">
           {/* Logo */}
           <div className="flex items-center gap-3">
             <Image
@@ -810,7 +858,7 @@ export default function ClientLayout({
         </header>
 
         {/* Page Content - Adjusted for Navbar */}
-        <main className="lg:pt-24 lg:p-6 h-screen overflow-auto pb-16 lg:pb-0">
+        <main className="lg:pt-24 lg:p-6 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 min-w-0 max-w-full">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
             {children}
           </div>

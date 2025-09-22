@@ -147,8 +147,6 @@ const VerifySignupOTP = () => {
     }
 
     setIsLoading(true);
-    setMessage("");
-    setShowAlert(false);
 
     try {
       const formData = new FormData();
@@ -191,8 +189,7 @@ const VerifySignupOTP = () => {
         inputRefs.current[0]?.focus();
       }
     } catch (error) {
-      console.error("OTP verification error:
-", error);
+      console.error("OTP verification error:", error);
       toast({
         title: "Verification error",
         description: "Error verifying OTP. Please try again.",
@@ -220,8 +217,6 @@ const VerifySignupOTP = () => {
     }
 
     setIsResending(true);
-    setMessage("");
-    setShowAlert(false);
 
     try {
       const formData = new FormData();
@@ -417,8 +412,6 @@ const VerifySignupOTP = () => {
           </p>
         </div>
       </div>
-
-
     </div>
   );
 };

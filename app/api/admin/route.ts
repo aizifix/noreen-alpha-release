@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+
+// Force static for export
+export const dynamic = "force-static";
 import { spawn } from "child_process";
 
 export async function POST(request: NextRequest) {

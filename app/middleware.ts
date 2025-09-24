@@ -30,19 +30,8 @@ export function middleware(request: NextRequest) {
     console.log("Middleware: No user cookie found");
   }
 
-  // Handle OTP verification flow
-  if (pathname === otpPath) {
-    // If no pending OTP verification, redirect to login
-    if (!pendingOtpUserId) {
-      return NextResponse.redirect(new URL("/auth/login", request.url));
-    }
-    return NextResponse.next();
-  }
-
-  // If user has pending OTP verification, redirect to OTP page
-  if (pendingOtpUserId && pathname !== otpPath) {
-    return NextResponse.redirect(new URL("/auth/verify-otp", request.url));
-  }
+  // OTP verification flow temporarily disabled on frontend to honor admin toggle.
+  // We do not enforce redirects to /auth/verify-otp based on cookies.
 
   // If user is on root and is authenticated, redirect to appropriate dashboard.
   // IMPORTANT: Do NOT auto-redirect away from explicit auth pages to avoid cross-portal auto-login.

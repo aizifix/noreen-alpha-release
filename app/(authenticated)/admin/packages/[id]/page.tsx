@@ -21,6 +21,12 @@ import {
 import { toast } from "sonner";
 import { BudgetBreakdown } from "../package-builder/budget-breakdown";
 import Image from "next/image";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
 
 interface PackageDetails {
   package_id: number;
@@ -579,65 +585,49 @@ export default function PackageDetailsPage() {
               </div>
 
               <div className="space-y-4">
-                {(isEditing ? editedInclusions : packageDetails.inclusions).map(
-                  (inclusion, index) => (
+                {isEditing ? (
+                  editedInclusions.map((inclusion, index) => (
                     <div
                       key={index}
-                      className={`border-l-4 border-green-500 pl-4 ${
-                        isEditing ? "bg-gray-50 p-4 rounded-r-lg" : ""
-                      }`}
-                      draggable={isEditing}
+                      className={`border-l-4 border-green-500 pl-4 bg-gray-50 p-4 rounded-r-lg`}
+                      draggable
                       onDragStart={(e) => handleDragStart(e, index)}
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleDrop(e, index)}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center space-x-2 flex-1">
-                          {isEditing && (
-                            <GripVertical className="h-5 w-5 text-gray-400 cursor-grab" />
-                          )}
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={inclusion.name}
-                              onChange={(e) =>
-                                handleInclusionNameChange(index, e.target.value)
-                              }
-                              className="font-semibold text-gray-900 bg-white border border-gray-300 rounded px-2 py-1 flex-1"
-                            />
-                          ) : (
-                            <h3 className="font-semibold text-gray-900">
-                              {inclusion.name}
-                            </h3>
-                          )}
+                          <GripVertical className="h-5 w-5 text-gray-400 cursor-grab" />
+                          <input
+                            type="text"
+                            value={inclusion.name}
+                            onChange={(e) =>
+                              handleInclusionNameChange(index, e.target.value)
+                            }
+                            className="font-semibold text-gray-900 bg-white border border-gray-300 rounded px-2 py-1 flex-1"
+                          />
                         </div>
                         <div className="flex items-center space-x-2">
-                          {isEditing ? (
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm text-gray-500">₱</span>
-                              <input
-                                type="number"
-                                value={inclusion.price}
-                                onChange={(e) =>
-                                  handleInclusionPriceChange(
-                                    index,
-                                    Number(e.target.value)
-                                  )
-                                }
-                                className="text-lg font-bold text-green-600 bg-white border border-gray-300 rounded px-2 py-1 w-24 text-right"
-                              />
-                              <button
-                                onClick={() => handleRemoveInclusion(index)}
-                                className="text-red-600 hover:text-red-800"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-lg font-bold text-green-600">
-                              ₱{inclusion.price.toLocaleString()}
-                            </span>
-                          )}
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm text-gray-500">₱</span>
+                            <input
+                              type="number"
+                              value={inclusion.price}
+                              onChange={(e) =>
+                                handleInclusionPriceChange(
+                                  index,
+                                  Number(e.target.value)
+                                )
+                              }
+                              className="text-lg font-bold text-green-600 bg-white border border-gray-300 rounded px-2 py-1 w-24 text-right"
+                            />
+                            <button
+                              onClick={() => handleRemoveInclusion(index)}
+                              className="text-red-600 hover:text-red-800"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                       {inclusion.components.length > 0 && (
@@ -648,9 +638,7 @@ export default function PackageDetailsPage() {
                                 <span className="text-gray-700">
                                   {component.name}
                                 </span>
-                                <span className="text-gray-600">
-                                  ₱{component.price.toLocaleString()}
-                                </span>
+                                {/* price removed as requested */}
                               </div>
                               {component.subComponents.length > 0 && (
                                 <div className="ml-4 mt-1 space-y-1">
@@ -661,9 +649,7 @@ export default function PackageDetailsPage() {
                                         className="flex items-center justify-between text-sm text-gray-600"
                                       >
                                         <span>• {subComp.name}</span>
-                                        <span>
-                                          ₱{subComp.price.toLocaleString()}
-                                        </span>
+                                        {/* price removed as requested */}
                                       </div>
                                     )
                                   )}
@@ -674,7 +660,67 @@ export default function PackageDetailsPage() {
                         </div>
                       )}
                     </div>
-                  )
+                  ))
+                ) : (
+                  <Accordion type="multiple" className="space-y-2">
+                    {packageDetails.inclusions.map((inclusion, index) => (
+                      <AccordionItem
+                        key={index}
+                        value={`inc-${index}`}
+                        className="border-l-4 border-green-500 pl-4"
+                      >
+                        <AccordionTrigger className="py-2">
+                          <div className="flex items-center justify-between w-full">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-semibold text-gray-900">
+                                {inclusion.name}
+                              </span>
+                            </div>
+                            <span className="text-lg font-bold text-green-600">
+                              ₱{inclusion.price.toLocaleString()}
+                            </span>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          {inclusion.components.length > 0 ? (
+                            <div className="space-y-2 ml-4">
+                              {inclusion.components.map(
+                                (component, compIndex) => (
+                                  <div key={compIndex}>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-gray-700">
+                                        {component.name}
+                                      </span>
+                                      {/* price removed as requested */}
+                                    </div>
+                                    {component.subComponents.length > 0 && (
+                                      <div className="ml-4 mt-1 space-y-1">
+                                        {component.subComponents.map(
+                                          (subComp, subIndex) => (
+                                            <div
+                                              key={subIndex}
+                                              className="flex items-center justify-between text-sm text-gray-600"
+                                            >
+                                              <span>• {subComp.name}</span>
+                                              {/* price removed as requested */}
+                                            </div>
+                                          )
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-500 ml-4">
+                              No components
+                            </div>
+                          )}
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
                 )}
 
                 {isEditing && (

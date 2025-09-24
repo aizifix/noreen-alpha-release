@@ -101,9 +101,9 @@ export default function OrganizerEventsPage() {
             operation: "getOrganizerProfile",
             user_id: userData.user_id,
           });
-          if (organizerResponse.data?.status === "success") {
+          if (organizerResponse.status === "success") {
             setOrganizerId(
-              organizerResponse.data.data?.organizer_id || userData.user_id
+              (organizerResponse.data as any)?.organizer_id || userData.user_id
             );
           } else {
             setOrganizerId(userData.user_id);
@@ -186,10 +186,10 @@ export default function OrganizerEventsPage() {
           user_id: organizerUserId,
         });
 
-        console.log("📡 Organizer profile response:", organizerResponse.data);
+        console.log("📡 Organizer profile response:", organizerResponse);
 
-        if (organizerResponse.data.status === "success") {
-          organizerId = organizerResponse.data.data.organizer_id;
+        if (organizerResponse.status === "success") {
+          organizerId = (organizerResponse.data as any).organizer_id;
           console.log("✅ Found organizer ID:", organizerId);
         } else {
           console.warn(
@@ -210,63 +210,65 @@ export default function OrganizerEventsPage() {
           operation: "getOrganizerEvents",
           organizer_id: organizerId,
         });
-        console.log("📡 Events API Response:", eventsResponse.data);
-        if (eventsResponse.data.status === "success") {
-          const raw = eventsResponse.data.data || [];
+        console.log("📡 Events API Response:", eventsResponse);
+        if (eventsResponse.status === "success") {
+          const raw = (eventsResponse.data as any[]) || [];
           assignedEvents = dedupeById(raw.map(normalizeEvent));
         } else {
-          console.warn("⚠️ API returned error:", eventsResponse.data.message);
+          console.warn(
+            "⚠️ API returned error:",
+            (eventsResponse as any).message
+          );
         }
       } catch (e) {
         console.warn("⚠️ API error; falling back to attachments for invites");
       }
+      // Always also scan attachments for organizer_invites and merge
+      let attachmentPending: Event[] = [];
+      try {
+        const response = await adminApi.post({ operation: "getAllEvents" });
+        const allEvents =
+          response.data?.status === "success" ? response.data.events || [] : [];
+        const pendingEvents = allEvents.filter((e: any) => {
+          try {
+            const attachments = e.event_attachments
+              ? JSON.parse(e.event_attachments)
+              : e.attachments;
+            if (!attachments || !Array.isArray(attachments)) return false;
+            const invite = attachments.find(
+              (a: any) => a.attachment_type === "organizer_invites"
+            );
+            if (!invite || !invite.description) return false;
+            const data = JSON.parse(invite.description);
+            const isPending = Array.isArray(data.pending)
+              ? data.pending.includes(String(organizerId)) ||
+                data.pending.includes(String(organizerUserId))
+              : false;
+            return isPending;
+          } catch {
+            return false;
+          }
+        });
+        attachmentPending = dedupeById(pendingEvents.map(normalizeEvent));
+      } catch {}
 
-      if (assignedEvents.length === 0) {
-        // Fallback path: parse organizer_invites from admin getAllEvents
-        try {
-          const response = await adminApi.post({ operation: "getAllEvents" });
-          const allEvents =
-            response.data?.status === "success"
-              ? response.data.events || []
-              : [];
-          const pendingEvents = allEvents.filter((e: any) => {
-            try {
-              const attachments = e.event_attachments
-                ? JSON.parse(e.event_attachments)
-                : e.attachments;
-              if (!attachments || !Array.isArray(attachments)) return false;
-              const invite = attachments.find(
-                (a: any) => a.attachment_type === "organizer_invites"
-              );
-              if (!invite || !invite.description) return false;
-              const data = JSON.parse(invite.description);
-              const isPending = Array.isArray(data.pending)
-                ? data.pending.includes(String(organizerId)) ||
-                  data.pending.includes(String(organizerUserId))
-                : false;
-              return isPending;
-            } catch {
-              return false;
-            }
-          });
-          setPendingInvites(dedupeById(pendingEvents.map(normalizeEvent)));
-          // Keep events list minimal on fallback
-          setEvents(
-            pendingEvents.length
-              ? dedupeById(pendingEvents.map(normalizeEvent))
-              : sampleEvents
-          );
-        } catch (_f) {
-          setEvents(sampleEvents);
-          setPendingInvites([]);
-        }
-      } else {
-        setEvents(assignedEvents);
-        const pendingEvents = assignedEvents.filter(
-          (e: any) => e.assignment_status === "assigned"
-        );
-        setPendingInvites(pendingEvents);
-      }
+      // Merge final events and pending invites
+      setEvents(
+        assignedEvents.length > 0
+          ? assignedEvents
+          : attachmentPending.length > 0
+            ? attachmentPending
+            : sampleEvents
+      );
+      const assignedPending = assignedEvents.filter(
+        (e: any) => e.assignment_status === "assigned"
+      );
+      const mergedPendingMap = new Map<number, Event>();
+      for (const p of assignedPending) mergedPendingMap.set(p.event_id, p);
+      for (const p of attachmentPending)
+        if (!mergedPendingMap.has(p.event_id))
+          mergedPendingMap.set(p.event_id, p);
+      setPendingInvites(Array.from(mergedPendingMap.values()));
     } catch (error) {
       console.error("❌ Error fetching organizer events:", error);
       // Fallback to sample data if API fails
@@ -283,17 +285,10 @@ export default function OrganizerEventsPage() {
     );
   }, [pendingInvites]);
 
-  // Merge pending invites into calendar dataset so they appear on their dates
+  // Show ONLY pending invites on the calendar per requirement
   const calendarEvents = useMemo(() => {
-    const byId = new Map<number, Event>();
-    for (const ev of events) byId.set(ev.event_id, ev);
-    for (const inv of pendingInvites) {
-      if (!byId.has(inv.event_id)) {
-        byId.set(inv.event_id, inv);
-      }
-    }
-    return Array.from(byId.values());
-  }, [events, pendingInvites]);
+    return [...pendingInvites];
+  }, [pendingInvites]);
 
   const pendingInviteIds = useMemo(() => {
     return new Set(pendingInvites.map((e) => e.event_id));
@@ -304,7 +299,6 @@ export default function OrganizerEventsPage() {
     const key = String(eventItem.event_id);
     if (decisions[key]?.status === "accepted") return;
     const assignmentId = await getAssignmentIdForEvent(eventItem.event_id);
-    if (!assignmentId) return;
     try {
       console.debug("[Organizer] Accept invite:request", {
         eventId: eventItem.event_id,
@@ -313,7 +307,8 @@ export default function OrganizerEventsPage() {
       });
       await organizerApi.post({
         operation: "updateAssignmentStatus",
-        assignment_id: assignmentId,
+        ...(assignmentId ? { assignment_id: assignmentId } : {}),
+        event_id: eventItem.event_id,
         status: "accepted",
         organizer_id: organizerId ?? 0,
       });
@@ -343,7 +338,6 @@ export default function OrganizerEventsPage() {
   const handleRejectInvite = async (eventItem: Event) => {
     const key = String(eventItem.event_id);
     const assignmentId = await getAssignmentIdForEvent(eventItem.event_id);
-    if (!assignmentId) return;
     try {
       console.debug("[Organizer] Reject invite:request", {
         eventId: eventItem.event_id,
@@ -352,7 +346,8 @@ export default function OrganizerEventsPage() {
       });
       await organizerApi.post({
         operation: "updateAssignmentStatus",
-        assignment_id: assignmentId,
+        ...(assignmentId ? { assignment_id: assignmentId } : {}),
+        event_id: eventItem.event_id,
         status: "rejected",
         organizer_id: organizerId ?? 0,
       });
@@ -731,37 +726,40 @@ export default function OrganizerEventsPage() {
 
   return (
     <div className="p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      {/* Header - mirror admin layout */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
+        <div className="space-y-2">
           <h1 className="text-3xl font-bold text-gray-900">Event Management</h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-gray-600">
             Manage your assigned events and invitations
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            className={`px-4 py-2 rounded-lg font-semibold border transition-colors ${
-              view === "calendar"
-                ? "bg-brand-500 text-white border-brand-500"
-                : "bg-white text-brand-700 border-brand-500 hover:bg-brand-50"
-            }`}
-            onClick={() => setView("calendar")}
-          >
-            <CalendarDays className="h-4 w-4 inline mr-2" />
-            Calendar
-          </button>
-          <button
-            className={`px-4 py-2 rounded-lg font-semibold border transition-colors ${
-              view === "list"
-                ? "bg-brand-500 text-white border-brand-500"
-                : "bg-white text-brand-700 border-brand-500 hover:bg-brand-50"
-            }`}
-            onClick={() => setView("list")}
-          >
-            <List className="h-4 w-4 inline mr-2" />
-            List
-          </button>
+
+        <div className="flex items-center gap-3">
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            <button
+              className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-all duration-200 ${
+                view === "calendar"
+                  ? "bg-white text-[#028A75] shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+              onClick={() => setView("calendar")}
+            >
+              <CalendarDays className="h-4 w-4" />
+              Calendar
+            </button>
+            <button
+              className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-all duration-200 ${
+                view === "list"
+                  ? "bg-white text-[#028A75] shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+              onClick={() => setView("list")}
+            >
+              <List className="h-4 w-4" />
+              List
+            </button>
+          </div>
         </div>
       </div>
 

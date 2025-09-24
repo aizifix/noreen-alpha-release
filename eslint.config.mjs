@@ -11,6 +11,13 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    rules: {
+      // Warn on console usage during development; CI can treat warnings as errors
+      "no-console": ["warn", { allow: ["error", "warn"] }],
+      "no-debugger": "warn",
+    },
+  },
 ];
 
 export default eslintConfig;

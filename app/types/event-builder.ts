@@ -174,6 +174,7 @@ export interface ComponentCustomizationProps {
   onNext?: () => void;
   eventDetails?: EventDetails;
   isStartFromScratch?: boolean;
+  selectedPackageId?: string | null;
 }
 
 export interface TimelineStepProps {

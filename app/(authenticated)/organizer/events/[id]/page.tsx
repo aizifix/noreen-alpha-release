@@ -215,7 +215,8 @@ export default function OrganizerEventDetailsPage() {
         "http://localhost/events-api/organizer.php",
         {
           operation: "updateAssignmentStatus",
-          assignment_id: Number(assignmentId),
+          ...(assignmentId ? { assignment_id: Number(assignmentId) } : {}),
+          event_id: event.event_id,
           status,
           organizer_id: organizerId ?? 0,
         },

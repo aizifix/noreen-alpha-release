@@ -19,6 +19,7 @@ import {
   Building,
 } from "lucide-react";
 import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { formatCurrency } from "@/lib/utils";
 import {
   eventPackages,
@@ -102,6 +103,7 @@ export function ComponentCustomization({
   onUpdate,
   eventDetails,
   isStartFromScratch = false,
+  selectedPackageId,
 }: ComponentCustomizationProps & { selectedVenue?: any }) {
   const [componentList, setComponentList] = useState<DataPackageComponent[]>(
     initialComponents as DataPackageComponent[]
@@ -111,9 +113,6 @@ export function ComponentCustomization({
   >([]);
   const [guestCount, setGuestCount] = useState<number>(100);
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
-  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(
-    null
-  );
   const [activeTab, setActiveTab] = useState("noreen-components");
   const [editingComponent, setEditingComponent] =
     useState<DataPackageComponent | null>(null);
@@ -149,6 +148,58 @@ export function ComponentCustomization({
       setComponentList(nonVenueComponents);
     }
   }, [initialComponents]);
+
+  // Fetch inclusions from API whenever a package is selected/changes
+  useEffect(() => {
+    const fetchPackageComponents = async (pkgId: string) => {
+      try {
+        const response = await axios.get(endpoints.admin, {
+          params: {
+            operation: "getPackageDetails",
+            package_id: pkgId,
+          },
+        });
+
+        if (response.data?.status === "success") {
+          const packageData = response.data.package;
+          const inclusions = packageData?.inclusions || [];
+
+          const mapped: DataPackageComponent[] = inclusions.map(
+            (inc: any, incIndex: number) => ({
+              id: `inc-${String(pkgId)}-${incIndex}`,
+              name: inc.name,
+              price: parseFloat(inc.price) || 0,
+              description: inc.name,
+              category: "package" as ComponentCategory,
+              included: true,
+              isCustom: false,
+              isExpanded: false,
+              subComponents:
+                (inc.components || []).map((comp: any, compIndex: number) => ({
+                  id: `inc-${String(pkgId)}-${incIndex}-comp-${compIndex}`,
+                  name: comp.name,
+                  quantity: 1,
+                  // Do not double-count nested items in totals; show detail only
+                  unitPrice: 0,
+                  description: Array.isArray(comp.subComponents)
+                    ? comp.subComponents.map((sc: any) => sc.name).join(", ")
+                    : undefined,
+                })) || [],
+            })
+          );
+
+          setComponentList(mapped);
+          onUpdate([...venueComponents, ...mapped]);
+        }
+      } catch (error) {
+        console.error("Failed to fetch package components:", error);
+      }
+    };
+
+    if (selectedPackageId) {
+      fetchPackageComponents(String(selectedPackageId));
+    }
+  }, [selectedPackageId]);
 
   // Load venue as a single component when venueId changes
   useEffect(() => {
@@ -208,14 +259,11 @@ export function ComponentCustomization({
     const fetchSuppliers = async () => {
       try {
         setIsLoadingSuppliers(true);
-        const response = await axios.post(
-          "http://localhost/events-api/admin.php",
-          {
-            operation: "getSuppliersForEventBuilder",
-            page: 1,
-            limit: 100, // Get all suppliers
-          }
-        );
+        const response = await axios.post(endpoints.admin, {
+          operation: "getSuppliersForEventBuilder",
+          page: 1,
+          limit: 100, // Get all suppliers
+        });
 
         if (response.data.status === "success") {
           setSuppliers(response.data.data?.suppliers || []);
@@ -423,6 +471,7 @@ export function ComponentCustomization({
 
   // Get category display name
   const getCategoryName = (category: string) => {
+    const key = (category || "").toLowerCase();
     const names: Record<string, string> = {
       coordination: "Coordination",
       venue: "Venue & Food",
@@ -435,8 +484,9 @@ export function ComponentCustomization({
       transportation: "Transportation",
       equipment: "Equipment",
       decoration: "Decoration",
+      package: "Package",
     };
-    return names[category] || category;
+    return names[key] || category;
   };
 
   // Filter out venue inclusions from customizable components
@@ -482,6 +532,25 @@ export function ComponentCustomization({
     );
   };
 
+  // Render helper: if description contains commas, show as a bullet list instead of a single paragraph
+  const renderDescriptionAsList = (description?: string) => {
+    if (!description) return null;
+    const parts = description
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length > 1) {
+      return (
+        <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground">
+          {parts.map((item, idx) => (
+            <li key={`desc-item-${idx}`}>{item}</li>
+          ))}
+        </ul>
+      );
+    }
+    return <p className="text-sm text-muted-foreground">{description}</p>;
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -524,7 +593,7 @@ export function ComponentCustomization({
         <AlertDescription className="flex items-center">
           <Lock className="h-4 w-4 mr-2" />
           <span>
-            These items are included with your venue package and cannot be
+            These items are included with your venue Package and cannot be
             modified. The price is calculated based on your selected guest count
             ({guestCount} guests).
           </span>
@@ -573,11 +642,59 @@ export function ComponentCustomization({
                             </span>
                           )}
                         </div>
-                        {isStartFromScratch && component.description && (
-                          <p className="text-sm text-gray-600 ml-6">
-                            {component.description}
-                          </p>
+                        {component.description && (
+                          <div className="ml-6">
+                            {renderDescriptionAsList(component.description)}
+                          </div>
                         )}
+                        {Array.isArray((component as any).venueInclusions) &&
+                          (component as any).venueInclusions.length > 0 && (
+                            <div className="ml-6">
+                              <Accordion type="multiple" className="space-y-2">
+                                {(component as any).venueInclusions.map(
+                                  (inc: any, incIdx: number) => (
+                                    <AccordionItem
+                                      key={`venue-inc-${String(
+                                        inc.inclusion_id ?? inc.id ?? inc.name
+                                      )}-${incIdx}`}
+                                      value={`venue-inc-${String(
+                                        inc.inclusion_id ?? inc.id ?? inc.name
+                                      )}-${incIdx}`}
+                                      className="border-b last:border-b-0"
+                                    >
+                                      <AccordionTrigger className="p-0 text-sm">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-medium">
+                                            {inc.inclusion_name ?? inc.name}
+                                          </span>
+                                          {typeof inc.inclusion_price ===
+                                            "number" && (
+                                            <Badge
+                                              variant="outline"
+                                              className="ml-2"
+                                            >
+                                              {formatCurrency(
+                                                inc.inclusion_price || 0
+                                              )}
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      </AccordionTrigger>
+                                      <AccordionContent>
+                                        {(inc.inclusion_description ||
+                                          inc.description) && (
+                                          <p className="text-xs text-muted-foreground">
+                                            {inc.inclusion_description ||
+                                              inc.description}
+                                          </p>
+                                        )}
+                                      </AccordionContent>
+                                    </AccordionItem>
+                                  )
+                                )}
+                              </Accordion>
+                            </div>
+                          )}
                       </div>
                     ))}
                   </div>
@@ -651,10 +768,10 @@ export function ComponentCustomization({
                     </div>
                     <div className="space-y-4">
                       <Accordion type="multiple" className="space-y-2">
-                        {categoryComponents.map((component) => (
+                        {categoryComponents.map((component, idx) => (
                           <AccordionItem
-                            key={component.id}
-                            value={component.id}
+                            key={`${component.category}-${component.id}-${idx}`}
+                            value={`${component.category}-${component.id}-${idx}`}
                             className="border-b last:border-b-0 border-green-100 pb-3"
                           >
                             <div className="flex items-center justify-between">
@@ -724,6 +841,33 @@ export function ComponentCustomization({
                                 )}
                               </div>
                             </div>
+                            <AccordionContent className="pl-8">
+                              {component.description && (
+                                <div className="mb-2">
+                                  {renderDescriptionAsList(
+                                    component.description
+                                  )}
+                                </div>
+                              )}
+                              {Array.isArray(component.subComponents) &&
+                                component.subComponents.length > 0 && (
+                                  <div className="space-y-1">
+                                    {component.subComponents.map((sub) => (
+                                      <div
+                                        key={`${component.id}-sub-${sub.id}`}
+                                        className="flex items-center justify-between text-sm"
+                                      >
+                                        <span className="text-gray-700">
+                                          {sub.name}
+                                        </span>
+                                        <span className="text-gray-900">
+                                          {formatCurrency(sub.unitPrice || 0)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                            </AccordionContent>
                           </AccordionItem>
                         ))}
                       </Accordion>

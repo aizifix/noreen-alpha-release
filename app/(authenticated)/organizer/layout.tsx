@@ -219,51 +219,58 @@ export default function OrganizerLayout({
         const assigned = (res.data.data || []).filter(
           (evt: any) => (evt.assignment_status || evt.status) === "assigned"
         );
+        // Always also merge attachment invites
+        let attachmentInvites: any[] = [];
+        try {
+          const response = await axios.post(
+            "http://localhost/events-api/admin.php",
+            { operation: "getAllEvents" }
+          );
+          const allEvents =
+            response.data?.status === "success"
+              ? response.data.events || []
+              : [];
+          attachmentInvites = allEvents.filter((e: any) => {
+            try {
+              const attachments = e.event_attachments
+                ? JSON.parse(e.event_attachments)
+                : e.attachments;
+              if (!attachments || !Array.isArray(attachments)) return false;
+              const invite = attachments.find(
+                (a: any) => a.attachment_type === "organizer_invites"
+              );
+              if (!invite || !invite.description) return false;
+              const data = JSON.parse(invite.description);
+              const isPending = Array.isArray(data.pending)
+                ? data.pending.includes(String(orgId)) ||
+                  data.pending.includes(
+                    String(secureStorage.getItem("user")?.user_id)
+                  )
+                : false;
+              return isPending;
+            } catch {
+              return false;
+            }
+          });
+        } catch {}
+
         // Exclude those already locally decided
-        const filtered = assigned.filter(
-          (e: any) => !decisions[String(e.event_id)]?.status
+        const decided = new Set(
+          Object.entries(decisions)
+            .filter(([, v]) => v?.status)
+            .map(([k]) => Number(k))
         );
-        if (filtered.length > 0) {
-          setPendingInvites(filtered);
-        } else {
-          // Fallback to legacy invites via attachments if no rows returned
-          try {
-            const response = await axios.post(
-              "http://localhost/events-api/admin.php",
-              { operation: "getAllEvents" }
-            );
-            const allEvents =
-              response.data?.status === "success"
-                ? response.data.events || []
-                : [];
-            const invites = allEvents.filter((e: any) => {
-              try {
-                const attachments = e.event_attachments
-                  ? JSON.parse(e.event_attachments)
-                  : e.attachments;
-                if (!attachments || !Array.isArray(attachments)) return false;
-                const invite = attachments.find(
-                  (a: any) => a.attachment_type === "organizer_invites"
-                );
-                if (!invite || !invite.description) return false;
-                const data = JSON.parse(invite.description);
-                const isPending = Array.isArray(data.pending)
-                  ? data.pending.includes(String(orgId)) ||
-                    data.pending.includes(
-                      String(secureStorage.getItem("user")?.user_id)
-                    )
-                  : false;
-                const decision = decisions[String(e.event_id)]?.status;
-                return isPending && !decision;
-              } catch {
-                return false;
-              }
-            });
-            setPendingInvites(invites);
-          } catch {
-            setPendingInvites([]);
-          }
-        }
+        const merged = new Map<number, any>();
+        for (const e of assigned)
+          if (!decided.has(Number(e.event_id)))
+            merged.set(Number(e.event_id), e);
+        for (const e of attachmentInvites)
+          if (
+            !decided.has(Number(e.event_id)) &&
+            !merged.has(Number(e.event_id))
+          )
+            merged.set(Number(e.event_id), e);
+        setPendingInvites(Array.from(merged.values()));
       } else {
         // API error: fallback to legacy invites via attachments
         try {
@@ -342,6 +349,16 @@ export default function OrganizerLayout({
     }
   };
 
+  // Periodically refresh pending invites so the bell badge updates near real-time
+  useEffect(() => {
+    if (!organizerId) return;
+    const id = window.setInterval(
+      () => fetchPendingInvites(organizerId),
+      15000
+    );
+    return () => window.clearInterval(id);
+  }, [organizerId, decisions]);
+
   const persistDecisions = (
     userId: number,
     next: Record<string, { status: "accepted" | "rejected" }>
@@ -397,7 +414,8 @@ export default function OrganizerLayout({
           "http://localhost/events-api/organizer.php",
           {
             operation: "updateAssignmentStatus",
-            assignment_id: assignmentId,
+            ...(assignmentId ? { assignment_id: assignmentId } : {}),
+            event_id: eventItem.event_id,
             status,
             organizer_id: orgId,
           },

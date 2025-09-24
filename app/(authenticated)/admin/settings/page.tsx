@@ -60,6 +60,7 @@ interface WebsiteSettings {
   social_facebook: string;
   social_instagram: string;
   social_twitter: string;
+  require_otp_on_login?: boolean | number;
 }
 
 interface Feedback {
@@ -114,6 +115,7 @@ export default function SettingsPage() {
     social_facebook: "",
     social_instagram: "",
     social_twitter: "",
+    require_otp_on_login: 1,
   });
 
   // Feedback state
@@ -219,6 +221,10 @@ export default function SettingsPage() {
           social_facebook: settings.social_facebook || "",
           social_instagram: settings.social_instagram || "",
           social_twitter: settings.social_twitter || "",
+          require_otp_on_login:
+            typeof settings.require_otp_on_login !== "undefined"
+              ? settings.require_otp_on_login
+              : 1,
         });
       }
     } catch (error) {
@@ -323,14 +329,14 @@ export default function SettingsPage() {
     }
   };
 
-  const handleWebsiteSettingsUpdate = async () => {
+  const saveWebsiteSettings = async (settings: WebsiteSettings) => {
     try {
       setIsSaving(true);
       const response = await axios.post(
         "http://localhost/events-api/admin.php",
         {
           operation: "updateWebsiteSettings",
-          settings: websiteSettings,
+          settings,
         }
       );
 
@@ -351,6 +357,10 @@ export default function SettingsPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleWebsiteSettingsUpdate = async () => {
+    await saveWebsiteSettings(websiteSettings);
   };
 
   const handleFileUpload = async (file: File, type: string) => {
@@ -561,6 +571,25 @@ export default function SettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-base">Require OTP on Login</Label>
+                  <p className="text-sm text-gray-500">
+                    When off, users will log in without OTP verification.
+                  </p>
+                </div>
+                <Switch
+                  checked={!!websiteSettings.require_otp_on_login}
+                  onCheckedChange={async (checked: boolean) => {
+                    const newSettings = {
+                      ...websiteSettings,
+                      require_otp_on_login: checked ? 1 : 0,
+                    } as WebsiteSettings;
+                    setWebsiteSettings(newSettings);
+                    await saveWebsiteSettings(newSettings);
+                  }}
+                />
+              </div>
               {/* Profile Picture */}
               <div className="flex items-center space-x-6">
                 <div className="relative">

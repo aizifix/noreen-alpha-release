@@ -1474,10 +1474,11 @@ function PackageInclusionsManagement({
           component_id: componentId,
           payment_status: newStatus,
           payment_notes: `Status changed to ${newStatus} by admin`,
-        }
+        },
+        { validateStatus: () => true }
       );
 
-      if (response.data.status === "success") {
+      if (response.data?.status === "success") {
         // Update local state
         setComponents(
           components.map((comp) =>

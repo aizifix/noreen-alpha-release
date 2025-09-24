@@ -114,6 +114,61 @@ const LoginPage = () => {
 
         // Immediate redirect to OTP page
         router.push("/auth/verify-otp");
+      } else if (response.data.status === "success" && response.data.user) {
+        // Direct login success (OTP may be disabled globally). Check per-user OTP preference for organizer/vendor.
+        try {
+          const userData = response.data.user;
+          const role = (userData.user_role || "").toLowerCase();
+
+          // If organizer/vendor has personal OTP preference enabled, request OTP and route to verification
+          let personalOtpOn = false;
+          try {
+            const key = `organizer_otp_preference_${userData.user_id}`;
+            const raw =
+              typeof window !== "undefined" ? localStorage.getItem(key) : null;
+            personalOtpOn = raw === "1" || raw === "true" || raw === "TRUE";
+          } catch {}
+
+          if ((role === "organizer" || role === "vendor") && personalOtpOn) {
+            // Explicitly request OTP
+            const fd = new FormData();
+            fd.append("operation", "request_otp");
+            fd.append("user_id", String(userData.user_id));
+            fd.append("email", userData.user_email || "");
+
+            const otpResp = await axios.post(`${API_URL}/auth.php`, fd, {
+              headers: { "Content-Type": "multipart/form-data" },
+            });
+
+            if (otpResp.data?.status === "otp_sent") {
+              document.cookie = `pending_otp_user_id=${userData.user_id}; path=/`;
+              document.cookie = `pending_otp_email=${userData.user_email}; path=/`;
+              toast({
+                title: "OTP sent",
+                description: "Check your email for the code.",
+              });
+              // Do NOT store user yet; require OTP verification
+              router.push("/auth/verify-otp");
+              return;
+            }
+            // If OTP request failed, fall back to normal login
+          }
+
+          // Store user securely and redirect based on role
+          const { secureStorage } = await import("@/app/utils/encryption");
+          secureStorage.setItem("user", userData);
+
+          if (role === "admin") router.replace("/admin/dashboard");
+          else if (role === "organizer") router.replace("/organizer/dashboard");
+          else router.replace("/client/dashboard");
+        } catch (e) {
+          console.error("Post-login handling error:", e);
+          toast({
+            title: "Login error",
+            description: "Please try again.",
+            variant: "destructive",
+          });
+        }
       } else if (response.data.status === "error") {
         toast({
           title: "Login failed",

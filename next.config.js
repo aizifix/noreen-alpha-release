@@ -10,6 +10,13 @@ const nextConfig = {
   // Disable source maps for better performance
   productionBrowserSourceMaps: false,
 
+  // Remove console.* calls in production builds (keeps errors if excluded)
+  compiler: {
+    removeConsole: {
+      exclude: ["error"],
+    },
+  },
+
   // Optimize webpack configuration
   webpack: (config, { dev, isServer }) => {
     // Disable source maps in development

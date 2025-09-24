@@ -729,59 +729,65 @@ export default function EventBuilderPage() {
 
   // Calculate total budget based on actual components and their prices
   const getTotalBudget = () => {
+    // If we have a package and base price, start there and apply deltas
+    if (selectedPackageId && originalPackagePrice != null) {
+      let total = Number(originalPackagePrice) || 0;
+
+      // Apply component deltas
+      components.forEach((component: any) => {
+        if (component.category === "venue") {
+          return; // base already includes venue; overflow handled below
+        }
+
+        const componentPrice =
+          Number(component.supplierPrice ?? component.price ?? 0) || 0;
+
+        // Package components: subtract if unchecked
+        if (component.category === "package") {
+          if (component.included === false) {
+            total -= componentPrice;
+          }
+          return;
+        }
+
+        // Custom/supplier/extras: add if included
+        if (component.included !== false) {
+          total += componentPrice;
+        }
+      });
+
+      // Add overflow charge if guest count exceeds base capacity
+      if (selectedVenue && selectedVenue.venue_price) {
+        const extraPaxRate = parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
+        const guestCount = eventDetails.capacity || 100;
+        const overflowCharge =
+          guestCount > 100 ? Math.max(0, guestCount - 100) * extraPaxRate : 0;
+        if (overflowCharge > 0) {
+          total += overflowCharge;
+        }
+      }
+
+      return total;
+    }
+
+    // Start-from-scratch mode: sum of included components plus venue
     let total = 0;
-
-    console.log("Calculating total budget...");
-    console.log("Components:", components);
-    console.log("Selected venue:", selectedVenue);
-
-    // Calculate from all components (package components, venue inclusions, custom components)
     components.forEach((component: any) => {
       if (component.included !== false) {
-        // Use supplier price if assigned, otherwise use component price
         const componentPrice = component.supplierPrice || component.price || 0;
         total += componentPrice;
-        console.log(
-          `Component ${component.name}: ${componentPrice} (total: ${total})`
-        );
       }
     });
 
-    // Add venue price if selected (including overflow charges)
     if (selectedVenue && selectedVenue.venue_price) {
       const baseVenuePrice = parseFloat(selectedVenue.venue_price) || 0;
       const extraPaxRate = parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
       const guestCount = eventDetails.capacity || 100;
       const overflowCharge =
         guestCount > 100 ? Math.max(0, guestCount - 100) * extraPaxRate : 0;
-      const totalVenuePrice = baseVenuePrice + overflowCharge;
-
-      console.log("Venue pricing:", {
-        basePrice: baseVenuePrice,
-        extraPaxRate: extraPaxRate,
-        guestCount: guestCount,
-        overflowCharge: overflowCharge,
-        totalVenuePrice: totalVenuePrice,
-      });
-
-      // Only add venue price if it's not already included in components
-      const venueComponent = components.find(
-        (comp) => comp.category === "venue" && comp.isVenueInclusion
-      );
-
-      if (!venueComponent) {
-        total += totalVenuePrice;
-        console.log(
-          `Adding venue price directly: ${totalVenuePrice} (total: ${total})`
-        );
-      } else {
-        // Update the venue component price to include overflow charges
-        venueComponent.price = totalVenuePrice;
-        console.log(`Updated venue component price: ${totalVenuePrice}`);
-      }
+      total += baseVenuePrice + overflowCharge;
     }
 
-    console.log("Final total budget:", total);
     return total;
   };
 
@@ -949,37 +955,33 @@ export default function EventBuilderPage() {
             }
           }
 
-          // Merge all inclusions (package and venue) as generic components
-          // Add deduplication logic to handle duplicate components from database
+          // Map all inclusions without collapsing; ensure unique, stable IDs even if API omits component_id
           const rawComponents = packageData.components || [];
-          const uniqueComponentsMap = new Map();
-
-          rawComponents.forEach((comp: any) => {
-            const key = `${comp.component_name.toLowerCase().trim()}_${parseFloat(comp.component_price)}`;
-
-            // Only keep the first occurrence of each unique component
-            if (!uniqueComponentsMap.has(key)) {
-              uniqueComponentsMap.set(key, {
-                id: comp.component_id,
-                name: comp.component_name,
-                price: parseFloat(comp.component_price),
-                description: comp.component_description,
-                category: "package",
-                included: true,
-                isCustom: false,
-                originalId: comp.component_id,
-                subComponents:
-                  comp.subcomponents?.map((sub: any) => ({
-                    id: sub.subcomponent_id,
-                    name: sub.subcomponent_name,
-                    price: parseFloat(sub.subcomponent_price),
-                    description: sub.subcomponent_description,
-                  })) || [],
-              });
-            }
-          });
-
-          const packageComponents = Array.from(uniqueComponentsMap.values());
+          const packageComponents = rawComponents.map(
+            (comp: any, idx: number) => ({
+              id: String(
+                comp.component_id ?? comp.id ?? `pkg-${packageId}-comp-${idx}`
+              ),
+              name: comp.component_name,
+              price: parseFloat(comp.component_price) || 0,
+              description: comp.component_description,
+              category: "package",
+              included: true,
+              isCustom: false,
+              originalId: comp.component_id ?? comp.id ?? null,
+              isExpanded: false,
+              subComponents:
+                comp.subcomponents?.map((sub: any, sIdx: number) => ({
+                  id: String(
+                    sub.subcomponent_id ?? sub.id ?? `sub-${idx}-${sIdx}`
+                  ),
+                  name: sub.subcomponent_name,
+                  quantity: 1,
+                  unitPrice: parseFloat(sub.subcomponent_price) || 0,
+                  description: sub.subcomponent_description,
+                })) || [],
+            })
+          );
 
           // Don't add venue inclusions yet - wait for venue selection
           // Only set package components initially
@@ -2529,6 +2531,7 @@ export default function EventBuilderPage() {
           onUpdate={handleComponentsUpdate}
           eventDetails={eventDetails}
           isStartFromScratch={!selectedPackageId}
+          selectedPackageId={selectedPackageId}
         />
       ),
     },

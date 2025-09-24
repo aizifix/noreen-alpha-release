@@ -27,11 +27,12 @@ export async function apiGet<T = any>(
   try {
     const response = await axios.get<ApiResponse<T>>(endpoint, {
       params,
+      validateStatus: () => true,
       ...config,
     });
     return response.data;
   } catch (error) {
-    console.error("API GET Error:", error);
+    // Network error or request setup error
     return {
       status: "error",
       error: error instanceof Error ? error.message : "Unknown error occurred",
@@ -48,10 +49,13 @@ export async function apiPost<T = any, D = any>(
   config?: AxiosRequestConfig
 ): Promise<ApiResponse<T>> {
   try {
-    const response = await axios.post<ApiResponse<T>>(endpoint, data, config);
+    const response = await axios.post<ApiResponse<T>>(endpoint, data, {
+      validateStatus: () => true,
+      ...config,
+    });
     return response.data;
   } catch (error) {
-    console.error("API POST Error:", error);
+    // Network error or request setup error
     return {
       status: "error",
       error: error instanceof Error ? error.message : "Unknown error occurred",

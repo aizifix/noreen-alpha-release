@@ -53,8 +53,8 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
   onOverageWarning,
 }) => {
   // Calculate total component cost
-  const totalComponentCost = components.reduce(
-    (sum, component) => sum + component.price,
+  const totalComponentCost = (components || []).reduce(
+    (sum, component) => sum + (component?.price || 0),
     0
   );
 
@@ -80,8 +80,8 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
   const chartData = [
     // Package components
     ...(components || []).map((component, index) => ({
-      name: component.name,
-      value: component.price,
+      name: component?.name || "Unknown",
+      value: component?.price || 0,
       color: COLORS[(index + 1) % COLORS.length],
       category: "inclusion",
     })),
@@ -110,9 +110,12 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
     return (
       <div className="flex flex-col gap-1 mt-4 max-h-[200px] overflow-y-auto">
         {payload.map((entry: any, index: number) => {
-          const percentage = ((entry.payload.value / total) * 100).toFixed(1);
-          const isOverageItem = entry.payload.category === "overage";
-          const isBufferItem = entry.payload.category === "buffer";
+          const percentage = (
+            ((entry?.payload?.value || 0) / total) *
+            100
+          ).toFixed(1);
+          const isOverageItem = entry?.payload?.category === "overage";
+          const isBufferItem = entry?.payload?.category === "buffer";
 
           return (
             <div
@@ -130,8 +133,8 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
                 style={{ backgroundColor: entry.color }}
               />
               <span className="flex-1">
-                {entry.value} - ₱{entry.payload.value.toLocaleString()} (
-                {percentage}%)
+                {entry?.value || "Unknown"} - ₱
+                {(entry?.payload?.value || 0).toLocaleString()} ({percentage}%)
               </span>
               {isOverageItem && (
                 <AlertTriangle className="w-3 h-3 text-red-500" />
@@ -179,8 +182,9 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
             </span>
           </div>
           <p className="text-sm text-red-700 mt-1">
-            Inclusions exceed package price by ₱{overageAmount.toLocaleString()}
-            . Consider removing inclusions or increasing the package price.
+            Inclusions exceed package price by ₱
+            {(overageAmount || 0).toLocaleString()}. Consider removing
+            inclusions or increasing the package price.
           </p>
         </div>
       )}
@@ -194,8 +198,9 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
             </span>
           </div>
           <p className="text-sm text-green-700 mt-1">
-            ₱{bufferAmount.toLocaleString()} available as coordinator
-            margin/buffer ({marginPercentage.toFixed(1)}% of package price).
+            ₱{(bufferAmount || 0).toLocaleString()} available as coordinator
+            margin/buffer ({(marginPercentage || 0).toFixed(1)}% of package
+            price).
           </p>
         </div>
       )}
@@ -229,9 +234,9 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
                 <Tooltip
                   formatter={(value: number, name: string, props: any) => [
                     `₱${(value || 0).toLocaleString()}`,
-                    props.payload.category === "overage"
+                    props?.payload?.category === "overage"
                       ? "Overage Amount"
-                      : props.payload.category === "buffer"
+                      : props?.payload?.category === "buffer"
                         ? "Buffer/Margin"
                         : "Inclusion Cost",
                   ]}
@@ -305,8 +310,8 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
           {marginPercentage !== 0 && (
             <div className="text-xs text-gray-500 text-center pt-2 border-t">
               {isOverBudget
-                ? `${Math.abs(marginPercentage).toFixed(1)}% over budget`
-                : `${marginPercentage.toFixed(1)}% margin`}
+                ? `${Math.abs(marginPercentage || 0).toFixed(1)}% over budget`
+                : `${(marginPercentage || 0).toFixed(1)}% margin`}
             </div>
           )}
         </div>
@@ -325,7 +330,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
                   className="flex items-center space-x-2 text-sm text-gray-600"
                 >
                   <span className="w-1 h-1 bg-yellow-400 rounded-full"></span>
-                  <span>{freebie}</span>
+                  <span>{freebie || "Unknown"}</span>
                 </div>
               ))}
             </div>

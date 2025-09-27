@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import Image from "next/image";
-import ReCAPTCHA from "react-google-recaptcha";
 import {
   CheckIcon,
   XIcon,
@@ -28,9 +27,6 @@ import { cn } from "@/lib/utils";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
-const SITE_KEY =
-  process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY ||
-  "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"; // Test site key that matches your secret key
 
 interface Step {
   id: string;
@@ -43,7 +39,6 @@ interface FormData {
   firstName: string;
   lastName: string;
   suffix: string;
-  username: string;
   birthdate: string;
   countryCode: string;
   contactNumber: string;
@@ -51,7 +46,7 @@ interface FormData {
   password: string;
   confirmPassword: string;
   agreeToTerms: boolean;
-  captchaResponse: string;
+  mathAnswer: string;
 }
 
 interface PasswordChecks {
@@ -86,7 +81,6 @@ const SignUpPage = () => {
     firstName: "",
     lastName: "",
     suffix: "",
-    username: "",
     birthdate: "",
     countryCode: "+63",
     contactNumber: "",
@@ -94,7 +88,7 @@ const SignUpPage = () => {
     password: "",
     confirmPassword: "",
     agreeToTerms: false,
-    captchaResponse: "",
+    mathAnswer: "",
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -111,7 +105,27 @@ const SignUpPage = () => {
   });
   const [fieldErrors, setFieldErrors] = useState<{ [key: string]: string }>({});
 
+  // Math challenge state
+  const [mathChallenge, setMathChallenge] = useState({ num1: 0, num2: 0 });
+  const [mathValidation, setMathValidation] = useState<
+    "none" | "correct" | "incorrect"
+  >("none");
+
   const router = useRouter();
+
+  // Generate a simple math challenge
+  const generateMathChallenge = () => {
+    const num1 = Math.floor(Math.random() * 9) + 1;
+    const num2 = Math.floor(Math.random() * 9) + 1;
+    setMathChallenge({ num1, num2 });
+    setFormData((prev) => ({ ...prev, mathAnswer: "" }));
+    setMathValidation("none");
+  };
+
+  // Generate math challenge on component mount
+  useEffect(() => {
+    generateMathChallenge();
+  }, []);
 
   // Country codes for phone numbers
   const countryCodes = [
@@ -166,18 +180,6 @@ const SignUpPage = () => {
     }
   }, [router]);
 
-  // Auto-generate username suggestion - with proper safety checks
-  useEffect(() => {
-    const firstName = safeString(formData.firstName);
-    const lastName = safeString(formData.lastName);
-    const currentUsername = safeString(formData.username);
-
-    if (firstName && lastName && !currentUsername) {
-      const suggestion = `${firstName.toLowerCase()}${lastName.toLowerCase()}${Math.floor(Math.random() * 100)}`;
-      setFormData((prev) => ({ ...prev, username: suggestion }));
-    }
-  }, [formData.firstName, formData.lastName]);
-
   // Validate password
   useEffect(() => {
     const password = safeString(formData.password);
@@ -227,9 +229,25 @@ const SignUpPage = () => {
     [formData.countryCode, fieldErrors, countryCodes]
   );
 
-  const handleCaptchaChange = useCallback((token: string | null) => {
-    setFormData((prev) => ({ ...prev, captchaResponse: token || "" }));
-  }, []);
+  // Handle math challenge answer with real-time validation
+  const handleMathAnswerChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const answer = e.target.value;
+      setFormData((prev) => ({ ...prev, mathAnswer: answer }));
+
+      if (answer) {
+        const correctAnswer = mathChallenge.num1 + mathChallenge.num2;
+        if (parseInt(answer) === correctAnswer) {
+          setMathValidation("correct");
+        } else {
+          setMathValidation("incorrect");
+        }
+      } else {
+        setMathValidation("none");
+      }
+    },
+    [mathChallenge]
+  );
 
   // Comprehensive validation with bulletproof error handling
   const validateCurrentStep = useCallback((): boolean => {
@@ -258,34 +276,41 @@ const SignUpPage = () => {
             errors.lastName = "Last name cannot exceed 50 characters";
           }
 
-          // Birthdate validation
+          // Birthdate validation - industry standard
           const birthdate = safeString(formData.birthdate);
           if (isEmptyString(birthdate)) {
             errors.birthdate = "Birthdate is required";
           } else {
             const today = new Date();
             const birthDate = new Date(birthdate);
-            const age = today.getFullYear() - birthDate.getFullYear();
-            if (age < 13) {
-              errors.birthdate = "You must be at least 13 years old";
+
+            // Check if birthdate is valid
+            if (isNaN(birthDate.getTime())) {
+              errors.birthdate = "Please enter a valid birthdate";
+            } else {
+              // Calculate age more accurately
+              let age = today.getFullYear() - birthDate.getFullYear();
+              const monthDiff = today.getMonth() - birthDate.getMonth();
+              if (
+                monthDiff < 0 ||
+                (monthDiff === 0 && today.getDate() < birthDate.getDate())
+              ) {
+                age--;
+              }
+
+              if (birthDate > today) {
+                errors.birthdate = "Birthdate cannot be in the future";
+              } else if (age < 13) {
+                errors.birthdate = `You must be at least 13 years old to register (current age: ${age} years)`;
+              } else if (age > 120) {
+                errors.birthdate = "Please enter a valid birthdate";
+              }
+              // No error message for valid age - let it pass
             }
           }
           break;
 
         case 1: // Account Details
-          // Username validation
-          const username = safeString(formData.username);
-          if (isEmptyString(username)) {
-            errors.username = "Username is required";
-          } else if (username.length < 3) {
-            errors.username = "Username must be at least 3 characters";
-          } else if (username.length > 20) {
-            errors.username = "Username cannot exceed 20 characters";
-          } else if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-            errors.username =
-              "Username can only contain letters, numbers, and underscores";
-          }
-
           // Email validation
           const email = safeString(formData.email);
           if (isEmptyString(email)) {
@@ -339,10 +364,15 @@ const SignUpPage = () => {
             errors.agreeToTerms = "You must agree to the Terms and Conditions";
           }
 
-          // CAPTCHA validation
-          const captchaResponse = safeString(formData.captchaResponse);
-          if (isEmptyString(captchaResponse)) {
-            errors.captchaResponse = "Please complete the CAPTCHA verification";
+          // Math challenge validation
+          const mathAnswer = safeString(formData.mathAnswer);
+          if (isEmptyString(mathAnswer)) {
+            errors.mathAnswer = "Please solve the math problem";
+          } else {
+            const correctAnswer = mathChallenge.num1 + mathChallenge.num2;
+            if (parseInt(mathAnswer) !== correctAnswer) {
+              errors.mathAnswer = "Incorrect answer. Please try again.";
+            }
           }
           break;
 
@@ -417,11 +447,12 @@ const SignUpPage = () => {
 
     setIsLoading(true);
 
-    // CAPTCHA validation (like working login page)
-    if (!formData.captchaResponse) {
+    // Math challenge validation
+    const correctAnswer = mathChallenge.num1 + mathChallenge.num2;
+    if (parseInt(formData.mathAnswer) !== correctAnswer) {
       toast({
-        title: "Complete CAPTCHA",
-        description: "Please complete the CAPTCHA to continue.",
+        title: "Incorrect Math Answer",
+        description: "Please solve the math problem correctly.",
         variant: "destructive",
       });
       setIsLoading(false);
@@ -435,7 +466,6 @@ const SignUpPage = () => {
       formDataToSend.append("firstName", formData.firstName.trim());
       formDataToSend.append("lastName", formData.lastName.trim());
       formDataToSend.append("suffix", formData.suffix.trim());
-      formDataToSend.append("username", formData.username.trim());
       formDataToSend.append("birthdate", formData.birthdate);
       formDataToSend.append(
         "contactNumber",
@@ -444,12 +474,13 @@ const SignUpPage = () => {
       formDataToSend.append("email", formData.email.trim().toLowerCase());
       formDataToSend.append("password", formData.password);
       formDataToSend.append("userRole", "client");
-      formDataToSend.append("captcha", formData.captchaResponse); // Same as login
+      formDataToSend.append("mathAnswer", formData.mathAnswer); // Math challenge instead of captcha
+      formDataToSend.append("captcha", formData.mathAnswer); // Backend expects captcha field
 
       console.log("Signup request data:", {
         operation: "register",
         email: formData.email.trim().toLowerCase(),
-        captcha: formData.captchaResponse ? "present" : "missing",
+        mathAnswer: formData.mathAnswer,
       });
 
       const response = await axios.post(`${API_URL}/auth.php`, formDataToSend, {
@@ -597,15 +628,23 @@ const SignUpPage = () => {
                 className="block text-sm font-medium text-gray-700 mb-1"
               >
                 <Calendar className="inline h-4 w-4 mr-1" />
-                Birthdate <span className="text-gray-400">(Optional)</span>
+                Birthdate <span className="text-red-500">*</span>
               </label>
               <input
                 id="birthdate"
                 type="date"
                 value={formData.birthdate}
                 onChange={(e) => handleInputChange("birthdate", e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                className={cn(
+                  "w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent",
+                  fieldErrors.birthdate ? "border-red-500" : "border-gray-300"
+                )}
               />
+              {fieldErrors.birthdate && (
+                <p className="mt-1 text-sm text-red-500">
+                  {fieldErrors.birthdate}
+                </p>
+              )}
             </div>
           </div>
         );
@@ -613,36 +652,6 @@ const SignUpPage = () => {
       case 1:
         return (
           <div className="space-y-6">
-            {/* Username */}
-            <div>
-              <label
-                htmlFor="username"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                <UserCheck className="inline h-4 w-4 mr-1" />
-                Username <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="username"
-                type="text"
-                value={formData.username}
-                onChange={(e) => handleInputChange("username", e.target.value)}
-                placeholder="Choose a unique username"
-                className={cn(
-                  "w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent",
-                  fieldErrors.username ? "border-red-500" : "border-gray-300"
-                )}
-              />
-              {fieldErrors.username && (
-                <p className="mt-1 text-sm text-red-500">
-                  {fieldErrors.username}
-                </p>
-              )}
-              <p className="mt-1 text-xs text-gray-500">
-                This will be your unique identifier for login
-              </p>
-            </div>
-
             {/* Email */}
             <div>
               <label
@@ -909,15 +918,40 @@ const SignUpPage = () => {
               )}
             </div>
 
-            {/* reCAPTCHA */}
-            <div className="flex justify-center">
-              <ReCAPTCHA sitekey={SITE_KEY} onChange={handleCaptchaChange} />
+            {/* Math Challenge */}
+            <div className="flex flex-col items-center p-4 border rounded-lg bg-gray-50">
+              <label className="mb-2 text-sm font-medium text-gray-700">
+                Please solve this simple math problem:
+              </label>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-2 bg-white border rounded-md text-lg font-medium w-12 h-12 flex items-center justify-center">
+                  {mathChallenge.num1}
+                </div>
+                <div className="text-lg font-medium">+</div>
+                <div className="p-2 bg-white border rounded-md text-lg font-medium w-12 h-12 flex items-center justify-center">
+                  {mathChallenge.num2}
+                </div>
+                <div className="text-lg font-medium">=</div>
+                <input
+                  type="number"
+                  className={`p-2 border rounded-md w-16 h-12 text-center text-lg font-medium focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                    mathValidation === "correct"
+                      ? "border-green-500 bg-green-50 ring-2 ring-green-200"
+                      : mathValidation === "incorrect"
+                        ? "border-red-500 bg-red-50 ring-2 ring-red-200"
+                        : "border-gray-300"
+                  }`}
+                  value={formData.mathAnswer}
+                  onChange={handleMathAnswerChange}
+                  required
+                />
+              </div>
+              {fieldErrors.mathAnswer && (
+                <p className="mt-1 text-sm text-red-500 text-center">
+                  {fieldErrors.mathAnswer}
+                </p>
+              )}
             </div>
-            {fieldErrors.captchaResponse && (
-              <p className="mt-1 text-sm text-red-500 text-center">
-                {fieldErrors.captchaResponse}
-              </p>
-            )}
           </div>
         );
 

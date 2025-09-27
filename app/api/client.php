@@ -1590,6 +1590,126 @@ function getSuppliersWithTiers() {
     }
 }
 
+// Function to get website settings (for OTP toggle)
+function getWebsiteSettings() {
+    global $pdo;
+
+    try {
+        // Check if settings table exists, if not create default settings
+        $checkSql = "SELECT COUNT(*) as count FROM information_schema.tables
+                    WHERE table_schema = DATABASE() AND table_name = 'tbl_website_settings'";
+        $checkStmt = $pdo->prepare($checkSql);
+        $checkStmt->execute();
+        $tableExists = $checkStmt->fetch(PDO::FETCH_ASSOC)['count'] > 0;
+
+        if (!$tableExists) {
+            // Create table if it doesn't exist
+            $createTableSql = "CREATE TABLE tbl_website_settings (
+                setting_id INT PRIMARY KEY AUTO_INCREMENT,
+                company_name VARCHAR(255) DEFAULT 'Event Coordination System',
+                company_logo TEXT,
+                hero_image TEXT,
+                primary_color VARCHAR(7) DEFAULT '#16a34a',
+                secondary_color VARCHAR(7) DEFAULT '#059669',
+                contact_email VARCHAR(255),
+                contact_phone VARCHAR(50),
+                address TEXT,
+                about_text TEXT,
+                social_facebook VARCHAR(255),
+                social_instagram VARCHAR(255),
+                social_twitter VARCHAR(255),
+                require_otp_on_login TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )";
+            $pdo->exec($createTableSql);
+
+            // Insert default settings
+            $insertSql = "INSERT INTO tbl_website_settings (company_name) VALUES ('Event Coordination System')";
+            $pdo->exec($insertSql);
+        } else {
+            // Ensure the require_otp_on_login column exists (idempotent migration)
+            try {
+                $colCheck = $pdo->prepare("SELECT COUNT(*) as count FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'tbl_website_settings' AND column_name = 'require_otp_on_login'");
+                $colCheck->execute();
+                $hasColumn = $colCheck->fetch(PDO::FETCH_ASSOC)['count'] > 0;
+                if (!$hasColumn) {
+                    $pdo->exec("ALTER TABLE tbl_website_settings ADD COLUMN require_otp_on_login TINYINT(1) NOT NULL DEFAULT 1 AFTER social_twitter");
+                }
+            } catch (Exception $e) {
+                // ignore if cannot add column
+            }
+        }
+
+        $sql = "SELECT * FROM tbl_website_settings ORDER BY setting_id DESC LIMIT 1";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute();
+        $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($settings) {
+            return ["status" => "success", "settings" => $settings];
+        } else {
+            return ["status" => "success", "settings" => [
+                "company_name" => "Event Coordination System",
+                "primary_color" => "#16a34a",
+                "secondary_color" => "#059669",
+                "require_otp_on_login" => 1
+            ]];
+        }
+    } catch (Exception $e) {
+        return ["status" => "error", "message" => "Error fetching website settings: " . $e->getMessage()];
+    }
+}
+
+// Function to update website settings (for OTP toggle)
+function updateWebsiteSettings($settings) {
+    global $pdo;
+
+    try {
+        $sql = "UPDATE tbl_website_settings SET
+                    company_name = ?,
+                    company_logo = ?,
+                    hero_image = ?,
+                    primary_color = ?,
+                    secondary_color = ?,
+                    contact_email = ?,
+                    contact_phone = ?,
+                    address = ?,
+                    about_text = ?,
+                    social_facebook = ?,
+                    social_instagram = ?,
+                    social_twitter = ?,
+                    require_otp_on_login = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE setting_id = (SELECT MAX(setting_id) FROM (SELECT setting_id FROM tbl_website_settings) as temp)";
+
+        $stmt = $pdo->prepare($sql);
+        $result = $stmt->execute([
+            $settings['company_name'],
+            $settings['company_logo'],
+            $settings['hero_image'],
+            $settings['primary_color'],
+            $settings['secondary_color'],
+            $settings['contact_email'],
+            $settings['contact_phone'],
+            $settings['address'],
+            $settings['about_text'],
+            $settings['social_facebook'],
+            $settings['social_instagram'],
+            $settings['social_twitter'],
+            (isset($settings['require_otp_on_login']) && ($settings['require_otp_on_login'] === 1 || $settings['require_otp_on_login'] === '1' || $settings['require_otp_on_login'] === true)) ? 1 : 0
+        ]);
+
+        if ($result) {
+            return ["status" => "success", "message" => "Website settings updated successfully"];
+        } else {
+            return ["status" => "error", "message" => "Failed to update website settings"];
+        }
+    } catch (Exception $e) {
+        return ["status" => "error", "message" => "Error updating website settings: " . $e->getMessage()];
+    }
+}
+
 // Handle request
 handleCors();
 
@@ -1843,6 +1963,10 @@ switch ($method) {
                 echo json_encode(getSuppliersWithTiers());
                 break;
 
+            case 'getWebsiteSettings':
+                echo json_encode(getWebsiteSettings());
+                break;
+
             default:
                 echo json_encode([
                     "status" => "error",
@@ -1946,6 +2070,17 @@ switch ($method) {
                         "status" => "error",
                         "message" => "No file uploaded"
                     ]);
+                }
+                break;
+
+            case 'updateWebsiteSettings':
+                if (!isset($data['settings'])) {
+                    echo json_encode([
+                        "status" => "error",
+                        "message" => "Settings data is required"
+                    ]);
+                } else {
+                    echo json_encode(updateWebsiteSettings($data['settings']));
                 }
                 break;
 

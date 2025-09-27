@@ -9,6 +9,7 @@ require_once 'ActivityLogger.php';
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+header("Access-Control-Allow-Credentials: true");
 
 // Handle preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -88,7 +89,9 @@ class Admin {
             $required = ['user_id', 'admin_id', 'event_title', 'event_type_id', 'guest_count', 'event_date'];
             foreach ($required as $field) {
                 if (empty($data[$field])) {
-                    $this->conn->rollback();
+                    if ($this->conn->inTransaction()) {
+                        $this->conn->rollback();
+                    }
                     error_log("createEvent error: Missing required field: $field");
                     return json_encode(["status" => "error", "message" => "$field is required"]);
                 }
@@ -102,7 +105,9 @@ class Admin {
             $userCheck = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_id = ? LIMIT 1");
             $userCheck->execute([$data['user_id']]);
             if (!$userCheck->fetch(PDO::FETCH_ASSOC)) {
-                $this->conn->rollback();
+                if ($this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
                 return json_encode(["status" => "error", "message" => "Invalid user_id: User does not exist"]);
             }
 
@@ -111,7 +116,9 @@ class Admin {
             $adminCheck->execute([$data['admin_id']]);
             $adminUser = $adminCheck->fetch(PDO::FETCH_ASSOC);
             if (!$adminUser) {
-                $this->conn->rollback();
+                if ($this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
                 error_log("createEvent: Admin user not found with ID: " . $data['admin_id']);
                 return json_encode(["status" => "error", "message" => "Invalid admin_id: User does not exist"]);
             }
@@ -121,7 +128,9 @@ class Admin {
             $eventTypeCheck = $this->conn->prepare("SELECT event_type_id FROM tbl_event_type WHERE event_type_id = ? LIMIT 1");
             $eventTypeCheck->execute([$data['event_type_id']]);
             if (!$eventTypeCheck->fetch(PDO::FETCH_ASSOC)) {
-                $this->conn->rollback();
+                if ($this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
                 return json_encode(["status" => "error", "message" => "Invalid event_type_id: Event type does not exist. Available types: 1=Wedding, 2=Anniversary, 3=Birthday, 4=Corporate, 5=Others"]);
             }
 
@@ -130,7 +139,9 @@ class Admin {
                 $packageCheck = $this->conn->prepare("SELECT package_id FROM tbl_packages WHERE package_id = ? LIMIT 1");
                 $packageCheck->execute([$data['package_id']]);
                 if (!$packageCheck->fetch(PDO::FETCH_ASSOC)) {
-                    $this->conn->rollback();
+                    if ($this->conn->inTransaction()) {
+                        $this->conn->rollback();
+                    }
                     return json_encode(["status" => "error", "message" => "Invalid package_id: Package does not exist"]);
                 }
             }
@@ -140,7 +151,9 @@ class Admin {
                 $venueCheck = $this->conn->prepare("SELECT venue_id FROM tbl_venue WHERE venue_id = ? LIMIT 1");
                 $venueCheck->execute([$data['venue_id']]);
                 if (!$venueCheck->fetch(PDO::FETCH_ASSOC)) {
-                    $this->conn->rollback();
+                    if ($this->conn->inTransaction()) {
+                        $this->conn->rollback();
+                    }
                     return json_encode(["status" => "error", "message" => "Invalid venue_id: Venue does not exist"]);
                 }
             }
@@ -160,7 +173,9 @@ class Admin {
                 $existingWedding = $weddingCheck->fetch(PDO::FETCH_ASSOC);
 
                 if ($existingWedding) {
-                    $this->conn->rollback();
+                    if ($this->conn->inTransaction()) {
+                        $this->conn->rollback();
+                    }
                     return json_encode([
                         "status" => "error",
                         "message" => "Business rule violation: Only one wedding is allowed per day. There is already a wedding scheduled on " . $data['event_date'] . "."
@@ -179,7 +194,9 @@ class Admin {
                 $otherEvents = $otherEventsCheck->fetchAll();
 
                 if (!empty($otherEvents)) {
-                    $this->conn->rollback();
+                    if ($this->conn->inTransaction()) {
+                        $this->conn->rollback();
+                    }
                     $eventTypes = array_unique(array_column($otherEvents, 'event_type_id'));
                     return json_encode([
                         "status" => "error",
@@ -200,7 +217,9 @@ class Admin {
                 $existingWedding = $weddingCheck->fetch(PDO::FETCH_ASSOC);
 
                 if ($existingWedding) {
-                    $this->conn->rollback();
+                    if ($this->conn->inTransaction()) {
+                        $this->conn->rollback();
+                    }
                     return json_encode([
                         "status" => "error",
                         "message" => "Business rule violation: Other events cannot be scheduled on the same date as a wedding. There is already a wedding scheduled on " . $data['event_date'] . "."
@@ -388,7 +407,9 @@ class Admin {
                     $referenceCheckStmt = $this->conn->prepare($referenceCheckSql);
                     $referenceCheckStmt->execute([$data['reference_number']]);
                     if ($referenceCheckStmt->fetch(PDO::FETCH_ASSOC)) {
-                        $this->conn->rollback();
+                        if ($this->conn->inTransaction()) {
+                            $this->conn->rollback();
+                        }
                         error_log("createEvent: Duplicate payment reference detected: " . $data['reference_number']);
                         return json_encode(["status" => "error", "message" => "Payment reference already exists. Please use a unique reference number."]);
                     }
@@ -488,10 +509,21 @@ class Admin {
             ]);
 
         } catch (Exception $e) {
-            $this->conn->rollback();
+            // Only rollback if there's an active transaction
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollback();
+            }
             error_log("createEvent error: " . $e->getMessage());
             error_log("createEvent stack trace: " . $e->getTraceAsString());
-            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+            return json_encode([
+                "status" => "error",
+                "message" => "Server error occurred",
+                "debug" => [
+                    "error" => $e->getMessage(),
+                    "file" => basename($e->getFile()),
+                    "line" => $e->getLine()
+                ]
+            ]);
         }
     }
 
@@ -574,9 +606,19 @@ class Admin {
             ]);
 
         } catch (Exception $e) {
-            $this->conn->rollBack();
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollback();
+            }
             error_log("createCustomizedPackage error: " . $e->getMessage());
-            return json_encode(["status" => "error", "message" => "Failed to create customized package: " . $e->getMessage()]);
+            return json_encode([
+                "status" => "error",
+                "message" => "Server error occurred",
+                "debug" => [
+                    "error" => $e->getMessage(),
+                    "file" => basename($e->getFile()),
+                    "line" => $e->getLine()
+                ]
+            ]);
         }
     }
 
@@ -2111,9 +2153,20 @@ This is an automated message. Please do not reply.
                 "package_id" => $packageId
             ]);
         } catch (Exception $e) {
-            $this->conn->rollback();
+            // Only rollback if there's an active transaction
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollback();
+            }
             error_log("createPackage error: " . $e->getMessage());
-            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+            return json_encode([
+                "status" => "error",
+                "message" => "Server error occurred",
+                "debug" => [
+                    "error" => $e->getMessage(),
+                    "file" => basename($e->getFile()),
+                    "line" => $e->getLine()
+                ]
+            ]);
         }
     }
     public function getAllPackages() {
@@ -2376,6 +2429,10 @@ This is an automated message. Please do not reply.
             $eventTypesStmt->execute([':package_id' => $packageId]);
             $eventTypes = $eventTypesStmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Extract event type IDs and names for easier frontend handling
+            $eventTypeIds = array_column($eventTypes, 'event_type_id');
+            $eventTypeNames = array_column($eventTypes, 'event_name');
+
             // Combine all data
             $packageData = [
                 'package_id' => (int)$package['package_id'],
@@ -2391,7 +2448,9 @@ This is an automated message. Please do not reply.
                 'inclusions' => $inclusions,
                 'freebies' => $freebies,
                 'venues' => $venues,
-                'event_types' => $eventTypes
+                'event_types' => $eventTypes,
+                'event_type_ids' => $eventTypeIds,
+                'event_type_names' => $eventTypeNames
             ];
 
             return json_encode([
@@ -2405,21 +2464,54 @@ This is an automated message. Please do not reply.
     }
 
     public function updatePackage($data) {
+        $transactionStarted = false;
         try {
+            error_log("updatePackage called with data: " . json_encode($data));
+
+            // Validate that we have the required data
+            if (empty($data)) {
+                error_log("updatePackage: No data provided");
+                return json_encode(["status" => "error", "message" => "No data provided"]);
+            }
+
+            // Check if connection is valid
+            if (!$this->conn) {
+                error_log("updatePackage: Database connection is null");
+                return json_encode(["status" => "error", "message" => "Database connection failed"]);
+            }
+
             $this->conn->beginTransaction();
+            $transactionStarted = true;
+            error_log("updatePackage: Transaction started successfully");
 
             // Validate required fields
-            if (empty($data['package_id']) || empty($data['package_title']) || empty($data['package_price']) || empty($data['guest_capacity'])) {
+            if (empty($data['package_id']) || empty($data['package_title']) || !isset($data['package_price']) || !isset($data['guest_capacity'])) {
+                if ($transactionStarted && $this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
+                error_log("updatePackage: Missing required fields - package_id: " . ($data['package_id'] ?? 'null') . ", title: " . ($data['package_title'] ?? 'null') . ", price: " . ($data['package_price'] ?? 'null') . ", capacity: " . ($data['guest_capacity'] ?? 'null'));
                 return json_encode(["status" => "error", "message" => "Package ID, title, price, and guest capacity are required"]);
             }
 
             // Get current package data to check price lock status
             $currentPackageSql = "SELECT package_price, original_price, is_price_locked FROM tbl_packages WHERE package_id = :package_id";
             $currentStmt = $this->conn->prepare($currentPackageSql);
+            if (!$currentStmt) {
+                error_log("updatePackage: Failed to prepare current package query");
+                if ($transactionStarted && $this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
+                return json_encode(["status" => "error", "message" => "Database query preparation failed"]);
+            }
+
             $currentStmt->execute([':package_id' => $data['package_id']]);
             $currentPackage = $currentStmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$currentPackage) {
+                if ($transactionStarted && $this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
+                error_log("updatePackage: Package not found with ID: " . $data['package_id']);
                 return json_encode(["status" => "error", "message" => "Package not found"]);
             }
 
@@ -2429,6 +2521,10 @@ This is an automated message. Please do not reply.
             $isLocked = intval($currentPackage['is_price_locked']);
 
             if ($isLocked && $newPrice < $currentPrice) {
+                if ($transactionStarted && $this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
+                error_log("updatePackage: Price reduction attempted on locked package - current: $currentPrice, attempted: $newPrice");
                 return json_encode([
                     "status" => "error",
                     "message" => "Cannot reduce package price. Package prices are locked and can only increase or remain the same.",
@@ -2447,6 +2543,10 @@ This is an automated message. Please do not reply.
                 if ($totalComponentCost > $newPrice) {
                     $overage = $totalComponentCost - $newPrice;
                     if (!isset($data['confirm_overage']) || !$data['confirm_overage']) {
+                        if ($transactionStarted && $this->conn->inTransaction()) {
+                            $this->conn->rollback();
+                        }
+                        error_log("updatePackage: Budget overage detected - package: $newPrice, inclusions: $totalComponentCost, overage: $overage");
                         return json_encode([
                             "status" => "warning",
                             "message" => "Budget overage detected: Inclusions total exceeds package price",
@@ -2474,7 +2574,15 @@ This is an automated message. Please do not reply.
                     WHERE package_id = :package_id";
 
             $stmt = $this->conn->prepare($sql);
-            $stmt->execute([
+            if (!$stmt) {
+                error_log("updatePackage: Failed to prepare package update query");
+                if ($transactionStarted && $this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
+                return json_encode(["status" => "error", "message" => "Database query preparation failed"]);
+            }
+
+            $result = $stmt->execute([
                 ':title' => $data['package_title'],
                 ':description' => $data['package_description'] ?? '',
                 ':price' => $newPrice,
@@ -2482,12 +2590,25 @@ This is an automated message. Please do not reply.
                 ':package_id' => $data['package_id']
             ]);
 
+            if (!$result) {
+                error_log("updatePackage: Package update execution failed");
+                if ($transactionStarted && $this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
+                return json_encode(["status" => "error", "message" => "Failed to update package"]);
+            }
+
+            error_log("Package update result: " . ($result ? "success" : "failed"));
+            error_log("Rows affected: " . $stmt->rowCount());
+
             // Update components - delete existing and insert new ones
             if (isset($data['components'])) {
+                error_log("Updating components: " . json_encode($data['components']));
                 // Delete existing components
                 $deleteComponentsSql = "DELETE FROM tbl_package_components WHERE package_id = :package_id";
                 $deleteStmt = $this->conn->prepare($deleteComponentsSql);
-                $deleteStmt->execute([':package_id' => $data['package_id']]);
+                $deleteResult = $deleteStmt->execute([':package_id' => $data['package_id']]);
+                error_log("Delete components result: " . ($deleteResult ? "success" : "failed"));
 
                 // Insert new components
                 if (is_array($data['components'])) {
@@ -2496,13 +2617,14 @@ This is an automated message. Please do not reply.
                             $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
                                             VALUES (:package_id, :name, :description, :price, :order)";
                             $componentStmt = $this->conn->prepare($componentSql);
-                            $componentStmt->execute([
+                            $componentResult = $componentStmt->execute([
                                 ':package_id' => $data['package_id'],
                                 ':name' => $component['component_name'],
                                 ':description' => $component['component_description'] ?? '',
                                 ':price' => $component['component_price'] ?? 0,
                                 ':order' => $index
                             ]);
+                            error_log("Insert component $index result: " . ($componentResult ? "success" : "failed"));
                         }
                     }
                 }
@@ -2510,10 +2632,12 @@ This is an automated message. Please do not reply.
 
             // Update freebies - delete existing and insert new ones
             if (isset($data['freebies'])) {
+                error_log("Updating freebies: " . json_encode($data['freebies']));
                 // Delete existing freebies
                 $deleteFreebiesSql = "DELETE FROM tbl_package_freebies WHERE package_id = :package_id";
                 $deleteStmt = $this->conn->prepare($deleteFreebiesSql);
-                $deleteStmt->execute([':package_id' => $data['package_id']]);
+                $deleteResult = $deleteStmt->execute([':package_id' => $data['package_id']]);
+                error_log("Delete freebies result: " . ($deleteResult ? "success" : "failed"));
 
                 // Insert new freebies
                 if (is_array($data['freebies'])) {
@@ -2536,54 +2660,102 @@ This is an automated message. Please do not reply.
 
             // Update event types
             if (isset($data['event_types'])) {
+                error_log("Updating event types: " . json_encode($data['event_types']));
                 // Delete existing event types
                 $deleteEventTypesSql = "DELETE FROM tbl_package_event_types WHERE package_id = :package_id";
                 $deleteStmt = $this->conn->prepare($deleteEventTypesSql);
-                $deleteStmt->execute([':package_id' => $data['package_id']]);
+                $deleteResult = $deleteStmt->execute([':package_id' => $data['package_id']]);
+                error_log("Delete event types result: " . ($deleteResult ? "success" : "failed"));
 
                 // Insert new event types
                 if (is_array($data['event_types'])) {
                     foreach ($data['event_types'] as $eventTypeId) {
                         $eventTypeSql = "INSERT INTO tbl_package_event_types (package_id, event_type_id) VALUES (:package_id, :event_type_id)";
                         $eventTypeStmt = $this->conn->prepare($eventTypeSql);
-                        $eventTypeStmt->execute([
+                        $eventTypeResult = $eventTypeStmt->execute([
                             ':package_id' => $data['package_id'],
                             ':event_type_id' => $eventTypeId
                         ]);
+                        error_log("Insert event type $eventTypeId result: " . ($eventTypeResult ? "success" : "failed"));
                     }
                 }
+            } else {
+                error_log("No event_types data provided for update");
             }
 
             // Update venues
             if (isset($data['venues'])) {
+                error_log("Updating venues: " . json_encode($data['venues']));
                 // Delete existing venues
                 $deleteVenuesSql = "DELETE FROM tbl_package_venues WHERE package_id = :package_id";
                 $deleteStmt = $this->conn->prepare($deleteVenuesSql);
-                $deleteStmt->execute([':package_id' => $data['package_id']]);
+                $deleteResult = $deleteStmt->execute([':package_id' => $data['package_id']]);
+                error_log("Delete venues result: " . ($deleteResult ? "success" : "failed"));
 
                 // Insert new venues
                 if (is_array($data['venues'])) {
                     foreach ($data['venues'] as $venueId) {
                         $venueSql = "INSERT INTO tbl_package_venues (package_id, venue_id) VALUES (:package_id, :venue_id)";
                         $venueStmt = $this->conn->prepare($venueSql);
-                        $venueStmt->execute([
+                        $venueResult = $venueStmt->execute([
                             ':package_id' => $data['package_id'],
                             ':venue_id' => $venueId
                         ]);
+                        error_log("Insert venue $venueId result: " . ($venueResult ? "success" : "failed"));
                     }
                 }
             }
 
             $this->conn->commit();
+            error_log("updatePackage transaction committed successfully");
+
+            // Log activity after successful commit to avoid transaction issues
+            if (isset($data['log_activity']) && $data['log_activity']) {
+                try {
+                    $userId = $data['user_id'] ?? 1; // Default to admin user if not provided
+                    $activityType = $data['activity_type'] ?? 'package_edited';
+                    $activityDescription = $data['activity_description'] ?? "Package '{$data['package_title']}' was edited";
+
+                    // Simple activity logging that won't interfere with main transaction
+                    $logResult = $this->logActivity($userId, $activityType, $activityDescription, 'admin');
+                    if (!$logResult) {
+                        error_log("Activity logging returned false, but this is non-critical");
+                    }
+                } catch (Exception $logError) {
+                    // Don't let activity logging errors affect the main response
+                    error_log("Activity logging failed (non-critical): " . $logError->getMessage());
+                }
+            }
 
             return json_encode([
                 "status" => "success",
                 "message" => "Package updated successfully"
             ]);
         } catch (Exception $e) {
-            $this->conn->rollback();
+            // Only rollback if we started a transaction
+            if ($transactionStarted && $this->conn->inTransaction()) {
+                try {
+                    $this->conn->rollback();
+                    error_log("updatePackage: Transaction rolled back successfully");
+                } catch (Exception $rollbackError) {
+                    error_log("updatePackage: Rollback failed (transaction may already be closed): " . $rollbackError->getMessage());
+                }
+            } else {
+                error_log("updatePackage: No active transaction to rollback");
+            }
             error_log("updatePackage error: " . $e->getMessage());
-            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+            error_log("updatePackage error file: " . $e->getFile() . " line: " . $e->getLine());
+            error_log("updatePackage error trace: " . $e->getTraceAsString());
+
+            return json_encode([
+                "status" => "error",
+                "message" => "Server error occurred",
+                "debug" => [
+                    "error" => $e->getMessage(),
+                    "file" => basename($e->getFile()),
+                    "line" => $e->getLine()
+                ]
+            ]);
         }
     }
     public function deletePackage($packageId) {
@@ -2664,6 +2836,87 @@ This is an automated message. Please do not reply.
             return json_encode(["status" => "success", "event_types" => $eventTypes]);
         } catch (Exception $e) {
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
+    public function updatePackageEventTypes($data) {
+        try {
+            error_log("updatePackageEventTypes called with data: " . json_encode($data));
+
+            // Validate required fields
+            if (empty($data['package_id']) || !isset($data['event_type_ids'])) {
+                return json_encode(["status" => "error", "message" => "Package ID and event type IDs are required"]);
+            }
+
+            $this->conn->beginTransaction();
+
+            // Check if package exists
+            $packageCheck = $this->conn->prepare("SELECT package_id FROM tbl_packages WHERE package_id = ? LIMIT 1");
+            $packageCheck->execute([$data['package_id']]);
+            if (!$packageCheck->fetch(PDO::FETCH_ASSOC)) {
+                if ($this->conn->inTransaction()) {
+                    $this->conn->rollback();
+                }
+                return json_encode(["status" => "error", "message" => "Package not found"]);
+            }
+
+            // Delete existing event types for this package
+            $deleteEventTypesSql = "DELETE FROM tbl_package_event_types WHERE package_id = :package_id";
+            $deleteStmt = $this->conn->prepare($deleteEventTypesSql);
+            $deleteStmt->execute([':package_id' => $data['package_id']]);
+
+            // Insert new event types if provided
+            if (!empty($data['event_type_ids']) && is_array($data['event_type_ids'])) {
+                foreach ($data['event_type_ids'] as $eventTypeId) {
+                    // Validate event type exists
+                    $eventTypeCheck = $this->conn->prepare("SELECT event_type_id FROM tbl_event_type WHERE event_type_id = ? LIMIT 1");
+                    $eventTypeCheck->execute([$eventTypeId]);
+                    if (!$eventTypeCheck->fetch(PDO::FETCH_ASSOC)) {
+                        if ($this->conn->inTransaction()) {
+                            $this->conn->rollback();
+                        }
+                        return json_encode(["status" => "error", "message" => "Invalid event type ID: $eventTypeId"]);
+                    }
+
+                    $eventTypeSql = "INSERT INTO tbl_package_event_types (package_id, event_type_id) VALUES (:package_id, :event_type_id)";
+                    $eventTypeStmt = $this->conn->prepare($eventTypeSql);
+                    $eventTypeStmt->execute([
+                        ':package_id' => $data['package_id'],
+                        ':event_type_id' => $eventTypeId
+                    ]);
+                }
+            }
+
+            // Log activity if requested
+            if (isset($data['log_activity']) && $data['log_activity']) {
+                $userId = $data['user_id'] ?? 1;
+                $activityType = $data['activity_type'] ?? 'package_event_types_updated';
+                $activityDescription = $data['activity_description'] ?? "Package event types were updated";
+                $this->logActivity($userId, $activityType, $activityDescription, 'admin');
+            }
+
+            $this->conn->commit();
+            error_log("updatePackageEventTypes transaction committed successfully");
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Package event types updated successfully"
+            ]);
+        } catch (Exception $e) {
+            // Only rollback if there's an active transaction
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollback();
+            }
+            error_log("updatePackageEventTypes error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Server error occurred",
+                "debug" => [
+                    "error" => $e->getMessage(),
+                    "file" => basename($e->getFile()),
+                    "line" => $e->getLine()
+                ]
+            ]);
         }
     }
 
@@ -6774,6 +7027,289 @@ This is an automated message. Please do not reply.
         }
     }
 
+    public function duplicateVenue($venueId) {
+        try {
+            // Start transaction
+            $this->conn->beginTransaction();
+
+            // Get the original venue data directly (including inactive venues)
+            $sql = "SELECT * FROM tbl_venue WHERE venue_id = :venue_id";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([':venue_id' => $venueId]);
+            $venue = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$venue) {
+                throw new Exception("Original venue not found");
+            }
+
+            // Create new venue with duplicated data but unique ID
+            $sql = "INSERT INTO tbl_venue (
+                venue_title, venue_details, venue_location, venue_contact,
+                venue_type, venue_capacity, venue_price, extra_pax_rate, is_active,
+                venue_profile_picture, venue_cover_photo, user_id, venue_owner,
+                venue_status
+            ) VALUES (
+                :venue_title, :venue_details, :venue_location, :venue_contact,
+                :venue_type, :venue_capacity, :venue_price, :extra_pax_rate, :is_active,
+                :venue_profile_picture, :venue_cover_photo, :user_id, :venue_owner,
+                :venue_status
+            )";
+
+            $stmt = $this->conn->prepare($sql);
+            $result = $stmt->execute([
+                'venue_title' => $venue['venue_title'] . '_Copy',
+                'venue_details' => $venue['venue_details'],
+                'venue_location' => $venue['venue_location'],
+                'venue_contact' => $venue['venue_contact'],
+                'venue_type' => $venue['venue_type'],
+                'venue_capacity' => $venue['venue_capacity'],
+                'venue_price' => $venue['venue_price'],
+                'extra_pax_rate' => $venue['extra_pax_rate'] ?? 0,
+                'is_active' => 1, // Set as active so it shows up immediately
+                'venue_profile_picture' => $venue['venue_profile_picture'],
+                'venue_cover_photo' => $venue['venue_cover_photo'],
+                'user_id' => $venue['user_id'],
+                'venue_owner' => $venue['venue_owner'],
+                'venue_status' => 'available'
+            ]);
+
+            if (!$result) {
+                throw new Exception("Failed to create duplicated venue");
+            }
+
+            $newVenueId = $this->conn->lastInsertId();
+
+            // Get and duplicate venue inclusions
+            $inclusionsSql = "SELECT * FROM tbl_venue_inclusions WHERE venue_id = :venue_id";
+            $inclusionsStmt = $this->conn->prepare($inclusionsSql);
+            $inclusionsStmt->execute([':venue_id' => $venueId]);
+            $inclusions = $inclusionsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!empty($inclusions)) {
+                foreach ($inclusions as $inclusion) {
+                    // Insert venue inclusion
+                    $inclusionSql = "INSERT INTO tbl_venue_inclusions (
+                        venue_id, inclusion_name, inclusion_price, inclusion_description,
+                        is_required, is_active
+                    ) VALUES (
+                        :venue_id, :inclusion_name, :inclusion_price, :inclusion_description,
+                        :is_required, :is_active
+                    )";
+
+                    $inclusionStmt = $this->conn->prepare($inclusionSql);
+                    $inclusionStmt->execute([
+                        'venue_id' => $newVenueId,
+                        'inclusion_name' => $inclusion['inclusion_name'],
+                        'inclusion_price' => $inclusion['inclusion_price'],
+                        'inclusion_description' => $inclusion['inclusion_description'] ?? '',
+                        'is_required' => $inclusion['is_required'] ?? 0,
+                        'is_active' => $inclusion['is_active'] ?? 1
+                    ]);
+
+                    $newInclusionId = $this->conn->lastInsertId();
+
+                    // Get and duplicate inclusion components
+                    $componentsSql = "SELECT * FROM tbl_venue_components WHERE inclusion_id = :inclusion_id";
+                    $componentsStmt = $this->conn->prepare($componentsSql);
+                    $componentsStmt->execute([':inclusion_id' => $inclusion['inclusion_id']]);
+                    $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                    if (!empty($components)) {
+                        foreach ($components as $component) {
+                            $componentSql = "INSERT INTO tbl_venue_components (
+                                inclusion_id, component_name, component_description
+                            ) VALUES (
+                                :inclusion_id, :component_name, :component_description
+                            )";
+
+                            $componentStmt = $this->conn->prepare($componentSql);
+                            $componentStmt->execute([
+                                'inclusion_id' => $newInclusionId,
+                                'component_name' => $component['component_name'],
+                                'component_description' => $component['component_description'] ?? ''
+                            ]);
+                        }
+                    }
+                }
+            }
+
+            // Commit transaction
+            $this->conn->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Venue duplicated successfully",
+                "new_venue_id" => $newVenueId
+            ]);
+
+        } catch (Exception $e) {
+            // Rollback transaction on error
+            $this->conn->rollback();
+            error_log("duplicateVenue error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to duplicate venue: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function duplicatePackage($packageId) {
+        try {
+            // Start transaction
+            $this->conn->beginTransaction();
+
+            // Get the original package data directly (including inactive packages)
+            $sql = "SELECT * FROM tbl_packages WHERE package_id = :package_id";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([':package_id' => $packageId]);
+            $package = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$package) {
+                throw new Exception("Original package not found");
+            }
+
+            // Create new package with duplicated data but unique ID
+            $sql = "INSERT INTO tbl_packages (
+                package_title, package_description, package_price, guest_capacity,
+                created_by, is_active, original_price, is_price_locked, customized_package
+            ) VALUES (
+                :package_title, :package_description, :package_price, :guest_capacity,
+                :created_by, :is_active, :original_price, :is_price_locked, :customized_package
+            )";
+
+            $stmt = $this->conn->prepare($sql);
+            $result = $stmt->execute([
+                'package_title' => $package['package_title'] . '_Copy',
+                'package_description' => $package['package_description'],
+                'package_price' => $package['package_price'],
+                'guest_capacity' => $package['guest_capacity'],
+                'created_by' => $package['created_by'],
+                'is_active' => 1, // Set as active so it shows up immediately
+                'original_price' => $package['package_price'],
+                'is_price_locked' => 0, // Allow price modifications on duplicate
+                'customized_package' => $package['customized_package'] ?? 0
+            ]);
+
+            if (!$result) {
+                throw new Exception("Failed to create duplicated package");
+            }
+
+            $newPackageId = $this->conn->lastInsertId();
+
+            // Get and duplicate package components
+            $componentsSql = "SELECT * FROM tbl_package_components WHERE package_id = :package_id ORDER BY display_order";
+            $componentsStmt = $this->conn->prepare($componentsSql);
+            $componentsStmt->execute([':package_id' => $packageId]);
+            $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!empty($components)) {
+                foreach ($components as $index => $component) {
+                    $componentSql = "INSERT INTO tbl_package_components (
+                        package_id, component_name, component_description, component_price, display_order
+                    ) VALUES (
+                        :package_id, :component_name, :component_description, :component_price, :display_order
+                    )";
+
+                    $componentStmt = $this->conn->prepare($componentSql);
+                    $componentStmt->execute([
+                        'package_id' => $newPackageId,
+                        'component_name' => $component['component_name'],
+                        'component_description' => $component['component_description'] ?? '',
+                        'component_price' => $component['component_price'] ?? 0,
+                        'display_order' => $component['display_order'] ?? $index
+                    ]);
+                }
+            }
+
+            // Get and duplicate package freebies
+            $freebiesSql = "SELECT * FROM tbl_package_freebies WHERE package_id = :package_id ORDER BY display_order";
+            $freebiesStmt = $this->conn->prepare($freebiesSql);
+            $freebiesStmt->execute([':package_id' => $packageId]);
+            $freebies = $freebiesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!empty($freebies)) {
+                foreach ($freebies as $index => $freebie) {
+                    $freebieSql = "INSERT INTO tbl_package_freebies (
+                        package_id, freebie_name, freebie_description, freebie_value, display_order
+                    ) VALUES (
+                        :package_id, :freebie_name, :freebie_description, :freebie_value, :display_order
+                    )";
+
+                    $freebieStmt = $this->conn->prepare($freebieSql);
+                    $freebieStmt->execute([
+                        'package_id' => $newPackageId,
+                        'freebie_name' => $freebie['freebie_name'],
+                        'freebie_description' => $freebie['freebie_description'] ?? '',
+                        'freebie_value' => $freebie['freebie_value'] ?? 0,
+                        'display_order' => $freebie['display_order'] ?? $index
+                    ]);
+                }
+            }
+
+            // Get and duplicate package event types
+            $eventTypesSql = "SELECT event_type_id FROM tbl_package_event_types WHERE package_id = :package_id";
+            $eventTypesStmt = $this->conn->prepare($eventTypesSql);
+            $eventTypesStmt->execute([':package_id' => $packageId]);
+            $eventTypes = $eventTypesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!empty($eventTypes)) {
+                foreach ($eventTypes as $eventType) {
+                    $eventTypeSql = "INSERT INTO tbl_package_event_types (
+                        package_id, event_type_id
+                    ) VALUES (
+                        :package_id, :event_type_id
+                    )";
+
+                    $eventTypeStmt = $this->conn->prepare($eventTypeSql);
+                    $eventTypeStmt->execute([
+                        'package_id' => $newPackageId,
+                        'event_type_id' => $eventType['event_type_id']
+                    ]);
+                }
+            }
+
+            // Get and duplicate package venues
+            $venuesSql = "SELECT venue_id FROM tbl_package_venues WHERE package_id = :package_id";
+            $venuesStmt = $this->conn->prepare($venuesSql);
+            $venuesStmt->execute([':package_id' => $packageId]);
+            $venues = $venuesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!empty($venues)) {
+                foreach ($venues as $venue) {
+                    $venueSql = "INSERT INTO tbl_package_venues (
+                        package_id, venue_id
+                    ) VALUES (
+                        :package_id, :venue_id
+                    )";
+
+                    $venueStmt = $this->conn->prepare($venueSql);
+                    $venueStmt->execute([
+                        'package_id' => $newPackageId,
+                        'venue_id' => $venue['venue_id']
+                    ]);
+                }
+            }
+
+            // Commit transaction
+            $this->conn->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Package duplicated successfully",
+                "new_package_id" => $newPackageId
+            ]);
+
+        } catch (Exception $e) {
+            // Rollback transaction on error
+            $this->conn->rollback();
+            error_log("duplicatePackage error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to duplicate package: " . $e->getMessage()
+            ]);
+        }
+    }
+
 
     public function updateVenueWithPriceHistory() {
         try {
@@ -9384,6 +9920,9 @@ Event Coordination System Team
     // Simple activity logging helper function
     public function logActivity($userId, $actionType, $description, $userRole = null, $ipAddress = null) {
         try {
+            // Use the existing connection but with autocommit to avoid transaction conflicts
+            $this->conn->setAttribute(PDO::ATTR_AUTOCOMMIT, true);
+
             // Get user role if not provided
             if (!$userRole) {
                 $userStmt = $this->conn->prepare("SELECT user_role FROM tbl_users WHERE user_id = ?");
@@ -9611,7 +10150,7 @@ Event Coordination System Team
             $sql = "CREATE TABLE IF NOT EXISTS tbl_user_activity_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 user_id INT NOT NULL,
-                action_type ENUM('login','logout','signup','event_created','booking_created','payment_received','admin_action','booking_accepted','booking_rejected') NOT NULL,
+                action_type ENUM('login','logout','signup','event_created','booking_created','payment_received','admin_action','booking_accepted','booking_rejected','package_edited') NOT NULL,
                 description TEXT NULL,
                 user_role ENUM('admin','organizer','client','supplier','staff') NOT NULL,
                 ip_address VARCHAR(64) NULL,
@@ -9647,6 +10186,13 @@ error_log("Admin.php - Decoded data: " . json_encode($data));
 error_log("Admin.php - POST data: " . json_encode($_POST));
 error_log("Admin.php - GET data: " . json_encode($_GET));
 
+// Additional debugging for updatePackage specifically
+if (isset($data['operation']) && $data['operation'] === 'updatePackage') {
+    error_log("Admin.php - updatePackage operation detected");
+    error_log("Admin.php - updatePackage data keys: " . implode(', ', array_keys($data)));
+    error_log("Admin.php - updatePackage package_id: " . ($data['package_id'] ?? 'not set'));
+}
+
 // Handle JSON parsing errors
 if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
     error_log("Admin.php - JSON parsing failed: " . json_last_error_msg());
@@ -9656,6 +10202,12 @@ if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
         "raw_input" => $rawInput
     ]);
     exit;
+}
+
+// Fallback: if JSON parsing failed but we have POST data, use that
+if (empty($data) && !empty($_POST)) {
+    error_log("Admin.php - Using POST data as fallback");
+    $data = $_POST;
 }
 
 // Ensure $data is an array
@@ -9680,6 +10232,68 @@ $admin = new Admin($pdo);
 try {
     // Handle API actions
     switch ($operation) {
+    case "test":
+        // Test database connection
+        try {
+            $testQuery = "SELECT 1 as test";
+            $testStmt = $pdo->prepare($testQuery);
+            $testStmt->execute();
+            $testResult = $testStmt->fetch(PDO::FETCH_ASSOC);
+
+            echo json_encode([
+                "status" => "success",
+                "message" => "API and database are working",
+                "timestamp" => date('Y-m-d H:i:s'),
+                "database_test" => $testResult,
+                "received_data" => $data
+            ]);
+        } catch (Exception $e) {
+            echo json_encode([
+                "status" => "error",
+                "message" => "Database connection failed",
+                "error" => $e->getMessage(),
+                "timestamp" => date('Y-m-d H:i:s')
+            ]);
+        }
+        break;
+    case "debugUpdatePackage":
+        error_log("Admin.php - debugUpdatePackage case reached");
+        error_log("Admin.php - debugUpdatePackage data: " . json_encode($data));
+
+        // Test if we can create a simple response
+        $testResponse = [
+            "status" => "success",
+            "message" => "Debug updatePackage test",
+            "received_data" => $data,
+            "timestamp" => date('Y-m-d H:i:s')
+        ];
+
+        error_log("Admin.php - debugUpdatePackage test response: " . json_encode($testResponse));
+        echo json_encode($testResponse);
+        break;
+    case "testUpdatePackage":
+        // Test updatePackage method specifically
+        try {
+            $testData = [
+                'package_id' => 1,
+                'package_title' => 'Test Package',
+                'package_description' => 'Test Description',
+                'package_price' => 1000,
+                'guest_capacity' => 50,
+                'components' => [],
+                'freebies' => [],
+                'venues' => [],
+                'event_types' => []
+            ];
+            echo $admin->updatePackage($testData);
+        } catch (Exception $e) {
+            echo json_encode([
+                "status" => "error",
+                "message" => "updatePackage test failed",
+                "error" => $e->getMessage()
+            ]);
+        }
+        break;
     case "createEvent":
         error_log("Admin.php - Starting createEvent operation");
         try {
@@ -9730,7 +10344,11 @@ try {
         echo $admin->getPackageDetails($packageId);
         break;
     case "updatePackage":
-        echo $admin->updatePackage($data);
+        error_log("Admin.php - updatePackage case called");
+        error_log("Admin.php - updatePackage data: " . json_encode($data));
+        $result = $admin->updatePackage($data);
+        error_log("Admin.php - updatePackage result: " . $result);
+        echo $result;
         break;
     case "deletePackage":
         $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
@@ -9738,6 +10356,9 @@ try {
         break;
     case "getEventTypes":
         echo $admin->getEventTypes();
+        break;
+    case "updatePackageEventTypes":
+        echo $admin->updatePackageEventTypes($data);
         break;
     case "getPackagesByEventType":
         $eventTypeId = $_GET['event_type_id'] ?? ($data['event_type_id'] ?? 0);
@@ -9833,6 +10454,14 @@ try {
         break;
     case "updateVenue":
         echo $admin->updateVenue($data);
+        break;
+    case "duplicateVenue":
+        $venueId = $_GET['venue_id'] ?? ($data['venue_id'] ?? 0);
+        echo $admin->duplicateVenue($venueId);
+        break;
+    case "duplicatePackage":
+        $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
+        echo $admin->duplicatePackage($packageId);
         break;
     case "getVenuesForPackage":
         echo $admin->getVenuesForPackage();
@@ -10184,9 +10813,6 @@ try {
     case "getPackageDetails":
         $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
         echo $admin->getPackageDetails($packageId);
-        break;
-    case "updatePackage":
-        echo $admin->updatePackage($data);
         break;
     case "deletePackage":
         $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);

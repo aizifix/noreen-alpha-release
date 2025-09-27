@@ -159,6 +159,11 @@ export default function ClientDashboard() {
     new Date()
   );
   const [currentVenueIndex, setCurrentVenueIndex] = useState(0);
+  const [showAllPackages, setShowAllPackages] = useState(false);
+  const [packageDisplayLimit, setPackageDisplayLimit] = useState(6); // Default limit
+  const [screenSize, setScreenSize] = useState<"mobile" | "tablet" | "desktop">(
+    "desktop"
+  );
 
   // Get user data from secure storage
   const userData = secureStorage.getItem("user");
@@ -219,6 +224,32 @@ export default function ClientDashboard() {
   useEffect(() => {
     fetchDashboardData();
   }, [router]);
+
+  // Handle responsive behavior
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth;
+      if (width < 640) {
+        setScreenSize("mobile");
+        setPackageDisplayLimit(2); // Show 2 cards on mobile
+      } else if (width < 1024) {
+        setScreenSize("tablet");
+        setPackageDisplayLimit(4); // Show 4 cards on tablet
+      } else {
+        setScreenSize("desktop");
+        setPackageDisplayLimit(6); // Show 6 cards on desktop
+      }
+    };
+
+    // Set initial size
+    handleResize();
+
+    // Add event listener
+    window.addEventListener("resize", handleResize);
+
+    // Cleanup
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     if (selectedEventType) {
@@ -489,6 +520,24 @@ export default function ClientDashboard() {
         {/* Featured Packages - Now at the top */}
         <div className="animate-slide-up-delay-1 mb-6 sm:mb-8">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Featured Packages
+                </h2>
+                <p className="text-sm text-gray-600">
+                  Showing{" "}
+                  {showAllPackages
+                    ? filteredPackages.length
+                    : Math.min(
+                        filteredPackages.length,
+                        packageDisplayLimit
+                      )}{" "}
+                  of {filteredPackages.length} packages
+                  <span className="hidden sm:inline"> ({screenSize} view)</span>
+                </p>
+              </div>
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -521,86 +570,141 @@ export default function ClientDashboard() {
             </DropdownMenu>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-            {filteredPackages.map((pkg, index) => (
-              <div
-                key={pkg.package_id}
-                className="animate-slide-up-stagger"
-                style={{ animationDelay: `${index * 100}ms` }}
-              >
-                <Card className="group bg-white transition-all duration-300 hover:-translate-y-1">
-                  <div className="p-4 sm:p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2 truncate">
-                          {pkg.package_title}
-                        </h3>
-                        <p className="text-sm text-gray-600 line-clamp-2">
-                          {pkg.package_description}
-                        </p>
-                      </div>
-                      <div className="ml-4 text-right flex-shrink-0">
-                        <div className="flex items-center text-yellow-500 mb-1">
-                          <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
-                          <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
-                          <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
-                          <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
-                          <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 sm:gap-6 transition-all duration-500 ease-in-out">
+            {(showAllPackages
+              ? filteredPackages
+              : filteredPackages.slice(0, packageDisplayLimit)
+            ).map((pkg, index) => {
+              const isNewlyVisible =
+                showAllPackages && index >= packageDisplayLimit;
+              return (
+                <div
+                  key={pkg.package_id}
+                  className={`animate-slide-up-stagger transition-all duration-300 ease-in-out ${
+                    isNewlyVisible ? "animate-fade-in" : ""
+                  }`}
+                  style={{
+                    animationDelay: isNewlyVisible
+                      ? `${(index - packageDisplayLimit) * 100}ms`
+                      : `${index * 100}ms`,
+                  }}
+                >
+                  <Card className="group bg-white transition-all duration-300 hover:-translate-y-1 h-full flex flex-col">
+                    <div className="p-4 sm:p-6 flex flex-col h-full">
+                      {/* Header Section - Fixed Height */}
+                      <div className="flex items-start justify-between mb-4 min-h-[80px]">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2 leading-tight">
+                            {pkg.package_title}
+                          </h3>
+                          <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed">
+                            {pkg.package_description}
+                          </p>
                         </div>
-                        <p className="text-xs text-gray-500">Premium</p>
+                        <div className="ml-2 text-right flex-shrink-0">
+                          <div className="flex items-center text-yellow-500 mb-1">
+                            <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
+                            <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
+                            <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
+                            <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
+                            <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current" />
+                          </div>
+                          <p className="text-xs text-gray-500">Premium</p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Users className="h-4 w-4 mr-1" />
-                        <span>Up to {pkg.guest_capacity} guests</span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Gift className="h-4 w-4 mr-1" />
-                        <span>{pkg.freebie_count} freebies</span>
-                      </div>
-                    </div>
+                      {/* Info Section - Consistent Height */}
+                      <div className="flex flex-col gap-3 mb-4 min-h-[60px]">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex items-center text-sm text-gray-600">
+                            <Users className="h-4 w-4 mr-1 flex-shrink-0" />
+                            <span className="truncate">
+                              Up to {pkg.guest_capacity} guests
+                            </span>
+                          </div>
+                          <div className="flex items-center text-sm text-gray-600">
+                            <Gift className="h-4 w-4 mr-1 flex-shrink-0" />
+                            <span className="truncate">
+                              {pkg.freebie_count} freebies
+                            </span>
+                          </div>
+                        </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
-                      <div className="text-xl sm:text-2xl font-bold text-gray-900">
-                        ₱{pkg.package_price.toLocaleString()}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="text-xl sm:text-2xl font-bold text-gray-900">
+                            ₱{pkg.package_price.toLocaleString()}
+                          </div>
+                          <Badge
+                            variant="secondary"
+                            className="bg-green-100 text-green-800 self-start sm:self-auto text-xs"
+                          >
+                            {pkg.component_count} inclusions
+                          </Badge>
+                        </div>
                       </div>
-                      <Badge
-                        variant="secondary"
-                        className="bg-green-100 text-green-800 self-start sm:self-auto"
-                      >
-                        {pkg.component_count} inclusions
-                      </Badge>
-                    </div>
 
-                    <div className="flex flex-col sm:flex-row gap-3 mt-4">
-                      <Button
-                        variant="outline"
-                        onClick={() => fetchPackageDetails(pkg.package_id)}
-                        className="flex-1 border-[#028A75] hover:bg-[#028A75]/10 min-h-[10px] text-xm font-medium px-6 py-2 !text-[#028A75]"
-                        disabled={isPackageLoading}
-                      >
-                        <Eye className="h-6 w-6 mr-3" />
-                        View Details
-                      </Button>
-                      <Button
-                        onClick={() =>
-                          router.push(
-                            `/client/bookings/create-booking?package=${pkg.package_id}`
-                          )
-                        }
-                        className="flex-1 bg-[#028A75] hover:bg-[#028A75]/90 min-h-[10px] text-xm font-medium px-6 py-2 !text-white"
-                      >
-                        <Heart className="h-6 w-6 mr-3" />
-                        Book Now
-                      </Button>
+                      {/* Action Buttons - Always at Bottom */}
+                      <div className="flex flex-col sm:flex-row gap-3 mt-auto pt-4">
+                        <Button
+                          variant="outline"
+                          onClick={() => fetchPackageDetails(pkg.package_id)}
+                          className="flex-1 border-[#028A75] hover:bg-[#028A75]/10 min-h-[44px] text-sm font-medium px-4 py-2 !text-[#028A75] flex items-center justify-center"
+                          disabled={isPackageLoading}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          <span className="hidden sm:inline">View Details</span>
+                          <span className="sm:hidden">Details</span>
+                        </Button>
+                        <Button
+                          onClick={() =>
+                            router.push(
+                              `/client/bookings/create-booking?package=${pkg.package_id}`
+                            )
+                          }
+                          className="flex-1 bg-[#028A75] hover:bg-[#028A75]/90 min-h-[44px] text-sm font-medium px-4 py-2 !text-white flex items-center justify-center"
+                        >
+                          <Heart className="h-4 w-4 mr-2" />
+                          <span className="hidden sm:inline">Book Now</span>
+                          <span className="sm:hidden">Book</span>
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </Card>
-              </div>
-            ))}
+                  </Card>
+                </div>
+              );
+            })}
           </div>
+
+          {/* View More Button */}
+          {filteredPackages.length > packageDisplayLimit && (
+            <div className="flex justify-center mt-6 animate-slide-up">
+              <Button
+                onClick={() => setShowAllPackages(!showAllPackages)}
+                variant="outline"
+                className="border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white px-4 sm:px-6 py-3 rounded-lg transition-all duration-300 flex items-center gap-2 hover:scale-105 transform w-full sm:w-auto"
+              >
+                {showAllPackages ? (
+                  <>
+                    <ChevronLeft className="h-4 w-4 transition-transform duration-200" />
+                    <span className="hidden sm:inline">Show Less</span>
+                    <span className="sm:hidden">Less</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="hidden sm:inline">
+                      View More Packages (
+                      {filteredPackages.length - packageDisplayLimit} more)
+                    </span>
+                    <span className="sm:hidden">
+                      View More ({filteredPackages.length - packageDisplayLimit}
+                      )
+                    </span>
+                    <ChevronRight className="h-4 w-4 transition-transform duration-200" />
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Upcoming Events - Now at the bottom */}
@@ -1073,6 +1177,35 @@ export default function ClientDashboard() {
 
         .animate-slide-up-stagger {
           animation: slide-up 0.6s ease-out both;
+        }
+
+        @keyframes fade-in {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .animate-fade-in {
+          animation: fade-in 0.5s ease-out both;
+        }
+
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+
+        .line-clamp-1 {
+          display: -webkit-box;
+          -webkit-line-clamp: 1;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
         }
       `}</style>
     </div>

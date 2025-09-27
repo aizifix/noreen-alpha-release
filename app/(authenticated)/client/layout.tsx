@@ -27,6 +27,7 @@ import {
   Menu,
   X,
   FileText,
+  Settings,
 } from "lucide-react";
 import {
   Sidebar,
@@ -604,6 +605,16 @@ export default function ClientLayout({
                     <User className="h-4 w-4" />
                     Profile
                   </button>
+                  <button
+                    onClick={() => {
+                      setIsUserDropdownOpen(false);
+                      router.push("/client/settings");
+                    }}
+                    className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </button>
 
                   <div className="border-t border-gray-100 my-1"></div>
                   <button
@@ -789,6 +800,26 @@ export default function ClientLayout({
                     </div>
                   </div>
 
+                  <button
+                    onClick={() => {
+                      setIsUserDropdownOpen(false);
+                      router.push("/client/profile");
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    <User className="h-4 w-4" />
+                    Profile
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsUserDropdownOpen(false);
+                      router.push("/client/settings");
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </button>
                   <button
                     onClick={() =>
                       setTheme(theme === "dark" ? "light" : "dark")

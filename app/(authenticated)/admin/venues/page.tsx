@@ -21,6 +21,7 @@ import {
   MoreVertical,
   ChevronDown,
   ChevronUp,
+  Copy,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import axios from "axios";
@@ -233,6 +234,38 @@ export default function VenuesPage() {
         } else {
           console.error("Delete error:", response.data.message);
           toast.error("Failed to delete venue: " + response.data.message);
+        }
+      } catch (error) {
+        console.error("API error:", error);
+        toast.error("Failed to connect to server");
+      }
+    }
+  };
+
+  const handleDuplicateVenue = async (venueId: number) => {
+    if (
+      confirm(
+        "Are you sure you want to duplicate this venue? This will create a copy with all the same details."
+      )
+    ) {
+      try {
+        const response = await axios.post(
+          "http://localhost/events-api/admin.php",
+          {
+            operation: "duplicateVenue",
+            venue_id: venueId,
+          }
+        );
+
+        if (response.data.status === "success") {
+          toast.success(
+            response.data.message || "Venue duplicated successfully"
+          );
+          // Refresh the list
+          fetchVenues();
+        } else {
+          console.error("Duplicate error:", response.data.message);
+          toast.error("Failed to duplicate venue: " + response.data.message);
         }
       } catch (error) {
         console.error("API error:", error);
@@ -651,6 +684,15 @@ export default function VenuesPage() {
                               >
                                 <Settings className="h-4 w-4 mr-2" />
                                 Full Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleDuplicateVenue(venue.venue_id)
+                                }
+                                className="cursor-pointer"
+                              >
+                                <Copy className="h-4 w-4 mr-2" />
+                                Duplicate Venue
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem

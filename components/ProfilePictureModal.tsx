@@ -201,14 +201,27 @@ export default function ProfilePictureModal({
       return;
     }
 
+    if (!userId || userId <= 0) {
+      toast({
+        title: "Error",
+        description: "Invalid user ID",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsUploading(true);
 
     try {
       // Convert canvas to blob
-      const blob = await new Promise<Blob>((resolve) => {
+      const blob = await new Promise<Blob>((resolve, reject) => {
         previewCanvasRef.current!.toBlob(
           (blob) => {
-            resolve(blob!);
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error("Failed to create image blob"));
+            }
           },
           "image/jpeg",
           0.95
@@ -226,7 +239,7 @@ export default function ProfilePictureModal({
       let response;
 
       if (typeof uploadEndpoint === "string") {
-        // Legacy string URL
+        // String URL - use axios directly
         response = await axios.post(uploadEndpoint, formData, {
           headers: { "Content-Type": "multipart/form-data" },
         });
@@ -256,9 +269,13 @@ export default function ProfilePictureModal({
         throw new Error(response.data.message || "Upload failed");
       }
     } catch (error: any) {
+      console.error("Profile picture upload error:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to upload profile picture",
+        description:
+          error.response?.data?.message ||
+          error.message ||
+          "Failed to upload profile picture",
         variant: "destructive",
       });
     } finally {

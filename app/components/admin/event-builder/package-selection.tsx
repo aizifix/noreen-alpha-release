@@ -990,9 +990,7 @@ export function PackageSelection({
           </div>
 
           {/* Footer with Action Button - Fixed position */}
-          <div className="px-6 py-4 border-t bg-gray-50 flex-shrink-0 sticky bottom-0">
-            <div className="border-t border-gray-200 pt-4 -mt-4 mb-4"></div>{" "}
-            {/* Horizontal divider */}
+          <div className="px-6 py-4 border-t bg-gray-50 flex-shrink-0">
             <Button
               onClick={() => {
                 if (selectedPackageForDetails) {

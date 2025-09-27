@@ -984,7 +984,7 @@ class Auth {
             error_log("Raw POST data: " . print_r($_POST, true));
 
             // Required fields for client registration
-            $required = ['firstName', 'lastName', 'username', 'email', 'contactNumber', 'password'];
+            $required = ['firstName', 'lastName', 'email', 'contactNumber', 'password'];
 
             foreach ($required as $field) {
                 if (!isset($data[$field]) || empty(trim($data[$field]))) {
@@ -998,15 +998,15 @@ class Auth {
                 return json_encode(["status" => "error", "message" => "Invalid email format"]);
             }
 
-            // Simplified CAPTCHA validation (for development/testing)
-            if (!empty($data['captcha'])) {
-                error_log("CAPTCHA received: " . $data['captcha']);
-                // For development, accept any non-empty CAPTCHA response
-                // In production, implement proper Google reCAPTCHA verification
-                error_log("CAPTCHA validation passed (development mode)");
+            // Math challenge validation
+            if (!empty($data['mathAnswer']) || !empty($data['captcha'])) {
+                $mathAnswer = $data['mathAnswer'] ?? $data['captcha'];
+                error_log("Math answer received: " . $mathAnswer);
+                // For now, accept any non-empty math answer (in production, validate the actual math)
+                error_log("Math challenge validation passed");
             } else {
-                error_log("CAPTCHA response is empty or missing");
-                return json_encode(["status" => "error", "message" => "CAPTCHA verification required"]);
+                error_log("Math answer is empty or missing");
+                return json_encode(["status" => "error", "message" => "Math challenge verification required"]);
             }
 
             // Check if email already exists
@@ -1016,11 +1016,17 @@ class Auth {
                 return json_encode(["status" => "error", "message" => "Email already exists"]);
             }
 
-            // Check if username already exists
-            $stmt = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_username = ?");
-            $stmt->execute([$data['username']]);
-            if ($stmt->rowCount() > 0) {
-                return json_encode(["status" => "error", "message" => "Username already exists"]);
+            // Auto-generate username from email (for backward compatibility)
+            $username = explode('@', $data['email'])[0];
+            $baseUsername = $username;
+            $counter = 1;
+
+            // Keep checking until we find a unique username
+            while (true) {
+                $stmt = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_username = ?");
+                $stmt->execute([$username]);
+                if ($stmt->rowCount() == 0) break;
+                $username = $baseUsername . $counter++;
             }
 
             // Hash password
@@ -1051,7 +1057,7 @@ class Auth {
                 ':birthdate' => !empty($data['birthdate']) ? $data['birthdate'] : null,
                 ':email' => strtolower(trim($data['email'])),
                 ':contactNumber' => $contactNumber,
-                ':username' => trim($data['username']),
+                ':username' => $username, // Use auto-generated username
                 ':password' => $hashedPassword,
                 ':userRole' => $data['userRole'] ?? 'client'
             ]);
@@ -1205,7 +1211,7 @@ switch ($operation) {
         // Check if this is client registration (improved detection)
         $isClientRegistration = (
             (isset($data['userRole']) && $data['userRole'] === 'client') ||
-            (isset($data['firstName']) && isset($data['lastName']) && isset($data['username']) && !isset($data['vendorAddress'])) ||
+            (isset($data['firstName']) && isset($data['lastName']) && isset($data['email']) && !isset($data['vendorAddress'])) ||
             (isset($data['contactNumber']) && !isset($data['user_contact'])) || // New signup form uses contactNumber
             (isset($data['firstName']) && isset($data['email']) && !isset($data['vendorAddress']))
         );

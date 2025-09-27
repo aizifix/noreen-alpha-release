@@ -34,6 +34,9 @@ const LoginPage = () => {
   // Math challenge state instead of captcha
   const [mathChallenge, setMathChallenge] = useState({ num1: 0, num2: 0 });
   const [mathAnswer, setMathAnswer] = useState("");
+  const [mathValidation, setMathValidation] = useState<
+    "none" | "correct" | "incorrect"
+  >("none");
   const [isClient, setIsClient] = useState(false);
   // const recaptchaRef = useRef<ReCAPTCHAType | null>(null);
   // let shouldResetRecaptcha = false;
@@ -53,6 +56,7 @@ const LoginPage = () => {
     const num2 = Math.floor(Math.random() * 9) + 1;
     setMathChallenge({ num1, num2 });
     setMathAnswer("");
+    setMathValidation("none");
   };
 
   // We now handle authentication redirection with ClientRouteProtection component
@@ -63,9 +67,28 @@ const LoginPage = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Handle math challenge answer
+  // Handle math challenge answer with real-time validation
   const handleMathAnswerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setMathAnswer(e.target.value);
+    const value = e.target.value;
+    setMathAnswer(value);
+
+    // Real-time validation
+    if (value === "") {
+      setMathValidation("none");
+    } else {
+      const correctAnswer = mathChallenge.num1 + mathChallenge.num2;
+      const userAnswer = parseInt(value);
+
+      if (!isNaN(userAnswer)) {
+        if (userAnswer === correctAnswer) {
+          setMathValidation("correct");
+        } else {
+          setMathValidation("incorrect");
+        }
+      } else {
+        setMathValidation("none");
+      }
+    }
   };
 
   // Handle form submission (single step with captcha)
@@ -448,7 +471,13 @@ const LoginPage = () => {
                     <div className="text-lg font-medium">=</div>
                     <input
                       type="number"
-                      className="p-2 border rounded-md w-16 h-12 text-center text-lg font-medium focus:ring-2 focus:ring-[#334746] focus:border-transparent"
+                      className={`p-2 border rounded-md w-16 h-12 text-center text-lg font-medium focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                        mathValidation === "correct"
+                          ? "border-green-500 bg-green-50 ring-2 ring-green-200"
+                          : mathValidation === "incorrect"
+                            ? "border-red-500 bg-red-50 ring-2 ring-red-200"
+                            : "border-gray-300"
+                      }`}
                       value={mathAnswer}
                       onChange={handleMathAnswerChange}
                       required

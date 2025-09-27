@@ -47,6 +47,41 @@ const VerifySignupOTP = () => {
     checkPendingSignup();
   }, [router]);
 
+  // Industry standard session protection - prevent leaving the page
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue =
+        "Are you sure you want to leave? Your verification session will be lost.";
+      return "Are you sure you want to leave? Your verification session will be lost.";
+    };
+
+    const handlePopState = (e: PopStateEvent) => {
+      // Prevent back navigation
+      e.preventDefault();
+      window.history.pushState(null, "", window.location.href);
+
+      toast({
+        title: "Cannot go back",
+        description: "Please complete the verification process or start over.",
+        variant: "destructive",
+      });
+    };
+
+    // Add event listeners
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("popstate", handlePopState);
+
+    // Push current state to prevent back navigation
+    window.history.pushState(null, "", window.location.href);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
   // Timer countdown effect
   useEffect(() => {
     if (timeLeft <= 0) return;
@@ -271,11 +306,18 @@ const VerifySignupOTP = () => {
         {/* Back to Signup Link */}
         <div className="mb-4">
           <button
-            onClick={() => router.push("/auth/signup")}
+            onClick={() => {
+              // Clear session cookies before redirecting
+              document.cookie =
+                "pending_signup_user_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+              document.cookie =
+                "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+              router.replace("/auth/signup");
+            }}
             className="text-sm text-gray-600 hover:text-gray-800 flex items-center"
           >
             <X className="h-4 w-4 mr-1" />
-            Back to Sign Up
+            Start Over
           </button>
         </div>
 
@@ -404,7 +446,14 @@ const VerifySignupOTP = () => {
           <p className="text-sm text-gray-600">
             Need help?{" "}
             <button
-              onClick={() => router.push("/auth/signup")}
+              onClick={() => {
+                // Clear session cookies before redirecting
+                document.cookie =
+                  "pending_signup_user_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                document.cookie =
+                  "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                router.replace("/auth/signup");
+              }}
               className="text-[#028A75] hover:underline font-medium"
             >
               Start over

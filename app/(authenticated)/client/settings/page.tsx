@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -176,9 +176,9 @@ export default function ClientSettingsPage() {
       }
 
       const response = await axios.get(
-        `http://localhost/events-api/client.php?operation=getUserProfile&user_id=${userData.user_id}`
+        `client.php?operation=getUserProfile&user_id=${userData.user_id}`
       );
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         const profile = response.data.profile;
         setUserProfile(profile);
         setProfileForm({
@@ -201,9 +201,9 @@ export default function ClientSettingsPage() {
   const loadWebsiteSettings = async () => {
     try {
       const response = await axios.get(
-        "http://localhost/events-api/client.php?operation=getWebsiteSettings"
+        "/client.php?operation=getWebsiteSettings"
       );
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         setWebsiteSettings(response.data.settings);
       }
     } catch (error) {
@@ -214,9 +214,9 @@ export default function ClientSettingsPage() {
   const loadFeedbacks = async () => {
     try {
       const response = await axios.get(
-        "http://localhost/events-api/admin.php?operation=getFeedbacks"
+        "/admin.php?operation=getFeedbacks"
       );
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         setFeedbacks(response.data.feedbacks);
       }
     } catch (error) {
@@ -230,7 +230,7 @@ export default function ClientSettingsPage() {
     setIsSaving(true);
     try {
       const response = await axios.post(
-        "http://localhost/events-api/client.php",
+        "/client.php",
         {
           operation: "updateUserProfile",
           user_id: userProfile.user_id,
@@ -241,7 +241,7 @@ export default function ClientSettingsPage() {
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         toast({
           title: "Success",
           description: "Profile updated successfully",
@@ -287,7 +287,7 @@ export default function ClientSettingsPage() {
     setIsSaving(true);
     try {
       const response = await axios.post(
-        "http://localhost/events-api/client.php",
+        "/client.php",
         {
           operation: "changePassword",
           user_id: userProfile.user_id,
@@ -297,7 +297,7 @@ export default function ClientSettingsPage() {
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         toast({
           title: "Success",
           description: "Password changed successfully",
@@ -360,7 +360,7 @@ export default function ClientSettingsPage() {
   const handleOTPToggle = async (enabled: boolean) => {
     try {
       const response = await axios.post(
-        "http://localhost/events-api/client.php",
+        "/client.php",
         {
           operation: "updateWebsiteSettings",
           settings: {
@@ -370,7 +370,7 @@ export default function ClientSettingsPage() {
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         setWebsiteSettings((prev) => ({
           ...prev,
           require_otp_on_login: enabled ? 1 : 0,
@@ -442,8 +442,8 @@ export default function ClientSettingsPage() {
                   <img
                     src={
                       userProfile?.user_pfp &&
-                      userProfile.user_pfp.trim() !== ""
-                        ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(userProfile.user_pfp)}`
+                      userProfile.user_pfp.trim() !== "/
+                        ? `serve-image.php?path=${encodeURIComponent(userProfile.user_pfp)}`
                         : "/default_pfp.png"
                     }
                     alt="Profile"
@@ -835,7 +835,7 @@ export default function ClientSettingsPage() {
         isOpen={showProfilePictureModal}
         onClose={() => setShowProfilePictureModal(false)}
         onUploadSuccess={handleProfilePictureUpload}
-        uploadEndpoint="http://localhost/events-api/client.php"
+        uploadEndpoint="/client.php"
         userId={userProfile?.user_id || 0}
       />
     </div>

@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
 import {
   Plus,
   Search,
@@ -35,7 +38,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 interface Supplier {
   supplier_id: number;
@@ -155,7 +158,7 @@ export default function SupplierPage() {
         });
 
         const response = await fetch(
-          `http://localhost/events-api/admin.php?operation=getAllSuppliers&${queryParams}`
+          `${API_URL}/admin.php?operation=getAllSuppliers&${queryParams}`
         );
         const data = await response.json();
 
@@ -185,15 +188,9 @@ export default function SupplierPage() {
   const fetchMetadata = async () => {
     try {
       const [categoriesRes, statsRes, docTypesRes] = await Promise.all([
-        fetch(
-          "http://localhost/events-api/admin.php?operation=getSupplierCategories"
-        ),
-        fetch(
-          "http://localhost/events-api/admin.php?operation=getSupplierStats"
-        ),
-        fetch(
-          "http://localhost/events-api/admin.php?operation=getDocumentTypes"
-        ),
+        fetch(`${API_URL}/admin.php?operation=getSupplierCategories`),
+        fetch(`${API_URL}/admin.php?operation=getSupplierStats`),
+        fetch(`${API_URL}/admin.php?operation=getDocumentTypes`),
       ]);
 
       const categoriesData = await categoriesRes.json();
@@ -368,7 +365,7 @@ export default function SupplierPage() {
 
     try {
       const response = await fetch(
-        `http://localhost/events-api/admin.php?operation=deleteSupplier&supplier_id=${supplierId}`,
+        `${API_URL}/admin.php?operation=deleteSupplier&supplier_id=${supplierId}`,
         {
           method: "DELETE",
         }
@@ -898,6 +895,7 @@ function EnhancedSupplierModal({
 
   // Pricing tiers state
   const [tiers, setTiers] = useState<SupplierTier[]>([]);
+  const [supplierOffers, setSupplierOffers] = useState<any[]>([]);
 
   // Auto-generate username based on business name
   const generateUsername = (businessName: string) => {
@@ -971,9 +969,10 @@ function EnhancedSupplierModal({
         // ignore malformed docs
       }
 
-      // Fetch existing documents if editing
+      // Fetch existing documents and offers if editing
       if (mode === "edit" || mode === "view") {
         fetchSupplierDocuments(supplier.supplier_id);
+        fetchSupplierOffers(supplier.supplier_id);
       }
     }
   }, [supplier, mode]);
@@ -981,7 +980,7 @@ function EnhancedSupplierModal({
   const fetchSupplierDocuments = async (supplierId: number) => {
     try {
       const response = await fetch(
-        `http://localhost/events-api/admin.php?operation=getSupplierDocuments&supplier_id=${supplierId}`
+        `${API_URL}/admin.php?operation=getSupplierDocuments&supplier_id=${supplierId}`
       );
       const data = await response.json();
       if (data.status === "success") {
@@ -989,6 +988,29 @@ function EnhancedSupplierModal({
       }
     } catch (error) {
       console.error("Error fetching documents:", error);
+    }
+  };
+
+  const fetchSupplierOffers = async (supplierId: number) => {
+    try {
+      const response = await fetch(
+        `${API_URL}/admin.php?operation=getSupplierById&supplier_id=${supplierId}`
+      );
+      const data = await response.json();
+      if (data.status === "success" && data.supplier.offers) {
+        setSupplierOffers(data.supplier.offers);
+        // Convert offers to tiers format
+        const offersAsTiers: SupplierTier[] = data.supplier.offers.map(
+          (offer: any) => ({
+            name: offer.offer_title || "",
+            price: offer.price_min || 0,
+            description: offer.offer_description || "",
+          })
+        );
+        setTiers(offersAsTiers);
+      }
+    } catch (error) {
+      console.error("Error fetching supplier offers:", error);
     }
   };
 
@@ -1049,8 +1071,8 @@ function EnhancedSupplierModal({
 
       const url =
         mode === "edit"
-          ? `http://localhost/events-api/admin.php?operation=updateSupplier&supplier_id=${supplier?.supplier_id}`
-          : "http://localhost/events-api/admin.php?operation=createSupplier";
+          ? `${API_URL}/admin.php?operation=updateSupplier&supplier_id=${supplier?.supplier_id}`
+          : `${API_URL}/admin.php?operation=createSupplier`;
 
       const method = mode === "edit" ? "PUT" : "POST";
 
@@ -1372,10 +1394,41 @@ function EnhancedSupplierModal({
             </div>
           </div>
 
+          {/* Current Offers (View Mode) */}
+          {mode === "view" && supplierOffers.length > 0 && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h3 className="text-lg font-semibold mb-4">Current Offers</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {supplierOffers.map((offer, index) => (
+                  <div key={index} className="bg-white p-4 rounded-lg border">
+                    <div className="font-medium text-lg">
+                      {offer.offer_title}
+                    </div>
+                    <div className="text-sm text-gray-600 mb-2">
+                      {offer.offer_description}
+                    </div>
+                    <div className="text-lg font-bold text-green-600">
+                      ₱{Number(offer.price_min).toLocaleString()}
+                      {offer.price_max &&
+                        offer.price_max !== offer.price_min &&
+                        ` - ₱${Number(offer.price_max).toLocaleString()}`}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Tier Level: {offer.tier_level} | Category:{" "}
+                      {offer.service_category}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Pricing Tiers */}
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Pricing Tiers</h3>
+              <h3 className="text-lg font-semibold">
+                {mode === "view" ? "Pricing Tiers" : "Pricing Tiers"}
+              </h3>
               {!isReadOnly && (
                 <button
                   type="button"

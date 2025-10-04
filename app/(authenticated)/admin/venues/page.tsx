@@ -42,6 +42,21 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import { endpoints } from "@/app/config/api";
+
+// Image URL helper function
+const getImageUrl = (imagePath: string | null) => {
+  if (!imagePath) return null;
+  // Fix the image URL construction - ensure proper path for image serving
+  const cleanPath = imagePath.startsWith("uploads/")
+    ? imagePath
+    : `uploads/${imagePath}`;
+  // Use the events-api endpoint for serving images
+  const eventsApiUrl = process.env.NEXT_PUBLIC_API_URL
+    ? process.env.NEXT_PUBLIC_API_URL.replace("/app/api", "/events-api")
+    : "http://localhost/events-api";
+  return `${eventsApiUrl}/${cleanPath}`;
+};
 
 // Define venue interface
 interface VenueInclusion {
@@ -195,12 +210,9 @@ export default function VenuesPage() {
   const fetchVenues = async () => {
     try {
       setIsLoading(true);
-      const response = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: { operation: "getAllVenues" },
-        }
-      );
+      const response = await axios.get(endpoints.admin, {
+        params: { operation: "getAllVenues" },
+      });
 
       if (response.data.status === "success") {
         setVenues(response.data.data || []);
@@ -219,13 +231,10 @@ export default function VenuesPage() {
   const handleDeleteVenue = async (venueId: number) => {
     if (confirm("Are you sure you want to delete this venue?")) {
       try {
-        const response = await axios.post(
-          "http://localhost/events-api/admin.php",
-          {
-            operation: "deleteVenue",
-            venue_id: venueId,
-          }
-        );
+        const response = await axios.post(endpoints.admin, {
+          operation: "deleteVenue",
+          venue_id: venueId,
+        });
 
         if (response.data.status === "success") {
           toast.success(response.data.message || "Venue deleted successfully");
@@ -249,13 +258,10 @@ export default function VenuesPage() {
       )
     ) {
       try {
-        const response = await axios.post(
-          "http://localhost/events-api/admin.php",
-          {
-            operation: "duplicateVenue",
-            venue_id: venueId,
-          }
-        );
+        const response = await axios.post(endpoints.admin, {
+          operation: "duplicateVenue",
+          venue_id: venueId,
+        });
 
         if (response.data.status === "success") {
           toast.success(
@@ -303,19 +309,16 @@ export default function VenuesPage() {
 
     try {
       setIsSaving(true);
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "updateVenue",
-          venue_id: editingVenue,
-          venue_title: editForm.venue_title,
-          venue_details: editForm.venue_details,
-          venue_location: editForm.venue_location,
-          venue_contact: editForm.venue_contact,
-          venue_capacity: editForm.venue_capacity,
-          venue_price: editForm.venue_price,
-        }
-      );
+      const response = await axios.post(endpoints.admin, {
+        operation: "updateVenue",
+        venue_id: editingVenue,
+        venue_title: editForm.venue_title,
+        venue_details: editForm.venue_details,
+        venue_location: editForm.venue_location,
+        venue_contact: editForm.venue_contact,
+        venue_capacity: editForm.venue_capacity,
+        venue_price: editForm.venue_price,
+      });
 
       if (response.data.status === "success") {
         toast.success("Venue updated successfully");
@@ -650,7 +653,7 @@ export default function VenuesPage() {
                           className="h-full w-full bg-cover bg-center"
                           style={{
                             backgroundImage: venue.venue_cover_photo
-                              ? `url(http://localhost/events-api/${venue.venue_cover_photo})`
+                              ? `url(${getImageUrl(venue.venue_cover_photo)})`
                               : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
                           }}
                         />
@@ -718,7 +721,10 @@ export default function VenuesPage() {
                             <div className="h-12 w-12 rounded-full overflow-hidden border-2 border-white shadow-lg">
                               {venue.venue_profile_picture ? (
                                 <img
-                                  src={`http://localhost/events-api/${venue.venue_profile_picture}`}
+                                  src={
+                                    getImageUrl(venue.venue_profile_picture) ||
+                                    "/placeholder.jpg"
+                                  }
                                   alt={venue.venue_title}
                                   className="h-full w-full object-cover"
                                 />

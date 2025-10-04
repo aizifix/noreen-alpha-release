@@ -53,7 +53,7 @@ import {
   Unlock,
   Banknote,
 } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { adminApi, clientApi } from "@/app/utils/api";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -432,14 +432,14 @@ function EventFinalization({
   const fetchPaymentStats = async () => {
     try {
       const response = await axios.post(
-        "http://localhost/events-api/admin.php",
+        "/admin.php",
         {
           operation: "getEventPaymentStats",
           event_id: event.event_id,
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         setPaymentStats(response.data.stats);
       }
     } catch (error) {
@@ -478,7 +478,7 @@ function EventFinalization({
 
       const response = await adminApi.post(payload);
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         toast({
           title: "Success",
           description:
@@ -783,14 +783,14 @@ function VenueSelection({
     try {
       setLoading(true);
       const response = await axios.post(
-        "http://localhost/events-api/admin.php",
+        "/admin.php",
         {
           operation: "getPackageVenues",
           package_id: event.package_id,
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         setVenues(response.data.venues || []);
       }
     } catch (error) {
@@ -825,7 +825,7 @@ function VenueSelection({
     }
     try {
       setSavingCustom(true);
-      const res = await fetch("http://localhost/events-api/admin.php", {
+      const res = await fetch("/admin.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -871,7 +871,7 @@ function VenueSelection({
     try {
       setLoading(true);
       const response = await axios.post(
-        "http://localhost/events-api/admin.php",
+        "/admin.php",
         {
           operation: "updateEventVenue",
           event_id: event.event_id,
@@ -879,7 +879,7 @@ function VenueSelection({
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         toast({
           title: "Success",
           description: "Venue updated successfully",
@@ -1312,7 +1312,7 @@ function PackageInclusionsManagement({
   };
 
   const updateEventBudget = async (eventId: number, budgetChange: number) => {
-    const response = await fetch("http://localhost/events-api/admin.php", {
+    const response = await fetch("/admin.php", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1331,7 +1331,7 @@ function PackageInclusionsManagement({
   };
 
   const performSaveComponent = async (componentData: any, isNew: boolean) => {
-    const response = await fetch("http://localhost/events-api/admin.php", {
+    const response = await fetch("/admin.php", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1375,7 +1375,7 @@ function PackageInclusionsManagement({
   };
 
   const performDeleteComponent = async (componentId: number) => {
-    const response = await fetch("http://localhost/events-api/admin.php", {
+    const response = await fetch("/admin.php", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1481,7 +1481,7 @@ function PackageInclusionsManagement({
       );
       setLoading(true);
       const response = await axios.post(
-        "http://localhost/events-api/admin.php",
+        "/admin.php",
         {
           operation: "updateComponentPaymentStatus",
           component_id: componentId,
@@ -1490,7 +1490,7 @@ function PackageInclusionsManagement({
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         // Update local state
         setComponents(
           components.map((comp) =>
@@ -1700,7 +1700,7 @@ function PackageInclusionsManagement({
                       try {
                         setLoading(true);
                         const response = await axios.post(
-                          "http://localhost/events-api/admin.php",
+                          "/admin.php",
                           {
                             operation: "updateEventFinalization",
                             event_id: event.event_id,
@@ -1708,7 +1708,7 @@ function PackageInclusionsManagement({
                           }
                         );
 
-                        if (response.data.status === "success") {
+                        if (response.status === "success") {
                           toast({
                             title: "Success",
                             description:
@@ -2719,7 +2719,7 @@ function ClientProfile({ event }: { event: Event }) {
       return pfpPath;
     }
     // Use the image serving script for proper image delivery
-    return `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(pfpPath)}`;
+    return `serve-image.php?path=${encodeURIComponent(pfpPath)}`;
   };
 
   return (
@@ -2860,14 +2860,14 @@ function PaymentHistoryTab({
     try {
       setIsLoading(true);
       const response = await axios.post(
-        "http://localhost/events-api/admin.php",
+        "/admin.php",
         {
           operation: "getEventPayments",
           event_id: event.event_id,
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         const raw = response.data.payments || event.payments || [];
         const normalized = (raw || []).map((p: any) => {
           let attachments = p.payment_attachments;
@@ -2908,7 +2908,7 @@ function PaymentHistoryTab({
       setIsCreating(true);
       // 1) Create payment record
       const response = await axios.post(
-        "http://localhost/events-api/admin.php",
+        "/admin.php",
         {
           operation: "createPayment",
           event_id: event.event_id,
@@ -2923,7 +2923,7 @@ function PaymentHistoryTab({
         }
       );
 
-      if (response.data.status !== "success") {
+      if (response.status !== "success") {
         toast({
           title: "Error",
           description: response.data.message || "Failed to create payment",
@@ -2943,7 +2943,7 @@ function PaymentHistoryTab({
         formData.append("description", newPayment.payment_notes || "");
         formData.append("file", file);
 
-        await fetch("http://localhost/events-api/admin.php", {
+        await fetch("/admin.php", {
           method: "POST",
           body: formData,
         });
@@ -3617,7 +3617,7 @@ function PaymentHistoryTab({
                           <a
                             key={`${payment.payment_id}-${i}`}
                             className="text-sm text-blue-600 hover:underline"
-                            href={`http://localhost/events-api/uploads/payment_proof/${att.filename || att.file_name}`}
+                            href={`uploads/payment_proof/${att.filename || att.file_name}`}
                             target="_blank"
                             rel="noreferrer"
                           >
@@ -3756,7 +3756,7 @@ export default function EventDetailsPage() {
         const uid = user?.user_id;
         if (!uid) return;
         const res = await axios.get(
-          `http://localhost/events-api/notifications.php?operation=get_notifications&user_id=${uid}&limit=50`
+          `notifications.php?operation=get_notifications&user_id=${uid}&limit=50`
         );
         if (res.data && res.data.status === "success") {
           const list = Array.isArray(res.data.notifications)
@@ -3797,8 +3797,8 @@ export default function EventDetailsPage() {
       try {
         const sinceParam = recentSince
           ? `&since=${encodeURIComponent(recentSince)}`
-          : "";
-        const url = `http://localhost/events-api/notifications.php?operation=get_recent&user_id=${uid}${sinceParam}`;
+          : "/;
+        const url = `notifications.php?operation=get_recent&user_id=${uid}${sinceParam}`;
         const res = await axios.get(url);
         if (res.data && res.data.status === "success") {
           const list = Array.isArray(res.data.notifications)
@@ -3917,7 +3917,7 @@ export default function EventDetailsPage() {
       try {
         setOrganizersLoading(true);
         const res = await fetch(
-          "http://localhost/events-api/admin.php?operation=getAllOrganizers&page=1&limit=100"
+          "/admin.php?operation=getAllOrganizers&page=1&limit=100"
         );
         const data = await res.json();
         if (data.status === "success") {
@@ -3944,7 +3944,7 @@ export default function EventDetailsPage() {
   const fetchOrganizerDetailsForEvent = async (id: number) => {
     try {
       const res = await axios.get(
-        `http://localhost/events-api/admin.php?operation=getEventOrganizerDetails&event_id=${id}`
+        `admin.php?operation=getEventOrganizerDetails&event_id=${id}`
       );
       if (res.data && res.data.status === "success") {
         setOrganizerDetails(res.data.data);
@@ -3988,7 +3988,7 @@ export default function EventDetailsPage() {
         body.fee_currency = "PHP";
         body.fee_status = "proposed";
       }
-      const res = await fetch("http://localhost/events-api/admin.php", {
+      const res = await fetch("/admin.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -4065,7 +4065,7 @@ export default function EventDetailsPage() {
         toFetch.map(async (id) => {
           try {
             const res = await axios.post(
-              "http://localhost/events-api/admin.php",
+              "/admin.php",
               {
                 operation: "getOrganizerById",
                 organizer_id: Number(id),
@@ -4132,14 +4132,14 @@ export default function EventDetailsPage() {
         }
       } else {
         const response = await axios.post(
-          "http://localhost/events-api/admin.php",
+          "/admin.php",
           {
             operation: "getEnhancedEventDetails",
             event_id: parseInt(eventId),
           }
         );
         console.log("📡 API Response:", response.data);
-        if (response.data.status === "success") {
+        if (response.status === "success") {
           setEvent(response.data.event);
         } else {
           console.error("❌ API Error:", response.data.message);
@@ -4769,7 +4769,7 @@ export default function EventDetailsPage() {
                               <img
                                 src={
                                   organizerDetails?.profile_picture
-                                    ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(
+                                    ? `serve-image.php?path=${encodeURIComponent(
                                         organizerDetails.profile_picture
                                       )}`
                                     : "/default_pfp.png"
@@ -5184,7 +5184,7 @@ export default function EventDetailsPage() {
                                     <img
                                       src={
                                         o.profile_picture
-                                          ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(
+                                          ? `serve-image.php?path=${encodeURIComponent(
                                               o.profile_picture
                                             )}`
                                           : "/default_pfp.png"
@@ -5350,7 +5350,7 @@ export default function EventDetailsPage() {
 
                           const handleFileDownload = (attachment: any) => {
                             const link = document.createElement("a");
-                            link.href = `http://localhost/events-api/${attachment.file_path}`;
+                            link.href = `${attachment.file_path}`;
                             link.download = attachment.original_name;
                             document.body.appendChild(link);
                             link.click();

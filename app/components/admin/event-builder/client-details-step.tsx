@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import axios from "axios";
 import {
   RefreshCw,
   ChevronsUpDown,
@@ -286,28 +289,36 @@ export function ClientDetailsStep({
     const fetchClients = async () => {
       try {
         setIsLoading(true);
-        const response = await axios.get(
-          "http://localhost/events-api/admin.php",
-          {
-            params: { operation: "getClients" },
-          }
+        console.log(
+          "Fetching clients from:",
+          `${API_URL}/admin.php?operation=getClients`
         );
 
-        if (response.data.status === "success") {
-          // Transform client data to match our ClientData interface
-          const transformedClients = response.data.clients.map(
-            (client: DbClient) => ({
-              id: client.user_id.toString(),
-              name: `${client.user_firstName} ${client.user_lastName}`,
-              email: client.user_email,
-              phone: client.user_contact,
-              address: "", // Address field might not be available in the API response
-            })
-          );
+        const response = await fetch(
+          `${API_URL}/admin.php?operation=getClients`
+        );
 
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("API response:", data);
+
+        if (data.status === "success") {
+          // Transform client data to match our ClientData interface
+          const transformedClients = data.clients.map((client: DbClient) => ({
+            id: client.user_id.toString(),
+            name: `${client.user_firstName} ${client.user_lastName}`,
+            email: client.user_email,
+            phone: client.user_contact,
+            address: "", // Address field might not be available in the API response
+          }));
+
+          console.log("Transformed clients:", transformedClients);
           setClients(transformedClients);
         } else {
-          console.error("Error fetching clients:", response.data.message);
+          console.error("Error fetching clients:", data.message);
           // Keep using existingClients as fallback
         }
       } catch (error) {

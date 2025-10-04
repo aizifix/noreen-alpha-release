@@ -43,6 +43,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { endpoints } from "@/app/config/api";
+
+// Image URL helper function
+const getImageUrl = (imagePath: string | null) => {
+  if (!imagePath) return null;
+  // Fix the image URL construction - ensure proper path for image serving
+  const cleanPath = imagePath.startsWith("uploads/")
+    ? imagePath
+    : `uploads/${imagePath}`;
+  // Use the events-api endpoint for serving images
+  const eventsApiUrl = process.env.NEXT_PUBLIC_API_URL
+    ? process.env.NEXT_PUBLIC_API_URL.replace("/app/api", "/events-api")
+    : "http://localhost/events-api";
+  return `${eventsApiUrl}/${cleanPath}`;
+};
 
 interface VenueInclusion {
   inclusion_id: number;
@@ -111,7 +126,7 @@ export default function VenueDetailsPage() {
   const fetchVenueDetails = async () => {
     try {
       const response = await fetch(
-        `http://localhost/events-api/admin.php?operation=getVenueById&venue_id=${venueId}`
+        `${endpoints.admin}?operation=getVenueById&venue_id=${venueId}`
       );
       const data = await response.json();
       if (data.status === "success") {
@@ -147,6 +162,27 @@ export default function VenueDetailsPage() {
   ) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Check file size (max 5MB)
+      const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+      if (file.size > maxSize) {
+        alert(
+          `File size must be less than 5MB. Current file size: ${(file.size / 1024 / 1024).toFixed(2)}MB`
+        );
+        return;
+      }
+
+      // Check file type
+      const allowedTypes = [
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/webp",
+      ];
+      if (!allowedTypes.includes(file.type)) {
+        alert("Please select a valid image file (JPEG, PNG, or WebP)");
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = (e) => {
         const result = e.target?.result as string;
@@ -190,7 +226,7 @@ export default function VenueDetailsPage() {
     }
 
     try {
-      const response = await fetch("http://localhost/events-api/admin.php", {
+      const response = await fetch(endpoints.admin, {
         method: "POST",
         body: formData,
       });
@@ -212,7 +248,7 @@ export default function VenueDetailsPage() {
     if (!venue) return;
 
     try {
-      const response = await fetch("http://localhost/events-api/admin.php", {
+      const response = await fetch(endpoints.admin, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -330,7 +366,7 @@ export default function VenueDetailsPage() {
                 className="w-full h-full bg-cover bg-center"
                 style={{
                   backgroundImage: venue.venue_cover_photo
-                    ? `url(http://localhost/events-api/${venue.venue_cover_photo})`
+                    ? `url(${getImageUrl(venue.venue_cover_photo)})`
                     : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
                 }}
               />
@@ -338,7 +374,10 @@ export default function VenueDetailsPage() {
                 <Avatar className="h-24 w-24 border-4 border-white shadow-lg">
                   {venue.venue_profile_picture ? (
                     <AvatarImage
-                      src={`http://localhost/events-api/${venue.venue_profile_picture}`}
+                      src={
+                        getImageUrl(venue.venue_profile_picture) ||
+                        "/placeholder.jpg"
+                      }
                       alt={venue.venue_title}
                     />
                   ) : (

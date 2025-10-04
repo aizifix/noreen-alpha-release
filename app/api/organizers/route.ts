@@ -6,7 +6,7 @@ export const dynamic = "force-static";
 // This is a Next.js API route that acts as a proxy to the PHP admin.php file
 // It handles organizer-related operations
 
-const API_URL = "http://localhost/events-api/admin.php";
+const API_URL = "admin.php";
 
 export async function GET(request: NextRequest) {
   try {

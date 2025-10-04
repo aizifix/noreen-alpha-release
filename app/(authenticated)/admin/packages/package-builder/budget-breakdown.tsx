@@ -206,9 +206,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
       )}
 
       <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold mb-6">
-          Fixed Package Budget Breakdown
-        </h3>
+        <h3 className="text-lg font-semibold mb-6">Budget Breakdown</h3>
 
         {/* Chart Section */}
         {chartData.length > 0 ? (
@@ -267,7 +265,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
         <div className="mt-6 space-y-3 border-t pt-6">
           <div className="flex justify-between items-center">
             <span className="text-gray-600 font-medium flex items-center gap-2">
-              Fixed Package Price:
+              Package Price:
               {isPackageLocked && <Lock className="w-3 h-3 text-blue-500" />}
             </span>
             <span className="font-bold text-lg text-gray-900">

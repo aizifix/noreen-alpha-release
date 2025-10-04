@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     }
 
     const response = await fetch(
-      `http://localhost/events-api/admin.php?operation=getVenueById&venue_id=${venueId}`,
+      `admin.php?operation=getVenueById&venue_id=${venueId}`,
       {
         method: "GET",
         headers: {

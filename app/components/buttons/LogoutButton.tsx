@@ -15,7 +15,7 @@ export const LogoutButton = () => {
       if (user?.user_id) {
         axios
           .post(
-            "http://localhost/events-api/auth.php",
+            "auth.php",
             { operation: "logout", user_id: user.user_id },
             { headers: { "Content-Type": "application/json" } }
           )

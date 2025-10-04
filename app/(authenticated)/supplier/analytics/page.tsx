@@ -74,7 +74,7 @@ export default function SupplierAnalytics() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=getAnalytics&user_id=${userId}&time_range=${timeRange}`
+        `supplier.php?operation=getAnalytics&user_id=${userId}&time_range=${timeRange}`
       );
       const data = await response.json();
 

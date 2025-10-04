@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import axios from "axios";
 import Image from "next/image";
+import axios from "axios";
 import {
   CheckIcon,
   XIcon,
@@ -26,7 +26,8 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://noreen-events.online/noreen-events";
 
 interface Step {
   id: string;

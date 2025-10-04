@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import axios from "axios";
-import { toast } from "@/hooks/use-toast";
+import { endpoints } from "@/app/config/api";
+import { toast } from "sonner";
 import { CardTitle } from "@/components/ui/card";
 import { CheckCircle } from "lucide-react";
 import {
@@ -279,7 +279,17 @@ export function PackageSelection({
   // Helper function to get image URL
   const getImageUrl = (path: string | null) => {
     if (!path) return null;
-    return `http://localhost/events-api/${path}`;
+
+    // If the image path already contains a full URL, use it as is
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      return path;
+    }
+
+    // Use the serve-image.php script for proper image serving
+    const API_URL =
+      process.env.NEXT_PUBLIC_API_URL ||
+      "https://noreen-events.online/noreen-events";
+    return `${API_URL}/serve-image.php?path=${encodeURIComponent(path)}`;
   };
 
   // Map event type strings to event type IDs
@@ -351,54 +361,41 @@ export function PackageSelection({
 
         if (eventTypeId) {
           // Fetch packages filtered by event type
-          response = await axios.get<{
-            status: string;
-            packages?: DbPackage[];
-            message?: string;
-          }>("http://localhost/events-api/admin.php", {
-            params: {
-              operation: "getPackagesByEventType",
-              event_type_id: eventTypeId,
-            },
-          });
+          response = await fetch(
+            `${endpoints.admin}?operation=getPackagesByEventType&event_type_id=${eventTypeId}`
+          );
         } else {
           // If event type is provided but ID mapping failed, fetch all packages
-          response = await axios.get<{
-            status: string;
-            packages?: DbPackage[];
-            message?: string;
-          }>("http://localhost/events-api/admin.php", {
-            params: {
-              operation: "getAllPackages",
-            },
-          });
+          response = await fetch(`${endpoints.admin}?operation=getAllPackages`);
         }
 
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
         console.log("API Response:", response);
-        console.log("Response data:", response.data);
+        console.log("Response data:", data);
 
-        console.log("Packages response:", response.data);
+        console.log("Packages response:", data);
 
-        if (response.data.status === "error") {
-          console.error("API Error:", response.data.message);
-          setError(response.data.message || "Unknown error occurred");
+        if (data.status === "error") {
+          console.error("API Error:", data.message);
+          setError(data.message || "Unknown error occurred");
           return;
         }
 
-        if (!response.data.packages || response.data.packages.length === 0) {
+        if (!data.packages || data.packages.length === 0) {
           console.log("No packages returned from API");
           setError("Please select an event type to select package");
           return;
         }
 
-        console.log(
-          "Number of packages returned:",
-          response.data.packages?.length || 0
-        );
-        console.log("Packages:", response.data.packages);
+        console.log("Number of packages returned:", data.packages?.length || 0);
+        console.log("Packages:", data.packages);
 
-        if (response.data.status === "success") {
-          let allPackages = response.data.packages || [];
+        if (data.status === "success") {
+          let allPackages = data.packages || [];
           console.log("All packages before processing:", allPackages);
 
           // If we have an initial package ID that's not in the main list, fetch it separately
@@ -407,28 +404,25 @@ export function PackageSelection({
             !allPackages.find((p) => p.package_id === initialPackageId)
           ) {
             try {
-              const initialPackageResponse = await axios.get<{
-                status: string;
-                package?: DbPackage;
-                message?: string;
-              }>("http://localhost/events-api/admin.php", {
-                params: {
-                  operation: "getPackageById",
-                  package_id: initialPackageId,
-                },
-              });
-
-              console.log(
-                "Initial package response:",
-                initialPackageResponse.data
+              const initialPackageResponse = await fetch(
+                `${endpoints.admin}?operation=getPackageById&package_id=${initialPackageId}`
               );
 
+              if (!initialPackageResponse.ok) {
+                throw new Error(
+                  `HTTP error! status: ${initialPackageResponse.status}`
+                );
+              }
+
+              const initialPackageData = await initialPackageResponse.json();
+              console.log("Initial package response:", initialPackageData);
+
               if (
-                initialPackageResponse.data.status === "success" &&
-                initialPackageResponse.data.package
+                initialPackageData.status === "success" &&
+                initialPackageData.package
               ) {
                 // Transform single package response to match array format
-                const pkg = initialPackageResponse.data.package;
+                const pkg = initialPackageData.package;
                 const initialPackage: DbPackage = {
                   ...pkg,
                   component_count: pkg.components?.length || 0,
@@ -508,19 +502,17 @@ export function PackageSelection({
     setIsModalLoading(true);
     try {
       // Fetch complete package details to ensure we have all venue data
-      const response = await axios.get<{
-        status: string;
-        package?: DbPackage;
-        message?: string;
-      }>("http://localhost/events-api/admin.php", {
-        params: {
-          operation: "getPackageById",
-          package_id: pkg.package_id,
-        },
-      });
+      const response = await fetch(
+        `${endpoints.admin}?operation=getPackageById&package_id=${pkg.package_id}`
+      );
 
-      if (response.data.status === "success" && response.data.package) {
-        const completePackage = response.data.package;
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.status === "success" && data.package) {
+        const completePackage = data.package;
         const enhancedPackage: DbPackage = {
           ...completePackage,
           component_count: completePackage.components?.length || 0,

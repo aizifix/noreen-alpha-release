@@ -3,7 +3,6 @@ import type React from "react";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import axios from "axios";
 import Image from "next/image";
 import { toast } from "@/hooks/use-toast";
 import ClientRouteProtection from "@/app/components/client-route-protection";
@@ -18,8 +17,7 @@ import type ReCAPTCHAType from "react-google-recaptcha";
 // });
 
 // Get API and reCAPTCHA keys from .env
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+import { api } from "@/app/config/api";
 // const SITE_KEY =
 //   process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY ||
 //   "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"; // Test site key
@@ -116,9 +114,7 @@ const LoginPage = () => {
       }
       formDataToSend.append("captcha", "math_challenge_passed"); // Send placeholder value
 
-      const response = await axios.post(`${API_URL}/auth.php`, formDataToSend, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const response = await api.auth.login(formDataToSend);
 
       console.log("Login response:", response.data);
 
@@ -159,9 +155,7 @@ const LoginPage = () => {
             fd.append("user_id", String(userData.user_id));
             fd.append("email", userData.user_email || "");
 
-            const otpResp = await axios.post(`${API_URL}/auth.php`, fd, {
-              headers: { "Content-Type": "multipart/form-data" },
-            });
+            const otpResp = await api.auth.requestOtp(fd);
 
             if (otpResp.data?.status === "otp_sent") {
               document.cookie = `pending_otp_user_id=${userData.user_id}; path=/`;

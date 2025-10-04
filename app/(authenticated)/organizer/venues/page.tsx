@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { CheckIcon } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { VenueCard } from "../../../components/card/venue-card";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
@@ -281,11 +281,11 @@ export default function VendorVenues() {
       }
 
       const response = await axios.get(
-        `http://localhost/events-api/vendor.php?operation=getVenues&user_id=${userData.user_id}`
+        `vendor.php?operation=getVenues&user_id=${userData.user_id}`
       );
 
       if (
-        response.data.status === "success" &&
+        response.status === "success" &&
         Array.isArray(response.data.venues)
       ) {
         setVenues(response.data.venues);
@@ -333,7 +333,7 @@ export default function VendorVenues() {
       }
 
       const response = await axios.post(
-        "http://localhost/events-api/vendor.php",
+        "/vendor.php",
         formData,
         {
           headers: {
@@ -342,7 +342,7 @@ export default function VendorVenues() {
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         setShowModal(false);
         fetchVenues();
         // Reset form

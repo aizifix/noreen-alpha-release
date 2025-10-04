@@ -11,34 +11,36 @@ Create environment-specific `.env` files for different deployment targets:
 ### Development (.env.local)
 
 ```
-NEXT_PUBLIC_API_URL=http://localhost/events-api
+NEXT_PUBLIC_API_URL=https://noreen-events.online/noreen-events
 ```
 
 ### Staging (.env.staging)
 
 ```
-NEXT_PUBLIC_API_URL=https://staging.example.com/events-api
+NEXT_PUBLIC_API_URL=https://noreen-events.online/noreen-events
 ```
 
 ### Production (.env.production)
 
 ```
-NEXT_PUBLIC_API_URL=https://example.com/events-api
+NEXT_PUBLIC_API_URL=https://noreen-events.online/noreen-events
 ```
 
 ## Usage
 
 The application automatically uses the appropriate environment variables based on the environment. When deploying:
 
-1. For local development, create a `.env.local` file with the development settings
-2. For staging, use the `.env.staging` file settings
-3. For production, use the `.env.production` file settings
+1. For local development, create a `.env.local` file with the Namecheap backend URL
+2. For staging, use the same Namecheap backend URL
+3. For production, use the same Namecheap backend URL
+
+**Important**: This application is configured to always use the remote Namecheap backend (`https://noreen-events.online/noreen-events`) for consistency between development and production environments.
 
 ## How It Works
 
 The configuration is accessed through the central `app/config/api.ts` file, which exports:
 
-- `API_URL`: The base API URL from environment variables (with localhost fallback)
+- `API_URL`: The base API URL from environment variables (with Namecheap backend fallback)
 - `endpoints`: Object with specific API endpoint paths
 
 In your code, import from this config instead of hardcoding URLs:

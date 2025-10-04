@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { X, Plus, Star, Building2, Users } from "lucide-react";
+import { X, Plus, Star, Building2, Users, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 
 interface Component {
   name: string;
@@ -13,6 +14,7 @@ interface Inclusion {
   offer_id?: number;
   is_manual?: boolean;
   tier_description?: string;
+  tier_level?: number;
 }
 
 interface Supplier {
@@ -37,6 +39,7 @@ interface SupplierOffer {
   supplier_type: "internal" | "external";
   rating_average: number;
   total_ratings: number;
+  tier_level: number;
 }
 
 interface Venue {
@@ -70,6 +73,7 @@ interface PackageInclusionsStepProps {
     offerId: number | null,
     isManual: boolean
   ) => void;
+  updateInclusionTier?: (inclusionIndex: number, tierLevel: number) => void;
 }
 
 export const PackageInclusionsStep: React.FC<PackageInclusionsStepProps> = ({
@@ -84,6 +88,7 @@ export const PackageInclusionsStep: React.FC<PackageInclusionsStepProps> = ({
   removeInclusion,
   addInclusion,
   updateInclusionSupplier,
+  updateInclusionTier,
 }) => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [offers, setOffers] = useState<SupplierOffer[]>([]);
@@ -102,9 +107,17 @@ export const PackageInclusionsStep: React.FC<PackageInclusionsStepProps> = ({
   const fetchSuppliers = async () => {
     try {
       const response = await fetch(
-        "http://localhost/events-api/admin.php?operation=getAllSuppliers&is_verified=1"
+        "/api/admin.php?operation=getAllSuppliers&is_verified=1&limit=100"
       );
-      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const text = await response.text();
+      console.log("Suppliers response:", text);
+
+      const data = JSON.parse(text);
       if (data.status === "success") {
         setSuppliers(data.suppliers);
       }
@@ -116,9 +129,17 @@ export const PackageInclusionsStep: React.FC<PackageInclusionsStepProps> = ({
   const fetchCategories = async () => {
     try {
       const response = await fetch(
-        "http://localhost/events-api/supplier.php?operation=getSupplierCategories"
+        "/api/supplier.php?operation=getSupplierCategories"
       );
-      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const text = await response.text();
+      console.log("Categories response:", text);
+
+      const data = JSON.parse(text);
       if (data.status === "success") {
         setCategories(data.categories);
       }
@@ -130,9 +151,17 @@ export const PackageInclusionsStep: React.FC<PackageInclusionsStepProps> = ({
   const fetchOffers = async () => {
     try {
       const response = await fetch(
-        "http://localhost/events-api/supplier.php?operation=getAllActiveOffers"
+        "/api/supplier.php?operation=getAllActiveOffers"
       );
-      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const text = await response.text();
+      console.log("Offers response:", text);
+
+      const data = JSON.parse(text);
       if (data.status === "success") {
         setOffers(data.offers);
       }
@@ -143,6 +172,26 @@ export const PackageInclusionsStep: React.FC<PackageInclusionsStepProps> = ({
 
   const getOffersBySupplier = (supplierId: number) => {
     return offers.filter((offer) => offer.supplier_id === supplierId);
+  };
+
+  const getOffersBySupplierAndTier = (
+    supplierId: number,
+    tierLevel: number
+  ) => {
+    return offers.filter(
+      (offer) =>
+        offer.supplier_id === supplierId && offer.tier_level === tierLevel
+    );
+  };
+
+  const getAvailableTiers = (supplierId: number) => {
+    const supplierOffers = offers.filter(
+      (offer) => offer.supplier_id === supplierId
+    );
+    const uniqueTiers = [
+      ...new Set(supplierOffers.map((offer) => offer.tier_level)),
+    ].sort((a, b) => a - b);
+    return uniqueTiers;
   };
 
   const getSupplierById = (supplierId: number) => {
@@ -185,6 +234,24 @@ export const PackageInclusionsStep: React.FC<PackageInclusionsStepProps> = ({
       updateInclusionPrice(inclusionIndex, offer.price_min.toString());
     }
   };
+
+  const handleTierSelection = (inclusionIndex: number, tierLevel: number) => {
+    const inclusion = inclusions[inclusionIndex];
+    if (inclusion.supplier_id) {
+      // Clear existing offer selection when tier changes
+      updateInclusionSupplier(
+        inclusionIndex,
+        inclusion.supplier_id,
+        null,
+        false
+      );
+      // Update tier level in inclusion
+      if (updateInclusionTier) {
+        updateInclusionTier(inclusionIndex, tierLevel);
+      }
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Show selected venues as fixed inclusions */}
@@ -225,149 +292,86 @@ export const PackageInclusionsStep: React.FC<PackageInclusionsStepProps> = ({
               <div className="flex-1">
                 {/* Supplier Selection */}
                 <div className="mb-4">
-                  <label className="block mb-2 font-medium">
-                    Supplier Selection
-                  </label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block mb-1 text-sm font-medium">
-                        Select Supplier
-                      </label>
-                      <select
-                        value={inclusion.supplier_id || ""}
-                        onChange={(e) =>
-                          handleSupplierSelection(
-                            inclusionIndex,
-                            e.target.value
-                          )
-                        }
-                        className="w-full border rounded px-3 py-2"
-                      >
-                        <option value="">Select Supplier</option>
-                        <optgroup label="Internal Suppliers">
-                          {suppliers
-                            .filter((s) => s.supplier_type === "internal")
-                            .map((supplier) => (
-                              <option
-                                key={supplier.supplier_id}
-                                value={supplier.supplier_id}
-                              >
-                                {supplier.business_name} ⭐{" "}
-                                {supplier.rating_average} (
-                                {supplier.total_ratings})
-                              </option>
-                            ))}
-                        </optgroup>
-                        <optgroup label="External Suppliers">
-                          {suppliers
-                            .filter((s) => s.supplier_type === "external")
-                            .map((supplier) => (
-                              <option
-                                key={supplier.supplier_id}
-                                value={supplier.supplier_id}
-                              >
-                                {supplier.business_name} ⭐{" "}
-                                {supplier.rating_average} (
-                                {supplier.total_ratings})
-                              </option>
-                            ))}
-                        </optgroup>
-                        <option value="manual">Manual Entry</option>
-                      </select>
-                    </div>
-
-                    {inclusion.supplier_id && (
-                      <div>
-                        <label className="block mb-1 text-sm font-medium">
-                          Select Offer/Tier
-                        </label>
-                        <select
-                          value={inclusion.offer_id || ""}
-                          onChange={(e) =>
-                            handleOfferSelection(inclusionIndex, e.target.value)
-                          }
-                          className="w-full border rounded px-3 py-2"
-                        >
-                          <option value="">Select Offer</option>
-                          {getOffersBySupplier(inclusion.supplier_id).map(
-                            (offer) => (
-                              <option
-                                key={offer.offer_id}
-                                value={offer.offer_id}
-                              >
-                                {offer.offer_title} (₱{offer.price_min} - ₱
-                                {offer.price_max})
-                              </option>
-                            )
-                          )}
-                        </select>
-                      </div>
-                    )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // This will be handled by the parent component
+                        // For now, just show a message
+                        toast.info(
+                          "Supplier selection will be implemented in the parent component"
+                        );
+                      }}
+                      className="flex-1 bg-[#028A75] text-white px-4 py-2 rounded hover:bg-[#027A65] flex items-center justify-center gap-2"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add Supplier
+                    </button>
                   </div>
-
-                  {/* Show supplier info if selected */}
-                  {inclusion.supplier_id && !inclusion.is_manual && (
-                    <div className="mt-2 p-3 bg-blue-50 rounded-lg">
-                      {(() => {
-                        const supplier = getSupplierById(inclusion.supplier_id);
-                        return supplier ? (
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {supplier.supplier_type === "internal" ? (
-                                <Building2 className="h-4 w-4 text-blue-600" />
-                              ) : (
-                                <Users className="h-4 w-4 text-green-600" />
-                              )}
-                              <span className="text-sm font-medium">
-                                {supplier.business_name}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                ({supplier.specialty_category})
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Star className="h-3 w-3 text-yellow-500" />
-                              <span className="text-xs">
-                                {supplier.rating_average}
-                              </span>
-                            </div>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  )}
-
-                  {/* Show offer details if selected */}
-                  {inclusion.offer_id && (
-                    <div className="mt-2 p-3 bg-green-50 rounded-lg">
-                      {(() => {
-                        const offer = getOfferById(inclusion.offer_id);
-                        return offer ? (
-                          <div>
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-sm font-medium">
-                                  {offer.offer_title}
-                                </p>
-                                <p className="text-xs text-gray-600">
-                                  {offer.offer_description}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm font-medium text-green-600">
-                                  ₱{offer.price_min} - ₱{offer.price_max}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  {offer.package_size}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  )}
                 </div>
+
+                {/* Show supplier info if selected */}
+                {inclusion.supplier_id && !inclusion.is_manual && (
+                  <div className="mt-2 p-3 bg-blue-50 rounded-lg">
+                    {(() => {
+                      const supplier = getSupplierById(inclusion.supplier_id);
+                      return supplier ? (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {supplier.supplier_type === "internal" ? (
+                              <Building2 className="h-4 w-4 text-blue-600" />
+                            ) : (
+                              <Users className="h-4 w-4 text-green-600" />
+                            )}
+                            <span className="text-sm font-medium">
+                              {supplier.business_name}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              ({supplier.specialty_category})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Star className="h-3 w-3 text-yellow-500" />
+                            <span className="text-xs">
+                              {supplier.rating_average}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
+
+                {/* Show offer details if selected */}
+                {inclusion.offer_id && (
+                  <div className="mt-2 p-3 bg-green-50 rounded-lg">
+                    {(() => {
+                      const offer = getOfferById(inclusion.offer_id);
+                      return offer ? (
+                        <div>
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="text-sm font-medium">
+                                {offer.offer_title}
+                              </p>
+                              <p className="text-xs text-gray-600">
+                                {offer.offer_description}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-medium text-green-600">
+                                ₱{offer.price_min} - ₱{offer.price_max}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {offer.package_size}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
 
                 {/* Inclusion Details */}
                 <label className="block mb-2 font-medium">

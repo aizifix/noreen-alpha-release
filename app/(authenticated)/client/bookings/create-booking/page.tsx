@@ -488,12 +488,9 @@ export default function EnhancedCreateBookingPage() {
   const fetchEventTypes = async () => {
     setLoadingEventTypes(true);
     try {
-      const response = await axios.get(
-        "http://localhost/events-api/client.php",
-        {
-          params: { operation: "getEventTypes" },
-        }
-      );
+      const response = await axios.get("/client.php", {
+        params: { operation: "getEventTypes" },
+      });
 
       if (response.data.status === "success") {
         setEventTypes(response.data.event_types || []);
@@ -513,12 +510,9 @@ export default function EnhancedCreateBookingPage() {
   // Fetch packages
   const fetchPackages = async () => {
     try {
-      const response = await axios.get(
-        "http://localhost/events-api/client.php",
-        {
-          params: { operation: "getAllPackages" },
-        }
-      );
+      const response = await axios.get("/client.php", {
+        params: { operation: "getAllPackages" },
+      });
 
       if (response.data.status === "success") {
         setPackages(response.data.packages || []);
@@ -534,7 +528,7 @@ export default function EnhancedCreateBookingPage() {
     try {
       let response;
       if (packageId) {
-        response = await axios.get("http://localhost/events-api/client.php", {
+        response = await axios.get("/client.php", {
           params: {
             operation: "getVenuesByPackage",
             package_id: packageId,
@@ -543,7 +537,7 @@ export default function EnhancedCreateBookingPage() {
           },
         });
       } else {
-        response = await axios.get("http://localhost/events-api/client.php", {
+        response = await axios.get("/client.php", {
           params: {
             operation: "getAvailableVenues",
             event_type_id: getEventTypeId(formData.eventType),
@@ -561,7 +555,7 @@ export default function EnhancedCreateBookingPage() {
             if (typeof v.extra_pax_rate === "number") return v;
             try {
               const detailsRes = await fetch(
-                `http://localhost/events-api/admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
+                `admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
                   v.venue_id
                 )}`
               );
@@ -592,7 +586,7 @@ export default function EnhancedCreateBookingPage() {
               missingPreviews.map(async (vp) => {
                 try {
                   const res = await fetch(
-                    `http://localhost/events-api/admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
+                    `admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
                       vp.venue_id
                     )}`
                   );
@@ -650,14 +644,11 @@ export default function EnhancedCreateBookingPage() {
       const startDate = format(startOfMonth(targetDate), "yyyy-MM-dd");
       const endDate = format(endOfMonth(targetDate), "yyyy-MM-dd");
 
-      const response = await axios.post(
-        "http://localhost/events-api/client.php",
-        {
-          operation: "getCalendarConflictData",
-          start_date: startDate,
-          end_date: endDate,
-        }
-      );
+      const response = await axios.post("/client.php", {
+        operation: "getCalendarConflictData",
+        start_date: startDate,
+        end_date: endDate,
+      });
 
       if (response.data.status === "success") {
         setCalendarConflictData(response.data.calendarData || {});
@@ -673,13 +664,10 @@ export default function EnhancedCreateBookingPage() {
 
     setIsCheckingConflicts(true);
     try {
-      const response = await axios.post(
-        "http://localhost/events-api/client.php",
-        {
-          operation: "checkEventDateConflicts",
-          event_date: formData.eventDate,
-        }
-      );
+      const response = await axios.post("/client.php", {
+        operation: "checkEventDateConflicts",
+        event_date: formData.eventDate,
+      });
 
       if (response.data.status === "success") {
         setHasConflicts(response.data.hasConflicts || false);
@@ -977,10 +965,7 @@ export default function EnhancedCreateBookingPage() {
         total_price: totalPrice,
       };
 
-      const response = await axios.post(
-        "http://localhost/events-api/client.php",
-        bookingData
-      );
+      const response = await axios.post("/client.php", bookingData);
 
       if (response.data.status === "success") {
         setBookingSuccess(true);
@@ -1081,15 +1066,12 @@ export default function EnhancedCreateBookingPage() {
     setLoadingInclusions(true);
     try {
       // Primary: getPackageComponents (exists in API)
-      const response = await axios.get(
-        "http://localhost/events-api/client.php",
-        {
-          params: {
-            operation: "getPackageComponents",
-            package_id: packageId,
-          },
-        }
-      );
+      const response = await axios.get("/client.php", {
+        params: {
+          operation: "getPackageComponents",
+          package_id: packageId,
+        },
+      });
 
       if (response.data.status === "success") {
         const components =
@@ -1106,10 +1088,9 @@ export default function EnhancedCreateBookingPage() {
 
       // Fallback 1: getPackageDetails.components
       try {
-        const detailsRes = await axios.get(
-          "http://localhost/events-api/client.php",
-          { params: { operation: "getPackageDetails", package_id: packageId } }
-        );
+        const detailsRes = await axios.get("/client.php", {
+          params: { operation: "getPackageDetails", package_id: packageId },
+        });
         const comps = detailsRes?.data?.package?.components;
         if (Array.isArray(comps) && comps.length > 0) {
           const convertedInclusions = comps.map(componentToInclusion);
@@ -1153,15 +1134,12 @@ export default function EnhancedCreateBookingPage() {
 
     try {
       // Fetch venues for this package to show in the package details
-      const response = await axios.get(
-        "http://localhost/events-api/client.php",
-        {
-          params: {
-            operation: "getVenuesByPackage",
-            package_id: pkg.package_id,
-          },
-        }
-      );
+      const response = await axios.get("/client.php", {
+        params: {
+          operation: "getVenuesByPackage",
+          package_id: pkg.package_id,
+        },
+      });
 
       if (response.data.status === "success" && response.data.venues) {
         // Update the modal package with venue previews
@@ -1187,12 +1165,12 @@ export default function EnhancedCreateBookingPage() {
       // Fetch details and inclusions in parallel
       const [detailsRes, inclusionsRes] = await Promise.all([
         fetch(
-          `http://localhost/events-api/admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
+          `admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
             venue.venue_id
           )}`
         ).then((r) => r.json()),
         fetch(
-          `http://localhost/events-api/client.php?operation=getVenueInclusions&venue_id=${encodeURIComponent(
+          `client.php?operation=getVenueInclusions&venue_id=${encodeURIComponent(
             venue.venue_id
           )}`
         ).then((r) => r.json()),
@@ -2391,9 +2369,10 @@ export default function EnhancedCreateBookingPage() {
                                             <div
                                               className={`text-sm font-medium ${isRemoved ? "text-gray-400" : "text-[#028A75]"}`}
                                             >
-                                              {formatPrice(
-                                                inclusion.inclusion_price
-                                              )}
+                                              {/* Hide individual inclusion prices as per requirements */}
+                                              <span className="text-gray-400 text-xs">
+                                                Included
+                                              </span>
                                               {isRemoved && (
                                                 <span className="text-xs ml-2">
                                                   (Not included)
@@ -2461,9 +2440,10 @@ export default function EnhancedCreateBookingPage() {
                                             <div
                                               className={`text-sm font-medium ${isRemoved ? "text-gray-400" : isVenueInclusion ? "text-blue-600" : "text-[#028A75]"}`}
                                             >
-                                              {formatPrice(
-                                                inclusion.inclusion_price
-                                              )}
+                                              {/* Hide individual inclusion prices as per requirements */}
+                                              <span className="text-gray-400 text-xs">
+                                                Included
+                                              </span>
                                               {isRemoved && (
                                                 <span className="text-xs ml-2">
                                                   (Not included)
@@ -2530,9 +2510,10 @@ export default function EnhancedCreateBookingPage() {
                                             <div
                                               className={`text-sm font-medium ${isRemoved ? "text-gray-400" : "text-purple-600"}`}
                                             >
-                                              {formatPrice(
-                                                service.inclusion_price
-                                              )}
+                                              {/* Hide individual service prices as per requirements */}
+                                              <span className="text-gray-400 text-xs">
+                                                Service
+                                              </span>
                                               {isRemoved && (
                                                 <span className="text-xs ml-2">
                                                   (Not included)
@@ -2579,7 +2560,10 @@ export default function EnhancedCreateBookingPage() {
                                             </div>
                                           </div>
                                           <div className="text-sm font-medium text-orange-600">
-                                            {formatPrice(custom.price)}
+                                            {/* Hide individual customization prices as per requirements */}
+                                            <span className="text-gray-400 text-xs">
+                                              Custom
+                                            </span>
                                           </div>
                                         </div>
                                       )
@@ -2833,7 +2817,7 @@ export default function EnhancedCreateBookingPage() {
                 {modalVenue.venue_cover_photo && (
                   <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
                     <img
-                      src={`http://localhost/events-api/${modalVenue.venue_cover_photo}`}
+                      src={`${modalVenue.venue_cover_photo}`}
                       alt={modalVenue.venue_title}
                       className="w-full h-full object-cover"
                     />
@@ -2842,7 +2826,7 @@ export default function EnhancedCreateBookingPage() {
                 <div className="flex items-center gap-3">
                   {modalVenue.venue_profile_picture && (
                     <img
-                      src={`http://localhost/events-api/${modalVenue.venue_profile_picture}`}
+                      src={`${modalVenue.venue_profile_picture}`}
                       alt={`${modalVenue.venue_title} profile`}
                       className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
                     />
@@ -3071,7 +3055,7 @@ export default function EnhancedCreateBookingPage() {
                                       <div className="h-48 sm:h-56 bg-gray-100 relative overflow-hidden">
                                         {venue.venue_cover_photo ? (
                                           <img
-                                            src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(venue.venue_cover_photo)}`}
+                                            src={`serve-image.php?path=${encodeURIComponent(venue.venue_cover_photo)}`}
                                             alt={venue.venue_title}
                                             className="w-full h-full object-cover transform transition-transform duration-500 hover:scale-110"
                                           />

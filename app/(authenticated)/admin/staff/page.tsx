@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,7 +92,7 @@ interface FilterState {
   role: string;
 }
 
-const API_URL = "http://localhost/events-api";
+import { API_URL } from "../../../config/api";
 
 export default function StaffPage() {
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -316,7 +316,7 @@ export default function StaffPage() {
     setIsSubmitting(true);
     try {
       setIsModalOpen(false);
-      const activeToast = toast({
+      toast({
         title: modalMode === "add" ? "Creating staff..." : "Updating staff...",
       });
       const payload = {
@@ -332,21 +332,21 @@ export default function StaffPage() {
       });
       const data = response.data;
       if (data.status === "success") {
-        activeToast.update({
+        toast({
           title: "Success!",
           description:
             modalMode === "add"
               ? "Staff added successfully"
               : "Staff updated successfully",
           className: "border-green-200 bg-green-50 text-green-800",
-        } as any);
+        });
         await fetchStaff();
       } else {
-        activeToast.update({
+        toast({
           title: "Error",
           description: data.message || data.debug?.error || "Operation failed",
           variant: "destructive",
-        } as any);
+        });
         await fetchStaff();
       }
     } catch (err: any) {

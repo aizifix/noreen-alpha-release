@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Connect to database
-    const response = await fetch("http://localhost/events-api/admin.php", {
+    const response = await fetch("admin.php", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   try {
     const response = await fetch(
-      "http://localhost/events-api/admin.php?operation=getAllVenues",
+      "admin.php?operation=getAllVenues",
       {
         method: "GET",
         headers: {

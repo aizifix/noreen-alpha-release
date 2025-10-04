@@ -9,6 +9,7 @@ import { VenueInclusions } from "./venue-inclusions";
 import { VenueReview } from "./venue-review";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { endpoints } from "@/app/config/api";
 
 // Types for venue data
 export interface VenueFormData {
@@ -104,14 +105,23 @@ export default function VenueBuilderPage() {
         JSON.stringify(formData.inclusions)
       );
 
-      const response = await fetch("http://localhost/events-api/admin.php", {
+      const response = await fetch(endpoints.admin, {
         method: "POST",
         body: formDataPayload,
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error("API Error Response:", errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const text = await response.text();
+      console.log("API Response:", text);
+
+      const data = JSON.parse(text);
+
+      if (data.status !== "success") {
         throw new Error(data.message || "Failed to create venue");
       }
 

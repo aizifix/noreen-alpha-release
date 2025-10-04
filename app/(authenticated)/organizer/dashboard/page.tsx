@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { secureStorage } from "@/app/utils/encryption";
+
+// Configure axios base URL
+axios.defaults.baseURL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://noreen-events.online/noreen-events";
 import { protectRoute } from "@/app/utils/routeProtection";
 import { toast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -304,10 +309,10 @@ export default function OrganizerDashboard() {
       // Resolve organizer_id from profile first
       (async () => {
         try {
-          const resp = await axios.post(
-            "http://localhost/events-api/organizer.php",
-            { operation: "getOrganizerProfile", user_id: userData.user_id }
-          );
+          const resp = await axios.post("/organizer.php", {
+            operation: "getOrganizerProfile",
+            user_id: userData.user_id,
+          });
           const oid =
             resp.data?.status === "success"
               ? resp.data?.data?.organizer_id || userData.user_id
@@ -351,10 +356,10 @@ export default function OrganizerDashboard() {
 
   const fetchAndPopulateDashboard = async (oid: number) => {
     try {
-      const res = await axios.post(
-        "http://localhost/events-api/organizer.php",
-        { operation: "getOrganizerEvents", organizer_id: oid }
-      );
+      const res = await axios.post("/organizer.php", {
+        operation: "getOrganizerEvents",
+        organizer_id: oid,
+      });
       if (res.data?.status !== "success") return;
       const data = Array.isArray(res.data.data) ? res.data.data : [];
       // Upcoming: next 5 future events

@@ -160,10 +160,39 @@ export default function PaymentStep({
         formData.append("operation", "uploadFile");
         formData.append("fileType", "payment_proof");
 
-        const response = await fetch("http://localhost/events-api/admin.php", {
+        const API_URL =
+          process.env.NEXT_PUBLIC_API_URL ||
+          "https://noreen-events.online/noreen-events";
+        console.log("Uploading file to:", `${API_URL}/admin.php`);
+        console.log("FormData contents:", {
+          file: file.name,
+          operation: "uploadFile",
+          fileType: "payment_proof",
+        });
+
+        const response = await fetch(`${API_URL}/admin.php`, {
           method: "POST",
           body: formData,
+          headers: {
+            // Don't set Content-Type for FormData, let the browser set it with boundary
+          },
         });
+
+        console.log("Upload response status:", response.status);
+        console.log("Upload response headers:", response.headers);
+
+        // Check if response is JSON
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          const textResponse = await response.text();
+          console.error("Server returned non-JSON response:", textResponse);
+          console.error("Response status:", response.status);
+          console.error("Response URL:", response.url);
+          alert(
+            `Failed to upload ${file.name}: Server returned invalid response (Status: ${response.status})`
+          );
+          return;
+        }
 
         const result = await response.json();
 
@@ -173,7 +202,9 @@ export default function PaymentStep({
           proof.uploadedAt = new Date().toISOString();
           setPaymentProofs((prev) => [...prev, proof]);
         } else {
-          alert(`Failed to upload ${file.name}: ${result.message}`);
+          alert(
+            `Failed to upload ${file.name}: ${result.message || "Unknown error"}`
+          );
         }
       } catch (error) {
         console.error("Upload error:", error);

@@ -75,7 +75,7 @@ export default function SupplierBookings() {
 
   // Status update form
   const [newStatus, setNewStatus] = useState("");
-  const [statusNotes, setStatusNotes] = useState("");
+  const [statusNotes, setStatusNotes] = useState("/);
 
   useEffect(() => {
     fetchBookings();
@@ -91,7 +91,7 @@ export default function SupplierBookings() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=getBookings&user_id=${userId}`
+        `supplier.php?operation=getBookings&user_id=${userId}`
       );
       const data = await response.json();
 
@@ -175,7 +175,7 @@ export default function SupplierBookings() {
       setUpdating(true);
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=updateBookingStatus&event_component_id=${selectedBooking.event_component_id}`,
+        `supplier.php?operation=updateBookingStatus&event_component_id=${selectedBooking.event_component_id}`,
         {
           method: "PUT",
           headers: {

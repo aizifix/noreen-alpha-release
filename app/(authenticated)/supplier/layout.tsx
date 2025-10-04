@@ -83,7 +83,7 @@ export default function SupplierLayout({ children }: SupplierLayoutProps) {
       if (userId) {
         axios
           .post(
-            "http://localhost/events-api/auth.php",
+            "auth.php",
             { operation: "logout", user_id: userId },
             { headers: { "Content-Type": "application/json" } }
           )

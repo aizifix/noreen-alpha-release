@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { secureStorage } from "@/app/utils/encryption";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,7 +140,7 @@ export default function OrganizerSettingsPage() {
 
       // Prefer organizer-specific profile to populate richer details
       const orgRes = await axios.get(
-        "http://localhost/events-api/organizer.php",
+        "/organizer.php",
         {
           params: {
             operation: "getOrganizerProfile",
@@ -172,7 +172,7 @@ export default function OrganizerSettingsPage() {
       }
 
       // Fallback to generic user profile
-      const res = await axios.get("http://localhost/events-api/admin.php", {
+      const res = await apiClient.get("/admin.php", {
         params: { operation: "getUserProfile", user_id: current?.user_id },
       });
       if (res.data?.status === "success") {
@@ -196,7 +196,7 @@ export default function OrganizerSettingsPage() {
 
   const fetchWebsiteSettings = async () => {
     try {
-      const res = await axios.get("http://localhost/events-api/admin.php", {
+      const res = await apiClient.get("/admin.php", {
         params: { operation: "getWebsiteSettings" },
       });
       if (res.data?.status === "success") {
@@ -210,7 +210,7 @@ export default function OrganizerSettingsPage() {
     try {
       setIsSaving(true);
       const current = secureStorage.getItem("user");
-      const res = await axios.post("http://localhost/events-api/admin.php", {
+      const res = await apiClient.post("/admin.php", {
         operation: "updateUserProfile",
         user_id: current?.user_id,
         ...profileForm,
@@ -244,7 +244,7 @@ export default function OrganizerSettingsPage() {
     try {
       setIsSaving(true);
       const current = secureStorage.getItem("user");
-      const res = await axios.post("http://localhost/events-api/admin.php", {
+      const res = await apiClient.post("/admin.php", {
         operation: "changePassword",
         user_id: current?.user_id,
         currentPassword: passwordForm.currentPassword,

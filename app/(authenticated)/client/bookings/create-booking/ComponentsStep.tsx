@@ -20,7 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 
 // Types
 interface Component {
@@ -77,13 +77,13 @@ export default function ComponentsStep({
     setLoading(true);
     try {
       const response = await axios.get(
-        "http://localhost/events-api/client.php",
+        "/client.php",
         {
           params: { operation: "getAllPackageComponents" },
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         setAvailableComponents(response.data.components || []);
       }
     } catch (err) {
@@ -232,7 +232,10 @@ export default function ComponentsStep({
                                   isRemoved ? "text-gray-400" : "text-[#028A75]"
                                 }`}
                               >
-                                {formatPrice(component.component_price)}
+                                {/* Hide individual component prices as per requirements */}
+                                <span className="text-gray-400 text-xs">
+                                  Included
+                                </span>
                               </div>
                             </div>
                             {component.component_description && (
@@ -327,7 +330,10 @@ export default function ComponentsStep({
                                 {component.component_name}
                               </div>
                               <div className="font-semibold text-[#028A75]">
-                                {formatPrice(component.component_price)}
+                                {/* Hide individual component prices as per requirements */}
+                                <span className="text-gray-400 text-xs">
+                                  Included
+                                </span>
                               </div>
                             </div>
 

@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { secureStorage } from "@/app/utils/encryption";
 import { toast } from "@/components/ui/use-toast";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 
 interface Event {
   event_id: number;
@@ -81,7 +81,7 @@ export default function ClientPaymentsPage() {
 
       // Fetch client events with payment info
       const eventsResponse = await axios.get(
-        `http://localhost/events-api/client.php?operation=getClientEvents&user_id=${userId}`
+        `client.php?operation=getClientEvents&user_id=${userId}`
       );
 
       if (eventsResponse.data.status === "success") {
@@ -90,7 +90,7 @@ export default function ClientPaymentsPage() {
 
       // Fetch payment history
       const paymentsResponse = await axios.get(
-        `http://localhost/events-api/client.php?operation=getClientPaymentHistory&user_id=${userId}`
+        `client.php?operation=getClientPaymentHistory&user_id=${userId}`
       );
 
       if (paymentsResponse.data.status === "success") {
@@ -114,10 +114,10 @@ export default function ClientPaymentsPage() {
       if (!userData?.user_id) return;
 
       const response = await axios.get(
-        `http://localhost/events-api/client.php?operation=getClientPaymentSchedule&user_id=${userData.user_id}&event_id=${eventId}`
+        `client.php?operation=getClientPaymentSchedule&user_id=${userData.user_id}&event_id=${eventId}`
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         setPaymentSchedule(response.data.schedule);
       }
     } catch (error) {

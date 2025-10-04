@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { endpoints } from "@/app/config/api";
 import {
   Calendar,
   Clock,
@@ -189,9 +190,7 @@ export default function ReportsPage() {
       if (startDate) params.set("start_date", startDate);
       if (endDate) params.set("end_date", endDate);
 
-      const response = await fetch(
-        `http://localhost/events-api/admin.php?${params.toString()}`
-      );
+      const response = await fetch(`${endpoints.admin}?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -235,9 +234,7 @@ export default function ReportsPage() {
       if (startDate) params.set("start_date", startDate);
       if (endDate) params.set("end_date", endDate);
 
-      const response = await fetch(
-        `http://localhost/events-api/admin.php?${params.toString()}`
-      );
+      const response = await fetch(`${endpoints.admin}?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -270,9 +267,7 @@ export default function ReportsPage() {
       if (endDate) params.set("end_date", endDate);
       if (selectedUserRole !== "all") params.set("user_role", selectedUserRole);
 
-      const response = await fetch(
-        `http://localhost/events-api/admin.php?${params.toString()}`
-      );
+      const response = await fetch(`${endpoints.admin}?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -304,9 +299,7 @@ export default function ReportsPage() {
       params.set("session_id", sessionId);
       params.set("reason", "admin_terminated");
 
-      const response = await fetch(
-        `http://localhost/events-api/admin.php?${params.toString()}`
-      );
+      const response = await fetch(`${endpoints.admin}?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

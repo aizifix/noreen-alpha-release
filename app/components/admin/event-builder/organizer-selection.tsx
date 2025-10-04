@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
 import { Check, Search, UserPlus, Loader } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,8 +17,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { API_URL } from "@/app/config/api";
 import type { OrganizerSelectionProps } from "@/app/types/event-builder";
-import axios from "axios";
 
 // Interface for organizer data from API
 interface Organizer {
@@ -88,21 +89,27 @@ export function OrganizerSelection({
     const fetchOrganizers = async () => {
       try {
         setIsLoading(true);
-        const response = await axios.post(
-          "http://localhost/events-api/admin.php",
-          {
-            operation: "getAllOrganizers",
-            page: 1,
-            limit: 100, // Get all organizers
-          }
-        );
+        setError(null);
+
+        console.log("🔄 Fetching organizers from API...");
+
+        const response = await axios.post("/admin.php", {
+          operation: "getAllOrganizers",
+          page: 1,
+          limit: 100, // Get all organizers
+        });
+
+        console.log("📡 API Response:", response.data);
 
         if (response.data.status === "success") {
           // Map the API response to match our interface
           const apiOrganizers = response.data.data?.organizers || [];
+          console.log("📋 Raw organizers from API:", apiOrganizers);
+
           const mappedOrganizers = apiOrganizers.map((org: any) => ({
             organizer_id: org.organizer_id || org.user_id,
             organizer_name:
+              org.full_name ||
               `${org.first_name || ""} ${org.last_name || ""}`.trim(),
             organizer_role: "Event Coordinator", // Default role since API doesn't provide it
             organizer_email: org.email || "",
@@ -116,6 +123,8 @@ export function OrganizerSelection({
             talent_fee_currency: org.talent_fee_currency || "PHP",
           }));
 
+          console.log("✅ Mapped organizers:", mappedOrganizers);
+
           const finalOrganizers =
             mappedOrganizers.length > 0 ? mappedOrganizers : defaultOrganizers;
           setOrganizers(finalOrganizers);
@@ -126,16 +135,16 @@ export function OrganizerSelection({
             onOrganizerDataUpdate(finalOrganizers);
           }
         } else {
-          console.log("API response:", response.data);
+          console.error("❌ API Error:", response.data.message);
+          setError(response.data.message || "Failed to fetch organizers");
           // Use default organizers as fallback
           setOrganizers(defaultOrganizers);
-          setError(null);
         }
       } catch (err) {
-        console.error("Error fetching organizers:", err);
+        console.error("💥 Network Error:", err);
+        setError("Failed to connect to server. Using default organizers.");
         // Use default organizers as fallback
         setOrganizers(defaultOrganizers);
-        setError(null);
       } finally {
         setIsLoading(false);
       }
@@ -289,7 +298,7 @@ export function OrganizerSelection({
           <Loader className="h-12 w-12 animate-spin text-green-500 mb-4" />
           <p className="text-lg text-gray-600">Loading organizers...</p>
         </div>
-      ) : error && filteredOrganizers.length === 0 ? (
+      ) : error ? (
         <div className="rounded-lg bg-red-50 p-6 text-center">
           <p className="text-red-600 mb-4">{error}</p>
           <Button variant="outline" onClick={() => window.location.reload()}>
@@ -318,10 +327,15 @@ export function OrganizerSelection({
                     <Avatar className="h-12 w-12">
                       <AvatarImage
                         src={
-                          organizer.organizer_profile_picture ||
-                          "/default_pfp.png"
+                          organizer.organizer_profile_picture
+                            ? `${API_URL}/serve-image.php?path=${encodeURIComponent(organizer.organizer_profile_picture)}`
+                            : "/default_pfp.png"
                         }
                         alt={organizer.organizer_name}
+                        onError={(e) => {
+                          // Fallback to default if image fails to load
+                          e.currentTarget.src = "/default_pfp.png";
+                        }}
                       />
                       <AvatarFallback>
                         {organizer.organizer_name.charAt(0)}

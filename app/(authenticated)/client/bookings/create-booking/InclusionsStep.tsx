@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { apiClient } from "@/utils/apiClient";
 import axios from "axios";
 
 // Types
@@ -195,17 +196,14 @@ export default function InclusionsStep({
   // Fetch venue inclusions
   const fetchVenueInclusions = async (venueId: number) => {
     try {
-      const response = await axios.get(
-        "http://localhost/events-api/client.php",
-        {
-          params: {
-            operation: "getVenueInclusions",
-            venue_id: venueId,
-          },
-        }
-      );
+      const response = await axios.get("/api/client.php", {
+        params: {
+          operation: "getVenueInclusions",
+          venue_id: venueId,
+        },
+      });
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         const inclusions = response.data.inclusions || [];
         setVenueInclusions(inclusions);
         const total = inclusions.reduce(
@@ -223,17 +221,14 @@ export default function InclusionsStep({
   const fetchAvailableInclusions = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(
-        "http://localhost/events-api/client.php",
-        {
-          params: {
-            operation: "getPackageComponents",
-            package_id: packageId ?? 0,
-          },
-        }
-      );
+      const response = await axios.get("/api/client.php", {
+        params: {
+          operation: "getPackageComponents",
+          package_id: packageId ?? 0,
+        },
+      });
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         const raw = response.data.inclusions || response.data.components || [];
         const mapped: Inclusion[] = raw.map((item: any) => ({
           inclusion_id:
@@ -265,10 +260,10 @@ export default function InclusionsStep({
     try {
       // Fetch suppliers with offers (primary) and admin suppliers (for registration_docs fallback) in parallel
       const [clientRes, adminRes] = await Promise.all([
-        axios.get("http://localhost/events-api/client.php", {
+        apiClient.get("/client.php", {
           params: { operation: "getSuppliersWithTiers" },
         }),
-        axios.get("http://localhost/events-api/admin.php", {
+        apiClient.get("/admin.php", {
           params: {
             operation: "getAllSuppliers",
             page: 1,
@@ -356,17 +351,14 @@ export default function InclusionsStep({
   // Fetch freebies for the current package
   const fetchPackageFreebies = async (pkgId: number) => {
     try {
-      const response = await axios.get(
-        "http://localhost/events-api/client.php",
-        {
-          params: {
-            operation: "getPackageDetails",
-            package_id: pkgId,
-          },
-        }
-      );
+      const response = await axios.get("/api/client.php", {
+        params: {
+          operation: "getPackageDetails",
+          package_id: pkgId,
+        },
+      });
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         const freebies: Freebie[] = response.data?.package?.freebies || [];
         setPackageFreebies(freebies);
       } else {
@@ -391,19 +383,16 @@ export default function InclusionsStep({
       const dd = String(today.getDate()).padStart(2, "0");
       const dateStr = `${yyyy}-${mm}-${dd}`;
 
-      const response = await axios.get(
-        "http://localhost/events-api/client.php",
-        {
-          params: {
-            operation: "getVenuesByPackage",
-            package_id: pkgId,
-            event_date: dateStr,
-            guest_count: guests,
-          },
-        }
-      );
+      const response = await axios.get("/api/client.php", {
+        params: {
+          operation: "getVenuesByPackage",
+          package_id: pkgId,
+          event_date: dateStr,
+          guest_count: guests,
+        },
+      });
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         const venues: any[] = response.data?.venues || [];
         const venue = venues.find((v) => Number(v.venue_id) === Number(vId));
         if (venue) {
@@ -783,7 +772,10 @@ export default function InclusionsStep({
                                   <div
                                     className={`font-semibold ${isRemoved ? "text-gray-400" : "text-[#028A75]"}`}
                                   >
-                                    {formatPrice(inclusion.inclusion_price)}
+                                    {/* Hide individual inclusion prices as per requirements */}
+                                    <span className="text-gray-400 text-sm">
+                                      Included
+                                    </span>
                                   </div>
                                   {isRemoved && (
                                     <span className="text-xs text-gray-500">
@@ -850,7 +842,10 @@ export default function InclusionsStep({
                               </div>
                               <div className="text-right">
                                 <div className="font-semibold text-purple-600">
-                                  {formatPrice(customization.price)}
+                                  {/* Hide individual customization prices as per requirements */}
+                                  <span className="text-gray-400 text-sm">
+                                    Custom
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -956,9 +951,11 @@ export default function InclusionsStep({
                             )}
                           </div>
                         </div>
-                        {/* Price retained but not added into editable totals */}
+                        {/* Hide venue inclusion prices as per requirements */}
                         <div className="text-sm font-medium text-gray-600">
-                          {formatPrice(inclusion.inclusion_price)}
+                          <span className="text-gray-400 text-xs">
+                            Included
+                          </span>
                         </div>
                       </CardContent>
                     </Card>
@@ -1004,7 +1001,8 @@ export default function InclusionsStep({
                         </div>
                         {typeof freebie.freebie_value === "number" && (
                           <div className="text-sm font-medium text-gray-600">
-                            {formatPrice(freebie.freebie_value || 0)}
+                            {/* Hide freebie values as per requirements */}
+                            <span className="text-gray-400 text-xs">Free</span>
                           </div>
                         )}
                       </CardContent>
@@ -1165,7 +1163,10 @@ export default function InclusionsStep({
                                   </p>
                                 )}
                                 <p className="text-sm font-semibold text-blue-600 mt-1">
-                                  {formatPrice(service.service_price)}
+                                  {/* Hide supplier service prices as per requirements */}
+                                  <span className="text-gray-400 text-xs">
+                                    Service
+                                  </span>
                                 </p>
                               </div>
                               <div className="flex flex-col items-end gap-1">

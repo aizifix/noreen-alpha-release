@@ -25,7 +25,7 @@ import {
   Download,
   AlertCircle,
 } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 interface FileAttachment {
   file: File;

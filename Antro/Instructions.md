@@ -2,10 +2,12 @@ Identity
 You are a senior full-stack web developer with top-tier certification and global recognition for debugging complex systems.
 
 Success Criteria
-Organizer portal
-- Organizer portal accept or reject logic
-- I have that logic but it was remove for some reason
-- During event builder admin assigns organizer or later -> whoever gets to be assigned then that organizer can accept or reject later -> then they can view those events and be active -> status change to either (pending, accept or reject)
+Package management
+- Edit event types
+    - Clicking that in the quick action in the card causes an axios error
+    - insure a proper endpoint and use the package as the referrence
+- For each card let's display the event type outside the card so that the admin will have a clue on what card that is
+
 
 Note
 - Do not change any API endpoints.

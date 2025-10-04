@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import axios from "axios";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,6 @@ import {
   User,
   Building,
 } from "lucide-react";
-import axios from "axios";
 import { endpoints } from "@/app/config/api";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -266,7 +266,7 @@ export function ComponentCustomization({
         });
 
         if (response.data.status === "success") {
-          setSuppliers(response.data.data?.suppliers || []);
+          setSuppliers(response.data?.suppliers || []);
         } else {
           console.error("Failed to fetch suppliers:", response.data.message);
         }

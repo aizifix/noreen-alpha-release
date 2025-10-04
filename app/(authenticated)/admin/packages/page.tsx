@@ -28,8 +28,8 @@ import {
   Tag,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import axios from "axios";
 import { useRouter } from "next/navigation";
+import { endpoints } from "@/app/config/api";
 import { Check, ArrowLeft } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -75,9 +75,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// API Configuration
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+// API Configuration is now handled by the centralized config
 
 // Define package interface
 interface PackageItem {
@@ -271,17 +269,25 @@ export default function PackagesPage() {
 
       // Handle different data types
       if (sortField === "package_price") {
-        aValue = parseFloat(aValue.toString());
-        bValue = parseFloat(bValue.toString());
+        aValue = parseFloat((aValue || 0).toString());
+        bValue = parseFloat((bValue || 0).toString());
       } else if (sortField === "created_at") {
-        aValue = new Date(aValue as string).getTime();
-        bValue = new Date(bValue as string).getTime();
+        aValue = new Date((aValue as string) || "").getTime();
+        bValue = new Date((bValue as string) || "").getTime();
       }
 
       if (sortDirection === "asc") {
-        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+        return (aValue || 0) < (bValue || 0)
+          ? -1
+          : (aValue || 0) > (bValue || 0)
+            ? 1
+            : 0;
       } else {
-        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+        return (aValue || 0) > (bValue || 0)
+          ? -1
+          : (aValue || 0) < (bValue || 0)
+            ? 1
+            : 0;
       }
     });
 
@@ -292,15 +298,21 @@ export default function PackagesPage() {
   const fetchPackages = async () => {
     try {
       setIsLoading(true);
-      const response = await axios.get(`${API_URL}/admin.php`, {
-        params: { operation: "getAllPackages" },
-      });
+      const response = await fetch(
+        `${endpoints.admin}?operation=getAllPackages`
+      );
 
-      if (response.data.status === "success") {
-        setPackages(response.data.packages || []);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.status === "success") {
+        setPackages(data.packages || []);
       } else {
-        console.error("Error fetching packages:", response.data.message);
-        toast.error("Failed to fetch packages: " + response.data.message);
+        console.error("Error fetching packages:", data.message);
+        toast.error("Failed to fetch packages: " + data.message);
       }
     } catch (error) {
       console.error("API error:", error);
@@ -318,20 +330,30 @@ export default function PackagesPage() {
         "Are you sure you want to delete this package? This action cannot be undone.",
       onConfirm: async () => {
         try {
-          const response = await axios.post(`${API_URL}/admin.php`, {
-            operation: "deletePackage",
-            package_id: packageId,
+          const response = await fetch(`${endpoints.admin}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              operation: "deletePackage",
+              package_id: packageId,
+            }),
           });
 
-          if (response.data.status === "success") {
-            toast.success(
-              response.data.message || "Package deleted successfully"
-            );
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          if (data.status === "success") {
+            toast.success(data.message || "Package deleted successfully");
             // Refresh the list
             fetchPackages();
           } else {
-            console.error("Delete error:", response.data.message);
-            toast.error("Failed to delete package: " + response.data.message);
+            console.error("Delete error:", data.message);
+            toast.error("Failed to delete package: " + data.message);
           }
         } catch (error) {
           console.error("API error:", error);
@@ -351,22 +373,30 @@ export default function PackagesPage() {
         "Are you sure you want to duplicate this package? This will create a copy with all the same details.",
       onConfirm: async () => {
         try {
-          const response = await axios.post(`${API_URL}/admin.php`, {
-            operation: "duplicatePackage",
-            package_id: packageId,
+          const response = await fetch(`${endpoints.admin}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              operation: "duplicatePackage",
+              package_id: packageId,
+            }),
           });
 
-          if (response.data.status === "success") {
-            toast.success(
-              response.data.message || "Package duplicated successfully"
-            );
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          if (data.status === "success") {
+            toast.success(data.message || "Package duplicated successfully");
             // Refresh the list
             fetchPackages();
           } else {
-            console.error("Duplicate error:", response.data.message);
-            toast.error(
-              "Failed to duplicate package: " + response.data.message
-            );
+            console.error("Duplicate error:", data.message);
+            toast.error("Failed to duplicate package: " + data.message);
           }
         } catch (error) {
           console.error("API error:", error);
@@ -412,43 +442,59 @@ export default function PackagesPage() {
         guest_capacity: editForm.guest_capacity,
       };
 
-      const response = await axios.post(`${API_URL}/admin.php`, updateData);
+      const response = await fetch(`${endpoints.admin}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(updateData),
+      });
 
-      if (response.data.status === "success") {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.status === "success") {
         toast.success("Package updated successfully");
         setEditingPackage(null);
         fetchPackages(); // Refresh the list
-      } else if (
-        response.data.status === "warning" &&
-        response.data.requires_confirmation
-      ) {
+      } else if (data.status === "warning" && data.requires_confirmation) {
         // Handle budget overage warning
         setConfirmationModal({
           isOpen: true,
           title: "Budget Overage Warning",
-          description: `Budget overage detected: ₱${response.data.overage_amount?.toLocaleString()} over budget. Continue anyway?`,
+          description: `Budget overage detected: ₱${data.overage_amount?.toLocaleString()} over budget. Continue anyway?`,
           onConfirm: async () => {
             updateData.confirm_overage = true;
-            const retryResponse = await axios.post(
-              `${API_URL}/admin.php`,
-              updateData
-            );
+            const retryResponse = await fetch(`${endpoints.admin}`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(updateData),
+            });
 
-            if (retryResponse.data.status === "success") {
+            if (!retryResponse.ok) {
+              throw new Error(`HTTP error! status: ${retryResponse.status}`);
+            }
+
+            const retryData = await retryResponse.json();
+
+            if (retryData.status === "success") {
               toast.success("Package updated successfully");
               setEditingPackage(null);
               fetchPackages();
             } else {
-              toast.error(
-                retryResponse.data.message || "Failed to update package"
-              );
+              toast.error(retryData.message || "Failed to update package");
             }
             setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
           },
           variant: "warning",
         });
       } else {
-        toast.error(response.data.message || "Failed to update package");
+        toast.error(data.message || "Failed to update package");
       }
     } catch (error) {
       console.error("Update error:", error);
@@ -523,13 +569,25 @@ export default function PackagesPage() {
     if (!eventTypeModal.packageId) return;
 
     try {
-      const response = await axios.post(`${API_URL}/admin.php`, {
-        operation: "updatePackageEventTypes",
-        package_id: eventTypeModal.packageId,
-        event_type_ids: selectedTypes,
+      const response = await fetch(`${endpoints.admin}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          operation: "updatePackageEventTypes",
+          package_id: eventTypeModal.packageId,
+          event_type_ids: selectedTypes,
+        }),
       });
 
-      if (response.data.status === "success") {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.status === "success") {
         toast.success("Event types updated successfully");
         fetchPackages();
       } else {
@@ -897,25 +955,31 @@ export default function PackagesPage() {
                                   >
                                     {pkg.is_active ? "Active" : "Inactive"}
                                   </Badge>
-                                  {pkg.event_type_names &&
-                                    pkg.event_type_names.length > 0 && (
-                                      <button
-                                        onClick={() =>
-                                          handleEventTypeEdit(
-                                            pkg.package_id,
-                                            pkg.event_type_ids || []
-                                          )
-                                        }
-                                        className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full hover:bg-blue-200 transition-colors"
-                                      >
-                                        {pkg.event_type_names
-                                          .slice(0, 2)
-                                          .join(", ")}
-                                        {pkg.event_type_names.length > 2 &&
-                                          " +" +
-                                            (pkg.event_type_names.length - 2)}
-                                      </button>
-                                    )}
+                                  <Badge
+                                    variant={
+                                      pkg.event_type_names &&
+                                      pkg.event_type_names.length > 0
+                                        ? "secondary"
+                                        : "outline"
+                                    }
+                                    className={`${
+                                      pkg.event_type_names &&
+                                      pkg.event_type_names.length > 0
+                                        ? "bg-blue-100 text-blue-800 hover:bg-blue-200"
+                                        : "bg-gray-100 text-gray-600 hover:bg-gray-200 border-gray-300"
+                                    } cursor-pointer`}
+                                    onClick={() =>
+                                      handleEventTypeEdit(
+                                        pkg.package_id,
+                                        pkg.event_type_ids || []
+                                      )
+                                    }
+                                  >
+                                    {pkg.event_type_names &&
+                                    pkg.event_type_names.length > 0
+                                      ? pkg.event_type_names[0]
+                                      : "No Event Type"}
+                                  </Badge>
                                 </div>
 
                                 {/* 3-Dot Menu */}
@@ -1241,6 +1305,7 @@ export default function PackagesPage() {
                                 </div>
                               </TableHead>
                               <TableHead>Status</TableHead>
+                              <TableHead>Event Types</TableHead>
                               <TableHead>Components</TableHead>
                               <TableHead
                                 className="cursor-pointer hover:bg-gray-50"
@@ -1306,6 +1371,21 @@ export default function PackagesPage() {
                                   >
                                     {pkg.is_active ? "Active" : "Inactive"}
                                   </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  {pkg.event_type_names &&
+                                  pkg.event_type_names.length > 0 ? (
+                                    <Badge
+                                      variant="secondary"
+                                      className="bg-blue-100 text-blue-800"
+                                    >
+                                      {pkg.event_type_names[0]}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-xs text-gray-400">
+                                      No event type
+                                    </span>
+                                  )}
                                 </TableCell>
                                 <TableCell>
                                   <div className="flex items-center gap-2">

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   Calendar,
   Clock,
@@ -38,8 +40,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { EventDetails } from "@/app/types";
 import type { EventDetailsStepProps } from "@/app/types/event-builder";
-import axios from "axios";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { CircularTimePicker } from "./circular-time-picker";
 
 // Interface for conflicting events
@@ -225,14 +226,11 @@ export function EventDetailsStep({
         );
 
         // Use axios like in events page for consistency
-        const response = await axios.post(
-          "http://localhost/events-api/admin.php",
-          {
-            operation: "getCalendarConflictData",
-            start_date: startDate,
-            end_date: endDate,
-          }
-        );
+        const response = await axios.post(endpoints.admin, {
+          operation: "getCalendarConflictData",
+          start_date: startDate,
+          end_date: endDate,
+        });
 
         console.log("Calendar conflict data response:", response.data);
 
@@ -266,7 +264,7 @@ export function EventDetailsStep({
         } else {
           console.error(
             "❌ API Error loading calendar data:",
-            response.data.message
+            response.data?.message || "Unknown error"
           );
 
           // If API fails, show sample data for demonstration
@@ -403,16 +401,13 @@ export function EventDetailsStep({
       console.log("Checking conflicts for date:", eventDate);
 
       // Use axios for consistency with other API calls
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "checkEventConflicts",
-          event_date: eventDate,
-          start_time: "00:00:00",
-          end_time: "23:59:59",
-          exclude_event_id: "", // New event
-        }
-      );
+      const response = await axios.post(endpoints.admin, {
+        operation: "checkEventConflicts",
+        event_date: eventDate,
+        start_time: "00:00:00",
+        end_time: "23:59:59",
+        exclude_event_id: "", // New event
+      });
 
       console.log("Conflict check response:", response.data);
 
@@ -434,7 +429,10 @@ export function EventDetailsStep({
           hasConflictsFound
         );
       } else {
-        console.error("Error checking conflicts:", response.data.message);
+        console.error(
+          "Error checking conflicts:",
+          response.data?.message || "Unknown error"
+        );
         setHasConflicts(false);
         setHasWedding(false);
         setHasOtherEvents(false);

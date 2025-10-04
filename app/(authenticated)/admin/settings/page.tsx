@@ -165,15 +165,12 @@ export default function SettingsPage() {
     try {
       setIsLoading(true);
       const userData = secureStorage.getItem("user");
-      const response = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: {
-            operation: "getUserProfile",
-            user_id: userData?.user_id,
-          },
-        }
-      );
+      const response = await axios.get("/admin.php", {
+        params: {
+          operation: "getUserProfile",
+          user_id: userData?.user_id,
+        },
+      });
 
       if (response.data.status === "success") {
         const profile = response.data.profile;
@@ -199,12 +196,9 @@ export default function SettingsPage() {
 
   const fetchWebsiteSettings = async () => {
     try {
-      const response = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: { operation: "getWebsiteSettings" },
-        }
-      );
+      const response = await axios.get("/admin.php", {
+        params: { operation: "getWebsiteSettings" },
+      });
 
       if (response.data.status === "success") {
         const settings = response.data.settings;
@@ -234,12 +228,9 @@ export default function SettingsPage() {
 
   const fetchFeedbacks = async () => {
     try {
-      const response = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: { operation: "getAllFeedbacks" },
-        }
-      );
+      const response = await axios.get("/admin.php", {
+        params: { operation: "getAllFeedbacks" },
+      });
 
       if (response.data.status === "success") {
         setFeedbacks(response.data.feedbacks);
@@ -253,14 +244,11 @@ export default function SettingsPage() {
     try {
       setIsSaving(true);
       const userData = secureStorage.getItem("user");
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "updateUserProfile",
-          user_id: userData?.user_id,
-          ...profileForm,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "updateUserProfile",
+        user_id: userData?.user_id,
+        ...profileForm,
+      });
 
       if (response.data.status === "success") {
         toast({
@@ -295,15 +283,12 @@ export default function SettingsPage() {
     try {
       setIsSaving(true);
       const userData = secureStorage.getItem("user");
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "changePassword",
-          user_id: userData?.user_id,
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "changePassword",
+        user_id: userData?.user_id,
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
 
       if (response.data.status === "success") {
         toast({
@@ -332,13 +317,10 @@ export default function SettingsPage() {
   const saveWebsiteSettings = async (settings: WebsiteSettings) => {
     try {
       setIsSaving(true);
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "updateWebsiteSettings",
-          settings,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "updateWebsiteSettings",
+        settings,
+      });
 
       if (response.data.status === "success") {
         toast({
@@ -370,13 +352,9 @@ export default function SettingsPage() {
     formData.append("fileType", type);
 
     try {
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        }
-      );
+      const response = await axios.post("/admin.php", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
       if (response.data.status === "success") {
         return response.data.filePath;
@@ -419,13 +397,10 @@ export default function SettingsPage() {
 
   const deleteFeedback = async (feedbackId: number) => {
     try {
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "deleteFeedback",
-          feedback_id: feedbackId,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "deleteFeedback",
+        feedback_id: feedbackId,
+      });
 
       if (response.data.status === "success") {
         setFeedbacks(feedbacks.filter((f) => f.feedback_id !== feedbackId));
@@ -488,7 +463,7 @@ export default function SettingsPage() {
       if (!token || !userId) return;
 
       const response = await axios.get(
-        `http://localhost/events-api/admin.php?operation=getUserProfile&user_id=${userId}`,
+        `admin.php?operation=getUserProfile&user_id=${userId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -597,7 +572,7 @@ export default function SettingsPage() {
                     src={
                       userProfile?.user_pfp &&
                       userProfile.user_pfp.trim() !== ""
-                        ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(userProfile.user_pfp)}`
+                        ? `serve-image.php?path=${encodeURIComponent(userProfile.user_pfp)}`
                         : "/default_pfp.png"
                     }
                     alt="Profile"
@@ -978,7 +953,7 @@ export default function SettingsPage() {
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                       {websiteSettings.company_logo ? (
                         <img
-                          src={`http://localhost/events-api/${websiteSettings.company_logo}`}
+                          src={`${websiteSettings.company_logo}`}
                           alt="Company Logo"
                           className="h-16 mx-auto mb-2"
                         />
@@ -1001,7 +976,7 @@ export default function SettingsPage() {
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                       {websiteSettings.hero_image ? (
                         <img
-                          src={`http://localhost/events-api/${websiteSettings.hero_image}`}
+                          src={`${websiteSettings.hero_image}`}
                           alt="Hero Image"
                           className="h-16 mx-auto mb-2 rounded"
                         />
@@ -1293,7 +1268,7 @@ export default function SettingsPage() {
         isOpen={showProfilePictureModal}
         onClose={() => setShowProfilePictureModal(false)}
         onUploadSuccess={handleProfilePictureUpload}
-        uploadEndpoint="http://localhost/events-api/admin.php"
+        uploadEndpoint="/admin.php"
         userId={userProfile?.user_id || 0}
       />
     </div>

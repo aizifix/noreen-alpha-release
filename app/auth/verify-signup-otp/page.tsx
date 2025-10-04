@@ -9,7 +9,8 @@ import Logo from "../../../public/logo.png";
 import { toast } from "@/hooks/use-toast";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://noreen-events.online/noreen-events";
 
 const VerifySignupOTP = () => {
   const [otpValues, setOtpValues] = useState(["", "", "", "", "", ""]);

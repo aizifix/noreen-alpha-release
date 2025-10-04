@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import {
   Package,
   Clock,
@@ -58,13 +58,13 @@ export default function BookingTemplatesPage() {
     setLoading(true);
     try {
       const response = await axios.get(
-        "http://localhost/events-api/client.php",
+        "/client.php",
         {
           params: { operation: "getAllPackages" },
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         const allPackages = response.data.packages || [];
 
         // Separate featured and regular packages

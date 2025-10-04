@@ -129,13 +129,10 @@ export default function EventsPage() {
       setIsLoading(true);
       const userData = secureStorage.getItem("user");
 
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "getEvents",
-          admin_id: userData.user_id,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "getEvents",
+        admin_id: userData.user_id,
+      });
 
       if (response.data.status === "success") {
         setEvents(response.data.events || []);
@@ -521,7 +518,7 @@ export default function EventsPage() {
                   return pfpPath;
                 }
                 // Use the image serving script for proper image delivery
-                return `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(pfpPath)}`;
+                return `serve-image.php?path=${encodeURIComponent(pfpPath)}`;
               };
 
               return (
@@ -861,7 +858,7 @@ export default function EventsPage() {
                               pfpPath && pfpPath.startsWith("http")
                                 ? pfpPath
                                 : pfpPath
-                                  ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(pfpPath)}`
+                                  ? `serve-image.php?path=${encodeURIComponent(pfpPath)}`
                                   : undefined;
                             return (
                               <img

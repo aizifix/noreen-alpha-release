@@ -118,7 +118,7 @@ export const VenueSelection: React.FC<VenueSelectionProps> = ({
                       <img
                         src={
                           venue.venue_profile_picture
-                            ? `http://localhost/events-api/${venue.venue_profile_picture}`
+                            ? `${venue.venue_profile_picture}`
                             : "/placeholder-venue.jpg"
                         }
                         alt={venue.venue_title}
@@ -132,7 +132,7 @@ export const VenueSelection: React.FC<VenueSelectionProps> = ({
                           <img
                             src={
                               venue.venue_profile_picture
-                                ? `http://localhost/events-api/${venue.venue_profile_picture}`
+                                ? `${venue.venue_profile_picture}`
                                 : "/placeholder-venue.jpg"
                             }
                             alt={venue.venue_title}

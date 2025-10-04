@@ -38,6 +38,7 @@ import {
   SidebarMenuItem,
 } from "../../components/sidebar/ClientSidebar";
 import { secureStorage } from "@/app/utils/encryption";
+import { api } from "@/app/utils/apiWrapper";
 import axios from "axios";
 import { useTheme } from "next-themes";
 import { startSessionWatcher } from "@/app/utils/session";
@@ -214,7 +215,7 @@ export default function ClientLayout({
       if (current?.user_id) {
         axios
           .post(
-            "http://localhost/events-api/auth.php",
+            "auth.php",
             { operation: "logout", user_id: current.user_id },
             { headers: { "Content-Type": "application/json" } }
           )
@@ -270,7 +271,7 @@ export default function ClientLayout({
       const userId = currentUser?.user_id;
       if (!userId) return;
       const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=get_counts&user_id=${encodeURIComponent(
+        `notifications.php?operation=get_counts&user_id=${encodeURIComponent(
           userId
         )}`
       );
@@ -289,7 +290,7 @@ export default function ClientLayout({
       if (!userId) return;
       setIsNotifLoading(true);
       const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=get_notifications&user_id=${encodeURIComponent(
+        `notifications.php?operation=get_notifications&user_id=${encodeURIComponent(
           userId
         )}&limit=10&offset=0`
       );
@@ -312,14 +313,11 @@ export default function ClientLayout({
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
-      const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=mark_read`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: userId, operation: "mark_read" }),
-        }
-      );
+      const res = await fetch(`notifications.php?operation=mark_read`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, operation: "mark_read" }),
+      });
       const data = await res.json();
       if (data?.status === "success") {
         setUnreadNotifCount(0);
@@ -334,7 +332,7 @@ export default function ClientLayout({
       const userId = currentUser?.user_id;
       if (!userId) return;
       const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=delete_notification&user_id=${encodeURIComponent(
+        `notifications.php?operation=delete_notification&user_id=${encodeURIComponent(
           userId
         )}`,
         {
@@ -553,7 +551,7 @@ export default function ClientLayout({
                 <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <img
-                      src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(user.user_pfp)}`}
+                      src={api.getServeImageUrl(user.user_pfp)}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       className="h-full w-full object-cover"
                     />
@@ -766,7 +764,7 @@ export default function ClientLayout({
                 <div className="h-8 w-8 border border-gray-300 rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <img
-                      src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(user.user_pfp)}`}
+                      src={api.getServeImageUrl(user.user_pfp)}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       className="h-full w-full object-cover"
                     />

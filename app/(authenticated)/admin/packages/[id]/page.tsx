@@ -160,7 +160,7 @@ export default function PackageDetailsPage() {
   }>({
     name: "",
     price: 0,
-    components: [{ name: "", price: 0 }],
+    components: [{ name: "", price: 0, subComponents: [] }],
   });
   const [availableEventTypes, setAvailableEventTypes] = useState<EventType[]>(
     []
@@ -548,7 +548,7 @@ export default function PackageDetailsPage() {
 
         toast.error(errorMessage);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating package:", error);
       console.error("Error details:", error.response?.data);
       console.error("Error status:", error.response?.status);
@@ -643,7 +643,7 @@ export default function PackageDetailsPage() {
       setNewInclusion({
         name: "",
         price: 0,
-        components: [{ name: "", price: 0 }],
+        components: [{ name: "", price: 0, subComponents: [] }],
       });
       setShowAddInclusion(false);
     }
@@ -663,7 +663,13 @@ export default function PackageDetailsPage() {
     setEditedInclusions((prev) =>
       prev.map((inc, idx) =>
         idx === inclusionIndex
-          ? { ...inc, components: [...inc.components, { name: "", price: 0 }] }
+          ? {
+              ...inc,
+              components: [
+                ...inc.components,
+                { name: "", price: 0, subComponents: [] },
+              ],
+            }
           : inc
       )
     );
@@ -681,7 +687,7 @@ export default function PackageDetailsPage() {
           ? {
               ...inc,
               components: inc.components.map((comp, cidx) =>
-                cidx === componentIndex ? { name, price } : comp
+                cidx === componentIndex ? { ...comp, name, price } : comp
               ),
             }
           : inc
@@ -1728,7 +1734,7 @@ export default function PackageDetailsPage() {
                         ...prev,
                         components: [
                           ...prev.components,
-                          { name: "", price: 0 },
+                          { name: "", price: 0, subComponents: [] },
                         ],
                       }))
                     }

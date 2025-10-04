@@ -32,8 +32,14 @@ import {
   SidebarMenuItem,
 } from "../../components/sidebar/AdminSidebar";
 import { secureStorage } from "@/app/utils/encryption";
+import { api } from "@/app/utils/apiWrapper";
 import axios from "axios";
 import { useTheme } from "next-themes";
+
+// Configure axios base URL
+axios.defaults.baseURL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://noreen-events.online/noreen-events";
 import { toast } from "@/components/ui/use-toast";
 import { startSessionWatcher } from "@/app/utils/session";
 import { useRealtimeNotifications } from "@/app/hooks/useRealtimeNotifications";
@@ -194,10 +200,10 @@ export default function OrganizerLayout({
 
   const resolveOrganizerId = async (userId: number) => {
     try {
-      const resp = await axios.post(
-        "http://localhost/events-api/organizer.php",
-        { operation: "getOrganizerProfile", user_id: userId }
-      );
+      const resp = await axios.post("organizer.php", {
+        operation: "getOrganizerProfile",
+        user_id: userId,
+      });
       if (resp.data?.status === "success") {
         setOrganizerId(resp.data.data?.organizer_id || null);
       } else {
@@ -211,10 +217,10 @@ export default function OrganizerLayout({
 
   const fetchPendingInvites = async (orgId: number) => {
     try {
-      const res = await axios.post(
-        "http://localhost/events-api/organizer.php",
-        { operation: "getOrganizerEvents", organizer_id: orgId }
-      );
+      const res = await axios.post("organizer.php", {
+        operation: "getOrganizerEvents",
+        organizer_id: orgId,
+      });
       if (res.data?.status === "success") {
         const assigned = (res.data.data || []).filter(
           (evt: any) => (evt.assignment_status || evt.status) === "assigned"
@@ -222,10 +228,9 @@ export default function OrganizerLayout({
         // Always also merge attachment invites
         let attachmentInvites: any[] = [];
         try {
-          const response = await axios.post(
-            "http://localhost/events-api/admin.php",
-            { operation: "getAllEvents" }
-          );
+          const response = await axios.post("admin.php", {
+            operation: "getAllEvents",
+          });
           const allEvents =
             response.data?.status === "success"
               ? response.data.events || []
@@ -274,10 +279,9 @@ export default function OrganizerLayout({
       } else {
         // API error: fallback to legacy invites via attachments
         try {
-          const response = await axios.post(
-            "http://localhost/events-api/admin.php",
-            { operation: "getAllEvents" }
-          );
+          const response = await axios.post("admin.php", {
+            operation: "getAllEvents",
+          });
           const allEvents =
             response.data?.status === "success"
               ? response.data.events || []
@@ -313,10 +317,9 @@ export default function OrganizerLayout({
     } catch {
       // Network/SQL error: fallback to legacy invites via attachments
       try {
-        const response = await axios.post(
-          "http://localhost/events-api/admin.php",
-          { operation: "getAllEvents" }
-        );
+        const response = await axios.post("admin.php", {
+          operation: "getAllEvents",
+        });
         const allEvents =
           response.data?.status === "success" ? response.data.events || [] : [];
         const invites = allEvents.filter((e: any) => {
@@ -402,7 +405,7 @@ export default function OrganizerLayout({
 
       try {
         console.debug("[Organizer] updateAssignmentStatus:request", {
-          url: "http://localhost/events-api/organizer.php",
+          url: "organizer.php",
           payload: {
             operation: "updateAssignmentStatus",
             assignment_id: assignmentId,
@@ -411,7 +414,7 @@ export default function OrganizerLayout({
           },
         });
         const res = await axios.post(
-          "http://localhost/events-api/organizer.php",
+          "organizer.php",
           {
             operation: "updateAssignmentStatus",
             ...(assignmentId ? { assignment_id: assignmentId } : {}),
@@ -463,7 +466,7 @@ export default function OrganizerLayout({
     }
     try {
       const res = await axios.get(
-        `http://localhost/events-api/admin.php?operation=getEventOrganizerDetails&event_id=${eventId}`
+        `admin.php?operation=getEventOrganizerDetails&event_id=${eventId}`
       );
       if (
         res.data?.status === "success" &&
@@ -518,14 +521,14 @@ export default function OrganizerLayout({
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
-      const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=get_counts&user_id=${encodeURIComponent(
-          userId
-        )}`
-      );
-      const data = await res.json();
-      if (data?.status === "success") {
-        setUnreadNotifCount(Number(data.counts?.unread || 0));
+      const res = await axios.get("notifications.php", {
+        params: {
+          operation: "get_counts",
+          user_id: userId,
+        },
+      });
+      if (res.data?.status === "success") {
+        setUnreadNotifCount(Number(res.data.counts?.unread || 0));
       }
     } catch {}
   };
@@ -535,15 +538,17 @@ export default function OrganizerLayout({
       const userId = currentUser?.user_id;
       if (!userId) return;
       setIsNotifLoading(true);
-      const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=get_notifications&user_id=${encodeURIComponent(
-          userId
-        )}&limit=10&offset=0`
-      );
-      const data = await res.json();
-      if (data?.status === "success") {
+      const res = await axios.get("notifications.php", {
+        params: {
+          operation: "get_notifications",
+          user_id: userId,
+          limit: 10,
+          offset: 0,
+        },
+      });
+      if (res.data?.status === "success") {
         setNotifications(
-          Array.isArray(data.notifications) ? data.notifications : []
+          Array.isArray(res.data.notifications) ? res.data.notifications : []
         );
       } else {
         setNotifications([]);
@@ -594,7 +599,7 @@ export default function OrganizerLayout({
       if (current?.user_id) {
         axios
           .post(
-            "http://localhost/events-api/auth.php",
+            "auth.php",
             { operation: "logout", user_id: current.user_id },
             { headers: { "Content-Type": "application/json" } }
           )
@@ -866,7 +871,7 @@ export default function OrganizerLayout({
                 <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <img
-                      src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(user.user_pfp)}`}
+                      src={api.getServeImageUrl(user.user_pfp)}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       className="h-full w-full object-cover"
                     />

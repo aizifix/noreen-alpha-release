@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { adminApi } from "@/app/utils/api";
 import ProfilePictureModal from "@/components/ProfilePictureModal";
 import { secureStorage } from "@/app/utils/encryption";
@@ -88,8 +88,8 @@ export default function OrganizerProfilePage() {
   }
 
   const imageSrc =
-    profile?.user_pfp && profile.user_pfp.trim() !== ""
-      ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(profile.user_pfp)}`
+    profile?.user_pfp && profile.user_pfp.trim() !== "/
+      ? `serve-image.php?path=${encodeURIComponent(profile.user_pfp)}`
       : "/default_pfp.png";
 
   return (

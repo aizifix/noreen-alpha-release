@@ -26,7 +26,7 @@ export function StoreCard({
   const normalizePath = (path: string | null) => {
     if (!path || path.startsWith("http")) return path;
     // Use the image serving script for proper image delivery
-    return `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(path)}`;
+    return `serve-image.php?path=${encodeURIComponent(path)}`;
   };
 
   const coverPhotoUrl = normalizePath(coverPhoto) || "/placeholder.svg";

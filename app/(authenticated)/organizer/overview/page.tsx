@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { Filter, Search } from "lucide-react";
 
 interface Store {
@@ -41,7 +41,7 @@ interface ApiResponse<T> {
 }
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+  process.env.NEXT_PUBLIC_API_URL || "https://noreen-events.online/noreen-events";
 
 export default function VendorDashboard() {
   const router = useRouter();

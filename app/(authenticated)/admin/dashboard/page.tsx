@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { secureStorage } from "@/app/utils/encryption";
+
+// Configure axios base URL
+axios.defaults.baseURL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://noreen-events.online/noreen-events";
 import {
   Calendar,
   Users,
@@ -24,6 +29,10 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Package,
+  MapPin,
+  UserCheck,
+  Truck,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -160,17 +169,14 @@ function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
       const endDate = format(endOfMonth(date), "yyyy-MM-dd");
 
       const userData = secureStorage.getItem("user");
-      const response = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: {
-            operation: "getCalendarConflictData",
-            admin_id: userData?.user_id,
-            start_date: startDate,
-            end_date: endDate,
-          },
-        }
-      );
+      const response = await axios.get("/admin.php", {
+        params: {
+          operation: "getCalendarConflictData",
+          admin_id: userData?.user_id,
+          start_date: startDate,
+          end_date: endDate,
+        },
+      });
 
       if (response.data.status === "success") {
         setCalendarConflictData(response.data.calendarData || {});
@@ -436,15 +442,12 @@ function AnalyticsContent() {
     const fetchAnalytics = async () => {
       try {
         const userData = secureStorage.getItem("user");
-        const response = await axios.get(
-          "http://localhost/events-api/admin.php",
-          {
-            params: {
-              operation: "getAnalyticsData",
-              admin_id: userData?.user_id,
-            },
-          }
-        );
+        const response = await axios.get("/admin.php", {
+          params: {
+            operation: "getAnalyticsData",
+            admin_id: userData?.user_id,
+          },
+        });
 
         if (response.data.status === "success") {
           setAnalyticsData(response.data.analytics);
@@ -482,10 +485,9 @@ function AnalyticsContent() {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={revenueData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" stroke="#6b7280" fontSize={12} />
+                <XAxis dataKey="month" stroke="#6b7280" />
                 <YAxis
                   stroke="#6b7280"
-                  fontSize={12}
                   tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`}
                 />
                 <Tooltip
@@ -633,16 +635,13 @@ function ReportsContent() {
     try {
       setIsLoading(true);
       const userData = secureStorage.getItem("user");
-      const response = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: {
-            operation: "getReports",
-            admin_id: userData?.user_id,
-            report_type: type,
-          },
-        }
-      );
+      const response = await axios.get("/admin.php", {
+        params: {
+          operation: "getReports",
+          admin_id: userData?.user_id,
+          report_type: type,
+        },
+      });
 
       if (response.data.status === "success") {
         setReportsData(response.data.reports);
@@ -762,62 +761,50 @@ export default function AdminDashboard() {
       const userData = secureStorage.getItem("user");
 
       // Fetch metrics
-      const metricsResponse = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: {
-            operation: "getDashboardMetrics",
-            admin_id: userData?.user_id,
-          },
-        }
-      );
+      const metricsResponse = await axios.get("/admin.php", {
+        params: {
+          operation: "getDashboardMetrics",
+          admin_id: userData?.user_id,
+        },
+      });
 
       if (metricsResponse.data.status === "success") {
         setMetrics(metricsResponse.data.metrics);
       }
 
       // Fetch upcoming events
-      const eventsResponse = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: {
-            operation: "getUpcomingEvents",
-            admin_id: userData?.user_id,
-            limit: 5,
-          },
-        }
-      );
+      const eventsResponse = await axios.get("/admin.php", {
+        params: {
+          operation: "getUpcomingEvents",
+          admin_id: userData?.user_id,
+          limit: 5,
+        },
+      });
 
       if (eventsResponse.data.status === "success") {
         setUpcomingEvents(eventsResponse.data.events);
       }
 
       // Fetch recent payments
-      const paymentsResponse = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: {
-            operation: "getRecentPayments",
-            admin_id: userData?.user_id,
-            limit: 5,
-          },
-        }
-      );
+      const paymentsResponse = await axios.get("/admin.php", {
+        params: {
+          operation: "getRecentPayments",
+          admin_id: userData?.user_id,
+          limit: 5,
+        },
+      });
 
       if (paymentsResponse.data.status === "success") {
         setRecentPayments(paymentsResponse.data.payments);
       }
 
       // Fetch calendar events (all events for the calendar view)
-      const calendarResponse = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: {
-            operation: "getEvents",
-            admin_id: userData?.user_id,
-          },
-        }
-      );
+      const calendarResponse = await axios.get("/admin.php", {
+        params: {
+          operation: "getEvents",
+          admin_id: userData?.user_id,
+        },
+      });
 
       if (calendarResponse.data.status === "success") {
         const events = calendarResponse.data.events || [];
@@ -1055,6 +1042,128 @@ export default function AdminDashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Quick Actions Section */}
+            <Card className="border-0 bg-white shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold text-gray-900">
+                  Quick Actions
+                </CardTitle>
+                <p className="text-sm text-gray-500">
+                  Common administrative tasks
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                  <button
+                    onClick={() => router.push("/admin/event-builder")}
+                    className="flex flex-col items-center p-4 bg-[#028A75]/5 hover:bg-[#028A75]/10 rounded-lg transition-colors border border-[#028A75]/20"
+                  >
+                    <Plus className="h-6 w-6 text-[#028A75] mb-2" />
+                    <span className="text-sm font-medium text-[#028A75]">
+                      Create Event
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      router.push("/admin/packages/package-builder")
+                    }
+                    className="flex flex-col items-center p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200"
+                  >
+                    <Package className="h-6 w-6 text-blue-600 mb-2" />
+                    <span className="text-sm font-medium text-blue-600">
+                      New Package
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => router.push("/admin/venues/venue-builder")}
+                    className="flex flex-col items-center p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors border border-green-200"
+                  >
+                    <MapPin className="h-6 w-6 text-green-600 mb-2" />
+                    <span className="text-sm font-medium text-green-600">
+                      Add Venue
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => router.push("/admin/organizers")}
+                    className="flex flex-col items-center p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors border border-purple-200"
+                  >
+                    <UserCheck className="h-6 w-6 text-purple-600 mb-2" />
+                    <span className="text-sm font-medium text-purple-600">
+                      Manage Organizers
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => router.push("/admin/supplier")}
+                    className="flex flex-col items-center p-4 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors border border-orange-200"
+                  >
+                    <Truck className="h-6 w-6 text-orange-600 mb-2" />
+                    <span className="text-sm font-medium text-orange-600">
+                      Suppliers
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => router.push("/admin/settings")}
+                    className="flex flex-col items-center p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
+                  >
+                    <Settings className="h-6 w-6 text-gray-600 mb-2" />
+                    <span className="text-sm font-medium text-gray-600">
+                      Settings
+                    </span>
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* System Status Section */}
+            <Card className="border-0 bg-white shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold text-gray-900">
+                  System Status
+                </CardTitle>
+                <p className="text-sm text-gray-500">
+                  Current system health and performance
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                      <span className="font-medium text-green-800">
+                        API Status
+                      </span>
+                    </div>
+                    <span className="text-sm text-green-600">Online</span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                      <span className="font-medium text-blue-800">
+                        Database
+                      </span>
+                    </div>
+                    <span className="text-sm text-blue-600">Connected</span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                      <span className="font-medium text-yellow-800">
+                        Notifications
+                      </span>
+                    </div>
+                    <span className="text-sm text-yellow-600">Active</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Calendar and Events Section */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

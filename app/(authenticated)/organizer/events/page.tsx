@@ -18,7 +18,7 @@ import {
   Users,
   DollarSign,
 } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { adminApi, organizerApi } from "@/app/utils/api";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
@@ -373,7 +373,7 @@ export default function OrganizerEventsPage() {
   const getAssignmentIdForEvent = async (eventId: number) => {
     try {
       const res = await axios.get(
-        `http://localhost/events-api/admin.php?operation=getEventOrganizerDetails&event_id=${eventId}`
+        `admin.php?operation=getEventOrganizerDetails&event_id=${eventId}`
       );
       if (
         res.data?.status === "success" &&

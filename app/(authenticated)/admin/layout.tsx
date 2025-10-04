@@ -37,8 +37,14 @@ import {
   SidebarMenuItem,
 } from "../../components/sidebar/AdminSidebar";
 import { secureStorage } from "@/app/utils/encryption";
+import { api } from "@/app/utils/apiWrapper";
 import axios from "axios";
 import { useTheme } from "next-themes";
+
+// Configure axios base URL
+axios.defaults.baseURL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://noreen-events.online/noreen-events";
 import { startSessionWatcher } from "@/app/utils/session";
 import { useRealtimeNotifications } from "@/app/hooks/useRealtimeNotifications";
 
@@ -283,14 +289,14 @@ export default function AdminLayout({
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
-      const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=get_counts&user_id=${encodeURIComponent(
-          userId
-        )}`
-      );
-      const data = await res.json();
-      if (data?.status === "success") {
-        setUnreadNotifCount(Number(data.counts?.unread || 0));
+      const res = await axios.get("notifications.php", {
+        params: {
+          operation: "get_counts",
+          user_id: userId,
+        },
+      });
+      if (res.data?.status === "success") {
+        setUnreadNotifCount(Number(res.data.counts?.unread || 0));
       }
     } catch (err) {
       console.error("Admin notif count fetch failed:", err);
@@ -302,15 +308,17 @@ export default function AdminLayout({
       const userId = currentUser?.user_id;
       if (!userId) return;
       setIsNotifLoading(true);
-      const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=get_notifications&user_id=${encodeURIComponent(
-          userId
-        )}&limit=10&offset=0`
-      );
-      const data = await res.json();
-      if (data?.status === "success") {
+      const res = await axios.get("notifications.php", {
+        params: {
+          operation: "get_notifications",
+          user_id: userId,
+          limit: 10,
+          offset: 0,
+        },
+      });
+      if (res.data?.status === "success") {
         setNotifications(
-          Array.isArray(data.notifications) ? data.notifications : []
+          Array.isArray(res.data.notifications) ? res.data.notifications : []
         );
       } else {
         setNotifications([]);
@@ -327,16 +335,11 @@ export default function AdminLayout({
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
-      const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=mark_read`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: userId, operation: "mark_read" }),
-        }
-      );
-      const data = await res.json();
-      if (data?.status === "success") {
+      const res = await axios.put("notifications.php", {
+        user_id: userId,
+        operation: "mark_read",
+      });
+      if (res.data?.status === "success") {
         setUnreadNotifCount(0);
       }
     } catch (err) {
@@ -348,16 +351,13 @@ export default function AdminLayout({
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
-      const res = await fetch(
-        `http://localhost/events-api/notifications.php?operation=delete_notification&user_id=${encodeURIComponent(
-          userId
-        )}`,
-        {
-          method: "DELETE",
-        }
-      );
-      const data = await res.json();
-      if (data?.status === "success") {
+      const res = await axios.delete("notifications.php", {
+        params: {
+          operation: "delete_notification",
+          user_id: userId,
+        },
+      });
+      if (res.data?.status === "success") {
         await fetchNotificationsList(currentUser);
       }
     } catch (err) {
@@ -371,7 +371,7 @@ export default function AdminLayout({
       if (current?.user_id) {
         axios
           .post(
-            "http://localhost/events-api/auth.php",
+            "auth.php",
             { operation: "logout", user_id: current.user_id },
             { headers: { "Content-Type": "application/json" } }
           )
@@ -659,7 +659,7 @@ export default function AdminLayout({
                 <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <img
-                      src={`http://localhost/events-api/serve-image.php?path=${encodeURIComponent(user.user_pfp)}`}
+                      src={api.getServeImageUrl(user.user_pfp)}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       className="h-full w-full object-cover"
                     />

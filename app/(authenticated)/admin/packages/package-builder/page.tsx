@@ -2,7 +2,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { X, Plus, Check, ArrowLeft } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
+import { endpoints } from "@/app/config/api";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency } from "@/lib/utils";
@@ -128,41 +129,43 @@ export default function PackageBuilderPage() {
         console.log("Fetching event types and venues...");
 
         // Fetch event types
-        const eventTypesResponse = await axios.get(
-          "http://localhost/events-api/admin.php",
-          {
-            params: { operation: "getEventTypes" },
-          }
+        const eventTypesResponse = await fetch(
+          `${endpoints.admin}?operation=getEventTypes`
         );
 
-        console.log("Event types response:", eventTypesResponse.data);
-        if (eventTypesResponse.data.status === "success") {
-          setEventTypes(eventTypesResponse.data.event_types);
-          console.log("Event types set:", eventTypesResponse.data.event_types);
+        if (!eventTypesResponse.ok) {
+          throw new Error(`HTTP error! status: ${eventTypesResponse.status}`);
+        }
+
+        const eventTypesData = await eventTypesResponse.json();
+        console.log("Event types response:", eventTypesData);
+        if (eventTypesData.status === "success") {
+          setEventTypes(eventTypesData.event_types);
+          console.log("Event types set:", eventTypesData.event_types);
         } else {
-          console.error("Event types error:", eventTypesResponse.data.message);
+          console.error("Event types error:", eventTypesData.message);
         }
 
         // Fetch venues
         setVenuesLoading(true);
         setVenuesError(null);
 
-        const venuesResponse = await axios.get(
-          "http://localhost/events-api/admin.php",
-          {
-            params: { operation: "getVenuesForPackage" },
-          }
+        const venuesResponse = await fetch(
+          `${endpoints.admin}?operation=getVenuesForPackage`
         );
 
-        console.log("Venues response:", venuesResponse.data);
-        if (venuesResponse.data.status === "success") {
-          setVenues(venuesResponse.data.venues);
-          console.log("Venues set:", venuesResponse.data.venues);
+        if (!venuesResponse.ok) {
+          throw new Error(`HTTP error! status: ${venuesResponse.status}`);
+        }
+
+        const venuesData = await venuesResponse.json();
+        console.log("Venues response:", venuesData);
+        if (venuesData.status === "success") {
+          setVenues(venuesData.venues);
+          console.log("Venues set:", venuesData.venues);
         } else {
-          console.error("Venues error:", venuesResponse.data.message);
-          setVenuesError(
-            venuesResponse.data.message || "Failed to load venues"
-          );
+          console.error("Venues error:", venuesData.message);
+          setVenuesError(venuesData.message || "Failed to load venues");
         }
       } catch (error) {
         console.error("API error:", error);
@@ -303,6 +306,22 @@ export default function PackageBuilderPage() {
                 supplier_id: supplierId,
                 offer_id: offerId,
                 is_manual: isManual,
+              }
+            : inclusion
+        )
+      );
+    },
+    []
+  );
+
+  const updateInclusionTier = useCallback(
+    (inclusionIndex: number, tierLevel: number) => {
+      setInclusions((prev) =>
+        prev.map((inclusion, index) =>
+          index === inclusionIndex
+            ? {
+                ...inclusion,
+                tier_level: tierLevel,
               }
             : inclusion
         )
@@ -463,19 +482,22 @@ export default function PackageBuilderPage() {
 
       console.log("Creating package with data:", packageData);
 
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        packageData,
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const response = await fetch(`${endpoints.admin}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(packageData),
+      });
 
-      console.log("Package creation response:", response.data);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
-      if (response.data.status === "success") {
+      const responseData = await response.json();
+      console.log("Package creation response:", responseData);
+
+      if (responseData.status === "success") {
         console.log("Package created successfully, showing success modal");
         setShowSuccessModal(true);
 
@@ -489,8 +511,8 @@ export default function PackageBuilderPage() {
         toast.success("Package created successfully!");
         router.push("/admin/packages");
       } else {
-        console.error("API Error:", response.data);
-        toast.error(response.data.message || "Failed to create package");
+        console.error("API Error:", responseData);
+        toast.error(responseData.message || "Failed to create package");
       }
     } catch (error: any) {
       console.error("Create package error:", error);
@@ -676,6 +698,7 @@ export default function PackageBuilderPage() {
         removeInclusion={removeInclusion}
         addInclusion={addInclusion}
         updateInclusionSupplier={updateInclusionSupplier}
+        updateInclusionTier={updateInclusionTier}
       />
     ),
     [
@@ -690,6 +713,7 @@ export default function PackageBuilderPage() {
       removeInclusion,
       addInclusion,
       updateInclusionSupplier,
+      updateInclusionTier,
     ]
   );
 
@@ -756,7 +780,7 @@ export default function PackageBuilderPage() {
                         <img
                           src={
                             venue.venue_profile_picture
-                              ? `http://localhost/events-api/${venue.venue_profile_picture}`
+                              ? `${venue.venue_profile_picture}`
                               : "/placeholder-venue.jpg"
                           }
                           alt={venue.venue_title}

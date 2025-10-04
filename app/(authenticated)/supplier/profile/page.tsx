@@ -86,7 +86,7 @@ export default function SupplierProfile() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=getDashboard&user_id=${userId}`
+        `supplier.php?operation=getDashboard&user_id=${userId}`
       );
       const data = await response.json();
 
@@ -114,7 +114,7 @@ export default function SupplierProfile() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=getAnalytics&user_id=${userId}`
+        `supplier.php?operation=getAnalytics&user_id=${userId}`
       );
       const data = await response.json();
 
@@ -181,7 +181,7 @@ export default function SupplierProfile() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=updateProfile&user_id=${userId}`,
+        `supplier.php?operation=updateProfile&user_id=${userId}`,
         {
           method: "POST",
           headers: {

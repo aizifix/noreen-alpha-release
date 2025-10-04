@@ -136,7 +136,7 @@ export default function SupplierRating({
         feedback_attachments,
       };
 
-      const response = await fetch("http://localhost/events-api/supplier.php", {
+      const response = await fetch("/supplier.php", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

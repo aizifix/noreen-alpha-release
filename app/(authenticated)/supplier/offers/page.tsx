@@ -86,7 +86,7 @@ export default function SupplierOffers() {
     setup_fee: 0,
     delivery_timeframe: "",
     terms_conditions: "",
-    cancellation_policy: "",
+    cancellation_policy: "/,
     is_featured: false,
     subcomponents: [] as SubComponent[],
   });
@@ -100,7 +100,7 @@ export default function SupplierOffers() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=getOffers&user_id=${userId}`
+        `supplier.php?operation=getOffers&user_id=${userId}`
       );
       const data = await response.json();
 
@@ -121,7 +121,7 @@ export default function SupplierOffers() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=createOffer&user_id=${userId}`,
+        `supplier.php?operation=createOffer&user_id=${userId}`,
         {
           method: "POST",
           headers: {
@@ -154,7 +154,7 @@ export default function SupplierOffers() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=updateOffer&user_id=${userId}&offer_id=${editingOffer.offer_id}`,
+        `supplier.php?operation=updateOffer&user_id=${userId}&offer_id=${editingOffer.offer_id}`,
         {
           method: "PUT",
           headers: {
@@ -186,7 +186,7 @@ export default function SupplierOffers() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=deleteOffer&user_id=${userId}&offer_id=${offerId}`,
+        `supplier.php?operation=deleteOffer&user_id=${userId}&offer_id=${offerId}`,
         {
           method: "DELETE",
         }

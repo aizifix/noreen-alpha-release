@@ -2,10 +2,14 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatCurrency } from "@/lib/utils";
+import { api } from "@/app/utils/apiWrapper";
 import {
   Search,
   Users,
@@ -20,7 +24,7 @@ import {
   CheckCircle,
   RefreshCw,
 } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -91,7 +95,7 @@ export default function ClientsPage() {
         });
 
         const response = await fetch(
-          `http://localhost/events-api/admin.php?operation=getClients&${queryParams}`
+          `${API_URL}/admin.php?operation=getClients&${queryParams}`
         );
         const data = await response.json();
 
@@ -478,7 +482,7 @@ export default function ClientsPage() {
                         <AvatarImage
                           src={
                             client.user_pfp
-                              ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(client.user_pfp)}`
+                              ? api.getServeImageUrl(client.user_pfp)
                               : undefined
                           }
                           alt={`${client.user_firstName} ${client.user_lastName}`}
@@ -595,7 +599,7 @@ export default function ClientsPage() {
                   <AvatarImage
                     src={
                       selectedClient.user_pfp
-                        ? `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(selectedClient.user_pfp)}`
+                        ? api.getServeImageUrl(selectedClient.user_pfp)
                         : undefined
                     }
                     alt={`${selectedClient.user_firstName} ${selectedClient.user_lastName}`}

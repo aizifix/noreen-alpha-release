@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { weddingPackages } from "@/data/wedding-packages";
 import { formatCurrency } from "@/lib/utils";
 import { Check, Loader } from "lucide-react";
-import axios from "axios";
 
 interface PackageDetailsProps {
   packageId: string;
@@ -56,17 +56,14 @@ export function PackageDetails({ packageId }: PackageDetailsProps) {
       setError(null);
 
       try {
-        const response = await axios.get(
-          "http://localhost/events-api/admin.php",
-          {
-            params: {
-              operation: "getPackageById",
-              package_id: packageId,
-            },
-          }
-        );
+        const response = await axios.get("/admin.php", {
+          params: {
+            operation: "getPackageById",
+            package_id: packageId,
+          },
+        });
 
-        if (response.data.status === "success") {
+        if (response.status === "success") {
           setApiPackage(response.data.package);
         } else {
           console.error(

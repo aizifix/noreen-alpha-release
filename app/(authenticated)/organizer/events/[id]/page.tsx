@@ -23,7 +23,7 @@ import {
   AlertCircle,
   Info,
 } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 
@@ -86,7 +86,7 @@ export default function OrganizerEventDetailsPage() {
         // Resolve organizer_id for accept/reject actions
         try {
           const profile = await axios.post(
-            "http://localhost/events-api/organizer.php",
+            "/organizer.php",
             { operation: "getOrganizerProfile", user_id: userData.user_id }
           );
           if (profile.data?.status === "success") {
@@ -111,7 +111,7 @@ export default function OrganizerEventDetailsPage() {
       console.log("🔍 Fetching event details for ID:", eventId);
 
       const response = await axios.post(
-        "http://localhost/events-api/organizer.php",
+        "/organizer.php",
         {
           operation: "getOrganizerEventDetails",
           event_id: parseInt(eventId),
@@ -120,7 +120,7 @@ export default function OrganizerEventDetailsPage() {
 
       console.log("📡 API Response:", response.data);
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         const raw = response.data.event || {};
         // Normalize a few potential API variations
         const normalized: Event = {
@@ -200,7 +200,7 @@ export default function OrganizerEventDetailsPage() {
     try {
       setUpdating(status);
       const details = await axios.get(
-        `http://localhost/events-api/admin.php?operation=getEventOrganizerDetails&event_id=${event.event_id}`
+        `admin.php?operation=getEventOrganizerDetails&event_id=${event.event_id}`
       );
       const assignmentId = details.data?.data?.organizer_assignment_id;
       if (!assignmentId) {
@@ -212,7 +212,7 @@ export default function OrganizerEventDetailsPage() {
         return;
       }
       const res = await axios.post(
-        "http://localhost/events-api/organizer.php",
+        "/organizer.php",
         {
           operation: "updateAssignmentStatus",
           ...(assignmentId ? { assignment_id: Number(assignmentId) } : {}),
@@ -298,7 +298,7 @@ export default function OrganizerEventDetailsPage() {
     if (pfpPath.startsWith("http")) {
       return pfpPath;
     }
-    return `http://localhost/events-api/serve-image.php?path=${encodeURIComponent(pfpPath)}`;
+    return `serve-image.php?path=${encodeURIComponent(pfpPath)}`;
   };
 
   const tabs = [

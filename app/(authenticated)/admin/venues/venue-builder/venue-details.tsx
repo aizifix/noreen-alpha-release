@@ -25,6 +25,27 @@ export function VenueDetails({ data, onChange }: VenueDetailsProps) {
   ) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Check file size (max 5MB)
+      const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+      if (file.size > maxSize) {
+        alert(
+          `File size must be less than 5MB. Current file size: ${(file.size / 1024 / 1024).toFixed(2)}MB`
+        );
+        return;
+      }
+
+      // Check file type
+      const allowedTypes = [
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/webp",
+      ];
+      if (!allowedTypes.includes(file.type)) {
+        alert("Please select a valid image file (JPEG, PNG, or WebP)");
+        return;
+      }
+
       onChange({ [field]: file });
     }
   };
@@ -154,7 +175,7 @@ export function VenueDetails({ data, onChange }: VenueDetailsProps) {
             onChange={(e) => handleFileChange(e, "venue_profile_picture")}
           />
           <p className="text-sm text-gray-500">
-            Upload a logo or representative image
+            Upload a logo or representative image (Max 5MB, JPEG/PNG/WebP)
           </p>
         </div>
 
@@ -168,7 +189,7 @@ export function VenueDetails({ data, onChange }: VenueDetailsProps) {
             onChange={(e) => handleFileChange(e, "venue_cover_photo")}
           />
           <p className="text-sm text-gray-500">
-            Upload a banner image for the venue
+            Upload a banner image for the venue (Max 5MB, JPEG/PNG/WebP)
           </p>
         </div>
       </div>

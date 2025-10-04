@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { generateStableId } from "@/app/utils/stableIds";
-import axios from "axios";
 import { secureStorage } from "@/app/utils/encryption";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,7 @@ import { ComponentCustomization } from "@/app/components/admin/event-builder/com
 import { BudgetTracking } from "@/app/components/admin/event-builder/budget-tracking";
 import PaymentStep from "@/app/components/admin/event-builder/payment-step";
 import { OrganizerSelection } from "@/app/components/admin/event-builder/organizer-selection";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import {
   eventPackages,
   ComponentCategory,
@@ -523,15 +524,11 @@ export default function EventBuilderPage() {
         formData.append("fileType", "event_attachment");
 
         try {
-          const response = await axios.post(
-            "http://localhost/events-api/admin.php",
-            formData,
-            {
-              headers: {
-                "Content-Type": "multipart/form-data",
-              },
-            }
-          );
+          const response = await axios.post(endpoints.admin, formData, {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          });
 
           if (response.data.status === "success") {
             uploadedAttachments.push({
@@ -588,12 +585,9 @@ export default function EventBuilderPage() {
   // Load all venues as fallback
   const loadAllVenues = async () => {
     try {
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "getAllAvailableVenues",
-        }
-      );
+      const response = await axios.post(endpoints.admin, {
+        operation: "getAllAvailableVenues",
+      });
       if (response.data.status === "success") {
         const venues = response.data.venues || [];
         console.log(`Loaded ${venues.length} venues from API`);
@@ -621,12 +615,12 @@ export default function EventBuilderPage() {
   // Packages are now fetched dynamically from API, so we don't need to check static data
   // The PackageSelection component will handle its own loading and error states
 
-  // Fetch s
+  // Fetch event types
   useEffect(() => {
     const fetchEventTypes = async () => {
       try {
         const response = await axios.get(
-          "http://localhost/events-api/admin.php?operation=getEventTypes"
+          `${endpoints.admin}?operation=getEventTypes`
         );
         if (response.data.status === "success") {
           setEventTypes(response.data.event_types || []);
@@ -651,9 +645,72 @@ export default function EventBuilderPage() {
   useEffect(() => {
     if (showBookingLookupModal) {
       console.log("🚀 Modal opened, loading all confirmed bookings...");
-      searchBookings("");
+      // Try to load all confirmed bookings first
+      loadAllConfirmedBookings();
     }
   }, [showBookingLookupModal]);
+
+  // Function to load all confirmed bookings
+  const loadAllConfirmedBookings = async () => {
+    console.log("🔍 Loading all confirmed bookings...");
+    setBookingSearchLoading(true);
+    try {
+      const fullUrl = `${endpoints.admin}?operation=getConfirmedBookings`;
+
+      console.log("🌐 Making request to:", fullUrl);
+
+      const response = await axios.get(fullUrl);
+
+      console.log("📡 getConfirmedBookings Response Status:", response.status);
+      console.log("📡 getConfirmedBookings Response Data:", response.data);
+
+      if (response.data && response.data.status === "success") {
+        const allResults = response.data.bookings || [];
+        console.log("📋 All confirmed bookings from API:", allResults.length);
+        console.log("📋 Sample confirmed booking:", allResults[0]);
+
+        const filtered = allResults.filter((b: any) => {
+          const status = (b.booking_status || b.status || "").toString();
+          const isConfirmed = status === "confirmed";
+          const isConverted =
+            Boolean(b.is_converted) ||
+            status === "converted" ||
+            Boolean(b.converted_event_id);
+
+          console.log(
+            `🔍 Confirmed Booking ${b.booking_id}: status=${status}, isConfirmed=${isConfirmed}, isConverted=${isConverted}`
+          );
+
+          return isConfirmed && !isConverted;
+        });
+
+        console.log(
+          "✅ Found confirmed, not-converted bookings:",
+          filtered.length
+        );
+        console.log("✅ Filtered confirmed bookings:", filtered);
+        setBookingSearchResults(filtered);
+      } else {
+        console.log(
+          "❌ getConfirmedBookings API Error:",
+          response.data?.message || "Unknown error"
+        );
+        console.log("❌ Full getConfirmedBookings response:", response.data);
+        setBookingSearchResults([]);
+      }
+    } catch (error: any) {
+      console.error("💥 getConfirmedBookings Network Error:", error);
+      console.error("💥 getConfirmedBookings Error details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+      });
+      setBookingSearchResults([]);
+    } finally {
+      setBookingSearchLoading(false);
+    }
+  };
 
   // Save data to local storage whenever important state changes
   useEffect(() => {
@@ -840,7 +897,7 @@ export default function EventBuilderPage() {
       try {
         // Fetch package details
         const response = await axios.get(
-          `http://localhost/events-api/admin.php?operation=getPackageById&package_id=${packageId}`
+          `${endpoints.admin}?operation=getPackageById&package_id=${packageId}`
         );
 
         if (response.data.status === "success") {
@@ -1352,6 +1409,7 @@ export default function EventBuilderPage() {
   const handleComplete = async () => {
     // Add loading state
     setLoading(true);
+    console.log("🚀 Starting event creation process...");
 
     // Get admin user data from secure storage first
     const userData = secureStorage.getItem("user");
@@ -1382,13 +1440,14 @@ export default function EventBuilderPage() {
         paymentData.referenceNumber.trim() === "")
     ) {
       console.log(
-        "Reference number required but missing for method:",
+        "❌ Reference number required but missing for method:",
         paymentData.downPaymentMethod
       );
       setShowMissingRefDialog(true);
       setLoading(false);
       return;
     }
+    console.log("✅ Payment validation passed");
 
     console.log("🔍 Starting additional validations...");
 
@@ -1408,6 +1467,12 @@ export default function EventBuilderPage() {
 
     // Validate event details
     console.log("Event details:", eventDetails);
+    console.log("Event details keys:", Object.keys(eventDetails));
+    console.log("Event title:", eventDetails.title);
+    console.log("Event date:", eventDetails.date);
+    console.log("Event capacity:", eventDetails.capacity);
+    console.log("Event theme:", eventDetails.theme);
+    console.log("Event type:", eventDetails.type);
 
     // Set default title if empty
     if (!eventDetails.title || eventDetails.title.trim() === "") {
@@ -1418,7 +1483,10 @@ export default function EventBuilderPage() {
     }
 
     if (!eventDetails.date) {
-      console.log("❌ Event date validation failed");
+      console.log(
+        "❌ Event date validation failed - date is:",
+        eventDetails.date
+      );
       toast({
         title: "Validation Error",
         description: "Event date is required",
@@ -1427,9 +1495,13 @@ export default function EventBuilderPage() {
       setLoading(false);
       return;
     }
+    console.log("✅ Event date validation passed");
 
     if (!eventDetails.capacity || eventDetails.capacity <= 0) {
-      console.log("❌ Event capacity validation failed");
+      console.log(
+        "❌ Event capacity validation failed - capacity is:",
+        eventDetails.capacity
+      );
       toast({
         title: "Validation Error",
         description: "Guest count must be greater than 0",
@@ -1438,8 +1510,13 @@ export default function EventBuilderPage() {
       setLoading(false);
       return;
     }
+    console.log("✅ Event capacity validation passed");
 
     if (!eventDetails.theme) {
+      console.log(
+        "❌ Event theme validation failed - theme is:",
+        eventDetails.theme
+      );
       toast({
         title: "Validation Error",
         description: "Event theme is required",
@@ -1448,10 +1525,15 @@ export default function EventBuilderPage() {
       setLoading(false);
       return;
     }
+    console.log("✅ Event theme validation passed");
 
     // Check for scheduling conflicts
+    console.log(
+      "Checking for scheduling conflicts - hasConflicts:",
+      eventDetails.hasConflicts
+    );
     if (eventDetails.hasConflicts) {
-      console.log("Scheduling conflicts detected");
+      console.log("❌ Scheduling conflicts detected");
 
       // Enhanced conflict messaging based on business rules
       if (eventDetails.type === "wedding") {
@@ -1472,6 +1554,7 @@ export default function EventBuilderPage() {
       setLoading(false);
       return;
     }
+    console.log("✅ No scheduling conflicts detected");
 
     // For start from scratch events, NO package is created
     // All components are stored directly in tbl_event_components
@@ -1629,26 +1712,58 @@ export default function EventBuilderPage() {
       console.log("Client ID being sent:", eventData.user_id);
       console.log("Admin ID being sent:", eventData.admin_id);
 
-      // Call API to create event - using the same approach as package-builder
+      // Validate critical fields before sending
+      const validationErrors = [];
+      if (!eventData.user_id || eventData.user_id <= 0) {
+        validationErrors.push("Invalid or missing user_id");
+      }
+      if (!eventData.admin_id || eventData.admin_id <= 0) {
+        validationErrors.push("Invalid or missing admin_id");
+      }
+      if (!eventData.event_title || eventData.event_title.trim() === "") {
+        validationErrors.push("Event title is required");
+      }
+      if (!eventData.event_type_id || eventData.event_type_id <= 0) {
+        validationErrors.push("Invalid or missing event_type_id");
+      }
+      if (!eventData.guest_count || eventData.guest_count <= 0) {
+        validationErrors.push("Guest count must be greater than 0");
+      }
+      if (!eventData.event_date) {
+        validationErrors.push("Event date is required");
+      }
+
+      if (validationErrors.length > 0) {
+        console.error(
+          "❌ Validation errors before API call:",
+          validationErrors
+        );
+        toast({
+          title: "Validation Error",
+          description: `Please fix the following issues:\n${validationErrors.join("\n")}`,
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
+      console.log("✅ All validations passed, proceeding with API call");
+
+      // Call API to create event - using the same approach as packages page
       console.log("🚀 Making API call to create event...");
-      console.log("API URL:", "http://localhost/events-api/admin.php");
+      console.log("API URL:", endpoints.admin);
       console.log("Request method: POST");
       console.log("Request headers:", { "Content-Type": "application/json" });
       console.log("📤 Sending event data to API...");
-
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        eventData,
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-          validateStatus: function (status) {
-            // Accept any status code to handle errors properly
-            return true;
-          },
-        }
-      );
+      const response = await axios.post(endpoints.admin, eventData, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        validateStatus: function (status) {
+          // Accept any status code to handle errors properly
+          return true;
+        },
+      });
       console.log("📡 API response received:", response);
       console.log("Response status:", response.status);
       console.log("Response status text:", response.statusText);
@@ -1662,6 +1777,21 @@ export default function EventBuilderPage() {
       console.log("Response data status:", response.data?.status);
       console.log("Response data message:", response.data?.message);
       console.log("Response data event_id:", response.data?.event_id);
+
+      // Additional debugging for response structure
+      console.log("Full response object:", response);
+      console.log("Response status code:", response.status);
+      console.log("Response headers:", response.headers);
+
+      // Enhanced debugging for error responses
+      if (response.data?.debug) {
+        console.log("🔍 Debug information:", response.data.debug);
+        console.log("Error details:", {
+          error: response.data.debug.error,
+          file: response.data.debug.file,
+          line: response.data.debug.line,
+        });
+      }
 
       // Check if response is HTML (common PHP error output)
       if (
@@ -1687,8 +1817,10 @@ export default function EventBuilderPage() {
       ) {
         console.error("API returned empty response object");
         console.error("Full response object:", response);
+        console.error("Response status:", response.status);
+        console.error("Response headers:", response.headers);
         throw new Error(
-          "Server returned empty response. Check PHP error logs."
+          "Server returned empty response. This usually indicates a server error or misconfiguration. Check PHP error logs and ensure the API endpoint is accessible."
         );
       }
 
@@ -1696,6 +1828,7 @@ export default function EventBuilderPage() {
         console.log("✅ Event created successfully!");
         console.log("Response data:", response.data);
         console.log("Response status check passed");
+        console.log("Event ID from response:", response.data.event_id);
 
         // Show success UI and confetti
         try {
@@ -1737,14 +1870,11 @@ export default function EventBuilderPage() {
         // Save wedding details if this is a wedding event and we have wedding form data
         if (eventDetails.type === "wedding" && weddingFormData && newEventId) {
           try {
-            const weddingResponse = await axios.post(
-              "http://localhost/events-api/admin.php",
-              {
-                operation: "saveWeddingDetails",
-                event_id: newEventId,
-                ...weddingFormData,
-              }
-            );
+            const weddingResponse = await axios.post(endpoints.admin, {
+              operation: "saveWeddingDetails",
+              event_id: newEventId,
+              ...weddingFormData,
+            });
 
             if (weddingResponse.data.status === "success") {
               console.log("Wedding details saved successfully");
@@ -1762,15 +1892,17 @@ export default function EventBuilderPage() {
         // Note: Organizer is now assigned directly during event creation
         // The organizer_id is set in the event data above
 
-        // Show completion confirmation modal instead of success modal
+        // Show completion confirmation modal
         console.log("✅ Event created successfully, showing completion modal");
         console.log("Current showCompletionModal state:", showCompletionModal);
         setShowCompletionModal(true);
         console.log("Set showCompletionModal to true");
         console.log("Modal should now be visible");
 
-        // Show success modal
-        setShowSuccessModal(true);
+        // Force a re-render to ensure modal state is updated
+        setTimeout(() => {
+          console.log("Modal state after timeout:", showCompletionModal);
+        }, 100);
 
         // If the event came from a booking, proactively remove it from the lookup list
         if (bookingReference) {
@@ -1836,9 +1968,22 @@ export default function EventBuilderPage() {
           // Server responded with error
           const errorMessage =
             error.response.data.message || "Server error occurred";
+
+          // Enhanced error display with debug information
+          const debugInfo = error.response.data.debug;
+          const fullErrorMessage = debugInfo
+            ? `${errorMessage}\n\nDebug: ${debugInfo.error || "No debug info"}\nFile: ${debugInfo.file || "Unknown"}\nLine: ${debugInfo.line || "Unknown"}`
+            : errorMessage;
+
+          console.error("🔍 Full error details:", {
+            message: errorMessage,
+            debug: debugInfo,
+            fullResponse: error.response.data,
+          });
+
           toast({
             title: "Server Error",
-            description: errorMessage,
+            description: fullErrorMessage,
             variant: "destructive",
           });
         } else if (error.request) {
@@ -1864,7 +2009,7 @@ export default function EventBuilderPage() {
         toast({
           title: "Connection Error",
           description:
-            "Cannot connect to the backend server. Please ensure the PHP server is running on localhost.",
+            "Cannot connect to the backend server. Please check your internet connection and try again.",
           variant: "destructive",
         });
       } else {
@@ -1915,15 +2060,12 @@ export default function EventBuilderPage() {
 
     try {
       setLookupLoading(true);
-      const response = await axios.get(
-        "http://localhost/events-api/admin.php",
-        {
-          params: {
-            operation: "getBookingByReference",
-            reference: bookingReference,
-          },
-        }
-      );
+      const response = await axios.get(endpoints.admin, {
+        params: {
+          operation: "getBookingByReference",
+          reference: bookingReference,
+        },
+      });
 
       if (response.data.status === "success" && response.data.booking) {
         const booking = response.data.booking;
@@ -2106,17 +2248,24 @@ export default function EventBuilderPage() {
     console.log("🔍 Searching bookings with term:", searchTerm);
     setBookingSearchLoading(true);
     try {
-      const response = await axios.get(
-        `http://localhost/events-api/admin.php?operation=searchBookings&search=${encodeURIComponent(
-          searchTerm.trim()
-        )}`
-      );
+      const fullUrl = `${endpoints.admin}?operation=searchBookings&search=${encodeURIComponent(
+        searchTerm.trim()
+      )}`;
 
-      console.log("📡 API Response:", response.data);
+      console.log("🌐 Making request to:", fullUrl);
 
-      if (response.data.status === "success") {
+      const response = await axios.get(fullUrl);
+
+      console.log("📡 API Response Status:", response.status);
+      console.log("📡 API Response Data:", response.data);
+      console.log("📡 API Response Headers:", response.headers);
+
+      if (response.data && response.data.status === "success") {
         // Filter to only accepted (confirmed) and not-converted bookings per new flow
         const allResults = response.data.bookings || [];
+        console.log("📋 All results from API:", allResults.length);
+        console.log("📋 Sample booking:", allResults[0]);
+
         const filtered = allResults.filter((b: any) => {
           const status = (b.booking_status || b.status || "").toString();
           const isConfirmed = status === "confirmed";
@@ -2124,19 +2273,33 @@ export default function EventBuilderPage() {
             Boolean(b.is_converted) ||
             status === "converted" ||
             Boolean(b.converted_event_id);
+
+          console.log(
+            `🔍 Booking ${b.booking_id}: status=${status}, isConfirmed=${isConfirmed}, isConverted=${isConverted}`
+          );
+
           return isConfirmed && !isConverted;
         });
+
         console.log(
           "✅ Found accepted, not-converted bookings:",
           filtered.length
         );
+        console.log("✅ Filtered bookings:", filtered);
         setBookingSearchResults(filtered);
       } else {
-        console.log("❌ API Error:", response.data.message);
+        console.log("❌ API Error:", response.data?.message || "Unknown error");
+        console.log("❌ Full response:", response.data);
         setBookingSearchResults([]);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("💥 Network Error:", error);
+      console.error("💥 Error details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+      });
       setBookingSearchResults([]);
     } finally {
       setBookingSearchLoading(false);
@@ -2249,7 +2412,6 @@ export default function EventBuilderPage() {
           {/* Header with booking lookup */}
           <div className="flex items-center justify-end">
             <Button
-              variant="outline"
               onClick={() => {
                 // Show booking lookup modal
                 setShowBookingLookupModal(true);
@@ -2269,7 +2431,7 @@ export default function EventBuilderPage() {
                 <div className="flex-grow">
                   <Select
                     value={selectedEventType}
-                    onValueChange={(value) => {
+                    onValueChange={(value: string) => {
                       setSelectedEventType(value);
                       setEventDetails((prev) => ({ ...prev, type: value }));
                     }}
@@ -2324,7 +2486,6 @@ export default function EventBuilderPage() {
           {/* Action buttons */}
           <div className="flex items-center justify-center pt-6">
             <Button
-              variant="outline"
               className="px-6 py-3 border-2 border-dashed hover:bg-gray-50"
               onClick={() => {
                 // Handle "Start from Scratch" option
@@ -3163,14 +3324,10 @@ export default function EventBuilderPage() {
             </Card>
 
             <div className="flex flex-col gap-2">
-              <Button
-                variant="outline"
-                onClick={() => router.push("/admin/events")}
-              >
+              <Button onClick={() => router.push("/admin/events")}>
                 Cancel
               </Button>
               <Button
-                variant="outline"
                 onClick={handleClearForm}
                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
               >
@@ -3211,7 +3368,7 @@ export default function EventBuilderPage() {
                       searchBookings(searchTerm);
                     } else if (searchTerm.length === 0) {
                       // Show all confirmed bookings when search is cleared
-                      searchBookings("");
+                      loadAllConfirmedBookings();
                     } else {
                       setBookingSearchResults([]);
                     }
@@ -3265,7 +3422,6 @@ export default function EventBuilderPage() {
                         <Button
                           onClick={() => loadBookingData(booking)}
                           disabled={booking.booking_status !== "confirmed"}
-                          size="sm"
                           className="bg-[#028A75] hover:bg-[#028A75]/80"
                         >
                           Create an Event
@@ -3293,10 +3449,7 @@ export default function EventBuilderPage() {
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowBookingLookupModal(false)}
-            >
+            <Button onClick={() => setShowBookingLookupModal(false)}>
               Cancel
             </Button>
           </DialogFooter>
@@ -3357,7 +3510,6 @@ export default function EventBuilderPage() {
                 clearForm();
                 router.push("/admin/events");
               }}
-              variant="outline"
               className="w-full"
             >
               View All Events
@@ -3368,7 +3520,6 @@ export default function EventBuilderPage() {
                 clearForm();
                 router.push(`/admin/events/${currentEventId || "calendar"}`);
               }}
-              variant="outline"
               className="w-full"
             >
               View Event Calendar
@@ -3377,7 +3528,6 @@ export default function EventBuilderPage() {
               onClick={() => {
                 setShowCompletionModal(false);
               }}
-              variant="ghost"
               className="w-full"
             >
               Make Changes (Stay Here)

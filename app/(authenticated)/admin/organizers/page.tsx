@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -116,7 +116,7 @@ interface FilterState {
   experience_level: string;
 }
 
-const API_URL = "http://localhost/events-api";
+import { API_URL } from "../../../config/api";
 
 export default function OrganizersPage() {
   // State management
@@ -584,7 +584,7 @@ export default function OrganizersPage() {
     try {
       // Optimistically close modal and show loading toast
       setIsModalOpen(false);
-      const activeToast = toast({
+      toast({
         title: "Saving organizer...",
         description: "Please wait while we apply your changes.",
       });
@@ -635,22 +635,22 @@ export default function OrganizersPage() {
       const data = response.data;
 
       if (data.status === "success") {
-        activeToast.update({
+        toast({
           title: "Success!",
           description:
             modalMode === "add"
               ? "Organizer added successfully"
               : "Organizer updated successfully",
           className: "border-green-200 bg-green-50 text-green-800",
-        } as any);
+        });
         resetForm();
         await fetchOrganizers();
       } else {
-        activeToast.update({
+        toast({
           title: "Error",
           description: data.message || data.debug?.error || "Operation failed",
           variant: "destructive",
-        } as any);
+        });
         await fetchOrganizers();
       }
     } catch (error) {

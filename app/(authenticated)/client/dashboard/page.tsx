@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 import {
@@ -188,14 +188,12 @@ export default function ClientDashboard() {
       const [eventsResponse, paymentsResponse, packagesResponse] =
         await Promise.all([
           axios.get(
-            `http://localhost/events-api/client.php?operation=getClientEvents&user_id=${userData.user_id}`
+            `client.php?operation=getClientEvents&user_id=${userData.user_id}`
           ),
           axios.get(
-            `http://localhost/events-api/client.php?operation=getClientNextPayments&user_id=${userData.user_id}`
+            `client.php?operation=getClientNextPayments&user_id=${userData.user_id}`
           ),
-          axios.get(
-            `http://localhost/events-api/client.php?operation=getAllPackages`
-          ),
+          axios.get(`client.php?operation=getAllPackages`),
         ]);
 
       if (eventsResponse.data.status === "success") {
@@ -266,10 +264,10 @@ export default function ClientDashboard() {
     try {
       setIsPackageLoading(true);
       const response = await axios.get(
-        `http://localhost/events-api/client.php?operation=getPackageDetails&package_id=${packageId}`
+        `client.php?operation=getPackageDetails&package_id=${packageId}`
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         // Transform the venues data to match our interface
         const packageData = response.data.package;
         const transformedPackage = {
@@ -350,7 +348,17 @@ export default function ClientDashboard() {
 
   const getImageUrl = (path: string | null) => {
     if (!path) return null;
-    return `http://localhost/events-api/${path}`;
+
+    // If the image path already contains a full URL, use it as is
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      return path;
+    }
+
+    // Use the serve-image.php script for proper image serving
+    const API_URL =
+      process.env.NEXT_PUBLIC_API_URL ||
+      "https://noreen-events.online/noreen-events";
+    return `${API_URL}/serve-image.php?path=${encodeURIComponent(path)}`;
   };
 
   const renderCalendar = () => {

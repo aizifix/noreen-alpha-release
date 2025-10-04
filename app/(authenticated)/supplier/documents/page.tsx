@@ -65,7 +65,7 @@ export default function SupplierDocuments() {
   // Filters
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState("/);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -83,7 +83,7 @@ export default function SupplierDocuments() {
       const userId = 1; // This should come from authentication
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=getDocuments&user_id=${userId}`
+        `supplier.php?operation=getDocuments&user_id=${userId}`
       );
       const data = await response.json();
 
@@ -188,7 +188,7 @@ export default function SupplierDocuments() {
       formData.append("title", uploadForm.document_title);
 
       const response = await fetch(
-        `http://localhost/events-api/supplier.php?operation=uploadDocument&user_id=${userId}`,
+        `supplier.php?operation=uploadDocument&user_id=${userId}`,
         {
           method: "POST",
           body: formData,
@@ -262,7 +262,7 @@ export default function SupplierDocuments() {
 
   const downloadDocument = (doc: Document) => {
     // In a real implementation, this would handle secure file downloads
-    window.open(`http://localhost/events-api/${doc.file_path}`, "_blank");
+    window.open(`${doc.file_path}`, "_blank");
   };
 
   const getDocumentCounts = () => {

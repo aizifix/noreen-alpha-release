@@ -123,7 +123,7 @@ async function handleCreateSupplier(formData: FormData) {
     };
 
     // Send to PHP API
-    const response = await fetch("http://localhost/events-api/supplier.php", {
+    const response = await fetch("supplier.php", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -222,7 +222,7 @@ async function handleCreateOffer(formData: FormData) {
     };
 
     // Send to PHP API
-    const response = await fetch("http://localhost/events-api/supplier.php", {
+    const response = await fetch("supplier.php", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -269,7 +269,7 @@ export async function GET(request: NextRequest) {
 
     // Forward request to PHP API
     const response = await fetch(
-      `http://localhost/events-api/supplier.php?${queryString}`,
+      `${process.env.NEXT_PUBLIC_API_URL || 'https://noreen-events.online/noreen-events'}/supplier.php?${queryString}`,
       {
         method: "GET",
         headers: {
@@ -317,7 +317,7 @@ export async function PUT(request: NextRequest) {
 
     // Forward request to PHP API
     const response = await fetch(
-      `http://localhost/events-api/supplier.php?operation=${operation}&supplier_id=${supplier_id}`,
+      `supplier.php?operation=${operation}&supplier_id=${supplier_id}`,
       {
         method: "PUT",
         headers: {
@@ -364,7 +364,7 @@ export async function DELETE(request: NextRequest) {
 
     // Forward request to PHP API
     const response = await fetch(
-      `http://localhost/events-api/supplier.php?operation=${operation}&supplier_id=${supplier_id}`,
+      `supplier.php?operation=${operation}&supplier_id=${supplier_id}`,
       {
         method: "DELETE",
         headers: {

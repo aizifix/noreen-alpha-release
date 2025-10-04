@@ -175,12 +175,9 @@ export default function AdminBookingsPage() {
       setIsLoading(true);
       console.log("🔄 Fetching bookings from API...");
 
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "getAllBookings",
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "getAllBookings",
+      });
 
       console.log("📡 API Response:", response.data);
 
@@ -296,14 +293,14 @@ export default function AdminBookingsPage() {
         const requests: Promise<any>[] = [];
         // Detailed booking (includes b.* like total_price, component_changes)
         requests.push(
-          axios.get("http://localhost/events-api/admin.php", {
+          axios.get("/admin.php", {
             params: { operation: "getBookingByReference", reference: ref },
           })
         );
         if (pkgId) {
           // Package details (inclusions list)
           requests.push(
-            axios.get("http://localhost/events-api/admin.php", {
+            axios.get("/admin.php", {
               params: { operation: "getPackageDetails", package_id: pkgId },
             })
           );
@@ -315,7 +312,7 @@ export default function AdminBookingsPage() {
             const dd = String(today.getDate()).padStart(2, "0");
             const dateStr = `${yyyy}-${mm}-${dd}`;
             requests.push(
-              axios.get("http://localhost/events-api/client.php", {
+              axios.get("/client.php", {
                 params: {
                   operation: "getVenuesByPackage",
                   package_id: pkgId,
@@ -491,14 +488,11 @@ export default function AdminBookingsPage() {
 
   const handleAcceptBooking = async (booking: Booking) => {
     try {
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "updateBookingStatus",
-          booking_id: booking.booking_id,
-          status: "confirmed",
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "updateBookingStatus",
+        booking_id: booking.booking_id,
+        status: "confirmed",
+      });
 
       if (response.data.status === "success") {
         toast({
@@ -533,14 +527,11 @@ export default function AdminBookingsPage() {
     }
 
     try {
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "updateBookingStatus",
-          booking_id: booking.booking_id,
-          status: "cancelled",
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "updateBookingStatus",
+        booking_id: booking.booking_id,
+        status: "cancelled",
+      });
 
       if (response.data.status === "success") {
         toast({
@@ -570,14 +561,11 @@ export default function AdminBookingsPage() {
     newStatus: string
   ) => {
     try {
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
-          operation: "updateBookingStatus",
-          booking_id: bookingId,
-          status: newStatus,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "updateBookingStatus",
+        booking_id: bookingId,
+        status: newStatus,
+      });
 
       if (response.data.status === "success") {
         toast({

@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import axios from "axios";
+import { endpoints } from "@/app/config/api";
 
 interface VenueSelectionProps {
   venues: any[];
@@ -83,14 +83,21 @@ export function VenueSelection({
       setIsLoadingVenues(true);
       setVenuesError(null);
 
-      const response = await axios.post(
-        "http://localhost/events-api/admin.php",
-        {
+      const response = await fetch(`${endpoints.admin}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
           operation: "getAllAvailableVenues",
-        }
-      );
+        }),
+      });
 
-      const data = response.data;
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
       console.log("API Response:", data);
 
       if (data.status === "success") {
@@ -136,22 +143,10 @@ export function VenueSelection({
     } catch (error) {
       console.error("Error fetching all venues:", error);
 
-      // Handle axios errors
-      if (axios.isAxiosError(error)) {
-        console.error("Axios error details:", {
-          message: error.message,
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data,
-        });
-        setVenuesError(
-          `API Error: ${error.response?.status} - ${error.response?.statusText || error.message}`
-        );
-      } else {
-        setVenuesError(
-          error instanceof Error ? error.message : "Failed to fetch venues"
-        );
-      }
+      // Handle fetch errors
+      setVenuesError(
+        error instanceof Error ? error.message : "Failed to fetch venues"
+      );
     } finally {
       setIsLoadingVenues(false);
     }
@@ -271,8 +266,11 @@ export function VenueSelection({
       return imagePath;
     }
 
-    // Use direct URL path to the image
-    return `http://localhost/events-api/${imagePath}`;
+    // Use the serve-image.php script for proper image serving
+    const API_URL =
+      process.env.NEXT_PUBLIC_API_URL ||
+      "https://noreen-events.online/noreen-events";
+    return `${API_URL}/serve-image.php?path=${encodeURIComponent(imagePath)}`;
   };
 
   // Helper function to safely calculate overflow charge

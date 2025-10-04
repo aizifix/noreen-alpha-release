@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
+import { API_URL } from "../config/api";
 
 type NotificationItem = {
   notification_id: number;
@@ -57,7 +58,7 @@ export function useRealtimeNotifications(
         const sinceParam = lastSeenAtRef.current
           ? `&since=${encodeURIComponent(lastSeenAtRef.current)}`
           : "";
-        const url = `http://localhost/events-api/notifications.php?operation=get_recent&user_id=${encodeURIComponent(String(userId))}${sinceParam}`;
+        const url = `${API_URL}/notifications.php?operation=get_recent&user_id=${encodeURIComponent(String(userId))}${sinceParam}`;
         const res = await axios.get(url);
         if (res.data && res.data.status === "success") {
           const list: NotificationItem[] = Array.isArray(res.data.notifications)
@@ -80,7 +81,7 @@ export function useRealtimeNotifications(
 
       // Also refresh counts opportunistically
       try {
-        const countsUrl = `http://localhost/events-api/notifications.php?operation=get_counts&user_id=${encodeURIComponent(
+        const countsUrl = `${API_URL}/notifications.php?operation=get_counts&user_id=${encodeURIComponent(
           String(userId)
         )}`;
         const res = await axios.get(countsUrl);

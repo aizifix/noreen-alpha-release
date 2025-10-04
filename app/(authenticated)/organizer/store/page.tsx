@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { CheckIcon } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { StoreCard } from "../../../components/card/store-card";
 import { secureStorage } from "@/app/utils/encryption";
 
@@ -400,13 +400,13 @@ export default function VendorStoreCreation() {
 
       console.log("Fetching stores with user ID:", userId);
       const response = await axios.get(
-        "http://localhost/events-api/vendor.php",
+        "/vendor.php",
         {
           params: { operation: "getStores", user_id: userId },
         }
       );
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         console.log("Fetched Stores:", response.data.stores);
         setStores(response.data.stores);
       } else {
@@ -436,13 +436,13 @@ export default function VendorStoreCreation() {
     const fetchStoreCategories = async () => {
       try {
         const response = await axios.get(
-          "http://localhost/events-api/vendor.php",
+          "/vendor.php",
           {
             params: { operation: "getStoreCategories" },
           }
         );
 
-        if (response.data.status === "success") {
+        if (response.status === "success") {
           setStoreCategories(response.data.categories);
         }
       } catch (error) {
@@ -493,7 +493,7 @@ export default function VendorStoreCreation() {
       );
 
       const response = await axios.post(
-        "http://localhost/events-api/vendor.php",
+        "/vendor.php",
         formData,
         {
           headers: { "Content-Type": "multipart/form-data" },
@@ -502,7 +502,7 @@ export default function VendorStoreCreation() {
 
       console.log("Response:", response.data);
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         alert("Vendor store created successfully!");
         closeModal();
         fetchStores();

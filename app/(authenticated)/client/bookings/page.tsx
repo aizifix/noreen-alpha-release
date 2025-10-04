@@ -10,7 +10,7 @@ import {
   MapPin,
   Package,
 } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 
 const statusColors: { [key: string]: string } = {
   confirmed: "bg-green-100 text-green-700",
@@ -147,7 +147,7 @@ export default function BookingsPage() {
     try {
       setLoading(true);
       const response = await axios.get(
-        "http://localhost/events-api/client.php",
+        "/client.php",
         {
           params: {
             operation: "getClientBookings",
@@ -156,7 +156,7 @@ export default function BookingsPage() {
         }
       );
 
-      if (response.data && response.data.status === "success") {
+      if (response.data && response.status === "success") {
         // Merge API bookings with local bookings if any
         const localBookings = localStorage.getItem("newBookings");
         let mergedBookings = [...response.data.bookings];

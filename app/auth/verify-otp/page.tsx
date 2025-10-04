@@ -9,7 +9,8 @@ import Logo from "../../../public/logo.png";
 import { secureStorage } from "@/app/utils/encryption";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://noreen-events.online/noreen-events";
 
 const VerifyOTP = () => {
   const [otpValues, setOtpValues] = useState(["", "", "", "", "", ""]);

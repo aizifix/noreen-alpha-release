@@ -30,7 +30,7 @@ import {
   Save,
   X,
 } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "@/utils/apiClient";
 import { apiPost } from "@/app/utils/api";
 
 interface ProfilePictureModalProps {
@@ -252,7 +252,7 @@ export default function ProfilePictureModal({
         throw new Error("Invalid upload endpoint");
       }
 
-      if (response.data.status === "success") {
+      if (response.status === "success") {
         toast({
           title: "Success",
           description: "Profile picture updated successfully",

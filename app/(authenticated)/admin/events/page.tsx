@@ -13,9 +13,10 @@ import {
   CalendarDays,
   List,
 } from "lucide-react";
-import axios from "axios";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
+import { adminApi } from "@/app/utils/api";
+import { endpoints } from "@/app/config/api";
 
 // Enhanced interface to match updated tbl_events structure
 interface Event {
@@ -103,6 +104,13 @@ export default function EventsPage() {
   const [userRole, setUserRole] = useState<string>("");
   const [userId, setUserId] = useState<number>(0);
 
+  // Search and filter states
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [eventTypeFilter, setEventTypeFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("");
+  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
+
   useEffect(() => {
     try {
       // Protect route from unauthorized access and back navigation
@@ -124,22 +132,81 @@ export default function EventsPage() {
     }
   }, [router]);
 
+  // Filter events based on search query and filters
+  useEffect(() => {
+    let filtered = [...events];
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter((event) => {
+        const title = event.event_title?.toLowerCase() || "";
+        const clientName = event.client_name?.toLowerCase() || "";
+        const venueName = event.venue_name?.toLowerCase() || "";
+        const eventTheme = event.event_theme?.toLowerCase() || "";
+        const eventDescription = event.event_description?.toLowerCase() || "";
+
+        return (
+          title.includes(query) ||
+          clientName.includes(query) ||
+          venueName.includes(query) ||
+          eventTheme.includes(query) ||
+          eventDescription.includes(query)
+        );
+      });
+    }
+
+    // Apply event type filter
+    if (eventTypeFilter) {
+      filtered = filtered.filter(
+        (event) => event.event_type_id.toString() === eventTypeFilter
+      );
+    }
+
+    // Apply status filter
+    if (statusFilter) {
+      filtered = filtered.filter((event) => {
+        const derivedStatus = getDerivedEventStatus(event);
+        return derivedStatus === statusFilter;
+      });
+    }
+
+    // Apply payment status filter
+    if (paymentStatusFilter) {
+      filtered = filtered.filter(
+        (event) => event.payment_status === paymentStatusFilter
+      );
+    }
+
+    setFilteredEvents(filtered);
+  }, [events, searchQuery, eventTypeFilter, statusFilter, paymentStatusFilter]);
+
   const fetchEvents = async () => {
     try {
       setIsLoading(true);
       const userData = secureStorage.getItem("user");
 
-      const response = await axios.post("/admin.php", {
+      const response = await adminApi.post({
         operation: "getEvents",
         admin_id: userData.user_id,
       });
 
-      if (response.data.status === "success") {
-        setEvents(response.data.events || []);
+      if (response.status === "success") {
+        const events = (response as any).events || [];
+        console.log(
+          "Events with profile pictures:",
+          events.map((e: any) => ({
+            event_id: e.event_id,
+            client_name: e.client_name,
+            client_pfp: e.client_pfp,
+            profile_url: e.client_pfp ? getProfileImageUrl(e.client_pfp) : null,
+          }))
+        );
+        setEvents(events);
       } else {
         toast({
           title: "Error",
-          description: response.data.message || "Failed to fetch events",
+          description: response.message || "Failed to fetch events",
           variant: "destructive",
         });
       }
@@ -160,6 +227,14 @@ export default function EventsPage() {
     router.push(`/admin/events/${eventId}`);
   };
 
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchQuery("");
+    setEventTypeFilter("");
+    setStatusFilter("");
+    setPaymentStatusFilter("");
+  };
+
   // Get events for a specific date
   const getEventsForDate = (date: Date) => {
     // Format date as YYYY-MM-DD without timezone conversion
@@ -167,14 +242,14 @@ export default function EventsPage() {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     const dateString = `${year}-${month}-${day}`;
-    return events.filter((event) => event.event_date === dateString);
+    return filteredEvents.filter((event) => event.event_date === dateString);
   };
 
   // Get events for the selected month
   const getEventsForMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
-    return events.filter((event) => {
+    return filteredEvents.filter((event) => {
       // Parse the date string directly to avoid timezone issues
       const eventDateParts = event.event_date.split("-");
       const eventYear = parseInt(eventDateParts[0]);
@@ -258,6 +333,27 @@ export default function EventsPage() {
     const m = String(t.getMonth() + 1).padStart(2, "0");
     const d = String(t.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
+  };
+
+  // Helper function to get profile image URL
+  const getProfileImageUrl = (pfpPath?: string) => {
+    if (!pfpPath) return undefined;
+    if (pfpPath.startsWith("http")) {
+      return pfpPath;
+    }
+    // Use the image serving script for proper image delivery
+    const url = `${endpoints.serveImage}?path=${encodeURIComponent(pfpPath)}`;
+    console.log("Profile image URL:", url);
+    return url;
+  };
+
+  // Helper function to get client initials
+  const getClientInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase();
   };
 
   const getDerivedEventStatus = (event: Event) => {
@@ -504,23 +600,6 @@ export default function EventsPage() {
               const colors = getStatusColor(derivedStatus);
               const paymentColors = getPaymentStatusColor(event.payment_status);
 
-              const getClientInitials = (name: string) => {
-                return name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")
-                  .toUpperCase();
-              };
-
-              const getProfileImageUrl = (pfpPath?: string) => {
-                if (!pfpPath) return undefined;
-                if (pfpPath.startsWith("http")) {
-                  return pfpPath;
-                }
-                // Use the image serving script for proper image delivery
-                return `serve-image.php?path=${encodeURIComponent(pfpPath)}`;
-              };
-
               return (
                 <div
                   key={event.event_id}
@@ -537,15 +616,25 @@ export default function EventsPage() {
                           alt={`${event.client_name}'s profile`}
                           className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
                           onError={(e) => {
+                            console.log(
+                              "Profile image failed to load:",
+                              e.currentTarget.src
+                            );
                             e.currentTarget.style.display = "none";
                             e.currentTarget.nextElementSibling?.classList.remove(
                               "hidden"
                             );
                           }}
+                          onLoad={() => {
+                            console.log(
+                              "Profile image loaded successfully:",
+                              event.client_name
+                            );
+                          }}
                         />
                       ) : null}
                       <div
-                        className={`w-10 h-10 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full flex items-center justify-center ${event.client_pfp ? "hidden" : ""}`}
+                        className={`w-10 h-10 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full flex items-center justify-center ${event.client_pfp && getProfileImageUrl(event.client_pfp) ? "hidden" : ""}`}
                       >
                         <span className="text-white font-medium text-sm">
                           {getClientInitials(event.client_name || "C")}
@@ -702,12 +791,18 @@ export default function EventsPage() {
             <input
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200"
               placeholder="Search events by title, client, or venue..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
           {/* Filter Dropdowns */}
           <div className="flex flex-col sm:flex-row gap-3">
-            <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200">
+            <select
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200"
+              value={eventTypeFilter}
+              onChange={(e) => setEventTypeFilter(e.target.value)}
+            >
               <option value="">All Event Types</option>
               <option value="1">Wedding</option>
               <option value="2">Anniversary</option>
@@ -723,7 +818,11 @@ export default function EventsPage() {
               <option value="16">New Year's Party</option>
             </select>
 
-            <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200">
+            <select
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
               <option value="">All Statuses</option>
               <option value="draft">Planning</option>
               <option value="confirmed">Confirmed</option>
@@ -732,16 +831,44 @@ export default function EventsPage() {
               <option value="cancelled">Cancelled</option>
             </select>
 
-            <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200">
+            <select
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] transition-colors duration-200"
+              value={paymentStatusFilter}
+              onChange={(e) => setPaymentStatusFilter(e.target.value)}
+            >
               <option value="">All Payment Status</option>
               <option value="unpaid">Unpaid</option>
               <option value="partial">Partial</option>
               <option value="paid">Paid</option>
               <option value="refunded">Refunded</option>
             </select>
+
+            {/* Clear Filters Button */}
+            {(searchQuery ||
+              eventTypeFilter ||
+              statusFilter ||
+              paymentStatusFilter) && (
+              <button
+                onClick={clearFilters}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors duration-200 flex items-center gap-2"
+              >
+                <Filter className="h-4 w-4" />
+                Clear
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Results Counter */}
+      {(searchQuery ||
+        eventTypeFilter ||
+        statusFilter ||
+        paymentStatusFilter) && (
+        <div className="mb-4 text-sm text-gray-600">
+          Showing {filteredEvents.length} of {events.length} events
+        </div>
+      )}
 
       {/* Main Content */}
       {view === "calendar" ? (
@@ -784,7 +911,7 @@ export default function EventsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {events.map((event, index) => {
+          {filteredEvents.map((event, index) => {
             const derivedStatus = getDerivedEventStatus(event);
             const colors = getStatusColor(derivedStatus);
             const paymentColors = getPaymentStatusColor(event.payment_status);
@@ -852,38 +979,35 @@ export default function EventsPage() {
                       {/* Client Profile Picture */}
                       <div className="relative flex-shrink-0">
                         {event.client_pfp &&
-                          (() => {
-                            const pfpPath = event.client_pfp;
-                            const imageUrl =
-                              pfpPath && pfpPath.startsWith("http")
-                                ? pfpPath
-                                : pfpPath
-                                  ? `serve-image.php?path=${encodeURIComponent(pfpPath)}`
-                                  : undefined;
-                            return (
-                              <img
-                                src={imageUrl}
-                                alt={`${event.client_name}'s profile`}
-                                className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = "none";
-                                  e.currentTarget.nextElementSibling?.classList.remove(
-                                    "hidden"
-                                  );
-                                }}
-                              />
-                            );
-                          })()}
+                          getProfileImageUrl(event.client_pfp) && (
+                            <img
+                              src={getProfileImageUrl(event.client_pfp)}
+                              alt={`${event.client_name}'s profile`}
+                              className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
+                              onError={(e) => {
+                                console.log(
+                                  "Profile image failed to load:",
+                                  e.currentTarget.src
+                                );
+                                e.currentTarget.style.display = "none";
+                                e.currentTarget.nextElementSibling?.classList.remove(
+                                  "hidden"
+                                );
+                              }}
+                              onLoad={() => {
+                                console.log(
+                                  "Profile image loaded successfully:",
+                                  event.client_name
+                                );
+                              }}
+                            />
+                          )}
                         <div
-                          className={`w-12 h-12 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full flex items-center justify-center ${event.client_pfp ? "hidden" : ""}`}
+                          className={`w-12 h-12 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full flex items-center justify-center ${event.client_pfp && getProfileImageUrl(event.client_pfp) ? "hidden" : ""}`}
                         >
                           <span className="text-white font-medium text-sm">
                             {event.client_name
-                              ? event.client_name
-                                  .split(" ")
-                                  .map((n) => n[0])
-                                  .join("")
-                                  .toUpperCase()
+                              ? getClientInitials(event.client_name)
                               : "C"}
                           </span>
                         </div>
@@ -1009,25 +1133,38 @@ export default function EventsPage() {
             );
           })}
 
-          {events.length === 0 && (
+          {filteredEvents.length === 0 && (
             <div className="col-span-full text-center py-16 animate-in slide-in-from-bottom-4 duration-500">
               <div className="text-gray-400 mb-6">
                 <CalendarDays className="h-16 w-16 mx-auto" />
               </div>
               <h3 className="text-xl font-medium text-gray-900 mb-3">
-                No events found
+                {events.length === 0
+                  ? "No events found"
+                  : "No events match your filters"}
               </h3>
               <p className="text-gray-500 mb-6 max-w-md mx-auto">
-                Get started by creating your first event. You can organize
-                weddings, birthdays, corporate events, and more.
+                {events.length === 0
+                  ? "Get started by creating your first event. You can organize weddings, birthdays, corporate events, and more."
+                  : "Try adjusting your search criteria or clear the filters to see all events."}
               </p>
-              <button
-                className="px-6 py-3 rounded-lg bg-[#028A75] text-white font-semibold hover:bg-[#027a65] transition-colors duration-200 flex items-center gap-2 mx-auto"
-                onClick={() => router.push("/admin/event-builder")}
-              >
-                <Plus className="h-4 w-4" />
-                Create Event
-              </button>
+              {events.length === 0 ? (
+                <button
+                  className="px-6 py-3 rounded-lg bg-[#028A75] text-white font-semibold hover:bg-[#027a65] transition-colors duration-200 flex items-center gap-2 mx-auto"
+                  onClick={() => router.push("/admin/event-builder")}
+                >
+                  <Plus className="h-4 w-4" />
+                  Create Event
+                </button>
+              ) : (
+                <button
+                  className="px-6 py-3 rounded-lg bg-gray-600 text-white font-semibold hover:bg-gray-700 transition-colors duration-200 flex items-center gap-2 mx-auto"
+                  onClick={clearFilters}
+                >
+                  <Filter className="h-4 w-4" />
+                  Clear Filters
+                </button>
+              )}
             </div>
           )}
         </div>

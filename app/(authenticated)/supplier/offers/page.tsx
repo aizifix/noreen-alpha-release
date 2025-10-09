@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   Plus,
   Edit,
@@ -86,7 +88,7 @@ export default function SupplierOffers() {
     setup_fee: 0,
     delivery_timeframe: "",
     terms_conditions: "",
-    cancellation_policy: "/,
+    cancellation_policy: "",
     is_featured: false,
     subcomponents: [] as SubComponent[],
   });
@@ -99,10 +101,10 @@ export default function SupplierOffers() {
     try {
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getOffers&user_id=${userId}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=getOffers&user_id=${userId}`
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setOffers(data.offers);
@@ -120,18 +122,13 @@ export default function SupplierOffers() {
     try {
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=createOffer&user_id=${userId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(newOffer),
-        }
+      const response = await axios.post(
+        endpoints.supplier,
+        { operation: "createOffer", user_id: userId, ...newOffer },
+        { headers: { "Content-Type": "application/json" } }
       );
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         await fetchOffers();
@@ -153,18 +150,18 @@ export default function SupplierOffers() {
     try {
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=updateOffer&user_id=${userId}&offer_id=${editingOffer.offer_id}`,
+      const response = await axios.post(
+        endpoints.supplier,
         {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(editingOffer),
-        }
+          operation: "updateOffer",
+          user_id: userId,
+          offer_id: editingOffer.offer_id,
+          ...editingOffer,
+        },
+        { headers: { "Content-Type": "application/json" } }
       );
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         await fetchOffers();
@@ -185,14 +182,13 @@ export default function SupplierOffers() {
     try {
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=deleteOffer&user_id=${userId}&offer_id=${offerId}`,
-        {
-          method: "DELETE",
-        }
+      const response = await axios.post(
+        endpoints.supplier,
+        { operation: "deleteOffer", user_id: userId, offer_id: offerId },
+        { headers: { "Content-Type": "application/json" } }
       );
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         await fetchOffers();

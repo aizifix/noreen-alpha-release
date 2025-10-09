@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Calendar } from "@/components/ui/calendar";
+import ResponsiveCalendar from "./ResponsiveCalendar";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "@/hooks/use-toast";
 import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   format,
   startOfMonth,
@@ -262,7 +263,7 @@ export default function EnhancedCreateBookingPage() {
 
   // Calendar and conflict checking state
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [calendarConflictData, setCalendarConflictData] =
     useState<CalendarConflictData>({});
   const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
@@ -488,7 +489,7 @@ export default function EnhancedCreateBookingPage() {
   const fetchEventTypes = async () => {
     setLoadingEventTypes(true);
     try {
-      const response = await axios.get("/client.php", {
+      const response = await axios.get(`${endpoints.client}`, {
         params: { operation: "getEventTypes" },
       });
 
@@ -510,7 +511,7 @@ export default function EnhancedCreateBookingPage() {
   // Fetch packages
   const fetchPackages = async () => {
     try {
-      const response = await axios.get("/client.php", {
+      const response = await axios.get(`${endpoints.client}`, {
         params: { operation: "getAllPackages" },
       });
 
@@ -528,7 +529,7 @@ export default function EnhancedCreateBookingPage() {
     try {
       let response;
       if (packageId) {
-        response = await axios.get("/client.php", {
+        response = await axios.get(`${endpoints.client}`, {
           params: {
             operation: "getVenuesByPackage",
             package_id: packageId,
@@ -537,7 +538,7 @@ export default function EnhancedCreateBookingPage() {
           },
         });
       } else {
-        response = await axios.get("/client.php", {
+        response = await axios.get(`${endpoints.client}`, {
           params: {
             operation: "getAvailableVenues",
             event_type_id: getEventTypeId(formData.eventType),
@@ -555,7 +556,7 @@ export default function EnhancedCreateBookingPage() {
             if (typeof v.extra_pax_rate === "number") return v;
             try {
               const detailsRes = await fetch(
-                `admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
+                `${endpoints.admin}?operation=getVenueById&venue_id=${encodeURIComponent(
                   v.venue_id
                 )}`
               );
@@ -586,7 +587,7 @@ export default function EnhancedCreateBookingPage() {
               missingPreviews.map(async (vp) => {
                 try {
                   const res = await fetch(
-                    `admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
+                    `${endpoints.admin}?operation=getVenueById&venue_id=${encodeURIComponent(
                       vp.venue_id
                     )}`
                   );
@@ -644,7 +645,7 @@ export default function EnhancedCreateBookingPage() {
       const startDate = format(startOfMonth(targetDate), "yyyy-MM-dd");
       const endDate = format(endOfMonth(targetDate), "yyyy-MM-dd");
 
-      const response = await axios.post("/client.php", {
+      const response = await axios.post(`${endpoints.client}`, {
         operation: "getCalendarConflictData",
         start_date: startDate,
         end_date: endDate,
@@ -664,7 +665,7 @@ export default function EnhancedCreateBookingPage() {
 
     setIsCheckingConflicts(true);
     try {
-      const response = await axios.post("/client.php", {
+      const response = await axios.post(`${endpoints.client}`, {
         operation: "checkEventDateConflicts",
         event_date: formData.eventDate,
       });
@@ -778,58 +779,6 @@ export default function EnhancedCreateBookingPage() {
     if (eventCount === 2) return "bg-orange-300 text-gray-900";
     if (eventCount >= 3) return "bg-red-300 text-gray-900";
     return "bg-transparent text-gray-900 hover:bg-gray-50";
-  };
-
-  // Render calendar day with heat map
-  const renderCalendarDay = (day: Date) => {
-    const dateString = format(day, "yyyy-MM-dd");
-    const dayData = calendarConflictData[dateString];
-    const isSelected = selectedDate && isSameDay(day, selectedDate);
-    const isPastDate = day < new Date(new Date().setHours(0, 0, 0, 0));
-
-    const eventCount = dayData?.eventCount || 0;
-    const hasWedding = dayData?.hasWedding || false;
-    const heatMapColor = getHeatMapColor(eventCount, hasWedding);
-
-    return (
-      <button
-        className={cn(
-          "relative w-16 h-16 text-sm font-medium rounded-md transition-all duration-200",
-          "flex items-center justify-center",
-          heatMapColor,
-          isSelected && "ring-2 ring-[#028A75] ring-offset-1 border-[#028A75]",
-          isPastDate && "opacity-50 cursor-not-allowed text-gray-400",
-          !isPastDate && !hasWedding && "hover:bg-gray-100 focus:bg-gray-100"
-        )}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!isPastDate) {
-            handleDateSelect(day);
-          }
-        }}
-        disabled={isPastDate}
-      >
-        <span>{format(day, "d")}</span>
-        {eventCount > 1 && !isPastDate && (
-          <div className="absolute -top-1 -right-1 z-10">
-            <div className="text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold bg-[#028A75] text-white border border-white">
-              {eventCount}
-            </div>
-          </div>
-        )}
-      </button>
-    );
-  };
-
-  // Update the Day component with proper typing
-  const CalendarDay: React.FC<DayProps> = ({ date, ...props }) => {
-    const day = new Date(date);
-    return (
-      <div className="flex items-center justify-center p-0 w-full aspect-square">
-        {renderCalendarDay(day)}
-      </div>
-    );
   };
 
   // Update inclusions when venue changes - following admin implementation
@@ -965,7 +914,7 @@ export default function EnhancedCreateBookingPage() {
         total_price: totalPrice,
       };
 
-      const response = await axios.post("/client.php", bookingData);
+      const response = await axios.post(`${endpoints.client}`, bookingData);
 
       if (response.data.status === "success") {
         setBookingSuccess(true);
@@ -1066,7 +1015,7 @@ export default function EnhancedCreateBookingPage() {
     setLoadingInclusions(true);
     try {
       // Primary: getPackageComponents (exists in API)
-      const response = await axios.get("/client.php", {
+      const response = await axios.get(`${endpoints.client}`, {
         params: {
           operation: "getPackageComponents",
           package_id: packageId,
@@ -1088,7 +1037,7 @@ export default function EnhancedCreateBookingPage() {
 
       // Fallback 1: getPackageDetails.components
       try {
-        const detailsRes = await axios.get("/client.php", {
+        const detailsRes = await axios.get(`${endpoints.client}`, {
           params: { operation: "getPackageDetails", package_id: packageId },
         });
         const comps = detailsRes?.data?.package?.components;
@@ -1134,7 +1083,7 @@ export default function EnhancedCreateBookingPage() {
 
     try {
       // Fetch venues for this package to show in the package details
-      const response = await axios.get("/client.php", {
+      const response = await axios.get(`${endpoints.client}`, {
         params: {
           operation: "getVenuesByPackage",
           package_id: pkg.package_id,
@@ -1165,12 +1114,12 @@ export default function EnhancedCreateBookingPage() {
       // Fetch details and inclusions in parallel
       const [detailsRes, inclusionsRes] = await Promise.all([
         fetch(
-          `admin.php?operation=getVenueById&venue_id=${encodeURIComponent(
+          `${endpoints.admin}?operation=getVenueById&venue_id=${encodeURIComponent(
             venue.venue_id
           )}`
         ).then((r) => r.json()),
         fetch(
-          `client.php?operation=getVenueInclusions&venue_id=${encodeURIComponent(
+          `${endpoints.client}?operation=getVenueInclusions&venue_id=${encodeURIComponent(
             venue.venue_id
           )}`
         ).then((r) => r.json()),
@@ -1785,51 +1734,12 @@ export default function EnhancedCreateBookingPage() {
                                 </div>
                               </div>
 
-                              <div className="flex justify-center">
-                                <Calendar
-                                  mode="single"
-                                  selected={selectedDate}
-                                  onSelect={handleDateSelect}
-                                  onMonthChange={loadCalendarConflictData}
-                                  disabled={(date) => {
-                                    const today = new Date();
-                                    today.setHours(0, 0, 0, 0);
-                                    return date < today;
-                                  }}
-                                  initialFocus
-                                  className="rounded-lg border-2 border-gray-200 p-4 bg-white shadow-sm w-full max-w-[700px]"
-                                  classNames={{
-                                    months:
-                                      "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0 w-full",
-                                    month: "space-y-4 w-full",
-                                    caption:
-                                      "flex justify-center pt-1 relative items-center px-6",
-                                    caption_label: "text-lg font-semibold",
-                                    nav: "space-x-1 flex items-center",
-                                    nav_button:
-                                      "h-8 w-8 bg-transparent hover:bg-gray-100 p-0 opacity-75 hover:opacity-100 transition-opacity",
-                                    nav_button_previous: "absolute left-1",
-                                    nav_button_next: "absolute right-1",
-                                    table: "w-full border-collapse space-y-1",
-                                    head_row: "flex w-full",
-                                    head_cell:
-                                      "text-gray-500 rounded-md w-full font-normal text-[0.85rem] py-2",
-                                    row: "flex w-full mt-2",
-                                    cell: "relative p-0 text-center text-sm focus-within:relative focus-within:z-20 w-full",
-                                    day: "h-11 w-11 p-0 font-normal aria-selected:opacity-100",
-                                    day_selected:
-                                      "bg-[#028A75] text-white hover:bg-[#028A75] hover:text-white focus:bg-[#028A75] focus:text-white",
-                                    day_today:
-                                      "bg-gray-100 text-gray-900 font-semibold",
-                                    day_outside: "text-gray-400",
-                                    day_disabled: "text-gray-400 opacity-50",
-                                    day_range_middle:
-                                      "aria-selected:bg-gray-100 aria-selected:text-gray-900",
-                                    day_hidden: "invisible",
-                                  }}
-                                  components={{
-                                    Day: CalendarDay,
-                                  }}
+                              <div className="w-full">
+                                <ResponsiveCalendar
+                                  selectedDate={selectedDate}
+                                  onDateSelect={handleDateSelect}
+                                  calendarConflictData={calendarConflictData}
+                                  className="w-full"
                                 />
                               </div>
                             </div>

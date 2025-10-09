@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import axios from "axios";
 import { endpoints } from "@/app/config/api";
 import { Check, ArrowLeft } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -298,21 +299,18 @@ export default function PackagesPage() {
   const fetchPackages = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch(
+      const response = await axios.get(
         `${endpoints.admin}?operation=getAllPackages`
       );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.status === "success") {
-        setPackages(data.packages || []);
+      if (response.data?.status === "success") {
+        setPackages(response.data?.packages || []);
       } else {
-        console.error("Error fetching packages:", data.message);
-        toast.error("Failed to fetch packages: " + data.message);
+        console.error("Error fetching packages:", response.data?.message);
+        toast.error(
+          "Failed to fetch packages: " +
+            (response.data?.message || "Unknown error")
+        );
       }
     } catch (error) {
       console.error("API error:", error);
@@ -330,30 +328,27 @@ export default function PackagesPage() {
         "Are you sure you want to delete this package? This action cannot be undone.",
       onConfirm: async () => {
         try {
-          const response = await fetch(`${endpoints.admin}`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
+          const response = await axios.post(
+            endpoints.admin,
+            {
               operation: "deletePackage",
               package_id: packageId,
-            }),
-          });
+            },
+            { headers: { "Content-Type": "application/json" } }
+          );
 
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const data = await response.json();
-
-          if (data.status === "success") {
-            toast.success(data.message || "Package deleted successfully");
+          if (response.data?.status === "success") {
+            toast.success(
+              response.data?.message || "Package deleted successfully"
+            );
             // Refresh the list
             fetchPackages();
           } else {
-            console.error("Delete error:", data.message);
-            toast.error("Failed to delete package: " + data.message);
+            console.error("Delete error:", response.data?.message);
+            toast.error(
+              "Failed to delete package: " +
+                (response.data?.message || "Unknown error")
+            );
           }
         } catch (error) {
           console.error("API error:", error);
@@ -373,30 +368,27 @@ export default function PackagesPage() {
         "Are you sure you want to duplicate this package? This will create a copy with all the same details.",
       onConfirm: async () => {
         try {
-          const response = await fetch(`${endpoints.admin}`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
+          const response = await axios.post(
+            endpoints.admin,
+            {
               operation: "duplicatePackage",
               package_id: packageId,
-            }),
-          });
+            },
+            { headers: { "Content-Type": "application/json" } }
+          );
 
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const data = await response.json();
-
-          if (data.status === "success") {
-            toast.success(data.message || "Package duplicated successfully");
+          if (response.data?.status === "success") {
+            toast.success(
+              response.data?.message || "Package duplicated successfully"
+            );
             // Refresh the list
             fetchPackages();
           } else {
-            console.error("Duplicate error:", data.message);
-            toast.error("Failed to duplicate package: " + data.message);
+            console.error("Duplicate error:", response.data?.message);
+            toast.error(
+              "Failed to duplicate package: " +
+                (response.data?.message || "Unknown error")
+            );
           }
         } catch (error) {
           console.error("API error:", error);
@@ -442,59 +434,46 @@ export default function PackagesPage() {
         guest_capacity: editForm.guest_capacity,
       };
 
-      const response = await fetch(`${endpoints.admin}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(updateData),
+      const response = await axios.post(endpoints.admin, updateData, {
+        headers: { "Content-Type": "application/json" },
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.status === "success") {
+      if (response.data?.status === "success") {
         toast.success("Package updated successfully");
         setEditingPackage(null);
         fetchPackages(); // Refresh the list
-      } else if (data.status === "warning" && data.requires_confirmation) {
+      } else if (
+        response.data?.status === "warning" &&
+        response.data?.data?.requires_confirmation
+      ) {
         // Handle budget overage warning
         setConfirmationModal({
           isOpen: true,
           title: "Budget Overage Warning",
-          description: `Budget overage detected: ₱${data.overage_amount?.toLocaleString()} over budget. Continue anyway?`,
+          description: `Budget overage detected: ₱${response.data?.data?.overage_amount?.toLocaleString()} over budget. Continue anyway?`,
           onConfirm: async () => {
             updateData.confirm_overage = true;
-            const retryResponse = await fetch(`${endpoints.admin}`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(updateData),
-            });
+            const retryResponse = await axios.post(
+              endpoints.admin,
+              updateData,
+              { headers: { "Content-Type": "application/json" } }
+            );
 
-            if (!retryResponse.ok) {
-              throw new Error(`HTTP error! status: ${retryResponse.status}`);
-            }
-
-            const retryData = await retryResponse.json();
-
-            if (retryData.status === "success") {
+            if (retryResponse.data?.status === "success") {
               toast.success("Package updated successfully");
               setEditingPackage(null);
               fetchPackages();
             } else {
-              toast.error(retryData.message || "Failed to update package");
+              toast.error(
+                retryResponse.data?.message || "Failed to update package"
+              );
             }
             setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
           },
           variant: "warning",
         });
       } else {
-        toast.error(data.message || "Failed to update package");
+        toast.error(response.data?.message || "Failed to update package");
       }
     } catch (error) {
       console.error("Update error:", error);
@@ -569,25 +548,17 @@ export default function PackagesPage() {
     if (!eventTypeModal.packageId) return;
 
     try {
-      const response = await fetch(`${endpoints.admin}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      const response = await axios.post(
+        endpoints.admin,
+        {
           operation: "updatePackageEventTypes",
           package_id: eventTypeModal.packageId,
           event_type_ids: selectedTypes,
-        }),
-      });
+        },
+        { headers: { "Content-Type": "application/json" } }
+      );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.status === "success") {
+      if (response.data?.status === "success") {
         toast.success("Event types updated successfully");
         fetchPackages();
       } else {
@@ -600,20 +571,20 @@ export default function PackagesPage() {
   };
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen p-4 lg:p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header Section with Slide-up Animation */}
-        <div className="animate-slide-up mb-8">
+        <div className="animate-slide-up mb-6 lg:mb-8">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
-              <h1 className="text-4xl font-bold text-gray-900 mb-2">
+              <h1 className="text-2xl lg:text-4xl font-bold text-gray-900 mb-2">
                 Package Management
               </h1>
-              <p className="text-gray-600 text-lg">
+              <p className="text-gray-600 text-sm lg:text-lg">
                 Manage and organize your event packages
               </p>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 lg:gap-4">
               {/* View Toggle */}
               <div className="flex items-center bg-gray-100 rounded-lg p-1">
                 <Button
@@ -626,8 +597,8 @@ export default function PackagesPage() {
                       : "hover:bg-gray-200"
                   }`}
                 >
-                  <Grid3X3 className="h-4 w-4 mr-2" />
-                  Cards
+                  <Grid3X3 className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Cards</span>
                 </Button>
                 <Button
                   variant={viewMode === "table" ? "default" : "ghost"}
@@ -639,8 +610,8 @@ export default function PackagesPage() {
                       : "hover:bg-gray-200"
                   }`}
                 >
-                  <List className="h-4 w-4 mr-2" />
-                  Table
+                  <List className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Table</span>
                 </Button>
               </div>
 
@@ -1003,17 +974,6 @@ export default function PackagesPage() {
                                     >
                                       <Edit className="h-4 w-4 mr-2" />
                                       Quick Edit
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        router.push(
-                                          `/admin/packages/package-builder/edit/${pkg.package_id}`
-                                        )
-                                      }
-                                      className="cursor-pointer"
-                                    >
-                                      <Settings className="h-4 w-4 mr-2" />
-                                      Full Edit
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onClick={() =>

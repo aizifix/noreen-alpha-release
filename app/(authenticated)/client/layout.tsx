@@ -43,6 +43,7 @@ import axios from "axios";
 import { useTheme } from "next-themes";
 import { startSessionWatcher } from "@/app/utils/session";
 import { useRealtimeNotifications } from "@/app/hooks/useRealtimeNotifications";
+import { endpoints } from "@/app/config/api";
 
 interface User {
   user_firstName: string;
@@ -271,7 +272,7 @@ export default function ClientLayout({
       const userId = currentUser?.user_id;
       if (!userId) return;
       const res = await fetch(
-        `notifications.php?operation=get_counts&user_id=${encodeURIComponent(
+        `${endpoints.notifications}?operation=get_counts&user_id=${encodeURIComponent(
           userId
         )}`
       );
@@ -290,7 +291,7 @@ export default function ClientLayout({
       if (!userId) return;
       setIsNotifLoading(true);
       const res = await fetch(
-        `notifications.php?operation=get_notifications&user_id=${encodeURIComponent(
+        `${endpoints.notifications}?operation=get_notifications&user_id=${encodeURIComponent(
           userId
         )}&limit=10&offset=0`
       );
@@ -313,11 +314,14 @@ export default function ClientLayout({
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
-      const res = await fetch(`notifications.php?operation=mark_read`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, operation: "mark_read" }),
-      });
+      const res = await fetch(
+        `${endpoints.notifications}?operation=mark_read`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userId, operation: "mark_read" }),
+        }
+      );
       const data = await res.json();
       if (data?.status === "success") {
         setUnreadNotifCount(0);
@@ -332,7 +336,7 @@ export default function ClientLayout({
       const userId = currentUser?.user_id;
       if (!userId) return;
       const res = await fetch(
-        `notifications.php?operation=delete_notification&user_id=${encodeURIComponent(
+        `${endpoints.notifications}?operation=delete_notification&user_id=${encodeURIComponent(
           userId
         )}`,
         {

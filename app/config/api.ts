@@ -55,6 +55,25 @@ export const api = {
         headers: { "Content-Type": "multipart/form-data" },
       });
     },
+    requestForgotPassword: async (email: string) => {
+      const fd = new FormData();
+      fd.append("operation", "request_forgot_password");
+      fd.append("email", email);
+      return await axios.post(endpoints.auth, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    },
+    resetPasswordWithOtp: async (params: { email: string; otp: string; newPassword: string; confirmPassword: string }) => {
+      const fd = new FormData();
+      fd.append("operation", "reset_password_with_otp");
+      fd.append("email", params.email);
+      fd.append("otp", params.otp);
+      fd.append("new_password", params.newPassword);
+      fd.append("confirm_password", params.confirmPassword);
+      return await axios.post(endpoints.auth, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    },
   },
   client: {
     getAllPackages: async () => {
@@ -65,9 +84,52 @@ export const api = {
     },
   },
   admin: {
-    // Add admin methods as needed
+    createEvent: async (eventData: any) => {
+      return await axios.post(endpoints.admin, eventData, {
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    getAllOrganizers: async (page = 1, limit = 20, search = '') => {
+      return await axios.get(`${endpoints.admin}?operation=getAllOrganizers&page=${page}&limit=${limit}&search=${search}`);
+    },
+    assignOrganizerToEvent: async (eventId: number, organizerId: number, assignedBy: number, notes?: string) => {
+      const data = {
+        operation: "assignOrganizerToEvent",
+        event_id: eventId,
+        organizer_id: organizerId,
+        assigned_by: assignedBy,
+        notes
+      };
+      return await axios.post(endpoints.admin, data, {
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    getEventOrganizerDetails: async (eventId: number) => {
+      return await axios.get(`${endpoints.admin}?operation=getEventOrganizerDetails&event_id=${eventId}`);
+    },
   },
   organizer: {
-    // Add organizer methods as needed
+    getOrganizerProfile: async (organizerId: number) => {
+      return await axios.get(`${endpoints.organizer}?operation=getOrganizerProfile&organizer_id=${organizerId}`);
+    },
+    updateAssignmentStatus: async (data: {
+      event_id?: number;
+      organizer_id: number;
+      assignment_id?: number;
+      status: 'accepted' | 'rejected' | 'pending';
+    }) => {
+      return await axios.post(endpoints.organizer, {
+        ...data,
+        operation: "updateAssignmentStatus"
+      }, {
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  },
+  // Helper function to get serve image URL
+  getServeImageUrl: (imagePath: string) => {
+    if (!imagePath) return null;
+    if (imagePath.startsWith("http")) return imagePath;
+    return `${endpoints.serveImage}?path=${encodeURIComponent(imagePath)}`;
   },
 };

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { Badge } from "@/components/ui/badge";
 
 interface SupplierLayoutProps {
@@ -83,7 +84,7 @@ export default function SupplierLayout({ children }: SupplierLayoutProps) {
       if (userId) {
         axios
           .post(
-            "auth.php",
+            endpoints.auth,
             { operation: "logout", user_id: userId },
             { headers: { "Content-Type": "application/json" } }
           )

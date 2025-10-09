@@ -105,6 +105,7 @@ const SignUpPage = () => {
     match: false,
   });
   const [fieldErrors, setFieldErrors] = useState<{ [key: string]: string }>({});
+  const [dataRestored, setDataRestored] = useState(false);
 
   // Math challenge state
   const [mathChallenge, setMathChallenge] = useState({ num1: 0, num2: 0 });
@@ -113,6 +114,16 @@ const SignUpPage = () => {
   >("none");
 
   const router = useRouter();
+
+  // Function to clear saved form data
+  const clearSavedData = () => {
+    try {
+      localStorage.removeItem("signup_form_data");
+      console.log("Cleared saved signup data");
+    } catch (error) {
+      console.error("Error clearing saved signup data:", error);
+    }
+  };
 
   // Generate a simple math challenge
   const generateMathChallenge = () => {
@@ -180,6 +191,43 @@ const SignUpPage = () => {
       // ignore
     }
   }, [router]);
+
+  // Load saved form data on component mount
+  useEffect(() => {
+    try {
+      const savedData = localStorage.getItem("signup_form_data");
+      if (savedData) {
+        const parsedData = JSON.parse(savedData);
+        setFormData((prev) => ({ ...prev, ...parsedData }));
+        setDataRestored(true);
+        console.log("Loaded saved signup data:", parsedData);
+
+        // Show a toast notification that data was restored
+        toast({
+          title: "Form data restored",
+          description:
+            "Your previous form data has been restored. You can continue where you left off.",
+        });
+      }
+    } catch (error) {
+      console.error("Error loading saved signup data:", error);
+    }
+  }, []);
+
+  // Save form data to localStorage whenever it changes
+  useEffect(() => {
+    const saveData = () => {
+      try {
+        localStorage.setItem("signup_form_data", JSON.stringify(formData));
+      } catch (error) {
+        console.error("Error saving signup data:", error);
+      }
+    };
+
+    // Debounce the save operation
+    const timeoutId = setTimeout(saveData, 500);
+    return () => clearTimeout(timeoutId);
+  }, [formData]);
 
   // Validate password
   useEffect(() => {
@@ -1111,6 +1159,17 @@ const SignUpPage = () => {
                 <p className="text-sm text-gray-600 mt-1">
                   {currentStep.description}
                 </p>
+                {dataRestored && (
+                  <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center">
+                      <CheckIcon className="h-4 w-4 text-green-600 mr-2" />
+                      <p className="text-sm text-green-800">
+                        Your previous form data has been restored. You can
+                        continue where you left off.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {renderStepContent()}

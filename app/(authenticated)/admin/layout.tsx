@@ -27,6 +27,8 @@ import {
   Truck,
   ChevronRight,
   Plus,
+  Menu,
+  X,
 } from "lucide-react";
 import {
   Sidebar,
@@ -87,6 +89,7 @@ export default function AdminLayout({
   const [isNotifDropdownOpen, setIsNotifDropdownOpen] = useState(false);
   const [isNotifLoading, setIsNotifLoading] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement | null>(null);
 
   interface NotificationItem {
@@ -166,13 +169,17 @@ export default function AdminLayout({
       ) {
         setIsNotifDropdownOpen(false);
       }
+      // Close mobile menu when clicking outside
+      if (isMobileMenuOpen && !target.closest(".mobile-menu-container")) {
+        setIsMobileMenuOpen(false);
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isUserDropdownOpen]);
+  }, [isUserDropdownOpen, isNotifDropdownOpen, isMobileMenuOpen]);
 
   useEffect(() => {
     // Start session timeout watcher for admin portal
@@ -423,10 +430,24 @@ export default function AdminLayout({
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* Sidebar (Fixed) */}
-      <div className="fixed inset-y-0 left-0 z-20 w-64">
+      {/* Mobile Overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar (Responsive) */}
+      <div
+        className={`
+        fixed inset-y-0 left-0 z-40 w-64 transform transition-transform duration-300 ease-in-out
+        ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}
+        lg:translate-x-0 lg:static lg:inset-0
+      `}
+      >
         <Sidebar className="h-full w-64 bg-white border-r">
-          <SidebarHeader className="border-b px-3 py-4 h-16 flex items-center justify-start">
+          <SidebarHeader className="border-b px-3 py-4 h-16 flex items-center justify-between">
             <Image
               src={Logo || "/placeholder.svg"}
               alt="Noreen Logo"
@@ -434,6 +455,13 @@ export default function AdminLayout({
               height={40}
               className="object-contain"
             />
+            {/* Mobile close button */}
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="lg:hidden p-2 rounded-md hover:bg-gray-100"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </SidebarHeader>
           <SidebarContent className="flex flex-col h-[calc(100%-64px)]">
             <SidebarMenu className="flex-1 mt-4 space-y-1 px-1">
@@ -490,6 +518,7 @@ export default function AdminLayout({
                             <SidebarMenuButton asChild>
                               <Link
                                 href={item.href || "#"}
+                                onClick={() => setIsMobileMenuOpen(false)}
                                 className={`
                                   flex items-center gap-3 px-3 py-2 rounded-md transition
                                   ml-2 text-sm
@@ -517,15 +546,22 @@ export default function AdminLayout({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 ml-64">
+      <div className="flex-1 lg:ml-64">
         {/* Navbar */}
-        <header className="fixed top-0 right-0 left-64 z-10 bg-white border-b px-6 py-4 h-16 flex justify-end items-center">
+        <header className="fixed top-0 right-0 left-0 lg:left-64 z-10 bg-white border-b px-4 lg:px-6 py-4 h-16 flex justify-between lg:justify-end items-center">
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="lg:hidden p-2 rounded-md hover:bg-gray-100"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
           {/* User Info on the Right */}
-          <div className="flex items-center gap-3">
-            {/* Theme Toggle */}
+          <div className="flex items-center gap-2 lg:gap-3">
+            {/* Theme Toggle - Hidden on mobile */}
             <button
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="p-2 rounded-full hover:bg-gray-100"
+              className="hidden sm:block p-2 rounded-full hover:bg-gray-100"
               aria-label="Toggle theme"
             >
               {mounted && theme === "dark" ? (
@@ -535,7 +571,8 @@ export default function AdminLayout({
               )}
             </button>
 
-            <div className="relative cursor-pointer">
+            {/* Calendar - Hidden on mobile */}
+            <div className="hidden sm:block relative cursor-pointer">
               <Calendar className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
               <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
                 29
@@ -561,7 +598,7 @@ export default function AdminLayout({
               )}
 
               {isNotifDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-96 max-h-96 overflow-auto bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 max-h-96 overflow-auto bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                   <div className="px-4 py-2 border-b flex items-center justify-between">
                     <span className="text-sm font-semibold text-gray-700">
                       Notifications
@@ -653,10 +690,10 @@ export default function AdminLayout({
             <div className="relative">
               <button
                 onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
-                className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex items-center gap-2 lg:gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 {/* Profile Picture */}
-                <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
+                <div className="h-8 w-8 lg:h-10 lg:w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <img
                       src={api.getServeImageUrl(user.user_pfp)}
@@ -673,15 +710,15 @@ export default function AdminLayout({
                     />
                   ) : (
                     <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-                      <span className="text-sm font-medium text-gray-600">
+                      <span className="text-xs lg:text-sm font-medium text-gray-600">
                         {user?.user_firstName.charAt(0)}
                       </span>
                     </div>
                   )}
                 </div>
 
-                {/* User Name and Role */}
-                <div className="text-sm text-gray-600 text-left">
+                {/* User Name and Role - Hidden on mobile */}
+                <div className="hidden lg:block text-sm text-gray-600 text-left">
                   <div className="font-semibold text-left">
                     {user?.user_firstName} {user?.user_lastName}
                   </div>
@@ -739,7 +776,9 @@ export default function AdminLayout({
         </header>
 
         {/* Page Content - Adjusted for Navbar */}
-        <main className="pt-24 p-6 h-screen overflow-auto">{children}</main>
+        <main className="pt-16 lg:pt-24 p-4 lg:p-6 h-screen overflow-auto">
+          {children}
+        </main>
         {/* Global Toaster moved to root layout */}
       </div>
     </div>

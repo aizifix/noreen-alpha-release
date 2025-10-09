@@ -282,12 +282,18 @@ class Organizer {
                     CONCAT(u.user_firstName, ' ', u.user_lastName) as organizer_name,
                     u.user_email as organizer_email,
                     u.user_contact as organizer_phone,
+                    u.user_birthdate,
+                    u.user_pfp as profile_picture,
                     o.organizer_experience,
                     o.organizer_certifications,
                     o.organizer_availability,
                     o.organizer_portfolio_link,
+                    o.organizer_resume_path,
+                    o.talent_fee_min,
+                    o.talent_fee_max,
+                    o.talent_fee_currency,
+                    o.talent_fee_notes,
                     o.remarks,
-                    u.user_pfp as profile_picture,
                     o.created_at,
                     o.updated_at
                 FROM tbl_organizer o
@@ -355,6 +361,13 @@ class Organizer {
 
             if ($organizerId <= 0) {
                 return json_encode(["status" => "error", "message" => "Valid organizer ID required"]);
+            }
+
+            // Validate that the organizer exists in tbl_organizer
+            $organizerCheck = $this->conn->prepare("SELECT organizer_id FROM tbl_organizer WHERE organizer_id = ?");
+            $organizerCheck->execute([$organizerId]);
+            if (!$organizerCheck->fetch()) {
+                return json_encode(["status" => "error", "message" => "Organizer not found in database"]);
             }
 
             // Try stored procedure first
@@ -617,6 +630,224 @@ class Organizer {
             return json_encode(["status" => "error", "message" => "Failed to get dashboard stats: " . $e->getMessage()]);
         }
     }
+
+    public function updateComponentDeliveryStatus($data) {
+        try {
+            $componentId = (int)($data['component_id'] ?? 0);
+            $deliveryStatus = $data['delivery_status'] ?? '';
+            $deliveryDate = $data['delivery_date'] ?? null;
+            $deliveryNotes = $data['delivery_notes'] ?? null;
+            $organizerId = (int)($data['organizer_id'] ?? 0);
+
+            // Debug logging
+            error_log("updateComponentDeliveryStatus - componentId: $componentId, deliveryStatus: $deliveryStatus, organizerId: $organizerId");
+
+            if ($componentId <= 0 || !in_array($deliveryStatus, ['pending', 'confirmed', 'delivered', 'cancelled'])) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Valid component ID and delivery status required"
+                ]);
+            }
+
+            // Verify organizer has access to this component's event
+            $verifySql = "SELECT ec.component_id
+                         FROM tbl_event_components ec
+                         INNER JOIN tbl_events e ON ec.event_id = e.event_id
+                         INNER JOIN tbl_event_organizer_assignments eoa ON e.event_id = eoa.event_id
+                         WHERE ec.component_id = ? AND eoa.organizer_id = ? AND LOWER(eoa.status) = 'accepted'";
+
+            $verifyStmt = $this->conn->prepare($verifySql);
+            $verifyStmt->execute([$componentId, $organizerId]);
+            $verifyResult = $verifyStmt->fetch();
+
+            error_log("updateComponentDeliveryStatus - verification result: " . ($verifyResult ? "found" : "not found"));
+
+            if (!$verifyResult) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Access denied: Organizer not assigned to this event"
+                ]);
+            }
+
+            // Check if the table has the required columns
+            $checkColumnsStmt = $this->conn->prepare("SHOW COLUMNS FROM tbl_event_components LIKE 'supplier_status'");
+            $checkColumnsStmt->execute();
+            $hasSupplierStatus = $checkColumnsStmt->fetch();
+
+            if (!$hasSupplierStatus) {
+                error_log("updateComponentDeliveryStatus - supplier_status column does not exist");
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Database schema error: supplier_status column missing"
+                ]);
+            }
+
+            // Check if component exists
+            $checkComponentStmt = $this->conn->prepare("SELECT component_id FROM tbl_event_components WHERE component_id = ?");
+            $checkComponentStmt->execute([$componentId]);
+            $componentExists = $checkComponentStmt->fetch();
+
+            if (!$componentExists) {
+                error_log("updateComponentDeliveryStatus - component $componentId does not exist");
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Component not found"
+                ]);
+            }
+
+            // Update delivery status
+            $updateSql = "UPDATE tbl_event_components
+                         SET supplier_status = ?,
+                             delivery_date = ?,
+                             supplier_notes = ?,
+                             updated_at = NOW()
+                         WHERE component_id = ?";
+
+            $updateStmt = $this->conn->prepare($updateSql);
+            $result = $updateStmt->execute([
+                $deliveryStatus,
+                $deliveryDate ?: null,
+                $deliveryNotes,
+                $componentId
+            ]);
+
+            error_log("updateComponentDeliveryStatus - update result: " . ($result ? "success" : "failed"));
+            error_log("updateComponentDeliveryStatus - SQL: $updateSql");
+            error_log("updateComponentDeliveryStatus - Params: " . json_encode([
+                $deliveryStatus,
+                $deliveryDate ?: null,
+                $deliveryNotes,
+                $componentId
+            ]));
+
+            // Check for PDO errors
+            if (!$result) {
+                $errorInfo = $updateStmt->errorInfo();
+                error_log("updateComponentDeliveryStatus - PDO Error: " . json_encode($errorInfo));
+            }
+
+            $rowsAffected = $updateStmt->rowCount();
+            error_log("updateComponentDeliveryStatus - rows affected: $rowsAffected");
+
+            if ($result) {
+                // Log activity
+                $this->logOrganizerActivity(
+                    $organizerId,
+                    'component_delivery_update',
+                    "Updated delivery status for component ID {$componentId} to {$deliveryStatus}",
+                    $componentId,
+                    json_encode(['delivery_status' => $deliveryStatus, 'delivery_date' => $deliveryDate])
+                );
+
+                // Send notifications to admin, client, and organizer
+                try {
+                    // Get event ID for the component
+                    $eventStmt = $this->conn->prepare("SELECT event_id FROM tbl_event_components WHERE component_id = ?");
+                    $eventStmt->execute([$componentId]);
+                    $eventData = $eventStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($eventData) {
+                        // Include the notification function from admin.php
+                        include_once __DIR__ . '/admin.php';
+                        sendDeliveryStatusNotification(
+                            $eventData['event_id'],
+                            $componentId,
+                            $deliveryStatus,
+                            $deliveryDate,
+                            $deliveryNotes
+                        );
+                    }
+                } catch (Exception $e) {
+                    error_log("Failed to send delivery notifications: " . $e->getMessage());
+                }
+
+                return json_encode([
+                    "status" => "success",
+                    "message" => $rowsAffected > 0 ? "Delivery status updated successfully" : "No changes were needed (already up to date)"
+                ]);
+            } else {
+                $errorMsg = "Failed to update delivery status";
+                // If execute failed, include PDO error info (already logged above)
+                error_log("updateComponentDeliveryStatus - final error: $errorMsg");
+                return json_encode([
+                    "status" => "error",
+                    "message" => $errorMsg
+                ]);
+            }
+        } catch (Exception $e) {
+            error_log("updateComponentDeliveryStatus error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to update delivery status"
+            ]);
+        }
+    }
+
+    public function getEventDeliveryProgress($eventId, $organizerId) {
+        try {
+            // Verify organizer has access to this event
+            $verifySql = "SELECT e.event_id
+                         FROM tbl_events e
+                         INNER JOIN tbl_event_organizer_assignments eoa ON e.event_id = eoa.event_id
+                         WHERE e.event_id = ? AND eoa.organizer_id = ? AND LOWER(eoa.status) = 'accepted'";
+
+            $verifyStmt = $this->conn->prepare($verifySql);
+            $verifyStmt->execute([$eventId, $organizerId]);
+
+            if (!$verifyStmt->fetch()) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Access denied: Organizer not assigned to this event"
+                ]);
+            }
+
+            // Get delivery progress
+            $sql = "SELECT
+                        COUNT(*) as total_components,
+                        SUM(CASE WHEN is_included = 1 THEN 1 ELSE 0 END) as included_components,
+                        SUM(CASE WHEN supplier_status = 'delivered' AND is_included = 1 THEN 1 ELSE 0 END) as delivered_components,
+                        SUM(CASE WHEN supplier_status = 'confirmed' AND is_included = 1 THEN 1 ELSE 0 END) as confirmed_components,
+                        SUM(CASE WHEN supplier_status = 'pending' AND is_included = 1 THEN 1 ELSE 0 END) as pending_components,
+                        SUM(CASE WHEN supplier_status = 'cancelled' AND is_included = 1 THEN 1 ELSE 0 END) as cancelled_components
+                    FROM tbl_event_components
+                    WHERE event_id = ?";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$eventId]);
+            $progress = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Get component details
+            $componentsSql = "SELECT
+                                component_id,
+                                component_name,
+                                component_price,
+                                supplier_status,
+                                delivery_date,
+                                supplier_notes,
+                                is_included
+                             FROM tbl_event_components
+                             WHERE event_id = ? AND is_included = 1
+                             ORDER BY display_order";
+
+            $componentsStmt = $this->conn->prepare($componentsSql);
+            $componentsStmt->execute([$eventId]);
+            $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "data" => [
+                    "progress" => $progress,
+                    "components" => $components
+                ]
+            ]);
+        } catch (Exception $e) {
+            error_log("getEventDeliveryProgress error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to fetch delivery progress"
+            ]);
+        }
+    }
 }
 
 if (!$pdo) {
@@ -715,6 +946,20 @@ try {
                 echo json_encode(["status" => "error", "message" => "Valid organizer ID required"]);
             } else {
                 echo $organizer->getOrganizerDashboardStats($organizerId);
+            }
+            break;
+
+        case "updateComponentDeliveryStatus":
+            echo $organizer->updateComponentDeliveryStatus($data);
+            break;
+
+        case "getEventDeliveryProgress":
+            $eventId = (int)($_GET['event_id'] ?? ($data['event_id'] ?? 0));
+            $organizerId = (int)($_GET['organizer_id'] ?? ($data['organizer_id'] ?? 0));
+            if ($eventId <= 0 || $organizerId <= 0) {
+                echo json_encode(["status" => "error", "message" => "Valid event ID and organizer ID required"]);
+            } else {
+                echo $organizer->getEventDeliveryProgress($eventId, $organizerId);
             }
             break;
 

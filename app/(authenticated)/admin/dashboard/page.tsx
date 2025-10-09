@@ -630,21 +630,39 @@ function AnalyticsContent() {
 function ReportsContent() {
   const [reportsData, setReportsData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedReportType, setSelectedReportType] = useState<string>("");
+  const [dateRange, setDateRange] = useState({
+    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+      .toISOString()
+      .split("T")[0],
+    endDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)
+      .toISOString()
+      .split("T")[0],
+  });
 
   const fetchReports = async (type: string) => {
     try {
       setIsLoading(true);
+      setSelectedReportType(type);
       const userData = secureStorage.getItem("user");
       const response = await axios.get("/admin.php", {
         params: {
-          operation: "getReports",
+          operation: "getReportsData",
           admin_id: userData?.user_id,
           report_type: type,
+          start_date: dateRange.startDate,
+          end_date: dateRange.endDate,
         },
       });
 
       if (response.data.status === "success") {
         setReportsData(response.data.reports);
+      } else {
+        toast({
+          title: "Error",
+          description: response.data.message || "Failed to load report data.",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Error fetching reports:", error);
@@ -658,12 +676,464 @@ function ReportsContent() {
     }
   };
 
+  const exportToCSV = (data: any[], filename: string) => {
+    if (!data || data.length === 0) return;
+
+    const headers = Object.keys(data[0]);
+    const csvContent = [
+      headers.join(","),
+      ...data.map((row) =>
+        headers.map((header) => `"${row[header] || ""}"`).join(",")
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filename}_${dateRange.startDate}_to_${dateRange.endDate}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const renderSummaryReport = (data: any) => {
+    if (!data.summary) return null;
+    const summary = data.summary;
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Total Events</p>
+                <p className="text-2xl font-bold text-[#028A75]">
+                  {summary.total_events || 0}
+                </p>
+              </div>
+              <Calendar className="h-8 w-8 text-[#028A75]" />
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Completed Events</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {summary.completed_events || 0}
+                </p>
+              </div>
+              <CheckCircle className="h-8 w-8 text-green-600" />
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Unique Clients</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {summary.unique_clients || 0}
+                </p>
+              </div>
+              <Users className="h-8 w-8 text-blue-600" />
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Total Revenue</p>
+                <p className="text-2xl font-bold text-[#028A75]">
+                  {formatCurrency(
+                    parseFloat(summary.total_revenue_collected || 0)
+                  )}
+                </p>
+              </div>
+              <DollarSign className="h-8 w-8 text-[#028A75]" />
+            </div>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card className="p-4">
+            <h4 className="font-semibold mb-3">Contract Value</h4>
+            <p className="text-3xl font-bold text-[#028A75]">
+              {formatCurrency(parseFloat(summary.total_contract_value || 0))}
+            </p>
+            <p className="text-sm text-gray-500 mt-1">Total contract value</p>
+          </Card>
+
+          <Card className="p-4">
+            <h4 className="font-semibold mb-3">Average Event Value</h4>
+            <p className="text-3xl font-bold text-[#028A75]">
+              {formatCurrency(parseFloat(summary.average_event_value || 0))}
+            </p>
+            <p className="text-sm text-gray-500 mt-1">Per event</p>
+          </Card>
+        </div>
+      </div>
+    );
+  };
+
+  const renderFinancialReport = (data: any) => {
+    if (!data.financial || data.financial.length === 0)
+      return <p className="text-gray-500">No financial data available.</p>;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h4 className="text-lg font-semibold">
+            Financial Report ({data.financial.length} events)
+          </h4>
+          <button
+            onClick={() => exportToCSV(data.financial, "financial_report")}
+            className="px-4 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors"
+          >
+            Export CSV
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse border border-gray-200">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Event
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Client
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Date
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-right">
+                  Total Budget
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-right">
+                  Down Payment
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-right">
+                  Total Paid
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-right">
+                  Remaining
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-center">
+                  Status
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.financial.map((event: any, index: number) => (
+                <tr key={index} className="hover:bg-gray-50">
+                  <td className="border border-gray-200 px-4 py-2">
+                    {event.event_title}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {event.client_name}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {new Date(event.event_date).toLocaleDateString()}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-right">
+                    {formatCurrency(parseFloat(event.total_budget || 0))}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-right">
+                    {formatCurrency(parseFloat(event.down_payment || 0))}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-right">
+                    {formatCurrency(parseFloat(event.total_paid || 0))}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-right">
+                    <span
+                      className={
+                        parseFloat(event.remaining_balance || 0) > 0
+                          ? "text-red-600"
+                          : "text-green-600"
+                      }
+                    >
+                      {formatCurrency(parseFloat(event.remaining_balance || 0))}
+                    </span>
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-center">
+                    <span
+                      className={`px-2 py-1 rounded text-xs ${
+                        event.payment_status === "completed"
+                          ? "bg-green-100 text-green-800"
+                          : event.payment_status === "pending"
+                            ? "bg-yellow-100 text-yellow-800"
+                            : "bg-red-100 text-red-800"
+                      }`}
+                    >
+                      {event.payment_status || "N/A"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderEventsReport = (data: any) => {
+    if (!data.events || data.events.length === 0)
+      return <p className="text-gray-500">No events data available.</p>;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h4 className="text-lg font-semibold">
+            Events Report ({data.events.length} events)
+          </h4>
+          <button
+            onClick={() => exportToCSV(data.events, "events_report")}
+            className="px-4 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors"
+          >
+            Export CSV
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse border border-gray-200">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Event
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Type
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Client
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Venue
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Package
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-center">
+                  Guests
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-right">
+                  Budget
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-center">
+                  Status
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Created
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.events.map((event: any, index: number) => (
+                <tr key={index} className="hover:bg-gray-50">
+                  <td className="border border-gray-200 px-4 py-2">
+                    {event.event_title}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {event.event_type}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {event.client_name}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {event.venue_title || "N/A"}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {event.package_title || "N/A"}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-center">
+                    {event.guest_count}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-right">
+                    {formatCurrency(parseFloat(event.total_budget || 0))}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-center">
+                    <span
+                      className={`px-2 py-1 rounded text-xs ${
+                        event.event_status === "completed"
+                          ? "bg-green-100 text-green-800"
+                          : event.event_status === "confirmed"
+                            ? "bg-blue-100 text-blue-800"
+                            : event.event_status === "cancelled"
+                              ? "bg-red-100 text-red-800"
+                              : "bg-yellow-100 text-yellow-800"
+                      }`}
+                    >
+                      {event.event_status}
+                    </span>
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {new Date(event.created_at).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderClientsReport = (data: any) => {
+    if (!data.clients || data.clients.length === 0)
+      return <p className="text-gray-500">No clients data available.</p>;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h4 className="text-lg font-semibold">
+            Clients Report ({data.clients.length} clients)
+          </h4>
+          <button
+            onClick={() => exportToCSV(data.clients, "clients_report")}
+            className="px-4 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors"
+          >
+            Export CSV
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse border border-gray-200">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Client Name
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Email
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Contact
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-center">
+                  Total Events
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-right">
+                  Contract Value
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-right">
+                  Total Payments
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  First Event
+                </th>
+                <th className="border border-gray-200 px-4 py-2 text-left">
+                  Last Event
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.clients.map((client: any, index: number) => (
+                <tr key={index} className="hover:bg-gray-50">
+                  <td className="border border-gray-200 px-4 py-2 font-medium">
+                    {client.client_name}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {client.user_email}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {client.user_contact || "N/A"}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-center">
+                    {client.total_events}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-right">
+                    {formatCurrency(
+                      parseFloat(client.total_contract_value || 0)
+                    )}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2 text-right">
+                    {formatCurrency(parseFloat(client.total_payments || 0))}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {new Date(client.first_event_date).toLocaleDateString()}
+                  </td>
+                  <td className="border border-gray-200 px-4 py-2">
+                    {new Date(client.last_event_date).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Date Range Selector */}
+      <Card className="p-4">
+        <div className="flex flex-col sm:flex-row gap-4 items-end">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Date Range
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="date"
+                value={dateRange.startDate}
+                onChange={(e) =>
+                  setDateRange((prev) => ({
+                    ...prev,
+                    startDate: e.target.value,
+                  }))
+                }
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#028A75]"
+              />
+              <input
+                type="date"
+                value={dateRange.endDate}
+                onChange={(e) =>
+                  setDateRange((prev) => ({ ...prev, endDate: e.target.value }))
+                }
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#028A75]"
+              />
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Report Type Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <button
+          onClick={() => fetchReports("summary")}
+          className={`p-4 rounded-lg border-2 transition-all ${
+            selectedReportType === "summary"
+              ? "border-[#028A75] bg-[#028A75]/5"
+              : "border-gray-200 bg-white hover:shadow-md"
+          }`}
+        >
+          <BarChart3 className="h-8 w-8 text-[#028A75] mb-2" />
+          <h3 className="font-semibold text-gray-900">Summary Report</h3>
+          <p className="text-sm text-gray-500">Overall performance metrics</p>
+        </button>
+
+        <button
+          onClick={() => fetchReports("financial")}
+          className={`p-4 rounded-lg border-2 transition-all ${
+            selectedReportType === "financial"
+              ? "border-[#028A75] bg-[#028A75]/5"
+              : "border-gray-200 bg-white hover:shadow-md"
+          }`}
+        >
+          <DollarSign className="h-8 w-8 text-[#028A75] mb-2" />
+          <h3 className="font-semibold text-gray-900">Financial Report</h3>
+          <p className="text-sm text-gray-500">Payment and revenue details</p>
+        </button>
+
         <button
           onClick={() => fetchReports("events")}
-          className="p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow text-left"
+          className={`p-4 rounded-lg border-2 transition-all ${
+            selectedReportType === "events"
+              ? "border-[#028A75] bg-[#028A75]/5"
+              : "border-gray-200 bg-white hover:shadow-md"
+          }`}
         >
           <Calendar className="h-8 w-8 text-[#028A75] mb-2" />
           <h3 className="font-semibold text-gray-900">Events Report</h3>
@@ -671,17 +1141,12 @@ function ReportsContent() {
         </button>
 
         <button
-          onClick={() => fetchReports("revenue")}
-          className="p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow text-left"
-        >
-          <DollarSign className="h-8 w-8 text-[#028A75] mb-2" />
-          <h3 className="font-semibold text-gray-900">Revenue Report</h3>
-          <p className="text-sm text-gray-500">Financial performance</p>
-        </button>
-
-        <button
           onClick={() => fetchReports("clients")}
-          className="p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow text-left"
+          className={`p-4 rounded-lg border-2 transition-all ${
+            selectedReportType === "clients"
+              ? "border-[#028A75] bg-[#028A75]/5"
+              : "border-gray-200 bg-white hover:shadow-md"
+          }`}
         >
           <Users className="h-8 w-8 text-[#028A75] mb-2" />
           <h3 className="font-semibold text-gray-900">Clients Report</h3>
@@ -692,16 +1157,31 @@ function ReportsContent() {
       {isLoading && (
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 animate-spin" />
+          <span className="ml-2">Loading report data...</span>
         </div>
       )}
 
-      {reportsData && (
+      {reportsData && !isLoading && (
         <Card className="border-0 bg-white shadow-sm">
           <CardContent className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Report Results</h3>
-            <pre className="bg-gray-50 p-4 rounded-lg overflow-auto text-sm">
-              {JSON.stringify(reportsData, null, 2)}
-            </pre>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-semibold">
+                {selectedReportType.charAt(0).toUpperCase() +
+                  selectedReportType.slice(1)}{" "}
+                Report
+              </h3>
+              <div className="text-sm text-gray-500">
+                {dateRange.startDate} to {dateRange.endDate}
+              </div>
+            </div>
+
+            {selectedReportType === "summary" &&
+              renderSummaryReport(reportsData)}
+            {selectedReportType === "financial" &&
+              renderFinancialReport(reportsData)}
+            {selectedReportType === "events" && renderEventsReport(reportsData)}
+            {selectedReportType === "clients" &&
+              renderClientsReport(reportsData)}
           </CardContent>
         </Card>
       )}
@@ -863,17 +1343,17 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-8">
         {/* Header Section */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 lg:mb-8">
           <div className="space-y-2">
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-xl lg:text-2xl font-bold text-gray-900">
               Welcome back, {userFirstName || "Admin"}!
             </h1>
-            <div className="flex items-center gap-4 text-sm text-gray-600">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-gray-600">
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4" />
-                <span>
+                <span className="text-xs sm:text-sm">
                   {currentDateTime.toLocaleDateString("en-US", {
                     weekday: "long",
                     year: "numeric",
@@ -884,7 +1364,7 @@ export default function AdminDashboard() {
               </div>
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                <span>
+                <span className="text-xs sm:text-sm">
                   {currentDateTime.toLocaleTimeString("en-US", {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -953,15 +1433,15 @@ export default function AdminDashboard() {
             className="mt-8 space-y-8 animate-in slide-in-from-bottom-4 duration-500"
           >
             {/* Metrics Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
               <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
-                <CardContent className="p-6">
+                <CardContent className="p-4 lg:p-6">
                   <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">
+                    <div className="flex-1">
+                      <p className="text-xs lg:text-sm font-medium text-gray-500">
                         Total Events
                       </p>
-                      <h3 className="text-3xl font-bold mt-2 text-gray-900">
+                      <h3 className="text-2xl lg:text-3xl font-bold mt-1 lg:mt-2 text-gray-900">
                         {formatNumber(metrics.totalEvents)}
                       </h3>
                       <p className="text-xs text-gray-500 mt-1">
@@ -969,21 +1449,21 @@ export default function AdminDashboard() {
                         last month
                       </p>
                     </div>
-                    <div className="p-3 bg-[#028A75]/10 rounded-lg">
-                      <Calendar className="h-6 w-6 text-[#028A75]" />
+                    <div className="p-2 lg:p-3 bg-[#028A75]/10 rounded-lg">
+                      <Calendar className="h-5 w-5 lg:h-6 lg:w-6 text-[#028A75]" />
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
               <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
-                <CardContent className="p-6">
+                <CardContent className="p-4 lg:p-6">
                   <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">
+                    <div className="flex-1">
+                      <p className="text-xs lg:text-sm font-medium text-gray-500">
                         Revenue
                       </p>
-                      <h3 className="text-3xl font-bold mt-2 text-gray-900">
+                      <h3 className="text-2xl lg:text-3xl font-bold mt-1 lg:mt-2 text-gray-900">
                         {formatCurrency(metrics.totalRevenue)}
                       </h3>
                       <p className="text-xs text-gray-500 mt-1">
@@ -991,21 +1471,21 @@ export default function AdminDashboard() {
                         last month
                       </p>
                     </div>
-                    <div className="p-3 bg-[#028A75]/10 rounded-lg">
-                      <DollarSign className="h-6 w-6 text-[#028A75]" />
+                    <div className="p-2 lg:p-3 bg-[#028A75]/10 rounded-lg">
+                      <DollarSign className="h-5 w-5 lg:h-6 lg:w-6 text-[#028A75]" />
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
               <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
-                <CardContent className="p-6">
+                <CardContent className="p-4 lg:p-6">
                   <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">
+                    <div className="flex-1">
+                      <p className="text-xs lg:text-sm font-medium text-gray-500">
                         Clients
                       </p>
-                      <h3 className="text-3xl font-bold mt-2 text-gray-900">
+                      <h3 className="text-2xl lg:text-3xl font-bold mt-1 lg:mt-2 text-gray-900">
                         {formatNumber(metrics.totalClients)}
                       </h3>
                       <p className="text-xs text-gray-500 mt-1">
@@ -1013,21 +1493,21 @@ export default function AdminDashboard() {
                         last month
                       </p>
                     </div>
-                    <div className="p-3 bg-[#028A75]/10 rounded-lg">
-                      <Users className="h-6 w-6 text-[#028A75]" />
+                    <div className="p-2 lg:p-3 bg-[#028A75]/10 rounded-lg">
+                      <Users className="h-5 w-5 lg:h-6 lg:w-6 text-[#028A75]" />
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
               <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
-                <CardContent className="p-6">
+                <CardContent className="p-4 lg:p-6">
                   <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">
+                    <div className="flex-1">
+                      <p className="text-xs lg:text-sm font-medium text-gray-500">
                         Completed Events
                       </p>
-                      <h3 className="text-3xl font-bold mt-2 text-gray-900">
+                      <h3 className="text-2xl lg:text-3xl font-bold mt-1 lg:mt-2 text-gray-900">
                         {formatNumber(metrics.completedEvents)}
                       </h3>
                       <p className="text-xs text-gray-500 mt-1">
@@ -1035,8 +1515,8 @@ export default function AdminDashboard() {
                         last month
                       </p>
                     </div>
-                    <div className="p-3 bg-[#028A75]/10 rounded-lg">
-                      <CheckCircle className="h-6 w-6 text-[#028A75]" />
+                    <div className="p-2 lg:p-3 bg-[#028A75]/10 rounded-lg">
+                      <CheckCircle className="h-5 w-5 lg:h-6 lg:w-6 text-[#028A75]" />
                     </div>
                   </div>
                 </CardContent>

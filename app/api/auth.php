@@ -1,9 +1,17 @@
 <?php
 header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Headers: *");
-header("Access-Control-Allow-Methods: POST");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+
+// Handle CORS preflight
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    header("Access-Control-Allow-Origin: *");
+    header("Access-Control-Allow-Methods: POST, OPTIONS");
+    header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+    http_response_code(200);
+    exit;
+}
 
 // Set timezone
 date_default_timezone_set('Asia/Manila');
@@ -40,6 +48,101 @@ class Auth {
         ]);
 
         return $this->sendEmailOTP($email, $otp);
+    }
+
+    // Forgot password: request OTP by email
+    public function requestForgotPassword($email) {
+        try {
+            $email = trim((string)$email);
+            if ($email === '') {
+                return json_encode(["status" => "error", "message" => "Email is required"]);
+            }
+
+            // Find user by email (silently ignore if not found)
+            $stmt = $this->conn->prepare("SELECT user_id, user_email FROM tbl_users WHERE user_email = :email LIMIT 1");
+            $stmt->execute([':email' => $email]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($user) {
+                // Create OTP record
+                $otp = str_pad(random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+                $expiresAt = date("Y-m-d H:i:s", strtotime("+10 minutes"));
+
+                // Use INSERT then UPDATE to avoid reliance on unique keys
+                try {
+                    $ins = $this->conn->prepare("INSERT INTO tbl_2fa (user_id, email, otp_code, expires_at) VALUES (:user_id, :email, :otp, :expires_at)");
+                    $ins->execute([
+                        ':user_id' => $user['user_id'],
+                        ':email' => $user['user_email'],
+                        ':otp' => $otp,
+                        ':expires_at' => $expiresAt
+                    ]);
+                } catch (Exception $e) {
+                    // If insert fails (e.g., due to unique constraints), try update path
+                    $upd = $this->conn->prepare("UPDATE tbl_2fa SET otp_code = :otp, expires_at = :expires_at WHERE user_id = :user_id AND email = :email");
+                    $upd->execute([
+                        ':otp' => $otp,
+                        ':expires_at' => $expiresAt,
+                        ':user_id' => $user['user_id'],
+                        ':email' => $user['user_email']
+                    ]);
+                }
+
+                // Best-effort send, ignore result to avoid leaking info or raising errors
+                $this->sendEmailOTP($user['user_email'], $otp);
+            }
+
+            // Always respond success to prevent email enumeration
+            return json_encode(["status" => "success", "message" => "If the email exists, an OTP has been sent."]);
+        } catch (Exception $e) {
+            // Still respond success to avoid enumeration and 500s
+            return json_encode(["status" => "success", "message" => "If the email exists, an OTP has been sent."]);
+        }
+    }
+
+    // Forgot password: reset using email + OTP + new password
+    public function resetPasswordWithOtp($email, $otp, $newPassword, $confirmPassword) {
+        try {
+            if (empty($email) || empty($otp) || empty($newPassword) || empty($confirmPassword)) {
+                return json_encode(["status" => "error", "message" => "All fields are required"]);
+            }
+            if ($newPassword !== $confirmPassword) {
+                return json_encode(["status" => "error", "message" => "Password confirmation does not match"]);
+            }
+            if (strlen($newPassword) < 8) {
+                return json_encode(["status" => "error", "message" => "Password must be at least 8 characters"]);
+            }
+
+            // Lookup user
+            $stmt = $this->conn->prepare("SELECT user_id FROM tbl_users WHERE user_email = :email LIMIT 1");
+            $stmt->execute([':email' => $email]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$user) {
+                // Same generic response to avoid leakage
+                return json_encode(["status" => "error", "message" => "Invalid OTP or expired"]);
+            }
+
+            // Validate OTP for this user/email and not expired
+            $otpStmt = $this->conn->prepare("SELECT id FROM tbl_2fa WHERE user_id = :user_id AND email = :email AND otp_code = :otp AND expires_at > NOW() LIMIT 1");
+            $otpStmt->execute([':user_id' => $user['user_id'], ':email' => $email, ':otp' => $otp]);
+            $otpRow = $otpStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$otpRow) {
+                return json_encode(["status" => "error", "message" => "Invalid OTP or expired"]);
+            }
+
+            // Update password
+            $hashed = password_hash($newPassword, PASSWORD_DEFAULT);
+            // Avoid referencing non-existent columns like updated_at
+            $upd = $this->conn->prepare("UPDATE tbl_users SET user_pwd = :pwd WHERE user_id = :uid");
+            $upd->execute([':pwd' => $hashed, ':uid' => $user['user_id']]);
+
+            // Invalidate OTP
+            $del = $this->conn->prepare("DELETE FROM tbl_2fa WHERE user_id = :uid");
+            $del->execute([':uid' => $user['user_id']]);
+
+            return json_encode(["status" => "success", "message" => "Password reset successfully"]);
+        } catch (Exception $e) {
+            return json_encode(["status" => "error", "message" => "Failed to reset password"]);
+        }
     }
 
     // Send Email OTP
@@ -1252,6 +1355,17 @@ switch ($operation) {
         $uid = $_POST['user_id'] ?? ($jsonData['user_id'] ?? '');
         $email = $_POST['email'] ?? ($jsonData['email'] ?? '');
         echo $auth->sendOTP($email, $uid);
+        break;
+    case "request_forgot_password":
+        $email = $_POST['email'] ?? ($jsonData['email'] ?? '');
+        echo $auth->requestForgotPassword($email);
+        break;
+    case "reset_password_with_otp":
+        $email = $_POST['email'] ?? ($jsonData['email'] ?? '');
+        $otp = $_POST['otp'] ?? ($jsonData['otp'] ?? '');
+        $newPassword = $_POST['new_password'] ?? ($jsonData['new_password'] ?? '');
+        $confirmPassword = $_POST['confirm_password'] ?? ($jsonData['confirm_password'] ?? '');
+        echo $auth->resetPasswordWithOtp($email, $otp, $newPassword, $confirmPassword);
         break;
     case "check_email":
         $email = $_POST['email'] ?? ($jsonData['email'] ?? '');

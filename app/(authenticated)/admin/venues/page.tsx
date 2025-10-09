@@ -47,15 +47,10 @@ import { endpoints } from "@/app/config/api";
 // Image URL helper function
 const getImageUrl = (imagePath: string | null) => {
   if (!imagePath) return null;
-  // Fix the image URL construction - ensure proper path for image serving
   const cleanPath = imagePath.startsWith("uploads/")
     ? imagePath
     : `uploads/${imagePath}`;
-  // Use the events-api endpoint for serving images
-  const eventsApiUrl = process.env.NEXT_PUBLIC_API_URL
-    ? process.env.NEXT_PUBLIC_API_URL.replace("/app/api", "/events-api")
-    : "http://localhost/events-api";
-  return `${eventsApiUrl}/${cleanPath}`;
+  return `${endpoints.serveImage}?path=${encodeURIComponent(cleanPath)}`;
 };
 
 // Define venue interface

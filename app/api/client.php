@@ -2099,4 +2099,70 @@ switch ($method) {
             "message" => "Method not allowed"
         ]);
         break;
+
+    case "getEventDeliveryProgress":
+        $eventId = (int)($data['event_id'] ?? 0);
+        $userId = (int)($data['user_id'] ?? 0);
+
+        if ($eventId <= 0 || $userId <= 0) {
+            echo json_encode(["status" => "error", "message" => "Valid event ID and user ID required"]);
+        } else {
+            try {
+                // Verify user has access to this event
+                $verifyStmt = $pdo->prepare("SELECT event_id FROM tbl_events WHERE event_id = ? AND user_id = ?");
+                $verifyStmt->execute([$eventId, $userId]);
+
+                if (!$verifyStmt->fetch()) {
+                    echo json_encode(["status" => "error", "message" => "Access denied: User not authorized for this event"]);
+                    break;
+                }
+
+                // Get delivery progress
+                $sql = "SELECT
+                            COUNT(*) as total_components,
+                            SUM(CASE WHEN is_included = 1 THEN 1 ELSE 0 END) as included_components,
+                            SUM(CASE WHEN supplier_status = 'delivered' AND is_included = 1 THEN 1 ELSE 0 END) as delivered_components,
+                            SUM(CASE WHEN supplier_status = 'confirmed' AND is_included = 1 THEN 1 ELSE 0 END) as confirmed_components,
+                            SUM(CASE WHEN supplier_status = 'pending' AND is_included = 1 THEN 1 ELSE 0 END) as pending_components,
+                            SUM(CASE WHEN supplier_status = 'cancelled' AND is_included = 1 THEN 1 ELSE 0 END) as cancelled_components
+                        FROM tbl_event_components
+                        WHERE event_id = ?";
+
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute([$eventId]);
+                $progress = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                // Get component details
+                $componentsSql = "SELECT
+                                    component_id,
+                                    component_name,
+                                    component_price,
+                                    supplier_status,
+                                    delivery_date,
+                                    supplier_notes,
+                                    is_included
+                                 FROM tbl_event_components
+                                 WHERE event_id = ? AND is_included = 1
+                                 ORDER BY display_order";
+
+                $componentsStmt = $pdo->prepare($componentsSql);
+                $componentsStmt->execute([$eventId]);
+                $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                echo json_encode([
+                    "status" => "success",
+                    "data" => [
+                        "progress" => $progress,
+                        "components" => $components
+                    ]
+                ]);
+            } catch (Exception $e) {
+                error_log("getEventDeliveryProgress error: " . $e->getMessage());
+                echo json_encode([
+                    "status" => "error",
+                    "message" => "Failed to fetch delivery progress"
+                ]);
+            }
+        }
+        break;
 }

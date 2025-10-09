@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -165,12 +166,9 @@ export default function SettingsPage() {
     try {
       setIsLoading(true);
       const userData = secureStorage.getItem("user");
-      const response = await axios.get("/admin.php", {
-        params: {
-          operation: "getUserProfile",
-          user_id: userData?.user_id,
-        },
-      });
+      const response = await axios.get(
+        `${endpoints.admin}?operation=getUserProfile&user_id=${userData?.user_id}`
+      );
 
       if (response.data.status === "success") {
         const profile = response.data.profile;
@@ -196,9 +194,9 @@ export default function SettingsPage() {
 
   const fetchWebsiteSettings = async () => {
     try {
-      const response = await axios.get("/admin.php", {
-        params: { operation: "getWebsiteSettings" },
-      });
+      const response = await axios.get(
+        `${endpoints.admin}?operation=getWebsiteSettings`
+      );
 
       if (response.data.status === "success") {
         const settings = response.data.settings;
@@ -228,9 +226,9 @@ export default function SettingsPage() {
 
   const fetchFeedbacks = async () => {
     try {
-      const response = await axios.get("/admin.php", {
-        params: { operation: "getAllFeedbacks" },
-      });
+      const response = await axios.get(
+        `${endpoints.admin}?operation=getAllFeedbacks`
+      );
 
       if (response.data.status === "success") {
         setFeedbacks(response.data.feedbacks);
@@ -244,7 +242,7 @@ export default function SettingsPage() {
     try {
       setIsSaving(true);
       const userData = secureStorage.getItem("user");
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "updateUserProfile",
         user_id: userData?.user_id,
         ...profileForm,
@@ -283,7 +281,7 @@ export default function SettingsPage() {
     try {
       setIsSaving(true);
       const userData = secureStorage.getItem("user");
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "changePassword",
         user_id: userData?.user_id,
         currentPassword: passwordForm.currentPassword,
@@ -317,7 +315,7 @@ export default function SettingsPage() {
   const saveWebsiteSettings = async (settings: WebsiteSettings) => {
     try {
       setIsSaving(true);
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "updateWebsiteSettings",
         settings,
       });
@@ -352,7 +350,7 @@ export default function SettingsPage() {
     formData.append("fileType", type);
 
     try {
-      const response = await axios.post("/admin.php", formData, {
+      const response = await axios.post(endpoints.admin, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
@@ -397,7 +395,7 @@ export default function SettingsPage() {
 
   const deleteFeedback = async (feedbackId: number) => {
     try {
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "deleteFeedback",
         feedback_id: feedbackId,
       });
@@ -444,55 +442,31 @@ export default function SettingsPage() {
     );
   }
 
-  const handleProfilePictureUpload = (filePath: string) => {
+  const handleProfilePictureUpload = async (filePath: string) => {
+    // Immediately update the local state for instant UI feedback
     setUserProfile((prev) => (prev ? { ...prev, user_pfp: filePath } : null));
 
-    // Use a safer approach: first refresh the profile data, then update secure storage
-    setTimeout(async () => {
-      await fetchUserProfile(); // Refresh the profile data first
-      await updateUserDataSafely(); // Then safely update the secure storage for navbar
-    }, 100);
-  };
-
-  // Function to safely update user data in secure storage after profile picture upload
-  const updateUserDataSafely = async () => {
+    // Update secure storage for navbar and other components
     try {
-      const token = secureStorage.getItem("authToken");
-      const userId = secureStorage.getItem("userId");
+      const currentUser = secureStorage.getItem("user");
+      if (currentUser && typeof currentUser === "object") {
+        const updatedUser = {
+          ...currentUser,
+          user_pfp: filePath,
+        };
+        secureStorage.setItem("user", updatedUser);
 
-      if (!token || !userId) return;
+        // Dispatch event to update navbar and other components
+        window.dispatchEvent(
+          new CustomEvent("userDataChanged", {
+            detail: { user_pfp: filePath },
+          })
+        );
 
-      const response = await axios.get(
-        `admin.php?operation=getUserProfile&user_id=${userId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      if (response.data.status === "success") {
-        const profile = response.data.profile;
-
-        // Get current user data from secure storage
-        const currentUser = secureStorage.getItem("user");
-        if (currentUser && typeof currentUser === "object") {
-          // Update only the profile picture field while preserving all other data
-          const updatedUser = {
-            ...currentUser,
-            user_pfp: profile.user_pfp,
-          };
-
-          console.log(
-            "Safely updating user data with new profile picture:",
-            updatedUser
-          );
-          secureStorage.setItem("user", updatedUser);
-
-          // Dispatch event to update navbar
-          window.dispatchEvent(new CustomEvent("userDataChanged"));
-        }
+        console.log("Profile picture updated in real-time:", filePath);
       }
     } catch (error) {
-      console.error("Error updating user data safely:", error);
+      console.error("Error updating user data in real-time:", error);
     }
   };
 
@@ -546,12 +520,27 @@ export default function SettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-base">Require OTP on Login</Label>
-                  <p className="text-sm text-gray-500">
-                    When off, users will log in without OTP verification.
+              <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div
+                      className={`w-3 h-3 rounded-full ${websiteSettings.require_otp_on_login ? "bg-green-500" : "bg-gray-400"}`}
+                    ></div>
+                    <Label className="text-base font-semibold">
+                      Require OTP on Login
+                    </Label>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {websiteSettings.require_otp_on_login
+                      ? "All users must verify their identity with OTP when logging in."
+                      : "Users can log in directly without OTP verification (less secure)."}
                   </p>
+                  {websiteSettings.require_otp_on_login && (
+                    <div className="mt-2 flex items-center gap-2 text-sm text-green-700">
+                      <Shield className="h-4 w-4" />
+                      <span>Enhanced security enabled</span>
+                    </div>
+                  )}
                 </div>
                 <Switch
                   checked={!!websiteSettings.require_otp_on_login}
@@ -562,6 +551,15 @@ export default function SettingsPage() {
                     } as WebsiteSettings;
                     setWebsiteSettings(newSettings);
                     await saveWebsiteSettings(newSettings);
+
+                    toast({
+                      title: checked
+                        ? "OTP Security Enabled"
+                        : "OTP Security Disabled",
+                      description: checked
+                        ? "All users will now need to verify their identity with OTP"
+                        : "Users can now log in without OTP verification",
+                    });
                   }}
                 />
               </div>
@@ -572,7 +570,7 @@ export default function SettingsPage() {
                     src={
                       userProfile?.user_pfp &&
                       userProfile.user_pfp.trim() !== ""
-                        ? `serve-image.php?path=${encodeURIComponent(userProfile.user_pfp)}`
+                        ? `${endpoints.serveImage}?path=${encodeURIComponent(userProfile.user_pfp)}`
                         : "/default_pfp.png"
                     }
                     alt="Profile"
@@ -1268,7 +1266,7 @@ export default function SettingsPage() {
         isOpen={showProfilePictureModal}
         onClose={() => setShowProfilePictureModal(false)}
         onUploadSuccess={handleProfilePictureUpload}
-        uploadEndpoint="/admin.php"
+        uploadEndpoint={endpoints.admin}
         userId={userProfile?.user_id || 0}
       />
     </div>

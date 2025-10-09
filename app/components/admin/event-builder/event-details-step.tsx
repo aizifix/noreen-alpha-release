@@ -279,11 +279,9 @@ export function EventDetailsStep({
           } catch (e) {}
           console.log("Using sample heat map data:", sampleData);
 
-          toast({
-            title: "API Error - Using Sample Data",
+          toast.error("API Error - Using Sample Data", {
             description:
               response.data.message || "Calendar API returned an error",
-            variant: "destructive",
           });
         }
       } catch (error) {
@@ -305,11 +303,9 @@ export function EventDetailsStep({
           sampleData
         );
 
-        toast({
-          title: "Network Error - Using Sample Data",
+        toast.error("Network Error - Using Sample Data", {
           description:
             "Cannot connect to server. Showing sample heat map data.",
-          variant: "destructive",
         });
       } finally {
         setIsLoadingCalendarData(false);
@@ -331,10 +327,8 @@ export function EventDetailsStep({
     const normalizedSelected = new Date(selectedDate);
     normalizedSelected.setHours(0, 0, 0, 0);
     if (normalizedSelected < today) {
-      toast({
-        title: "Past date not allowed",
+      toast.error("Past date not allowed", {
         description: "You can only select today or a future date.",
-        variant: "destructive",
       });
       return;
     }
@@ -360,16 +354,12 @@ export function EventDetailsStep({
       // Show immediate feedback about the selected date
       if (dateData && (dateData.hasWedding || dateData.hasOtherEvents)) {
         if (dateData.hasWedding) {
-          toast({
-            title: "Wedding Scheduled",
+          toast.warning("Wedding Scheduled", {
             description: `This date has a wedding event. Only one wedding per day is allowed.`,
-            variant: "destructive",
           });
         } else if (dateData.hasOtherEvents && dateData.eventCount > 1) {
-          toast({
-            title: "Multiple Events Scheduled",
+          toast.info("Multiple Events Scheduled", {
             description: `This date has ${dateData.eventCount} events. Check for time conflicts.`,
-            variant: "default",
           });
         }
       }

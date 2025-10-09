@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
 import { endpoints } from "@/app/config/api";
 import { toast } from "sonner";
 import { CardTitle } from "@/components/ui/card";
@@ -285,11 +286,8 @@ export function PackageSelection({
       return path;
     }
 
-    // Use the serve-image.php script for proper image serving
-    const API_URL =
-      process.env.NEXT_PUBLIC_API_URL ||
-      "https://noreen-events.online/noreen-events";
-    return `${API_URL}/serve-image.php?path=${encodeURIComponent(path)}`;
+    // Use the configured serve-image endpoint
+    return `${endpoints.serveImage}?path=${encodeURIComponent(path)}`;
   };
 
   // Map event type strings to event type IDs
@@ -357,24 +355,20 @@ export function PackageSelection({
         const eventTypeId = getEventTypeId(eventType);
         console.log("Event type ID:", eventTypeId);
 
-        let response;
+        let data: any;
 
         if (eventTypeId) {
-          // Fetch packages filtered by event type
-          response = await fetch(
+          const response = await axios.get(
             `${endpoints.admin}?operation=getPackagesByEventType&event_type_id=${eventTypeId}`
           );
+          data = response.data;
         } else {
-          // If event type is provided but ID mapping failed, fetch all packages
-          response = await fetch(`${endpoints.admin}?operation=getAllPackages`);
+          const response = await axios.get(
+            `${endpoints.admin}?operation=getAllPackages`
+          );
+          data = response.data;
         }
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log("API Response:", response);
         console.log("Response data:", data);
 
         console.log("Packages response:", data);
@@ -395,7 +389,7 @@ export function PackageSelection({
         console.log("Packages:", data.packages);
 
         if (data.status === "success") {
-          let allPackages = data.packages || [];
+          let allPackages: DbPackage[] = data.packages || [];
           console.log("All packages before processing:", allPackages);
 
           // If we have an initial package ID that's not in the main list, fetch it separately
@@ -404,17 +398,10 @@ export function PackageSelection({
             !allPackages.find((p) => p.package_id === initialPackageId)
           ) {
             try {
-              const initialPackageResponse = await fetch(
+              const initialPackageResponse = await axios.get(
                 `${endpoints.admin}?operation=getPackageById&package_id=${initialPackageId}`
               );
-
-              if (!initialPackageResponse.ok) {
-                throw new Error(
-                  `HTTP error! status: ${initialPackageResponse.status}`
-                );
-              }
-
-              const initialPackageData = await initialPackageResponse.json();
+              const initialPackageData = initialPackageResponse.data;
               console.log("Initial package response:", initialPackageData);
 
               if (
@@ -471,10 +458,9 @@ export function PackageSelection({
           // Set packages in their natural order
           setPackages(uniquePackages);
         } else {
-          console.error("API returned error:", response.data.message);
+          console.error("API returned error:", data.message);
           setError(
-            "Failed to load packages: " +
-              (response.data.message || "Unknown error")
+            "Failed to load packages: " + (data.message || "Unknown error")
           );
         }
       } catch (error) {
@@ -502,15 +488,10 @@ export function PackageSelection({
     setIsModalLoading(true);
     try {
       // Fetch complete package details to ensure we have all venue data
-      const response = await fetch(
+      const response = await axios.get(
         `${endpoints.admin}?operation=getPackageById&package_id=${pkg.package_id}`
       );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = response.data;
       if (data.status === "success" && data.package) {
         const completePackage = data.package;
         const enhancedPackage: DbPackage = {

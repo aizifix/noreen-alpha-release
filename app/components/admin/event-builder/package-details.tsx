@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { weddingPackages } from "@/data/wedding-packages";
@@ -56,14 +57,11 @@ export function PackageDetails({ packageId }: PackageDetailsProps) {
       setError(null);
 
       try {
-        const response = await axios.get("/admin.php", {
-          params: {
-            operation: "getPackageById",
-            package_id: packageId,
-          },
-        });
+        const response = await axios.get(
+          `${endpoints.admin}?operation=getPackageById&package_id=${packageId}`
+        );
 
-        if (response.status === "success") {
+        if (response.data?.status === "success") {
           setApiPackage(response.data.package);
         } else {
           console.error(

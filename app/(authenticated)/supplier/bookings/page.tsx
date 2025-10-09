@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   Calendar,
   Clock,
@@ -75,7 +77,7 @@ export default function SupplierBookings() {
 
   // Status update form
   const [newStatus, setNewStatus] = useState("");
-  const [statusNotes, setStatusNotes] = useState("/);
+  const [statusNotes, setStatusNotes] = useState("");
 
   useEffect(() => {
     fetchBookings();
@@ -90,10 +92,10 @@ export default function SupplierBookings() {
       setLoading(true);
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getBookings&user_id=${userId}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=getBookings&user_id=${userId}`
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setBookings(data.bookings);
@@ -174,21 +176,18 @@ export default function SupplierBookings() {
     try {
       setUpdating(true);
 
-      const response = await fetch(
-        `supplier.php?operation=updateBookingStatus&event_component_id=${selectedBooking.event_component_id}`,
+      const response = await axios.post(
+        endpoints.supplier,
         {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            status: newStatus,
-            notes: statusNotes,
-          }),
-        }
+          operation: "updateBookingStatus",
+          event_component_id: selectedBooking.event_component_id,
+          status: newStatus,
+          notes: statusNotes,
+        },
+        { headers: { "Content-Type": "application/json" } }
       );
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         // Update local state

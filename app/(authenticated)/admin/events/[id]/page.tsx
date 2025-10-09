@@ -38,12 +38,12 @@ import {
   AlertTriangle,
   Plus,
   Building,
-  Lock,
-  Unlock,
   Banknote,
+  Search,
 } from "lucide-react";
 import axios from "axios";
 import { adminApi, notificationsApi } from "@/app/utils/api";
+import { endpoints } from "@/app/config/api";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,6 +63,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { format } from "date-fns";
+import ClientOnly from "@/app/components/client-only";
 
 // Enhanced interface to match updated tbl_events structure
 interface Event {
@@ -88,13 +89,7 @@ interface Event {
   payment_schedule_type_id?: number;
   reference_number?: string;
   additional_notes?: string;
-  event_status:
-    | "draft"
-    | "confirmed"
-    | "on_going"
-    | "done"
-    | "cancelled"
-    | "finalized";
+  event_status: "draft" | "confirmed" | "on_going" | "done" | "cancelled";
   booking_date?: string;
   booking_time?: string;
   assignment_status?: string;
@@ -102,7 +97,6 @@ interface Event {
   updated_by?: number;
   created_at?: string;
   updated_at?: string;
-  finalized_at?: string;
   event_attachments?: any[];
   attachments?: any[];
   event_feedback_id?: number;
@@ -133,6 +127,7 @@ interface Event {
   package_title?: string;
   package_description?: string;
   admin_name?: string;
+  admin_pfp?: string;
   organizer_name?: string;
   organizer_assignment_id?: number;
   organizer_payment_status?: "unpaid" | "partial" | "paid" | "cancelled";
@@ -178,6 +173,14 @@ interface PaymentHistoryItem {
   description?: string;
 }
 
+// Centralized currency formatting function
+const formatCurrency = (amount: number): string => {
+  return amount.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
 // Confirmation Modal Component
 function ConfirmationModal({
   isOpen,
@@ -218,8 +221,8 @@ function ConfirmationModal({
             </div>
             <p className="text-sm text-orange-700 mt-1">
               {priceImpact > 0
-                ? `This will increase the total budget by ₱${Math.abs(priceImpact).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : `This will decrease the total budget by ₱${Math.abs(priceImpact).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                ? `This will increase the total budget by ₱${formatCurrency(Math.abs(priceImpact))}`
+                : `This will decrease the total budget by ₱${formatCurrency(Math.abs(priceImpact))}`}
             </p>
           </div>
         )}
@@ -243,25 +246,50 @@ function ConfirmationModal({
 
 // Budget Progress Component with fixed formatting
 function BudgetProgress({ event }: { event: Event }) {
-  const totalPaid =
-    event.payments?.reduce(
-      (sum, payment: any) =>
-        payment.payment_status === "completed"
-          ? sum + Number(payment.payment_amount || 0)
-          : sum,
-      0
-    ) || 0;
-  const remaining = event.total_budget - totalPaid;
-  const progressPercentage =
-    event.total_budget > 0 ? (totalPaid / event.total_budget) * 100 : 0;
+  // Calculate total paid from payments and down payment
+  const paymentsTotal =
+    event.payments?.reduce((sum, payment: any) => {
+      // Include completed, partial, and paid statuses
+      if (["completed", "partial", "paid"].includes(payment.payment_status)) {
+        return sum + Number(payment.payment_amount || 0);
+      }
+      return sum;
+    }, 0) || 0;
 
-  // Format currency properly
-  const formatCurrency = (amount: number) => {
-    return amount.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  };
+  // Include down payment if it exists and hasn't been included in payments
+  const downPayment = Number(event.down_payment || 0);
+
+  // Check if down payment is already included in payments to avoid double counting
+  const downPaymentIncluded =
+    event.payments?.some(
+      (payment: any) =>
+        payment.payment_type === "down_payment" ||
+        payment.payment_notes?.toLowerCase().includes("down payment")
+    ) || false;
+
+  const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+
+  // Ensure remaining amount is never negative
+  const remaining = Math.max(0, event.total_budget - totalPaid);
+  const progressPercentage = Math.min(
+    100,
+    Math.max(
+      0,
+      event.total_budget > 0 ? (totalPaid / event.total_budget) * 100 : 0
+    )
+  );
+
+  // Debug logging
+  console.log("Budget Progress Debug:", {
+    totalBudget: event.total_budget,
+    downPayment: downPayment,
+    downPaymentIncluded: downPaymentIncluded,
+    paymentsTotal: paymentsTotal,
+    totalPaid: totalPaid,
+    remaining: remaining,
+    payments: event.payments,
+    progressPercentage: progressPercentage,
+  });
 
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -311,9 +339,16 @@ function BudgetProgress({ event }: { event: Event }) {
 }
 
 // Event Countdown Component
-function EventCountdown({ event }: { event: Event }) {
+function CalendarModal({
+  isOpen,
+  onClose,
+  event,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  event: Event;
+}) {
   const [daysLeft, setDaysLeft] = useState<number>(0);
-  const [countdownText, setCountdownText] = useState<string>("");
 
   useEffect(() => {
     const calculateDaysLeft = () => {
@@ -328,16 +363,332 @@ function EventCountdown({ event }: { event: Event }) {
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       setDaysLeft(diffDays);
+    };
 
-      if (diffDays < 0) {
-        setCountdownText("Event has passed");
-      } else if (diffDays === 0) {
-        setCountdownText("Event is today!");
-      } else if (diffDays === 1) {
-        setCountdownText("Event is tomorrow!");
-      } else {
-        setCountdownText(`${diffDays} days until event`);
+    calculateDaysLeft();
+  }, [event.event_date]);
+
+  const generateTimelineData = () => {
+    const today = new Date();
+    const eventDate = new Date(event.event_date);
+
+    // Calculate total days from today to event
+    const totalDays = Math.ceil(
+      (eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    // Generate timeline segments (weeks)
+    const timelineSegments = [];
+    const currentDate = new Date(today);
+
+    // Create segments for each week
+    while (currentDate <= eventDate) {
+      const weekStart = new Date(currentDate);
+      const weekEnd = new Date(currentDate);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+
+      // Don't go past event date
+      if (weekEnd > eventDate) {
+        weekEnd.setTime(eventDate.getTime());
       }
+
+      timelineSegments.push({
+        start: new Date(weekStart),
+        end: new Date(weekEnd),
+        isCurrentWeek: weekStart <= today && weekEnd >= today,
+        isEventWeek: weekStart <= eventDate && weekEnd >= eventDate,
+        isPast: weekEnd < today,
+        isFuture: weekStart > today,
+      });
+
+      currentDate.setDate(currentDate.getDate() + 7);
+    }
+
+    return {
+      totalDays,
+      timelineSegments,
+      today,
+      eventDate,
+    };
+  };
+
+  const timelineData = generateTimelineData();
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+        <div className="flex items-center justify-between p-6 border-b">
+          <h3 className="text-xl font-semibold text-gray-900">
+            Event Timeline
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h4 className="text-lg font-medium text-gray-900">
+                  {event.event_title}
+                </h4>
+                <p className="text-sm text-gray-600">
+                  {new Date(event.event_date).toLocaleDateString("en-US", {
+                    weekday: "long",
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </p>
+              </div>
+              <div className="text-right">
+                <div
+                  className={`text-2xl font-bold ${
+                    daysLeft < 0
+                      ? "text-gray-500"
+                      : daysLeft <= 7
+                        ? "text-red-600"
+                        : daysLeft <= 30
+                          ? "text-orange-600"
+                          : "text-green-600"
+                  }`}
+                >
+                  {daysLeft < 0
+                    ? "Event Passed"
+                    : daysLeft === 0
+                      ? "Today!"
+                      : daysLeft === 1
+                        ? "Tomorrow!"
+                        : `${daysLeft} days`}
+                </div>
+                <p className="text-sm text-gray-500">until event</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Gantt Chart Style Timeline */}
+          <div className="space-y-6">
+            <div className="flex items-center justify-between text-sm font-medium text-gray-600 mb-4">
+              <span>Event Timeline</span>
+              <span>{timelineData.totalDays} days remaining</span>
+            </div>
+
+            {/* Key Milestones */}
+            <div className="bg-blue-50 rounded-lg p-4 mb-6">
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                Key Milestones
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                  <span className="text-gray-600">Today</span>
+                  <span className="text-gray-500">
+                    {timelineData.today.toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                  <span className="text-gray-600">Event Day</span>
+                  <span className="text-gray-500">
+                    {timelineData.eventDate.toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                  <span className="text-gray-600">30 Days Warning</span>
+                  <span className="text-gray-500">Final month preparation</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                  <span className="text-gray-600">7 Days Warning</span>
+                  <span className="text-gray-500">Final week preparation</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Gantt Chart */}
+            <div className="bg-gray-50 rounded-lg p-6">
+              <div className="mb-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                  Timeline Progress
+                </h4>
+                <div className="text-xs text-gray-500">
+                  {timelineData.today.toLocaleDateString()} →{" "}
+                  {timelineData.eventDate.toLocaleDateString()}
+                </div>
+              </div>
+
+              {/* Main Timeline Bar */}
+              <div className="relative mb-6">
+                <div className="h-12 bg-gray-200 rounded-lg relative overflow-hidden">
+                  {/* Progress bar */}
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-500 via-blue-400 to-green-500 rounded-lg transition-all duration-500"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, timelineData.totalDays > 0 ? (timelineData.totalDays - daysLeft) / timelineData.totalDays : 0) * 100)}%`,
+                    }}
+                  ></div>
+
+                  {/* Current position indicator */}
+                  <div className="absolute top-0 left-0 h-full w-1 bg-blue-600 shadow-lg z-10"></div>
+
+                  {/* Event date indicator */}
+                  <div className="absolute top-0 right-0 h-full w-1 bg-green-600 shadow-lg z-10"></div>
+
+                  {/* 30 days warning indicator */}
+                  {daysLeft <= 30 && (
+                    <div
+                      className="absolute top-0 h-full w-1 bg-orange-500 shadow-lg z-10"
+                      style={{
+                        left: `${Math.max(0, Math.min(100, ((timelineData.totalDays - 30) / timelineData.totalDays) * 100))}%`,
+                      }}
+                    ></div>
+                  )}
+
+                  {/* 7 days warning indicator */}
+                  {daysLeft <= 7 && (
+                    <div
+                      className="absolute top-0 h-full w-1 bg-red-500 shadow-lg z-10"
+                      style={{
+                        left: `${Math.max(0, Math.min(100, ((timelineData.totalDays - 7) / timelineData.totalDays) * 100))}%`,
+                      }}
+                    ></div>
+                  )}
+                </div>
+              </div>
+
+              {/* Week Segments */}
+              <div className="space-y-3">
+                <div className="text-xs font-medium text-gray-600 mb-2">
+                  Weekly Breakdown
+                </div>
+                {timelineData.timelineSegments.map((segment, index) => {
+                  const weekDuration =
+                    segment.end.getTime() - segment.start.getTime();
+                  const weekWidth = Math.max(
+                    20,
+                    (weekDuration / (7 * 24 * 60 * 60 * 1000)) * 100
+                  );
+
+                  return (
+                    <div key={index} className="flex items-center space-x-4">
+                      <div className="w-16 text-xs text-gray-500 text-right">
+                        Week {index + 1}
+                      </div>
+                      <div className="flex-1 relative">
+                        <div className="h-8 bg-gray-100 rounded border relative overflow-hidden">
+                          <div
+                            className={`h-full rounded transition-all ${
+                              segment.isCurrentWeek
+                                ? "bg-blue-500"
+                                : segment.isEventWeek
+                                  ? "bg-green-500"
+                                  : segment.isPast
+                                    ? "bg-gray-300"
+                                    : "bg-gray-200"
+                            }`}
+                            style={{
+                              width: `${Math.min(100, weekWidth)}%`,
+                            }}
+                          ></div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {segment.start.toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          })}{" "}
+                          -{" "}
+                          {segment.end.toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Progress Statistics */}
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-blue-50 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-blue-600">
+                  {daysLeft}
+                </div>
+                <div className="text-sm text-blue-600">Days Left</div>
+              </div>
+              <div className="bg-green-50 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-green-600">
+                  {Math.max(0, timelineData.totalDays - daysLeft)}
+                </div>
+                <div className="text-sm text-green-600">Days Passed</div>
+              </div>
+              <div className="bg-orange-50 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-orange-600">
+                  {Math.max(0, daysLeft - 30)}
+                </div>
+                <div className="text-sm text-orange-600">
+                  Until 30-Day Warning
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-gray-600">
+                  {timelineData.totalDays}
+                </div>
+                <div className="text-sm text-gray-600">Total Days</div>
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div className="flex items-center justify-center space-x-6 text-sm">
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-4 bg-blue-500 rounded"></div>
+                <span className="text-gray-600">Today</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-4 bg-green-500 rounded"></div>
+                <span className="text-gray-600">Event Day</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-4 bg-gray-300 rounded"></div>
+                <span className="text-gray-600">Past Days</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-4 bg-gray-200 rounded"></div>
+                <span className="text-gray-600">Future Days</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EventCountdown({ event }: { event: Event }) {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [daysLeft, setDaysLeft] = useState<number>(0);
+
+  useEffect(() => {
+    const calculateDaysLeft = () => {
+      const today = new Date();
+      const eventDate = new Date(event.event_date);
+
+      // Reset time to compare dates only
+      today.setHours(0, 0, 0, 0);
+      eventDate.setHours(0, 0, 0, 0);
+
+      const diffTime = eventDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      setDaysLeft(diffDays);
     };
 
     calculateDaysLeft();
@@ -362,384 +713,74 @@ function EventCountdown({ event }: { event: Event }) {
   };
 
   return (
-    <div className={`rounded-xl shadow-sm border p-6 ${getCountdownBg()}`}>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">Event Countdown</h3>
-        <Calendar className="h-5 w-5 text-gray-600" />
-      </div>
-
-      <div className="text-center">
-        <div className={`text-3xl font-bold mb-2 ${getCountdownColor()}`}>
-          {daysLeft < 0
-            ? "Event Passed"
-            : daysLeft === 0
-              ? "Today!"
-              : daysLeft === 1
-                ? "Tomorrow!"
-                : daysLeft}
-        </div>
-        <p className={`text-sm font-medium ${getCountdownColor()}`}>
-          {countdownText}
-        </p>
-        <p className="text-xs text-gray-500 mt-2">
-          {new Date(event.event_date).toLocaleDateString("en-US", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// Event Finalization Component
-function EventFinalization({
-  event,
-  onEventUpdate,
-}: {
-  event: Event;
-  onEventUpdate: () => Promise<void>;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [finalizationAction, setFinalizationAction] = useState<
-    "finalize" | "unfinalize"
-  >("finalize");
-  const [paymentStats, setPaymentStats] = useState<any>(null);
-  const [unlockPassword, setUnlockPassword] = useState("");
-
-  const isEventFinalized = !!event.finalized_at;
-
-  // Check if event is finalized and disable editing
-  const isEditingDisabled = isEventFinalized;
-
-  useEffect(() => {
-    fetchPaymentStats();
-  }, [event.event_id]);
-
-  const fetchPaymentStats = async () => {
-    try {
-      const response = await axios.post("/admin.php", {
-        operation: "getEventPaymentStats",
-        event_id: event.event_id,
-      });
-
-      if (response.data.status === "success") {
-        setPaymentStats(response.data.stats);
-      }
-    } catch (error) {
-      console.error("Error fetching payment stats:", error);
-    }
-  };
-
-  const handleFinalizationToggle = async () => {
-    try {
-      setLoading(true);
-      const action = isEventFinalized ? "unfinalize" : "finalize";
-      setFinalizationAction(action);
-      setShowConfirmModal(true);
-    } catch (error) {
-      console.error("Error toggling finalization:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update event finalization status",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const confirmFinalization = async () => {
-    try {
-      setLoading(true);
-      const payload: any = {
-        operation: "updateEventFinalization",
-        event_id: event.event_id,
-        action: finalizationAction,
-      };
-
-      // No admin password required when unfinalizing
-
-      const response = await axios.post("/admin.php", payload);
-
-      if (response.data.status === "success") {
-        toast({
-          title: "Success",
-          description:
-            finalizationAction === "finalize"
-              ? "Event has been finalized. Editing is locked except payment status updates."
-              : "Event has been set back to draft status",
-        });
-        await onEventUpdate();
-      } else {
-        toast({
-          title: "Error",
-          description:
-            response.data.message || "Failed to update event finalization",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error updating finalization:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update event finalization",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-      setShowConfirmModal(false);
-      setUnlockPassword("");
-    }
-  };
-
-  return (
     <>
-      {/* Confirmation Modal */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertTriangle className="h-6 w-6 text-orange-500" />
-              <h3 className="text-lg font-semibold text-gray-900">
-                {finalizationAction === "finalize"
-                  ? "Finalize Event"
-                  : "Set to Draft"}
-              </h3>
-            </div>
-
-            <p className="text-gray-600 mb-4">
-              {finalizationAction === "finalize"
-                ? "Are you sure you want to finalize this event? Editing will be locked except for payment status updates. The organizer will be notified."
-                : "Are you sure you want to set this event back to planning status? This will allow full editing again."}
-            </p>
-
-            {/* Password prompt removed */}
-
-            <div className="flex gap-3 justify-end">
-              <Button
-                onClick={() => setShowConfirmModal(false)}
-                variant="outline"
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={confirmFinalization}
-                disabled={loading}
-                className={
-                  finalizationAction === "finalize"
-                    ? "bg-green-600 hover:bg-green-700"
-                    : "bg-blue-600 hover:bg-blue-700"
-                }
-              >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    {finalizationAction === "finalize" ? (
-                      <>
-                        <Lock className="h-4 w-4 mr-2" />
-                        Yes, Finalize
-                      </>
-                    ) : (
-                      <>
-                        <Unlock className="h-4 w-4 mr-2" />
-                        Yes, Set to Draft
-                      </>
-                    )}
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div
-        className={`rounded-xl shadow-sm border p-6 ${
-          isEventFinalized
-            ? "bg-green-50 border-green-200"
-            : "bg-yellow-50 border-yellow-200"
-        }`}
-      >
+      <div className={`rounded-xl shadow-sm border p-6 ${getCountdownBg()}`}>
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            {isEventFinalized ? (
-              <Lock className="h-6 w-6 text-green-600" />
-            ) : (
-              <Unlock className="h-6 w-6 text-yellow-600" />
-            )}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                Event Finalization
-              </h3>
-              <p className="text-sm text-gray-500">
-                {isEventFinalized
-                  ? "Event is finalized. Editing is locked except for payment status updates."
-                  : "Event is in planning status and can be edited"}
-              </p>
-            </div>
-          </div>
-          <Button
-            onClick={handleFinalizationToggle}
-            disabled={loading}
-            variant={isEventFinalized ? "outline" : "default"}
-            size="sm"
-            className={
-              isEventFinalized
-                ? "border-green-300 text-green-700 hover:bg-green-100"
-                : "bg-green-600 hover:bg-green-700"
+          <h3 className="text-lg font-semibold text-gray-900">
+            Event Countdown
+          </h3>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="p-2 rounded-lg hover:bg-white hover:bg-opacity-50 transition-colors"
+            title="View Timeline"
+          >
+            <Calendar className="h-5 w-5 text-gray-600" />
+          </button>
+        </div>
+
+        <div className="text-center">
+          <ClientOnly
+            fallback={
+              <div className="text-3xl font-bold mb-2 text-gray-400">
+                Loading...
+              </div>
             }
           >
-            {loading ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                Processing...
-              </>
-            ) : isEventFinalized ? (
-              <>
-                <Unlock className="h-4 w-4 mr-2" />
-                Set to Draft
-              </>
-            ) : (
-              <>
-                <Lock className="h-4 w-4 mr-2" />
-                Finalize Event
-              </>
-            )}
-          </Button>
-        </div>
-
-        {/* Inclusion & Payment Status Display (includes venue + organizer) */}
-        {paymentStats &&
-          (() => {
-            const organizerPaid = event.organizer_payment_status === "paid";
-            const venuePaid = event.venue_payment_status === "paid";
-            const extraEntitiesCount =
-              (event.organizer_id ? 1 : 0) + (event.venue_id ? 1 : 0);
-            const derivedIncludedCount =
-              (paymentStats.included_components || 0) + extraEntitiesCount;
-            const derivedFinalizedCount =
-              (paymentStats.finalized_inclusions || 0) +
-              (organizerPaid ? 1 : 0) +
-              (venuePaid ? 1 : 0);
-            const derivedInclusionPercentage =
-              derivedIncludedCount > 0
-                ? Math.round(
-                    (derivedFinalizedCount / derivedIncludedCount) * 100
-                  )
-                : 0;
-            const derivedPaidComponents =
-              (paymentStats.paid_components || 0) +
-              (organizerPaid ? 1 : 0) +
-              (venuePaid ? 1 : 0);
-            const derivedPaymentPercentage =
-              derivedIncludedCount > 0
-                ? Math.round(
-                    (derivedPaidComponents / derivedIncludedCount) * 100
-                  )
-                : 0;
-            return (
-              <div className="mb-4 space-y-3">
-                {/* Inclusion Status */}
-                <div
-                  className={`p-3 rounded-md border ${
-                    derivedInclusionPercentage === 100
-                      ? "bg-green-50 border-green-200"
-                      : "bg-yellow-50 border-yellow-200"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-gray-600" />
-                      <span className="text-sm font-medium text-gray-700">
-                        Inclusion Status: {derivedFinalizedCount} of{" "}
-                        {derivedIncludedCount} finalized
-                      </span>
-                    </div>
-                    <span
-                      className={`text-sm font-bold ${
-                        derivedInclusionPercentage === 100
-                          ? "text-green-600"
-                          : "text-yellow-600"
-                      }`}
-                    >
-                      {derivedInclusionPercentage}%
-                    </span>
-                  </div>
-                  {derivedInclusionPercentage !== 100 && (
-                    <p className="text-xs text-yellow-700 mt-1">
-                      All inclusions must be paid before the event can be
-                      finalized.
-                    </p>
-                  )}
-                </div>
-
-                {/* Payment Status */}
-                <div
-                  className={`p-3 rounded-md border ${
-                    derivedPaymentPercentage === 100
-                      ? "bg-green-50 border-green-200"
-                      : "bg-blue-50 border-blue-200"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Receipt className="h-4 w-4 text-gray-600" />
-                      <span className="text-sm font-medium text-gray-700">
-                        Payment Status: {derivedPaidComponents} of{" "}
-                        {derivedIncludedCount} paid
-                      </span>
-                    </div>
-                    <span
-                      className={`text-sm font-bold ${
-                        derivedPaymentPercentage === 100
-                          ? "text-green-600"
-                          : "text-blue-600"
-                      }`}
-                    >
-                      {derivedPaymentPercentage}%
-                    </span>
-                  </div>
-                  {derivedPaymentPercentage !== 100 && (
-                    <p className="text-xs text-blue-700 mt-1">
-                      All inclusions must be paid before the event can be
-                      finalized.
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-
-        {isEventFinalized && (
-          <div className="bg-green-100 border border-green-200 rounded-md p-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600" />
-              <span className="text-sm font-medium text-green-800">
-                Event Finalized
-              </span>
+            <div className={`text-3xl font-bold mb-2 ${getCountdownColor()}`}>
+              {daysLeft < 0
+                ? "Event Passed"
+                : daysLeft === 0
+                  ? "Today!"
+                  : daysLeft === 1
+                    ? "Tomorrow!"
+                    : daysLeft}
             </div>
-            <p className="text-sm text-green-700 mt-1">
-              This event has been finalized. Editing is locked except for
-              payment status updates.
+          </ClientOnly>
+          <ClientOnly
+            fallback={
+              <p className="text-sm font-medium text-gray-400">Loading...</p>
+            }
+          >
+            <p className={`text-sm font-medium ${getCountdownColor()}`}>
+              {daysLeft < 0
+                ? "Event has passed"
+                : daysLeft === 0
+                  ? "Event is today!"
+                  : daysLeft === 1
+                    ? "Event is tomorrow!"
+                    : `${daysLeft} days until event`}
             </p>
-            {event.finalized_at && (
-              <p className="text-xs text-green-600 mt-2">
-                Finalized on:{" "}
-                {new Date(event.finalized_at).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-        )}
+          </ClientOnly>
+          <ClientOnly
+            fallback={<p className="text-xs text-gray-400 mt-2">Loading...</p>}
+          >
+            <p className="text-xs text-gray-500 mt-2">
+              {new Date(event.event_date).toLocaleDateString("en-US", {
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </p>
+          </ClientOnly>
+        </div>
       </div>
+
+      <CalendarModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        event={event}
+      />
     </>
   );
 }
@@ -759,7 +800,6 @@ function VenueSelection({
   const [customVenueName, setCustomVenueName] = useState("");
   const [customVenuePrice, setCustomVenuePrice] = useState<number | "">("");
   const [savingCustom, setSavingCustom] = useState(false);
-  const isEventFinalized = !!event.finalized_at;
 
   useEffect(() => {
     if (event.package_id) {
@@ -770,7 +810,7 @@ function VenueSelection({
   const fetchPackageVenues = async () => {
     try {
       setLoading(true);
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "getPackageVenues",
         package_id: event.package_id,
       });
@@ -810,7 +850,7 @@ function VenueSelection({
     }
     try {
       setSavingCustom(true);
-      const res = await fetch("/admin.php", {
+      const res = await fetch(endpoints.admin, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -885,13 +925,6 @@ function VenueSelection({
     } finally {
       setLoading(false);
     }
-  };
-
-  const formatCurrency = (amount: number) => {
-    return amount.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
   };
 
   if (!event.package_id) {
@@ -1092,7 +1125,6 @@ function PackageInclusionsManagement({
   onEventUpdate: () => Promise<void>;
 }) {
   const [isEditing, setIsEditing] = useState(false);
-  const isEventFinalized = !!event.finalized_at;
   const [components, setComponents] = useState<EventComponent[]>(
     event.components || []
   );
@@ -1121,14 +1153,6 @@ function PackageInclusionsManagement({
   const totalInclusionsPrice = components
     .filter((comp) => comp.is_included)
     .reduce((sum, comp) => sum + Number(comp.component_price || 0), 0);
-
-  // Format currency properly
-  const formatCurrency = (amount: number) => {
-    return amount.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  };
 
   // Check if there are any changes
   const hasChanges = () => {
@@ -1291,7 +1315,7 @@ function PackageInclusionsManagement({
   };
 
   const updateEventBudget = async (eventId: number, budgetChange: number) => {
-    const response = await fetch("/admin.php", {
+    const response = await fetch(endpoints.admin, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1310,7 +1334,7 @@ function PackageInclusionsManagement({
   };
 
   const performSaveComponent = async (componentData: any, isNew: boolean) => {
-    const response = await fetch("/admin.php", {
+    const response = await fetch(endpoints.admin, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1383,8 +1407,13 @@ function PackageInclusionsManagement({
       return;
     }
 
+    // Generate a stable temporary ID for hydration safety
+    const generateTempId = () => {
+      return Math.floor(Math.random() * 1000000) + 1;
+    };
+
     const newComp: EventComponent = {
-      component_id: Date.now(), // Temporary ID
+      component_id: generateTempId(), // Temporary ID - stable for hydration
       event_id: event.event_id,
       component_name: newComponent.component_name.trim(),
       component_description: newComponent.component_description?.trim() || "",
@@ -1456,7 +1485,7 @@ function PackageInclusionsManagement({
       );
       setLoading(true);
       const response = await axios.post(
-        "/admin.php",
+        endpoints.admin,
         {
           operation: "updateComponentPaymentStatus",
           component_id: componentId,
@@ -1628,10 +1657,10 @@ function PackageInclusionsManagement({
                   onClick={handleEditToggle}
                   variant="default"
                   size="sm"
-                  disabled={loading || isEventFinalized}
+                  disabled={loading}
                 >
                   <Edit className="h-4 w-4 mr-2" />
-                  {isEventFinalized ? "Event Finalized" : "Edit"}
+                  Edit
                 </Button>
               )}
             </div>
@@ -1652,7 +1681,9 @@ function PackageInclusionsManagement({
           const venueCount = event.venue_id ? 1 : 0;
           const extraIncluded = organizerCount + venueCount;
           const organizerPaid =
-            event.organizer_payment_status === "paid" ? 1 : 0;
+            event.organizer_payment_status === "paid" || !event.organizer_id
+              ? 1
+              : 0;
           const venuePaid = event.venue_payment_status === "paid" ? 1 : 0;
           const extraPaid = organizerPaid + venuePaid;
 
@@ -1695,58 +1726,6 @@ function PackageInclusionsManagement({
                 <span className="text-sm font-bold text-gray-700">
                   {completionPercentage}%
                 </span>
-                {completionPercentage === 100 && !isEventFinalized && (
-                  <Button
-                    onClick={async () => {
-                      try {
-                        setLoading(true);
-                        const response = await axios.post("/admin.php", {
-                          operation: "updateEventFinalization",
-                          event_id: event.event_id,
-                          action: "finalize",
-                        });
-
-                        if (response.data.status === "success") {
-                          toast({
-                            title: "Success",
-                            description:
-                              "Event has been finalized and marked as confirmed.",
-                          });
-                          await onEventUpdate();
-                        } else {
-                          toast({
-                            title: "Error",
-                            description:
-                              response.data.message ||
-                              "Failed to finalize event",
-                            variant: "destructive",
-                          });
-                        }
-                      } catch (error) {
-                        console.error("Error finalizing event:", error);
-                        toast({
-                          title: "Error",
-                          description: "Failed to finalize event",
-                          variant: "destructive",
-                        });
-                      } finally {
-                        setLoading(false);
-                      }
-                    }}
-                    size="sm"
-                    className="bg-green-600 hover:bg-green-700"
-                    disabled={loading}
-                  >
-                    <Lock className="h-3 w-3 mr-1" />
-                    Finalize Event
-                  </Button>
-                )}
-                {completionPercentage === 100 && isEventFinalized && (
-                  <span className="text-sm text-green-600 font-medium flex items-center gap-1">
-                    <CheckCircle className="h-4 w-4" />
-                    Event Finalized
-                  </span>
-                )}
               </div>
             </div>
           );
@@ -1934,7 +1913,7 @@ function PackageInclusionsManagement({
           </div>
 
           {/* Add New Component Button */}
-          {!showAddForm && !isEventFinalized && (
+          {!showAddForm && (
             <div className="text-center">
               <Button
                 onClick={() => setShowAddForm(true)}
@@ -2144,14 +2123,7 @@ function ComponentDisplay({
             )}
             <div className="flex items-center gap-4 mt-2">
               <span className="text-lg font-semibold text-green-600">
-                ₱
-                {(Number(component.component_price) || 0).toLocaleString(
-                  "en-PH",
-                  {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }
-                )}
+                ₱{formatCurrency(Number(component.component_price) || 0)}
               </span>
               {!component.is_custom && component.original_component_name && (
                 <span className="text-xs text-gray-500">
@@ -2379,14 +2351,7 @@ function ComponentDisplay({
           )}
           <div className="flex items-center gap-4 mt-2">
             <span className="text-lg font-semibold text-green-600">
-              ₱
-              {(Number(component.component_price) || 0).toLocaleString(
-                "en-PH",
-                {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }
-              )}
+              ₱{formatCurrency(Number(component.component_price) || 0)}
             </span>
             {!component.is_custom && component.original_component_name && (
               <span className="text-xs text-gray-500">
@@ -2507,6 +2472,46 @@ function EventTimeline({ event }: { event: Event }) {
       includedComponents.length > 0 &&
       paidIncludedComponents.length === includedComponents.length;
 
+    // Calculate derived payment status based on budget progress
+    const calculateDerivedPaymentStatus = () => {
+      // Calculate total paid amount
+      const paymentsTotal =
+        event.payments?.reduce((sum, payment: any) => {
+          if (
+            ["completed", "partial", "paid"].includes(payment.payment_status)
+          ) {
+            return sum + Number(payment.payment_amount || 0);
+          }
+          return sum;
+        }, 0) || 0;
+
+      const downPayment = Number(event.down_payment || 0);
+      const downPaymentIncluded =
+        event.payments?.some(
+          (payment: any) =>
+            payment.payment_type === "down_payment" ||
+            payment.payment_notes?.toLowerCase().includes("down payment")
+        ) || false;
+
+      const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+      const remaining = event.total_budget - totalPaid;
+
+      // If fully paid (no remaining balance), return "paid"
+      if (remaining <= 0 && event.total_budget > 0) {
+        return "paid";
+      }
+
+      // If partially paid, return "partial"
+      if (totalPaid > 0 && remaining > 0) {
+        return "partial";
+      }
+
+      // If no payments made, return "unpaid"
+      return "unpaid";
+    };
+
+    const derivedPaymentStatus = calculateDerivedPaymentStatus();
+
     const steps = [
       {
         id: "booking",
@@ -2522,30 +2527,27 @@ function EventTimeline({ event }: { event: Event }) {
         date: event.payments?.[0]?.payment_date,
         status: event.down_payment > 0 ? "completed" : "pending",
         icon: CreditCard,
-        description: `Down payment: ₱${Number(event.down_payment || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        description: `Down payment: ₱${formatCurrency(Number(event.down_payment || 0))}`,
       },
       {
         id: "planning",
         title: "Event Planning",
-        date: event.finalized_at || null,
-        // Only mark completed when event has been explicitly finalized
-        status: event.finalized_at
-          ? "completed"
-          : allIncludedPaid || event.event_status === "confirmed"
-            ? "in-progress"
+        date: null,
+        status:
+          allIncludedPaid || event.event_status === "confirmed"
+            ? "completed"
             : "pending",
         icon: Edit,
-        description: event.finalized_at
-          ? "All inclusions paid and finalized"
-          : allIncludedPaid
-            ? "All inclusions paid. Ready to finalize."
-            : "Finalizing event details",
+        description: allIncludedPaid
+          ? "All inclusions paid. Event ready."
+          : "Planning event details",
       },
       {
         id: "final-payment",
         title: "Final Payment",
         date: null,
-        status: event.payment_status === "paid" ? "completed" : "pending",
+        status:
+          calculateDerivedPaymentStatus() === "paid" ? "completed" : "pending",
         icon: DollarSign,
         description: "Complete payment settlement",
       },
@@ -2576,7 +2578,8 @@ function EventTimeline({ event }: { event: Event }) {
     const paidIncludedComponents = includedComponents.filter(
       (c) => c.payment_status === "paid"
     );
-    const organizerPaid = event.organizer_payment_status === "paid";
+    const organizerPaid =
+      event.organizer_payment_status === "paid" || !event.organizer_id;
     const venuePaid = event.venue_payment_status === "paid";
     const extraEntitiesCount =
       (event.organizer_id ? 1 : 0) + (event.venue_id ? 1 : 0);
@@ -2712,7 +2715,7 @@ function ClientProfile({ event }: { event: Event }) {
       return pfpPath;
     }
     // Use the image serving script for proper image delivery
-    return `serve-image.php?path=${encodeURIComponent(pfpPath)}`;
+    return `${endpoints.serveImage}?path=${encodeURIComponent(pfpPath)}`;
   };
 
   return (
@@ -2824,63 +2827,74 @@ function PaymentHistoryTab({ event }: { event: Event }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [dragActive, setDragActive] = useState(false);
   const [newPayment, setNewPayment] = useState({
     payment_type: "custom" as "custom" | "percentage" | "full",
     percentage: 0 as number,
     payment_amount: 0,
-    payment_method: "gcash" as "gcash" | "bank-transfer" | "cash",
+    payment_method: "cash" as "gcash" | "bank-transfer" | "cash",
     payment_date: new Date().toISOString().slice(0, 10),
     payment_status: "completed" as "completed" | "pending",
     next_due_date: "",
     payment_reference: "",
     payment_notes: "",
-    attachments: [] as File[],
   });
 
   useEffect(() => {
     fetchPaymentHistory();
   }, [event.event_id]);
 
+  // Refresh payment history when modal opens
+  useEffect(() => {
+    if (isPaymentModalOpen) {
+      console.log("Payment modal opened, refreshing payment history...");
+      console.log("Current payment history:", paymentHistory);
+      fetchPaymentHistory();
+    }
+  }, [isPaymentModalOpen]);
+
   const fetchPaymentHistory = async () => {
     try {
       setIsLoading(true);
-      const response = await axios.post("/admin.php", {
+      console.log("Fetching payment history for event:", event.event_id);
+
+      const response = await axios.post(endpoints.admin, {
         operation: "getEventPayments",
         event_id: event.event_id,
       });
 
+      console.log("Payment history API response:", response.data);
+      console.log("Response status:", response.status);
+      console.log("Payments in response:", response.data.payments);
+      console.log("Event payments:", event.payments);
+
       if (response.data.status === "success") {
         const raw = response.data.payments || event.payments || [];
+        console.log("Raw payment data:", raw);
+        console.log("Raw payment data length:", raw.length);
+
         const normalized = (raw || []).map((p: any) => {
-          let attachments = p.payment_attachments;
-          if (typeof attachments === "string") {
-            try {
-              attachments = JSON.parse(attachments);
-            } catch {
-              attachments = [];
-            }
-          }
-          return { ...p, payment_attachments: attachments || [] };
+          // Attachments removed; ensure field exists as empty array for UI safety
+          return { ...p, payment_attachments: [] };
         });
+
+        console.log("Normalized payment data:", normalized);
+        console.log(
+          "Setting payment history with",
+          normalized.length,
+          "payments"
+        );
+
         setPaymentHistory(normalized);
+      } else {
+        console.error("API returned error:", response.data.message);
       }
     } catch (error) {
       console.error("Error fetching payment history:", error);
       const fallback = (event.payments || []).map((p: any) => ({
         ...p,
-        payment_attachments:
-          typeof p.payment_attachments === "string"
-            ? (() => {
-                try {
-                  return JSON.parse(p.payment_attachments);
-                } catch {
-                  return [];
-                }
-              })()
-            : p.payment_attachments || [],
+        payment_attachments: [],
       }));
+      console.log("Using fallback payment data:", fallback);
       setPaymentHistory(fallback);
     } finally {
       setIsLoading(false);
@@ -2890,8 +2904,9 @@ function PaymentHistoryTab({ event }: { event: Event }) {
   const handleCreatePayment = async () => {
     try {
       setIsCreating(true);
-      // 1) Create payment record
-      const response = await axios.post("/admin.php", {
+
+      // Create payment record - simple data only
+      const paymentData = {
         operation: "createPayment",
         event_id: event.event_id,
         client_id: event.user_id,
@@ -2901,8 +2916,11 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         payment_status: newPayment.payment_status,
         payment_date: newPayment.payment_date,
         payment_reference: newPayment.payment_reference || "",
-        // attachments added separately via upload endpoint
-      });
+        // Calculate payment percentage for tracking
+        total_budget: event.total_budget || 0,
+      };
+
+      const response = await axios.post(endpoints.admin, paymentData);
 
       if (response.data.status !== "success") {
         toast({
@@ -2913,40 +2931,23 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         return;
       }
 
-      const paymentId = response.data.payment_id;
-
-      // 2) Upload attachments (if any)
-      for (const file of newPayment.attachments) {
-        const formData = new FormData();
-        formData.append("operation", "uploadPaymentAttachment");
-        formData.append("event_id", String(event.event_id));
-        formData.append("payment_id", String(paymentId));
-        formData.append("description", newPayment.payment_notes || "");
-        formData.append("file", file);
-
-        await fetch("/admin.php", {
-          method: "POST",
-          body: formData,
-        });
-      }
-
       toast({ title: "Success", description: "Payment recorded successfully" });
-      // reset form & close modal
+
+      // Reset form & close modal
       setNewPayment({
         payment_type: "custom",
         percentage: 0,
         payment_amount: 0,
-        payment_method: "gcash",
+        payment_method: "cash",
         payment_date: new Date().toISOString().slice(0, 10),
         payment_status: "completed",
         next_due_date: "",
         payment_reference: "",
         payment_notes: "",
-        attachments: [],
       });
       setIsPaymentModalOpen(false);
 
-      // refresh
+      // Refresh payment history
       await fetchPaymentHistory();
     } catch (e) {
       console.error(e);
@@ -2986,8 +2987,8 @@ function PaymentHistoryTab({ event }: { event: Event }) {
     const today = getTodayString();
     if (evt.event_date === today) return "on_going";
     if (evt.event_date < today) return "done";
-    // Only treat as confirmed when explicitly finalized
-    if (evt.finalized_at) return "confirmed";
+    // Check if event is confirmed
+    if (evt.event_status === "confirmed") return "confirmed";
     // Otherwise, map to non-confirmed statuses; treat stray 'confirmed' as planning
     const status = (evt.event_status || "").toLowerCase().trim();
     if (["draft", "pending", "planning"].includes(status)) return status;
@@ -3014,28 +3015,42 @@ function PaymentHistoryTab({ event }: { event: Event }) {
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
+  // File upload functions removed - simplified payment process
 
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const filesArray = Array.from(e.dataTransfer.files);
-      setNewPayment((p) => ({ ...p, attachments: filesArray as File[] }));
+  // Helper function to calculate paid amount with fallback
+  const calculatePaidAmount = () => {
+    if (paymentHistory && paymentHistory.length > 0) {
+      const paid = paymentHistory.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        return isPaid ? sum + p.payment_amount : sum;
+      }, 0);
+      console.log("Using payment history - paid amount:", paid);
+      return paid;
     }
-  };
 
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
+    // Fallback: try to get from event data
+    if (event.payments && Array.isArray(event.payments)) {
+      const paid = event.payments.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        return isPaid ? sum + p.payment_amount : sum;
+      }, 0);
+      console.log("Using event payments - paid amount:", paid);
+      return paid;
     }
-  };
 
-  const handleUploadClick = () => fileInputRef.current?.click();
+    console.log("No payment data available");
+    return 0;
+  };
 
   if (isLoading) {
     return (
@@ -3066,104 +3081,101 @@ function PaymentHistoryTab({ event }: { event: Event }) {
           <DialogHeader>
             <DialogTitle className="text-xl">Record Payment</DialogTitle>
             <DialogDescription className="text-sm">
-              Add payment details and proof. Use custom amount or percentage of
-              package price.
+              Record a new payment for this event. You can make partial
+              payments, full payment, or any custom amount.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-1 gap-6">
             <div>
-              {/* Summary on top */}
-              <div className="rounded-lg border p-4 bg-blue-50/50 mb-4">
-                <h4 className="font-semibold text-blue-900 mb-3">
+              {/* Enhanced Payment Summary */}
+              <div className="rounded-lg border p-6 bg-gradient-to-r from-blue-50 to-indigo-50 mb-6">
+                <h4 className="font-semibold text-blue-900 mb-4 flex items-center gap-2">
+                  <Wallet className="h-5 w-5" />
                   Payment Summary
                 </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                  <div>
-                    <div className="text-blue-700">Package Price</div>
-                    <div className="font-semibold text-blue-900">
-                      ₱
-                      {event.total_budget.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                  <div className="bg-white rounded-lg p-3 border">
+                    <div className="text-blue-700 font-medium mb-1">
+                      Total Budget
+                    </div>
+                    <div className="font-bold text-lg text-blue-900">
+                      ₱{formatCurrency(event.total_budget)}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-blue-700">Amount Paid</div>
-                    <div className="font-semibold text-blue-900">
+                  <div className="bg-white rounded-lg p-3 border">
+                    <div className="text-green-700 font-medium mb-1">
+                      Amount Paid
+                    </div>
+                    <div className="font-bold text-lg text-green-600">
                       ₱
-                      {(
-                        paymentHistory?.reduce(
-                          (sum, p) =>
-                            p.payment_status === "completed"
-                              ? sum + p.payment_amount
-                              : sum,
-                          0
-                        ) || 0
-                      ).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {(() => {
+                        const paidAmount = calculatePaidAmount();
+                        console.log(
+                          "Payment modal - final paid amount:",
+                          paidAmount
+                        );
+                        return formatCurrency(paidAmount);
+                      })()}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-blue-700">Balance Due</div>
-                    <div className="font-semibold text-blue-900">
+                  <div className="bg-white rounded-lg p-3 border">
+                    <div className="text-orange-700 font-medium mb-1">
+                      Balance Due
+                    </div>
+                    <div className="font-bold text-lg text-orange-600">
                       ₱
-                      {(
-                        event.total_budget -
-                        (paymentHistory?.reduce(
-                          (sum, p) =>
-                            p.payment_status === "completed"
-                              ? sum + p.payment_amount
-                              : sum,
-                          0
-                        ) || 0)
-                      ).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {formatCurrency(
+                        event.total_budget - calculatePaidAmount()
+                      )}
                     </div>
                   </div>
                 </div>
                 {(() => {
-                  const paid =
-                    paymentHistory?.reduce(
-                      (sum, p) =>
-                        p.payment_status === "completed"
-                          ? sum + p.payment_amount
-                          : sum,
-                      0
-                    ) || 0;
+                  const paid = calculatePaidAmount();
                   const pct =
                     event.total_budget > 0
                       ? (paid / event.total_budget) * 100
                       : 0;
+
+                  console.log("Payment modal progress calculation:");
+                  console.log("- Paid amount:", paid);
+                  console.log("- Total budget:", event.total_budget);
+                  console.log("- Percentage:", pct);
+                  console.log("- Payment history:", paymentHistory);
+
                   return (
-                    <div className="mt-3">
-                      <div className="text-blue-700 text-sm mb-1">
-                        Payment Progress
+                    <div className="mt-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="text-blue-700 text-sm font-medium">
+                          Payment Progress
+                        </div>
+                        <div className="text-sm font-bold text-blue-900">
+                          {pct.toFixed(1)}% Complete
+                        </div>
                       </div>
-                      <div className="w-full h-2 rounded bg-blue-100 overflow-hidden">
+                      <div className="w-full h-3 rounded-full bg-blue-100 overflow-hidden">
                         <div
-                          className="h-2 bg-blue-600"
-                          style={{ width: `${pct.toFixed(1)}%` }}
+                          className="h-3 bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-300"
+                          style={{ width: `${Math.min(pct, 100).toFixed(1)}%` }}
                         />
                       </div>
-                      <div className="text-xs text-blue-700 mt-1">
-                        {pct.toFixed(1)}% Complete
+                      <div className="flex justify-between text-xs text-gray-600 mt-1">
+                        <span>₱{formatCurrency(paid)} paid</span>
+                        <span>
+                          ₱{formatCurrency(event.total_budget - paid)} remaining
+                        </span>
                       </div>
                     </div>
                   );
                 })()}
               </div>
 
-              {/* Payment type buttons (Full, Percentage, Amount) */}
-              <div className="mb-4">
-                <div className="text-sm font-medium text-gray-700 mb-2">
-                  Payment Type
+              {/* Enhanced Payment Type Selection */}
+              <div className="mb-6">
+                <div className="text-sm font-medium text-gray-700 mb-3">
+                  Quick Payment Options
                 </div>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <Button
                     type="button"
                     variant={
@@ -3175,8 +3187,13 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                     onClick={() =>
                       setNewPayment((p) => ({ ...p, payment_type: "custom" }))
                     }
+                    className="h-12"
                   >
-                    <DollarSign className="h-3 w-3 mr-1" /> Custom Amount
+                    <DollarSign className="h-4 w-4 mr-2" />
+                    <div className="text-left">
+                      <div className="font-medium">Custom Amount</div>
+                      <div className="text-xs opacity-75">Enter any amount</div>
+                    </div>
                   </Button>
                   <Button
                     type="button"
@@ -3192,8 +3209,13 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                         payment_type: "percentage",
                       }))
                     }
+                    className="h-12"
                   >
-                    <Percent className="h-3 w-3 mr-1" /> Percentage
+                    <Percent className="h-4 w-4 mr-2" />
+                    <div className="text-left">
+                      <div className="font-medium">Percentage</div>
+                      <div className="text-xs opacity-75">Pay by %</div>
+                    </div>
                   </Button>
                   <Button
                     type="button"
@@ -3201,26 +3223,32 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                       newPayment.payment_type === "full" ? "default" : "outline"
                     }
                     size="sm"
-                    onClick={() =>
+                    onClick={() => {
+                      const remainingBalance = Math.max(
+                        0,
+                        event.total_budget -
+                          (paymentHistory?.reduce(
+                            (s, pay) =>
+                              pay.payment_status === "completed"
+                                ? s + pay.payment_amount
+                                : s,
+                            0
+                          ) || 0)
+                      );
                       setNewPayment((p) => ({
                         ...p,
                         payment_type: "full",
                         percentage: 100,
-                        payment_amount: Math.max(
-                          0,
-                          event.total_budget -
-                            (paymentHistory?.reduce(
-                              (s, pay) =>
-                                pay.payment_status === "completed"
-                                  ? s + pay.payment_amount
-                                  : s,
-                              0
-                            ) || 0)
-                        ).valueOf(),
-                      }))
-                    }
+                        payment_amount: remainingBalance,
+                      }));
+                    }}
+                    className="h-12"
                   >
-                    <Wallet className="h-3 w-3 mr-1" /> Pay Full Balance
+                    <Wallet className="h-4 w-4 mr-2" />
+                    <div className="text-left">
+                      <div className="font-medium">Full Balance</div>
+                      <div className="text-xs opacity-75">Pay remaining</div>
+                    </div>
                   </Button>
                 </div>
               </div>
@@ -3251,83 +3279,99 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                   />
                 </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Payment Details Form */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Payment Amount *
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+                        ₱
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={newPayment.payment_amount}
+                        onChange={(e) =>
+                          setNewPayment((p) => ({
+                            ...p,
+                            payment_amount: parseFloat(e.target.value) || 0,
+                          }))
+                        }
+                        className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="0.00"
+                        disabled={newPayment.payment_type === "full"}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Payment Method *
+                    </label>
+                    <select
+                      value={newPayment.payment_method}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_method: e.target.value as any,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 capitalize"
+                    >
+                      <option value="cash">💵 Cash</option>
+                      <option value="gcash">📱 GCash</option>
+                      <option value="bank-transfer">🏦 Bank Transfer</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Payment Date *
+                    </label>
+                    <input
+                      type="date"
+                      value={newPayment.payment_date}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_date: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Status *
+                    </label>
+                    <select
+                      value={newPayment.payment_status}
+                      onChange={(e) =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_status: e.target.value as any,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 capitalize"
+                    >
+                      <option value="pending">⏳ Pending</option>
+                      <option value="completed">✅ Completed</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Payment Amount *
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={newPayment.payment_amount}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_amount: parseFloat(e.target.value) || 0,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border rounded-md"
-                    placeholder="0.00"
-                    disabled={newPayment.payment_type === "full"}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Payment Method *
-                  </label>
-                  <select
-                    value={newPayment.payment_method}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_method: e.target.value as any,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border rounded-md capitalize"
-                  >
-                    <option value="cash">Cash</option>
-                    <option value="gcash">GCash</option>
-                    <option value="bank-transfer">Bank Transfer</option>
-                  </select>
-                </div>
-                <div className="md:col-span-1">
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Payment Date *
-                  </label>
-                  <input
-                    type="date"
-                    value={newPayment.payment_date}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_date: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border rounded-md"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Status *
-                  </label>
-                  <select
-                    value={newPayment.payment_status}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_status: e.target.value as any,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border rounded-md capitalize"
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="completed">Completed</option>
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Reference Number (Optional)
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Reference Number
+                    <span className="text-gray-500 font-normal">
+                      {" "}
+                      (for GCash/Bank Transfer)
+                    </span>
                   </label>
                   <input
                     type="text"
@@ -3338,13 +3382,18 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                         payment_reference: e.target.value,
                       }))
                     }
-                    className="w-full px-3 py-2 border rounded-md"
-                    placeholder="Transaction reference"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter transaction reference number"
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Notes (Optional)
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Notes
+                    <span className="text-gray-500 font-normal">
+                      {" "}
+                      (Optional)
+                    </span>
                   </label>
                   <textarea
                     value={newPayment.payment_notes}
@@ -3354,88 +3403,13 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                         payment_notes: e.target.value,
                       }))
                     }
-                    className="w-full px-3 py-3 border rounded-md min-h-28 resize-vertical"
-                    rows={4}
-                    placeholder="Additional notes..."
+                    className="w-full px-3 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-24 resize-vertical"
+                    rows={3}
+                    placeholder="Additional payment notes or comments..."
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-gray-700 mb-2">
-                    📎 Payment Attachments (Optional)
-                  </label>
-                  <div
-                    className={`border-2 border-dashed rounded-lg p-5 text-center transition-colors ${dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"}`}
-                    onDragEnter={handleDrag}
-                    onDragLeave={handleDrag}
-                    onDragOver={handleDrag}
-                    onDrop={handleDrop}
-                  >
-                    <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-                    <p className="text-sm md:text-base font-medium text-gray-700 mb-1">
-                      Proof of Payment
-                    </p>
-                    <p className="text-xs md:text-sm text-gray-500 mb-3">
-                      Upload receipts, screenshots, or other payment proof
-                      documents
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleUploadClick}
-                      disabled={isCreating}
-                    >
-                      Choose Files
-                    </Button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        setNewPayment((p) => ({
-                          ...p,
-                          attachments: files as File[],
-                        }));
-                      }}
-                      accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx"
-                    />
-                    <div className="text-xs md:text-sm text-gray-500 mt-3">
-                      Supported: JPG, PNG, PDF, DOC, DOCX (Max 5MB each)
-                    </div>
-                  </div>
-
-                  {newPayment.attachments.length > 0 && (
-                    <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {newPayment.attachments.map((file, idx) => (
-                        <div
-                          key={`${file.name}-${idx}`}
-                          className="flex items-center gap-3 bg-gray-50 p-3 rounded border"
-                        >
-                          {file.type.startsWith("image/") ? (
-                            <img
-                              src={URL.createObjectURL(file)}
-                              alt={file.name}
-                              className="w-12 h-12 object-cover rounded"
-                            />
-                          ) : (
-                            <FileIcon className="w-7 h-7 text-gray-500" />
-                          )}
-                          <div className="min-w-0">
-                            <div className="text-xs md:text-sm font-medium text-gray-900 truncate max-w-[200px]">
-                              {file.name}
-                            </div>
-                            <div className="text-[10px] md:text-xs text-gray-500">
-                              {(file.size / 1024).toFixed(1)} KB
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {/* Right column removed (summary moved to top) */}
               </div>
+              {/* File attachments removed - simplified payment process */}
               {/* Right column summary */}
               <div className="mt-5 flex justify-end gap-3">
                 <Button
@@ -3448,9 +3422,19 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                 <Button
                   onClick={handleCreatePayment}
                   disabled={isCreating || newPayment.payment_amount <= 0}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
                 >
-                  {isCreating ? "Saving..." : "Record Payment"}
+                  {isCreating ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Wallet className="h-4 w-4" />
+                      Record Payment
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
@@ -3463,65 +3447,86 @@ function PaymentHistoryTab({ event }: { event: Event }) {
           <div>
             <div className="text-blue-700">Total Budget</div>
             <div className="font-semibold text-blue-900">
-              ₱
-              {Number(event.total_budget || 0).toLocaleString("en-PH", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
+              ₱{formatCurrency(Number(event.total_budget || 0))}
             </div>
           </div>
           <div>
             <div className="text-blue-700">Down Payment</div>
             <div className="font-semibold text-blue-900">
-              ₱
-              {Number(event.down_payment || 0).toLocaleString("en-PH", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
+              ₱{formatCurrency(Number(event.down_payment || 0))}
             </div>
           </div>
           <div>
             <div className="text-blue-700">Total Paid</div>
             <div className="font-semibold text-blue-900">
               ₱
-              {Number(
-                paymentHistory?.reduce(
-                  (sum, p) =>
-                    p.payment_status === "completed"
-                      ? sum + p.payment_amount
-                      : sum,
-                  0
-                ) || 0
-              ).toLocaleString("en-PH", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
+              {formatCurrency(
+                Number(
+                  (() => {
+                    const paid =
+                      paymentHistory?.reduce((sum, p) => {
+                        console.log("Main summary - Payment item:", p);
+                        console.log(
+                          "Main summary - Payment status:",
+                          p.payment_status
+                        );
+                        console.log(
+                          "Main summary - Payment amount:",
+                          p.payment_amount
+                        );
+                        const isPaid =
+                          p.payment_status === "completed" ||
+                          p.payment_status === "paid" ||
+                          p.payment_status === "confirmed" ||
+                          p.payment_status === "processed" ||
+                          p.payment_status === "successful";
+                        console.log("Main summary - Is paid:", isPaid);
+                        return isPaid ? sum + p.payment_amount : sum;
+                      }, 0) || 0;
+                    console.log("Main summary - Total paid amount:", paid);
+                    console.log(
+                      "Main summary - Payment history:",
+                      paymentHistory
+                    );
+                    return paid;
+                  })()
+                )
+              )}
             </div>
           </div>
           <div>
             <div className="text-blue-700">Remaining Balance</div>
             <div className="font-semibold text-blue-900">
               ₱
-              {Number(
-                event.total_budget -
-                  (paymentHistory?.reduce(
-                    (sum, p) =>
-                      p.payment_status === "completed"
-                        ? sum + p.payment_amount
-                        : sum,
-                    0
-                  ) || 0)
-              ).toLocaleString("en-PH", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
+              {formatCurrency(
+                Number(
+                  event.total_budget -
+                    (() => {
+                      const paid =
+                        paymentHistory?.reduce((sum, p) => {
+                          const isPaid =
+                            p.payment_status === "completed" ||
+                            p.payment_status === "paid" ||
+                            p.payment_status === "confirmed" ||
+                            p.payment_status === "processed" ||
+                            p.payment_status === "successful";
+                          return isPaid ? sum + p.payment_amount : sum;
+                        }, 0) || 0;
+                      console.log(
+                        "Remaining balance calculation - Paid amount:",
+                        paid
+                      );
+                      return paid;
+                    })()
+                )
+              )}
             </div>
           </div>
         </div>
       </div>
 
       {paymentHistory && paymentHistory.length > 0 ? (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {paymentHistory.map((payment: any, index: number) => (
             <div
               key={
@@ -3529,72 +3534,84 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                   ? `payment-${payment.payment_id}`
                   : `temp-${index}-${payment?.payment_reference || payment?.payment_date || "placeholder"}`
               }
-              className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow"
+              className="bg-white border border-gray-200 rounded-lg p-5 hover:shadow-lg transition-all duration-200 hover:border-blue-300"
             >
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <CreditCard className="h-5 w-5 text-blue-600" />
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center">
+                    {payment.payment_method === "cash" ? (
+                      <Banknote className="h-6 w-6 text-blue-600" />
+                    ) : payment.payment_method === "gcash" ? (
+                      <CreditCard className="h-6 w-6 text-green-600" />
+                    ) : (
+                      <Building className="h-6 w-6 text-purple-600" />
+                    )}
                   </div>
                   <div>
-                    <h5 className="font-semibold text-gray-900">
-                      ₱
-                      {Number(payment.payment_amount || 0).toLocaleString(
-                        "en-PH",
-                        { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                      )}
+                    <h5 className="font-bold text-lg text-gray-900">
+                      ₱{formatCurrency(Number(payment.payment_amount || 0))}
                     </h5>
-                    <p className="text-sm text-gray-600 capitalize">
-                      {payment.payment_method || "N/A"}
+                    <p className="text-sm text-gray-600 capitalize font-medium">
+                      {payment.payment_method === "cash"
+                        ? "💵 Cash"
+                        : payment.payment_method === "gcash"
+                          ? "📱 GCash"
+                          : payment.payment_method === "bank-transfer"
+                            ? "🏦 Bank Transfer"
+                            : payment.payment_method || "N/A"}
                       {payment.installment_number &&
                         ` • Installment ${payment.installment_number}`}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {new Date(payment.payment_date).toLocaleDateString(
+                        "en-US",
+                        {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                        }
+                      )}
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
                   <span
-                    className={`inline-block px-2 py-1 rounded-full text-xs font-medium border ${getPaymentStatusColor(payment.payment_status)}`}
+                    className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentStatusColor(payment.payment_status)}`}
                   >
-                    {payment.payment_status}
+                    {payment.payment_status === "completed"
+                      ? "✅ Completed"
+                      : payment.payment_status === "pending"
+                        ? "⏳ Pending"
+                        : payment.payment_status === "paid"
+                          ? "✅ Paid"
+                          : payment.payment_status}
                   </span>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(payment.payment_date).toLocaleDateString()}
-                  </p>
                 </div>
               </div>
 
               {payment.payment_reference && (
-                <div className="text-sm text-gray-600 bg-gray-50 rounded px-3 py-2">
-                  <span className="font-medium">Reference:</span>{" "}
-                  {payment.payment_reference}
+                <div className="bg-gray-50 rounded-lg px-4 py-3 mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700">
+                      Reference Number:
+                    </span>
+                    <span className="text-sm font-mono bg-white px-2 py-1 rounded border text-gray-800">
+                      {payment.payment_reference}
+                    </span>
+                  </div>
                 </div>
               )}
 
-              {/* Attachments */}
-              {payment.payment_attachments &&
-                Array.isArray(payment.payment_attachments) &&
-                payment.payment_attachments.length > 0 && (
-                  <div className="mt-3">
-                    <div className="text-sm font-medium text-gray-900 mb-1">
-                      Attachments
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {payment.payment_attachments.map(
-                        (att: any, i: number) => (
-                          <a
-                            key={`${payment.payment_id}-${i}`}
-                            className="text-sm text-blue-600 hover:underline"
-                            href={`uploads/payment_proof/${att.filename || att.file_name}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {att.original_name || att.filename}
-                          </a>
-                        )
-                      )}
-                    </div>
+              {payment.payment_notes && (
+                <div className="bg-blue-50 rounded-lg px-4 py-3 mb-3">
+                  <div className="text-sm text-blue-800">
+                    <span className="font-medium">Notes:</span>{" "}
+                    {payment.payment_notes}
                   </div>
-                )}
+                </div>
+              )}
+
+              {/* Attachments removed per simplified payments */}
             </div>
           ))}
         </div>
@@ -3617,6 +3634,11 @@ export default function EventDetailsPage() {
   const router = useRouter();
   const params = useParams();
   const eventId = params.id as string;
+
+  // Type guard for admin organizer
+  const isAdminOrganizer = (id: number | "" | "admin"): id is "admin" => {
+    return id === "admin";
+  };
   const [event, setEvent] = useState<Event | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
@@ -3638,9 +3660,9 @@ export default function EventDetailsPage() {
   const [showAssignOrganizer, setShowAssignOrganizer] = useState(false);
   const [organizers, setOrganizers] = useState<any[]>([]);
   const [organizersLoading, setOrganizersLoading] = useState(false);
-  const [selectedOrganizerId, setSelectedOrganizerId] = useState<number | "">(
-    event?.organizer_id || ""
-  );
+  const [selectedOrganizerId, setSelectedOrganizerId] = useState<
+    number | "" | "admin"
+  >(event?.organizer_id || "");
   const [agreedFee, setAgreedFee] = useState<number | "">("");
   const [assignMode, setAssignMode] = useState<"pick" | "custom">("pick");
   const [customOrganizer, setCustomOrganizer] = useState({
@@ -3652,6 +3674,9 @@ export default function EventDetailsPage() {
     password: "",
   });
   const [organizerDetails, setOrganizerDetails] = useState<any | null>(null);
+  const [weddingDetails, setWeddingDetails] = useState<any | null>(null);
+  const [weddingLoading, setWeddingLoading] = useState(false);
+  const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const getTodayStringLocal = () => {
     const now = new Date();
@@ -3666,9 +3691,9 @@ export default function EventDetailsPage() {
     const today = getTodayStringLocal();
     if (evt.event_date === today) return "on_going";
     if (evt.event_date < today) return "done";
-    // Prompt requirement: finalized back -> confirmed; set to draft -> planning (yellow)
-    if (evt.finalized_at) return "confirmed";
-    // Non-finalized should be shown as Planning regardless of backend stray values
+    // Check if event is confirmed
+    if (evt.event_status === "confirmed") return "confirmed";
+    // Show as Planning for non-confirmed events
     return "planning";
   };
 
@@ -3700,51 +3725,136 @@ export default function EventDetailsPage() {
 
   const openAssignOrganizer = async () => {
     setShowAssignOrganizer(true);
-    if (organizers.length === 0) {
-      try {
-        setOrganizersLoading(true);
-        const res = await fetch(
-          "/admin.php?operation=getAllOrganizers&page=1&limit=100"
-        );
-        const data = await res.json();
-        if (data.status === "success") {
-          setOrganizers(data.data?.organizers || []);
-        } else {
-          toast({
-            title: "Error",
-            description: data.message || "Failed to load organizers",
-            variant: "destructive",
-          });
+
+    // Reset selected organizer to current event's organizer
+    if (event?.organizer_id) {
+      setSelectedOrganizerId(event.organizer_id);
+    } else if (organizerDetails?.organizer_organizer_id) {
+      setSelectedOrganizerId(organizerDetails.organizer_organizer_id);
+    } else {
+      setSelectedOrganizerId("");
+    }
+
+    // Always fetch fresh data when opening the modal
+    try {
+      setOrganizersLoading(true);
+
+      // Fetch admin information first
+      let adminInfo = null;
+      if (event?.admin_id) {
+        try {
+          const adminResponse = await fetch(
+            `${endpoints.admin}?operation=getUserProfile&user_id=${event.admin_id}`
+          );
+          const adminData = await adminResponse.json();
+          if (adminData.status === "success") {
+            adminInfo = {
+              ...adminData.profile,
+              organizer_id: "admin", // Special ID for admin
+              first_name: adminData.profile.user_firstName,
+              last_name: adminData.profile.user_lastName,
+              email: adminData.profile.user_email,
+              contact_number: adminData.profile.user_contact,
+              profile_picture: adminData.profile.user_pfp,
+              is_admin: true,
+              talent_fee_min: null,
+              talent_fee_max: null,
+            };
+          }
+        } catch (adminError) {
+          console.warn("Failed to fetch admin info:", adminError);
         }
-      } catch (e) {
+      }
+
+      // Use the same approach as the organizers page
+      console.log("Fetching organizers from API...");
+      const queryParams = new URLSearchParams({
+        page: "1",
+        limit: "100",
+      });
+
+      const response = await fetch(
+        `${endpoints.admin}?operation=getAllOrganizers&${queryParams}`
+      );
+      const data = await response.json();
+
+      console.log("API Response (getAllOrganizers):", data);
+
+      if (data.status === "success") {
+        // Sort organizers by name for better usability
+        const organizersList = data.data?.organizers || [];
+        console.log("📋 Raw organizers from API:", organizersList);
+
+        organizersList.sort((a: any, b: any) => {
+          const nameA = `${a.first_name || ""} ${a.last_name || ""}`.trim();
+          const nameB = `${b.first_name || ""} ${b.last_name || ""}`.trim();
+          return nameA.localeCompare(nameB);
+        });
+
+        // Add admin as the first option if available
+        const finalOrganizersList = adminInfo
+          ? [adminInfo, ...organizersList]
+          : organizersList;
+
+        setOrganizers(finalOrganizersList);
+        console.log("✅ Loaded organizers:", finalOrganizersList.length);
+
+        // Pre-select the current organizer if it exists in the list
+        if (event?.organizer_id) {
+          const currentOrganizer = finalOrganizersList.find(
+            (org: any) => org.organizer_id === event.organizer_id
+          );
+          if (currentOrganizer) {
+            setSelectedOrganizerId(currentOrganizer.organizer_id);
+            console.log(
+              "✓ Current organizer pre-selected:",
+              currentOrganizer.organizer_id
+            );
+          }
+        } else if (!event?.organizer_id && adminInfo) {
+          // If no organizer is assigned, pre-select admin as default
+          setSelectedOrganizerId("admin");
+          console.log("✓ Admin pre-selected as default organizer");
+        }
+      } else {
         toast({
           title: "Error",
-          description: "Failed to load organizers",
+          description: data.message || "Failed to load organizers",
           variant: "destructive",
         });
-      } finally {
-        setOrganizersLoading(false);
       }
+    } catch (error) {
+      console.error("Error loading organizers:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load organizers. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setOrganizersLoading(false);
     }
   };
 
   const fetchOrganizerDetailsForEvent = async (id: number) => {
     try {
-      const res = await axios.get(
-        `admin.php?operation=getEventOrganizerDetails&event_id=${id}`
-      );
-      if (res.data && res.data.status === "success") {
-        setOrganizerDetails(res.data.data);
+      // Using the adminApi wrapper for consistent error handling
+      const res = await adminApi.post({
+        operation: "getEventOrganizerDetails",
+        event_id: id,
+      });
+      if (res && res.status === "success") {
+        setOrganizerDetails(res.data);
       } else {
         setOrganizerDetails(null);
       }
-    } catch {
+    } catch (error) {
+      console.error("Error fetching organizer details:", error);
       setOrganizerDetails(null);
     }
   };
 
   useEffect(() => {
-    if (event?.event_id) {
+    if (event?.event_id && event?.organizer_id) {
       fetchOrganizerDetailsForEvent(event.event_id);
     } else {
       setOrganizerDetails(null);
@@ -3752,55 +3862,282 @@ export default function EventDetailsPage() {
   }, [event?.event_id, event?.organizer_id]);
 
   const assignOrganizer = async () => {
-    if (!event) return;
-    const orgId = Number(selectedOrganizerId);
-    if (!orgId) {
+    if (!event) {
+      console.error("No event available for organizer assignment");
       toast({
-        title: "Validation Error",
-        description: "Select an organizer",
+        title: "Error",
+        description: "No event data available",
         variant: "destructive",
       });
       return;
     }
+
+    // Handle admin assignment (special case)
+    if (isAdminOrganizer(selectedOrganizerId)) {
+      try {
+        setOrganizersLoading(true);
+
+        // For admin assignment, we'll set organizer_id to null in the event
+        // This indicates that the admin is handling the event directly
+        const payload = {
+          operation: "updateEventOrganizer",
+          event_id: event.event_id,
+          organizer_id: null, // Set to null to indicate admin is handling
+        };
+
+        console.log("Assigning admin as organizer with payload:", payload);
+
+        const response = await adminApi.post(payload);
+
+        if (
+          response &&
+          (response.status === "success" || Object.keys(response).length === 0)
+        ) {
+          toast({
+            title: "Admin Assigned",
+            description: "Admin will handle this event directly.",
+          });
+
+          setShowAssignOrganizer(false);
+          setOrganizerDetails(null); // Clear organizer details when admin is assigned
+          await fetchEventDetails();
+          return;
+        } else {
+          throw new Error(response?.message || "Failed to assign admin");
+        }
+      } catch (error: any) {
+        console.error("Error assigning admin:", error);
+        toast({
+          title: "Error",
+          description: "Failed to assign admin. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setOrganizersLoading(false);
+      }
+      return;
+    }
+
+    // Skip validation for admin case since it's handled above
+    if (isAdminOrganizer(selectedOrganizerId)) {
+      return; // This should not happen as admin case is handled above
+    }
+
+    const orgId = Number(selectedOrganizerId);
+
+    if (!orgId || isNaN(orgId) || orgId <= 0) {
+      console.error("Invalid organizer ID:", selectedOrganizerId);
+      toast({
+        title: "Validation Error",
+        description: "Please select a valid organizer",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate event ID
+    if (!event.event_id || isNaN(event.event_id) || event.event_id <= 0) {
+      console.error("Invalid event ID:", event.event_id);
+      toast({
+        title: "Error",
+        description: "Invalid event data",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
-      const body: any = {
+      // Use a loading state for better UX
+      setOrganizersLoading(true);
+
+      // Get the note value from the textarea using ref
+      const notes =
+        notesTextareaRef.current?.value ||
+        `Assigned from event details page (${event.event_title})`;
+
+      // Validate admin ID
+      const adminId = event.admin_id || 7;
+      if (!adminId || isNaN(adminId) || adminId <= 0) {
+        console.warn("Invalid admin ID, using default:", adminId);
+      }
+
+      // Use the existing working API endpoint for organizer assignment
+      const payload = {
         operation: "assignOrganizerToEvent",
         event_id: event.event_id,
         organizer_id: orgId,
-        assigned_by: event.admin_id || 7,
-        notes: "Assigned from event page",
+        assigned_by: adminId,
+        notes: notes,
       };
-      if (agreedFee !== "" && Number(agreedFee) > 0) {
-        body.agreed_talent_fee = Number(agreedFee);
-        body.fee_currency = "PHP";
-        body.fee_status = "proposed";
-      }
-      const res = await fetch("/admin.php", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+
+      console.log("Assigning organizer with payload:", payload);
+      console.log("Payload validation:", {
+        event_id_valid: !isNaN(payload.event_id) && payload.event_id > 0,
+        organizer_id_valid:
+          !isNaN(payload.organizer_id) && payload.organizer_id > 0,
+        assigned_by_valid:
+          !isNaN(payload.assigned_by) && payload.assigned_by > 0,
+        notes_valid:
+          typeof payload.notes === "string" && payload.notes.length > 0,
       });
-      const data = await res.json();
-      if (data.status === "success") {
+
+      const response = await adminApi.post(payload);
+
+      // Enhanced debugging to understand the response structure
+      console.log("Full API response:", response);
+      console.log("Response status:", response.status);
+      console.log("Response type:", typeof response);
+      console.log("Response keys:", Object.keys(response || {}));
+      console.log("Response message:", response.message);
+      console.log("Response data:", response.data);
+      console.log("Response JSON string:", JSON.stringify(response));
+
+      // Handle empty response object - this usually means the assignment was successful
+      // but the response wasn't parsed correctly
+      if (
+        !response ||
+        Object.keys(response).length === 0 ||
+        JSON.stringify(response) === "{}" ||
+        (response &&
+          typeof response === "object" &&
+          Object.keys(response).length === 0)
+      ) {
+        console.log(
+          "✅ Empty response object - treating as success (common with PHP APIs)"
+        );
+
+        // Get selected organizer details for success message
+        const selectedOrganizer = organizers.find(
+          (o) => o.organizer_id === orgId
+        );
+        const organizerName = selectedOrganizer
+          ? `${selectedOrganizer.first_name || ""} ${selectedOrganizer.last_name || ""}`.trim()
+          : `Organizer #${orgId}`;
+
         toast({
           title: "Organizer Assigned",
-          description: "Assignment saved.",
+          description: `${organizerName} has been assigned to this event.`,
         });
+
         setShowAssignOrganizer(false);
         await fetchEventDetails();
+        return;
+      }
+
+      // Check for success in multiple possible response formats
+      const isSuccess =
+        response.status === "success" ||
+        response.status === "SUCCESS" ||
+        (response.data && response.data.status === "success") ||
+        (response.message &&
+          response.message.toLowerCase().includes("success")) ||
+        (response.data &&
+          response.data.message &&
+          response.data.message.toLowerCase().includes("success"));
+
+      if (isSuccess) {
+        console.log("✅ Organizer assignment successful");
+
+        // Get selected organizer details for better success message
+        const selectedOrganizer = organizers.find(
+          (o) => o.organizer_id === orgId
+        );
+        const organizerName = selectedOrganizer
+          ? `${selectedOrganizer.first_name || ""} ${selectedOrganizer.last_name || ""}`.trim()
+          : `Organizer #${orgId}`;
+
+        toast({
+          title: "Organizer Assigned",
+          description: `${organizerName} has been assigned to this event.`,
+        });
+
+        // Create client notification for organizer assignment
+        try {
+          if (event && event.user_id) {
+            await notificationsApi.post({
+              operation: "create_notification",
+              user_id: event.user_id,
+              type: "organizer_assigned",
+              title: "Organizer Assigned",
+              message: `An organizer has been assigned to your event "${event.event_title}".`,
+              priority: "medium",
+              icon: "user",
+              url: `/client/events/${event.event_id}`,
+              event_id: event.event_id,
+              expires_hours: 168, // 1 week
+            });
+          }
+        } catch (notifyError) {
+          // Non-blocking: Ignore notification errors
+          console.warn("Failed to send notification:", notifyError);
+        }
+
+        setShowAssignOrganizer(false);
+
+        // Refresh event data to show the updated assignment
+        await fetchEventDetails();
       } else {
+        console.error("❌ Error assigning organizer - Response:", response);
+        console.error("Response status:", response.status);
+        console.error("Response message:", response.message);
+
+        const errorMessage =
+          response.message ||
+          response.error ||
+          response.data?.message ||
+          response.data?.error ||
+          "Failed to assign organizer";
+
         toast({
           title: "Error",
-          description: data.message || "Failed to assign organizer",
+          description: errorMessage,
           variant: "destructive",
         });
       }
-    } catch (e) {
+    } catch (error: any) {
+      // Enhanced error logging to capture more details
+      console.error("Error assigning organizer:", error);
+      console.error("Error type:", typeof error);
+      console.error("Error keys:", Object.keys(error || {}));
+      console.error("Error string:", JSON.stringify(error, null, 2));
+
+      let errorMessage = "Failed to assign organizer. Please try again.";
+
+      // Check if it's an API response error (from our apiPost wrapper)
+      if (error && typeof error === "object" && error.status === "error") {
+        errorMessage = error.error || error.message || errorMessage;
+        console.error("API wrapper error:", error);
+      }
+      // Check for axios error with response data
+      else if (error && error.response && error.response.data) {
+        console.error("Axios error response:", error.response.data);
+        errorMessage = error.response.data.message || errorMessage;
+      }
+      // Check for direct error message
+      else if (error && error.message) {
+        errorMessage = error.message;
+      }
+      // Check for string error
+      else if (typeof error === "string") {
+        errorMessage = error;
+      }
+      // Handle empty or undefined error
+      else if (
+        !error ||
+        (typeof error === "object" && Object.keys(error).length === 0)
+      ) {
+        errorMessage =
+          "An unknown error occurred while assigning the organizer.";
+        console.error("Empty or undefined error object");
+      }
+
       toast({
         title: "Error",
-        description: "Failed to assign organizer",
+        description: errorMessage,
         variant: "destructive",
       });
+    } finally {
+      setOrganizersLoading(false);
     }
   };
 
@@ -3851,7 +4188,7 @@ export default function EventDetailsPage() {
       await Promise.all(
         toFetch.map(async (id) => {
           try {
-            const res = await axios.post("/admin.php", {
+            const res = await axios.post(endpoints.admin, {
               operation: "getOrganizerById",
               organizer_id: Number(id),
             });
@@ -3885,12 +4222,27 @@ export default function EventDetailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizerMeta]);
 
+  const fetchAdminProfile = async (adminId: number) => {
+    try {
+      const response = await fetch(
+        `${endpoints.admin}?operation=getUserProfile&user_id=${adminId}`
+      );
+      const data = await response.json();
+      if (data.status === "success") {
+        return data.profile.user_pfp;
+      }
+    } catch (error) {
+      console.warn("Failed to fetch admin profile:", error);
+    }
+    return null;
+  };
+
   const fetchEventDetails = async () => {
     try {
       setIsLoading(true);
       console.log("🔍 Fetching event details for ID:", eventId);
 
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "getEventById",
         event_id: parseInt(eventId),
       });
@@ -3898,22 +4250,31 @@ export default function EventDetailsPage() {
       console.log("📡 API Response:", response.data);
 
       if (response.data.status === "success") {
-        setEvent(response.data.event);
-        console.log("✅ Event data loaded:", response.data.event);
+        let eventData = response.data.event;
+
+        // Fetch admin profile picture if admin_id exists
+        if (eventData.admin_id) {
+          const adminPfp = await fetchAdminProfile(eventData.admin_id);
+          eventData.admin_pfp = adminPfp;
+        }
+
+        setEvent(eventData);
+        console.log("✅ Event data loaded:", eventData);
 
         // Debug profile picture
         console.log("🖼️ Profile Picture Debug:", {
-          client_pfp: response.data.event.client_pfp,
-          has_pfp: !!response.data.event.client_pfp,
-          pfp_type: typeof response.data.event.client_pfp,
+          client_pfp: eventData.client_pfp,
+          admin_pfp: eventData.admin_pfp,
+          has_pfp: !!eventData.client_pfp,
+          pfp_type: typeof eventData.client_pfp,
         });
 
         // Debug attachments
         console.log("📎 Attachments Debug:", {
-          event_attachments: response.data.event.event_attachments,
-          attachments: response.data.event.attachments,
-          has_attachments: !!response.data.event.attachments,
-          attachments_length: response.data.event.attachments?.length || 0,
+          event_attachments: eventData.event_attachments,
+          attachments: eventData.attachments,
+          has_attachments: !!eventData.attachments,
+          attachments_length: eventData.attachments?.length || 0,
         });
       } else {
         console.error("❌ API Error:", response.data.message);
@@ -3994,7 +4355,7 @@ export default function EventDetailsPage() {
         assignment_id: assignmentId,
         payment_status: status,
       });
-      if (res.data.status === "success") {
+      if (res.status === "success") {
         toast({
           title: "Updated",
           description: "Organizer payment status updated.",
@@ -4050,7 +4411,7 @@ export default function EventDetailsPage() {
         event_id: eventId,
         payment_status: status,
       });
-      if (res.data.status === "success") {
+      if (res.status === "success") {
         toast({
           title: "Updated",
           description: "Venue payment status updated.",
@@ -4139,11 +4500,55 @@ export default function EventDetailsPage() {
     }
   };
 
+  // Load wedding details when appropriate
+  useEffect(() => {
+    console.log(
+      "🔍 Event type check:",
+      event?.event_type_name,
+      "Event type ID:",
+      event?.event_type_id
+    );
+    if (event?.event_type_id === 1) {
+      const fetchWedding = async () => {
+        try {
+          setWeddingLoading(true);
+          console.log("🔍 Fetching wedding details for event:", event.event_id);
+          console.log("🔍 Event type:", event.event_type_name);
+
+          const res = await axios.get(
+            `${endpoints.admin}?operation=getWeddingDetails&event_id=${event.event_id}`
+          );
+
+          console.log("📡 Wedding details response:", res.data);
+
+          if (res?.data?.status === "success") {
+            setWeddingDetails(res.data.wedding_details || null);
+            console.log("✅ Wedding details set:", res.data.wedding_details);
+          } else {
+            console.log("❌ No wedding details found");
+            setWeddingDetails(null);
+          }
+        } catch (e) {
+          console.error("❌ Error fetching wedding details:", e);
+          setWeddingDetails(null);
+        } finally {
+          setWeddingLoading(false);
+        }
+      };
+      fetchWedding();
+    } else {
+      setWeddingDetails(null);
+    }
+  }, [event?.event_id, event?.event_type_id]);
+
   const tabs = [
     { id: "overview", label: "Overview", icon: Eye },
     { id: "payments", label: "Payments", icon: CreditCard },
     { id: "attachments", label: "Files", icon: Paperclip },
+    { id: "nuptial", label: "Nupital Form", icon: FileText },
   ];
+
+  console.log("🔍 Tabs for event:", event?.event_type_name, "Tabs:", tabs);
 
   if (isLoading) {
     return (
@@ -4176,24 +4581,64 @@ export default function EventDetailsPage() {
   }
 
   // Derived inclusion/payment aggregates including venue and organizer
-  const organizerPaid = !!event && event.organizer_payment_status === "paid";
+  const organizerPaid =
+    !!event &&
+    (event.organizer_payment_status === "paid" || !event.organizer_id);
   const venuePaid = !!event && event.venue_payment_status === "paid";
   const extraEntitiesCount =
     (event?.organizer_id ? 1 : 0) + (event?.venue_id ? 1 : 0);
   const derivedIncludedCount =
     (event.components || []).filter((c) => c.is_included).length +
     extraEntitiesCount;
-  const derivedFinalizedCount =
+  const derivedPaidCount =
     (event.components || []).filter(
       (c) => c.is_included && c.payment_status === "paid"
     ).length +
     (organizerPaid ? 1 : 0) +
     (venuePaid ? 1 : 0);
+
+  // Calculate derived payment status based on budget progress
+  const calculateDerivedPaymentStatus = () => {
+    // Calculate total paid amount
+    const paymentsTotal =
+      event.payments?.reduce((sum, payment: any) => {
+        if (["completed", "partial", "paid"].includes(payment.payment_status)) {
+          return sum + Number(payment.payment_amount || 0);
+        }
+        return sum;
+      }, 0) || 0;
+
+    const downPayment = Number(event.down_payment || 0);
+    const downPaymentIncluded =
+      event.payments?.some(
+        (payment: any) =>
+          payment.payment_type === "down_payment" ||
+          payment.payment_notes?.toLowerCase().includes("down payment")
+      ) || false;
+
+    const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+    const remaining = event.total_budget - totalPaid;
+
+    // If fully paid (no remaining balance), return "paid"
+    if (remaining <= 0 && event.total_budget > 0) {
+      return "paid";
+    }
+
+    // If partially paid, return "partial"
+    if (totalPaid > 0 && remaining > 0) {
+      return "partial";
+    }
+
+    // If no payments made, return "unpaid"
+    return "unpaid";
+  };
+
+  const derivedPaymentStatus = calculateDerivedPaymentStatus();
   const derivedInclusionPercentage =
     derivedIncludedCount > 0
-      ? Math.round((derivedFinalizedCount / derivedIncludedCount) * 100)
+      ? Math.round((derivedPaidCount / derivedIncludedCount) * 100)
       : 0;
-  const derivedPaidComponents = derivedFinalizedCount;
+  const derivedPaidComponents = derivedPaidCount;
   const derivedPaymentPercentage =
     derivedIncludedCount > 0
       ? Math.round((derivedPaidComponents / derivedIncludedCount) * 100)
@@ -4245,10 +4690,6 @@ export default function EventDetailsPage() {
             <BudgetProgress event={event} />
             <EventTimeline event={event} />
             <EventCountdown event={event} />
-            <EventFinalization
-              event={event}
-              onEventUpdate={fetchEventDetails}
-            />
           </div>
 
           {/* Main Content */}
@@ -4340,9 +4781,9 @@ export default function EventDetailsPage() {
                                 Payment Status
                               </div>
                               <div
-                                className={`inline-block px-2 py-1 rounded-full text-xs font-medium border ${getPaymentStatusColor(event.payment_status)}`}
+                                className={`inline-block px-2 py-1 rounded-full text-xs font-medium border ${getPaymentStatusColor(derivedPaymentStatus)}`}
                               >
-                                {formatPaymentStatusLabel(event.payment_status)}
+                                {formatPaymentStatusLabel(derivedPaymentStatus)}
                               </div>
                             </div>
                           </div>
@@ -4505,12 +4946,12 @@ export default function EventDetailsPage() {
                       <div>
                         <div className="text-gray-600">Assigned Organizer</div>
                         <div className="flex items-center gap-3 font-medium">
-                          {event.organizer_id ? (
+                          {event.organizer_id && organizerDetails ? (
                             <>
                               <img
                                 src={
                                   organizerDetails?.profile_picture
-                                    ? `serve-image.php?path=${encodeURIComponent(
+                                    ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                         organizerDetails.profile_picture
                                       )}`
                                     : "/default_pfp.png"
@@ -4518,14 +4959,57 @@ export default function EventDetailsPage() {
                                 alt="Organizer"
                                 className="h-8 w-8 rounded-full object-cover"
                               />
-                              <span>
-                                {organizerDetails?.organizer_name ||
-                                  event.organizer_name ||
-                                  `Organizer #${event.organizer_id}`}
-                              </span>
+                              <div className="flex flex-col">
+                                <span>
+                                  {organizerDetails?.organizer_name ||
+                                    event.organizer_name ||
+                                    `Organizer #${event.organizer_id || organizerDetails?.organizer_organizer_id}`}
+                                </span>
+                                {/* Show assignment status if available */}
+                                {organizerDetails?.assignment_status && (
+                                  <span
+                                    className={`text-xs px-2 py-0.5 rounded-full ${
+                                      organizerDetails.assignment_status ===
+                                      "accepted"
+                                        ? "bg-green-100 text-green-800"
+                                        : organizerDetails.assignment_status ===
+                                            "rejected"
+                                          ? "bg-red-100 text-red-800"
+                                          : "bg-yellow-100 text-yellow-800"
+                                    }`}
+                                  >
+                                    {organizerDetails.assignment_status
+                                      .charAt(0)
+                                      .toUpperCase() +
+                                      organizerDetails.assignment_status.slice(
+                                        1
+                                      )}
+                                  </span>
+                                )}
+                              </div>
                             </>
                           ) : (
-                            <span>No organizer assigned</span>
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={
+                                  event.admin_pfp
+                                    ? `${endpoints.serveImage}?path=${encodeURIComponent(
+                                        event.admin_pfp
+                                      )}`
+                                    : "/default_pfp.png"
+                                }
+                                alt="Admin"
+                                className="h-8 w-8 rounded-full object-cover"
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-gray-900">
+                                  {event.admin_name || "Admin"}
+                                </span>
+                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">
+                                  Admin (Default)
+                                </span>
+                              </div>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -4544,7 +5028,8 @@ export default function EventDetailsPage() {
                     </div>
 
                     {/* Assignment Details */}
-                    {event.organizer_id && (
+                    {(event.organizer_id ||
+                      (!event.organizer_id && event.admin_id)) && (
                       <div className="mt-4 p-3 bg-gray-50 rounded-lg">
                         <div className="text-sm font-medium text-gray-900 mb-2">
                           Assignment Details
@@ -4553,6 +5038,15 @@ export default function EventDetailsPage() {
                           <div className="flex items-center gap-2">
                             <span className="font-medium">Status:</span>
                             {(() => {
+                              // If no organizer is assigned, show admin status
+                              if (!event.organizer_id) {
+                                return (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-blue-50 text-blue-800 border-blue-200">
+                                    Admin Assigned
+                                  </span>
+                                );
+                              }
+
                               const status = (
                                 organizerDetails?.assignment_status ||
                                 event.assignment_status ||
@@ -4588,37 +5082,45 @@ export default function EventDetailsPage() {
                               Payment Status:
                             </div>
                             <div className="relative">
-                              <button
-                                disabled={!isOrganizerEditing}
-                                className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(event.organizer_payment_status || "unpaid")} ${!isOrganizerEditing ? "opacity-60 cursor-not-allowed" : ""}`}
-                                onClick={(e) => {
-                                  if (!isOrganizerEditing) return;
-                                  e.preventDefault();
-                                  setShowOrganizerStatusMenu((prev) => !prev);
-                                }}
-                              >
-                                {(event.organizer_payment_status ||
-                                  "unpaid") === "paid" && (
+                              {!event.organizer_id ? (
+                                <span className="px-2 py-1 text-xs rounded-full border bg-green-50 text-green-800 border-green-200 inline-flex items-center gap-1">
                                   <CheckCircle className="h-3 w-3" />
-                                )}
-                                {(event.organizer_payment_status ||
-                                  "unpaid") === "partial" && (
-                                  <Percent className="h-3 w-3" />
-                                )}
-                                {(event.organizer_payment_status ||
-                                  "unpaid") === "unpaid" && (
-                                  <Wallet className="h-3 w-3" />
-                                )}
-                                {(event.organizer_payment_status ||
-                                  "unpaid") === "cancelled" && (
-                                  <X className="h-3 w-3" />
-                                )}
-                                {formatPaymentStatusLabel(
-                                  event.organizer_payment_status || "unpaid"
-                                )}
-                              </button>
+                                  Paid (Admin)
+                                </span>
+                              ) : (
+                                <button
+                                  disabled={!isOrganizerEditing}
+                                  className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(event.organizer_payment_status || "unpaid")} ${!isOrganizerEditing ? "opacity-60 cursor-not-allowed" : ""}`}
+                                  onClick={(e) => {
+                                    if (!isOrganizerEditing) return;
+                                    e.preventDefault();
+                                    setShowOrganizerStatusMenu((prev) => !prev);
+                                  }}
+                                >
+                                  {(event.organizer_payment_status ||
+                                    "unpaid") === "paid" && (
+                                    <CheckCircle className="h-3 w-3" />
+                                  )}
+                                  {(event.organizer_payment_status ||
+                                    "unpaid") === "partial" && (
+                                    <Percent className="h-3 w-3" />
+                                  )}
+                                  {(event.organizer_payment_status ||
+                                    "unpaid") === "unpaid" && (
+                                    <Wallet className="h-3 w-3" />
+                                  )}
+                                  {(event.organizer_payment_status ||
+                                    "unpaid") === "cancelled" && (
+                                    <X className="h-3 w-3" />
+                                  )}
+                                  {formatPaymentStatusLabel(
+                                    event.organizer_payment_status || "unpaid"
+                                  )}
+                                </button>
+                              )}
                               {showOrganizerStatusMenu &&
-                                isOrganizerEditing && (
+                                isOrganizerEditing &&
+                                event.organizer_id && (
                                   <div className="absolute z-10 mt-1 w-40 bg-white border rounded shadow">
                                     <button
                                       className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
@@ -4871,86 +5373,368 @@ export default function EventDetailsPage() {
                       </DialogHeader>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="col-span-1">
-                          <Label>Organizer</Label>
-                          <div className="max-h-80 overflow-auto border rounded">
+                          <div className="flex items-center justify-between mb-2">
+                            <Label className="text-base font-medium">
+                              Select Organizer
+                            </Label>
+                            {organizersLoading && (
+                              <div className="flex items-center text-xs text-blue-600">
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-2"></div>
+                                Loading organizers...
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Search input */}
+                          <div className="mb-3">
+                            <div className="relative">
+                              <svg
+                                className="absolute left-3 top-3 h-4 w-4 text-gray-400"
+                                width="15"
+                                height="15"
+                                viewBox="0 0 15 15"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                              >
+                                <path
+                                  d="M10 6.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0zm-.691 3.516a4.5 4.5 0 1 0-.707.707l2.838 2.838a.5.5 0 0 0 .708-.707l-2.838-2.838z"
+                                  fill="currentColor"
+                                  fillRule="evenodd"
+                                  clipRule="evenodd"
+                                ></path>
+                              </svg>
+                              <Input
+                                placeholder="Search organizers by name"
+                                className="pl-10"
+                                onChange={(e) => {
+                                  // Filter organizers on client side
+                                  const searchTerm =
+                                    e.target.value.toLowerCase();
+                                  if (!searchTerm) {
+                                    // Reset filtered list by re-fetching
+                                    openAssignOrganizer();
+                                    return;
+                                  }
+
+                                  // Otherwise filter the existing list
+                                  const filtered = organizers.filter((o) => {
+                                    const name =
+                                      `${o.first_name || ""} ${o.last_name || ""}`.toLowerCase();
+                                    return name.includes(searchTerm);
+                                  });
+
+                                  setOrganizers(filtered);
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Organizers List */}
+                          <div className="max-h-80 overflow-auto border rounded shadow-inner bg-gray-50">
                             {organizersLoading ? (
-                              <div className="p-3 text-sm text-gray-500">
-                                Loading...
+                              <div className="p-6 text-center text-gray-500">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
+                                <p>Loading organizers...</p>
                               </div>
                             ) : organizers.length === 0 ? (
-                              <div className="p-3 text-sm text-gray-500">
-                                No organizers found
+                              <div className="p-6 text-center text-gray-500">
+                                <User className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                                <p className="font-medium">
+                                  No organizers found
+                                </p>
+                                <p className="text-sm mt-1">
+                                  Try refreshing or add new organizers
+                                </p>
                               </div>
                             ) : (
-                              organizers.map((o) => (
-                                <button
-                                  key={o.organizer_id}
-                                  className={`w-full text-left p-3 flex items-center gap-3 border-b last:border-b-0 ${String(selectedOrganizerId) === String(o.organizer_id) ? "bg-purple-50" : "bg-white"}`}
-                                  onClick={() =>
-                                    setSelectedOrganizerId(o.organizer_id)
-                                  }
-                                >
-                                  <img
-                                    src={
-                                      o.profile_picture
-                                        ? `serve-image.php?path=${encodeURIComponent(
-                                            o.profile_picture
-                                          )}`
-                                        : "/default_pfp.png"
+                              <div className="divide-y divide-gray-200">
+                                {organizers.map((o) => (
+                                  <button
+                                    key={o.organizer_id}
+                                    className={`w-full text-left p-4 flex items-center gap-4 transition-colors hover:bg-purple-50/70 ${
+                                      String(selectedOrganizerId) ===
+                                      String(o.organizer_id)
+                                        ? "bg-purple-100 border-l-4 border-purple-600"
+                                        : "bg-white"
+                                    } ${o.is_admin ? "border-l-4 border-l-blue-500" : ""}`}
+                                    onClick={() =>
+                                      setSelectedOrganizerId(o.organizer_id)
                                     }
-                                    alt="pfp"
-                                    className="h-8 w-8 rounded-full object-cover"
-                                  />
-                                  <div className="flex-1">
-                                    <div className="font-medium">
-                                      {o.first_name} {o.last_name}
+                                  >
+                                    <div className="relative">
+                                      <img
+                                        src={
+                                          o.profile_picture
+                                            ? `${endpoints.serveImage}?path=${encodeURIComponent(
+                                                o.profile_picture
+                                              )}`
+                                            : "/default_pfp.png"
+                                        }
+                                        alt="Profile"
+                                        className="h-12 w-12 rounded-full object-cover border-2 border-gray-200"
+                                      />
+                                      {String(selectedOrganizerId) ===
+                                        String(o.organizer_id) && (
+                                        <div className="absolute -right-1 -bottom-1 bg-purple-600 text-white rounded-full p-0.5">
+                                          <CheckCircle className="h-4 w-4" />
+                                        </div>
+                                      )}
+                                      {o.is_admin && (
+                                        <div className="absolute -right-1 -top-1 bg-blue-600 text-white rounded-full p-0.5">
+                                          <User className="h-3 w-3" />
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="text-xs text-gray-500">
-                                      Fee:{" "}
-                                      {o.talent_fee_min
-                                        ? `₱${Number(o.talent_fee_min).toLocaleString()}`
-                                        : "-"}
-                                      {o.talent_fee_max
-                                        ? ` - ₱${Number(o.talent_fee_max).toLocaleString()}`
-                                        : ""}
+
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <div className="font-medium text-gray-900">
+                                          {o.first_name} {o.last_name}
+                                        </div>
+                                        {o.is_admin && (
+                                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">
+                                            Admin (Default)
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div className="grid grid-cols-2 gap-2 mt-1">
+                                        <div className="text-xs text-gray-500 flex items-center">
+                                          <Mail className="h-3 w-3 mr-1" />
+                                          {o.email || "No email"}
+                                        </div>
+                                        <div className="text-xs text-gray-500 flex items-center">
+                                          <Phone className="h-3 w-3 mr-1" />
+                                          {o.contact_number || "No phone"}
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 mt-1">
+                                        {o.is_admin ? (
+                                          <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full flex items-center">
+                                            <User className="h-3 w-3 mr-1" />
+                                            No additional fee
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full flex items-center">
+                                            <Banknote className="h-3 w-3 mr-1" />
+                                            {o.talent_fee_min
+                                              ? `₱${formatCurrency(Number(o.talent_fee_min))}`
+                                              : "No fee"}
+                                            {o.talent_fee_max &&
+                                            o.talent_fee_min !==
+                                              o.talent_fee_max
+                                              ? ` - ₱${formatCurrency(Number(o.talent_fee_max))}`
+                                              : ""}
+                                          </span>
+                                        )}
+
+                                        {o.experience_summary &&
+                                          !o.is_admin && (
+                                            <span className="text-xs bg-gray-100 text-gray-800 px-2 py-0.5 rounded-full">
+                                              {
+                                                o.experience_summary.split(
+                                                  " "
+                                                )[0]
+                                              }{" "}
+                                              exp.
+                                            </span>
+                                          )}
+                                      </div>
                                     </div>
-                                  </div>
-                                </button>
-                              ))
+                                  </button>
+                                ))}
+                              </div>
                             )}
                           </div>
                         </div>
-                        <div className="col-span-1">
-                          <Label>Agreed Talent Fee (optional)</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={agreedFee as any}
-                            onChange={(e) =>
-                              setAgreedFee(
-                                e.target.value === ""
-                                  ? ""
-                                  : Number(e.target.value)
-                              )
-                            }
-                            placeholder="e.g. 15000"
-                          />
-                          <p className="text-xs text-gray-500 mt-2">
-                            If provided, it will be saved with the assignment.
-                          </p>
+
+                        <div className="col-span-1 space-y-4">
+                          {/* Selected Organizer Summary */}
+                          {selectedOrganizerId && (
+                            <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                              <h4 className="font-medium text-purple-900 mb-2">
+                                Selected Organizer
+                              </h4>
+
+                              {(() => {
+                                const selected = organizers.find(
+                                  (o) =>
+                                    String(o.organizer_id) ===
+                                    String(selectedOrganizerId)
+                                );
+
+                                if (!selected) {
+                                  return (
+                                    <div className="text-sm text-purple-700">
+                                      Organizer ID: {selectedOrganizerId}
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-3">
+                                      <div className="relative">
+                                        <img
+                                          src={
+                                            selected.profile_picture
+                                              ? `${endpoints.serveImage}?path=${encodeURIComponent(
+                                                  selected.profile_picture
+                                                )}`
+                                              : "/default_pfp.png"
+                                          }
+                                          alt="Profile"
+                                          className="h-10 w-10 rounded-full object-cover"
+                                        />
+                                        {selected.is_admin && (
+                                          <div className="absolute -right-1 -top-1 bg-blue-600 text-white rounded-full p-0.5">
+                                            <User className="h-2 w-2" />
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <div className="font-medium text-purple-900">
+                                            {selected.first_name}{" "}
+                                            {selected.last_name}
+                                          </div>
+                                          {selected.is_admin && (
+                                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">
+                                              Admin
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-xs text-purple-700">
+                                          {selected.is_admin
+                                            ? "Default Organizer"
+                                            : `ID: ${selected.organizer_id}`}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {selected.is_admin ? (
+                                      <div className="text-sm text-green-800">
+                                        <span className="font-medium">
+                                          Fee:
+                                        </span>{" "}
+                                        No additional fee (Admin handles event)
+                                      </div>
+                                    ) : selected.talent_fee_min ? (
+                                      <div className="text-sm text-purple-800">
+                                        <span className="font-medium">
+                                          Regular Fee:
+                                        </span>{" "}
+                                        ₱
+                                        {formatCurrency(
+                                          Number(selected.talent_fee_min)
+                                        )}
+                                        {selected.talent_fee_max &&
+                                        selected.talent_fee_min !==
+                                          selected.talent_fee_max
+                                          ? ` - ₱${formatCurrency(Number(selected.talent_fee_max))}`
+                                          : ""}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+
+                          <div>
+                            <Label className="text-base font-medium">
+                              Agreed Talent Fee (optional)
+                            </Label>
+                            <div className="flex items-center mt-1">
+                              <span className="bg-gray-100 p-2 border border-r-0 rounded-l-md text-gray-500">
+                                ₱
+                              </span>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={agreedFee as any}
+                                onChange={(e) =>
+                                  setAgreedFee(
+                                    e.target.value === ""
+                                      ? ""
+                                      : Number(e.target.value)
+                                  )
+                                }
+                                placeholder="e.g. 15000"
+                                className="rounded-l-none"
+                              />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-2">
+                              If provided, this fee will be saved with the
+                              assignment and used for budget calculations.
+                            </p>
+                          </div>
+
+                          {/* Assignment Note */}
+                          <div>
+                            <Label className="text-base font-medium">
+                              Assignment Note (optional)
+                            </Label>
+                            <textarea
+                              ref={notesTextareaRef}
+                              className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                              rows={3}
+                              placeholder="Add any special instructions or notes for this organizer assignment..."
+                            ></textarea>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center justify-end gap-2 mt-4">
-                        <Button
-                          variant="outline"
-                          onClick={() => setShowAssignOrganizer(false)}
-                        >
-                          Cancel
-                        </Button>
-                        <Button onClick={() => assignOrganizer()}>
-                          Assign
-                        </Button>
+                      <div className="flex items-center justify-between gap-2 mt-6 border-t pt-4">
+                        <div className="text-sm text-gray-500">
+                          {organizersLoading ? (
+                            <span className="flex items-center text-blue-600">
+                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-2"></div>
+                              Processing...
+                            </span>
+                          ) : selectedOrganizerId ? (
+                            <span className="text-green-600 flex items-center">
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Ready to assign
+                            </span>
+                          ) : (
+                            <span>Select an organizer to continue</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => setShowAssignOrganizer(false)}
+                            disabled={organizersLoading}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            onClick={() => assignOrganizer()}
+                            disabled={organizersLoading || !selectedOrganizerId}
+                            className={
+                              selectedOrganizerId
+                                ? "bg-purple-600 hover:bg-purple-700"
+                                : ""
+                            }
+                          >
+                            {organizersLoading ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                <User className="h-4 w-4 mr-2" />
+                                {event?.organizer_id ||
+                                organizerDetails?.organizer_organizer_id
+                                  ? "Change Organizer"
+                                  : "Assign Organizer"}
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     </DialogContent>
                   </Dialog>
@@ -5053,9 +5837,12 @@ export default function EventDetailsPage() {
                           };
 
                           const handleFileDownload = (attachment: any) => {
+                            // Use window.open for better React compatibility
                             const link = document.createElement("a");
                             link.href = `${attachment.file_path}`;
                             link.download = attachment.original_name;
+                            link.target = "_blank";
+                            link.rel = "noopener noreferrer";
                             document.body.appendChild(link);
                             link.click();
                             document.body.removeChild(link);
@@ -5117,6 +5904,214 @@ export default function EventDetailsPage() {
                       <p className="text-gray-600">
                         Event attachments will appear here when uploaded.
                       </p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {activeTab === "nuptial" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">
+                    Nupital Form
+                  </h3>
+                  {weddingLoading ? (
+                    <div className="text-gray-500">
+                      Loading wedding details...
+                    </div>
+                  ) : !weddingDetails ? (
+                    <div className="text-center py-12">
+                      <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <h4 className="text-lg font-medium text-gray-900 mb-2">
+                        No form available for this event
+                      </h4>
+                      <p className="text-gray-600">
+                        Nupital forms are typically used for wedding events.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-sm text-gray-600">Nuptial</div>
+                          <div className="font-medium">
+                            {weddingDetails.nuptial || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">Motif</div>
+                          <div className="font-medium">
+                            {weddingDetails.motif || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">Bride</div>
+                          <div className="font-medium">
+                            {weddingDetails.bride_name || "-"}{" "}
+                            {weddingDetails.bride_gown_size
+                              ? `(Size: ${weddingDetails.bride_gown_size})`
+                              : ""}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">Groom</div>
+                          <div className="font-medium">
+                            {weddingDetails.groom_name || "-"}{" "}
+                            {weddingDetails.groom_attire_size
+                              ? `(Size: ${weddingDetails.groom_attire_size})`
+                              : ""}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">
+                            Maid of Honor
+                          </div>
+                          <div className="font-medium">
+                            {weddingDetails.maid_of_honor_name || "-"}{" "}
+                            {weddingDetails.maid_of_honor_size
+                              ? `(Size: ${weddingDetails.maid_of_honor_size})`
+                              : ""}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">Best Man</div>
+                          <div className="font-medium">
+                            {weddingDetails.best_man_name || "-"}{" "}
+                            {weddingDetails.best_man_size
+                              ? `(Size: ${weddingDetails.best_man_size})`
+                              : ""}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-sm text-gray-600">
+                            Little Bride
+                          </div>
+                          <div className="font-medium">
+                            {weddingDetails.little_bride_name || "-"}{" "}
+                            {weddingDetails.little_bride_size
+                              ? `(Size: ${weddingDetails.little_bride_size})`
+                              : ""}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">
+                            Little Groom
+                          </div>
+                          <div className="font-medium">
+                            {weddingDetails.little_groom_name || "-"}{" "}
+                            {weddingDetails.little_groom_size
+                              ? `(Size: ${weddingDetails.little_groom_size})`
+                              : ""}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">
+                            Prepared By
+                          </div>
+                          <div className="font-medium">
+                            {weddingDetails.prepared_by || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">
+                            Received By
+                          </div>
+                          <div className="font-medium">
+                            {weddingDetails.received_by || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">
+                            Pick Up Date
+                          </div>
+                          <div className="font-medium">
+                            {weddingDetails.pick_up_date || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">
+                            Return Date
+                          </div>
+                          <div className="font-medium">
+                            {weddingDetails.return_date || "-"}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <h4 className="font-semibold mb-2">Wedding Party</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {[
+                            { title: "Bridesmaids", key: "bridesmaids" },
+                            { title: "Groomsmen", key: "groomsmen" },
+                            {
+                              title: "Junior Groomsmen",
+                              key: "junior_groomsmen",
+                            },
+                            { title: "Flower Girls", key: "flower_girls" },
+                            { title: "Bearers", key: "bearers" },
+                          ].map((grp) => (
+                            <div
+                              key={grp.key}
+                              className="border rounded-md p-3"
+                            >
+                              <div className="text-sm text-gray-600 mb-1">
+                                {grp.title}
+                              </div>
+                              <div className="space-y-1">
+                                {(weddingDetails[grp.key] || []).length ===
+                                  0 && (
+                                  <div className="text-gray-400 text-sm">
+                                    None
+                                  </div>
+                                )}
+                                {(weddingDetails[grp.key] || []).map(
+                                  (m: any, idx: number) => (
+                                    <div key={idx} className="text-sm">
+                                      {m.name}
+                                      {m.size ? ` (Size: ${m.size})` : ""}
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <h4 className="font-semibold mb-2">Items</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {[
+                            ["cushions_quantity", "Cushions"],
+                            [
+                              "headdress_for_bride_quantity",
+                              "Headdress for Bride",
+                            ],
+                            ["shawls_quantity", "Shawls"],
+                            ["veil_cord_quantity", "Veil/Cord"],
+                            ["basket_quantity", "Basket"],
+                            ["petticoat_quantity", "Petticoat"],
+                            ["neck_bowtie_quantity", "Neck Bowtie"],
+                            ["garter_leg_quantity", "Garter/Leg"],
+                            ["fitting_form_quantity", "Fitting Form"],
+                            ["robe_quantity", "Robe"],
+                          ].map(([key, label]) => (
+                            <div
+                              key={key as string}
+                              className="flex items-center justify-between border rounded-md p-3"
+                            >
+                              <div className="text-sm text-gray-600">
+                                {label as string}
+                              </div>
+                              <div className="font-medium">
+                                {Number(weddingDetails[key as any] || 0)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

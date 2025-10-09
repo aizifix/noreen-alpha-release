@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   User,
   Mail,
@@ -85,10 +87,10 @@ export default function SupplierProfile() {
     try {
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getDashboard&user_id=${userId}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=getDashboard&user_id=${userId}`
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setProfile(data.profile);
@@ -113,10 +115,10 @@ export default function SupplierProfile() {
     try {
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getAnalytics&user_id=${userId}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=getAnalytics&user_id=${userId}`
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setStats(data.stats);
@@ -180,18 +182,13 @@ export default function SupplierProfile() {
       setSaving(true);
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=updateProfile&user_id=${userId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(formData),
-        }
+      const response = await axios.post(
+        endpoints.supplier,
+        { operation: "updateProfile", user_id: userId, ...formData },
+        { headers: { "Content-Type": "application/json" } }
       );
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setProfile({ ...profile, ...formData });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
 import Image from "next/image";
 import { MapPin, Check, Users, X, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,21 +84,12 @@ export function VenueSelection({
       setIsLoadingVenues(true);
       setVenuesError(null);
 
-      const response = await fetch(`${endpoints.admin}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          operation: "getAllAvailableVenues",
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const response = await axios.post(
+        `${endpoints.admin}`,
+        { operation: "getAllAvailableVenues" },
+        { headers: { "Content-Type": "application/json" } }
+      );
+      const data = response.data;
       console.log("API Response:", data);
 
       if (data.status === "success") {
@@ -267,10 +259,7 @@ export function VenueSelection({
     }
 
     // Use the serve-image.php script for proper image serving
-    const API_URL =
-      process.env.NEXT_PUBLIC_API_URL ||
-      "https://noreen-events.online/noreen-events";
-    return `${API_URL}/serve-image.php?path=${encodeURIComponent(imagePath)}`;
+    return `${endpoints.serveImage}?path=${encodeURIComponent(imagePath)}`;
   };
 
   // Helper function to safely calculate overflow charge

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,11 +39,17 @@ interface WeddingFormData {
   groom_name: string;
   groom_attire_size: string;
 
-  // Parents
+  // Parents - Bride's Side
   mothers_attire_name: string;
   mothers_attire_size: string;
   fathers_attire_name: string;
   fathers_attire_size: string;
+
+  // Parents - Groom's Side
+  mother_groom_name: string;
+  mother_groom_size: string;
+  father_groom_name: string;
+  father_groom_size: string;
 
   // Principal Sponsors
   maid_of_honor_name: string;
@@ -87,6 +95,8 @@ interface WeddingFormStepProps {
   initialData?: Partial<WeddingFormData>;
   onUpdate?: (data: WeddingFormData) => void;
   onNext?: () => void;
+  adminName?: string;
+  clientName?: string;
 }
 
 export function WeddingFormStep({
@@ -94,6 +104,8 @@ export function WeddingFormStep({
   initialData,
   onUpdate,
   onNext,
+  adminName,
+  clientName,
 }: WeddingFormStepProps) {
   const [formData, setFormData] = useState<WeddingFormData>({
     nuptial: "",
@@ -106,6 +118,10 @@ export function WeddingFormStep({
     mothers_attire_size: "",
     fathers_attire_name: "",
     fathers_attire_size: "",
+    mother_groom_name: "",
+    mother_groom_size: "",
+    father_groom_name: "",
+    father_groom_size: "",
     maid_of_honor_name: "",
     maid_of_honor_size: "",
     best_man_name: "",
@@ -148,16 +164,22 @@ export function WeddingFormStep({
 
   const loadWeddingDetails = async () => {
     try {
-      const response = await fetch(
-        `/api/admin?operation=getWeddingDetails&event_id=${eventId}`
+      console.log("🔍 Loading wedding details for event:", eventId);
+      const response = await axios.get(
+        `${endpoints.admin}?operation=getWeddingDetails&event_id=${eventId}`
       );
-      const data = await response.json();
+      const data = response.data;
+
+      console.log("📡 Wedding details response:", data);
 
       if (data.status === "success" && data.wedding_details) {
+        console.log("✅ Wedding details loaded:", data.wedding_details);
         setFormData((prev) => ({ ...prev, ...data.wedding_details }));
+      } else {
+        console.log("❌ No wedding details found or error:", data);
       }
     } catch (error) {
-      console.error("Error loading wedding details:", error);
+      console.error("❌ Error loading wedding details:", error);
     }
   };
 
@@ -219,10 +241,8 @@ export function WeddingFormStep({
 
   const saveWeddingDetails = async () => {
     if (!eventId) {
-      toast({
-        title: "Error",
+      toast.error("Error", {
         description: "Event ID is required to save wedding details",
-        variant: "destructive",
       });
       return false;
     }
@@ -241,41 +261,31 @@ export function WeddingFormStep({
 
       console.log("📤 Sending payload:", payload);
 
-      const response = await fetch("/api/admin", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+      const response = await axios.post(endpoints.admin, payload, {
+        headers: { "Content-Type": "application/json" },
+        validateStatus: () => true,
       });
 
       console.log("📡 Response status:", response.status);
-      console.log("📡 Response headers:", response.headers);
-
-      const data = await response.json();
+      const data = response.data;
       console.log("📥 Response data:", data);
 
       if (data.status === "success") {
-        toast({
-          title: "Success",
+        toast.success("Success", {
           description: "Wedding details saved successfully",
         });
         return true;
       } else {
         console.error("❌ Server error:", data.message);
-        toast({
-          title: "Error",
+        toast.error("Error", {
           description: data.message || "Failed to save wedding details",
-          variant: "destructive",
         });
         return false;
       }
     } catch (error) {
       console.error("❌ Network/JS error:", error);
-      toast({
-        title: "Error",
+      toast.error("Error", {
         description: "Failed to save wedding details - Network Error",
-        variant: "destructive",
       });
       return false;
     } finally {
@@ -474,6 +484,9 @@ export function WeddingFormStep({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="text-sm font-medium text-muted-foreground mb-2">
+              Bride's Parents
+            </div>
             <div>
               <Label htmlFor="mothers_attire_name">Mother's Name</Label>
               <Input
@@ -514,6 +527,60 @@ export function WeddingFormStep({
                 value={formData.fathers_attire_size}
                 onChange={(e) =>
                   updateFormData("fathers_attire_size", e.target.value)
+                }
+                placeholder="Enter attire size"
+              />
+            </div>
+
+            <Separator className="my-4" />
+            <div className="text-sm font-medium text-muted-foreground mb-2">
+              Groom's Parents
+            </div>
+
+            <div>
+              <Label htmlFor="mother_groom_name">Groom's Mother Name</Label>
+              <Input
+                id="mother_groom_name"
+                value={formData.mother_groom_name}
+                onChange={(e) =>
+                  updateFormData("mother_groom_name", e.target.value)
+                }
+                placeholder="Enter groom's mother name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="mother_groom_size">
+                Groom's Mother Attire Size
+              </Label>
+              <Input
+                id="mother_groom_size"
+                value={formData.mother_groom_size}
+                onChange={(e) =>
+                  updateFormData("mother_groom_size", e.target.value)
+                }
+                placeholder="Enter attire size"
+              />
+            </div>
+            <div>
+              <Label htmlFor="father_groom_name">Groom's Father Name</Label>
+              <Input
+                id="father_groom_name"
+                value={formData.father_groom_name}
+                onChange={(e) =>
+                  updateFormData("father_groom_name", e.target.value)
+                }
+                placeholder="Enter groom's father name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="father_groom_size">
+                Groom's Father Attire Size
+              </Label>
+              <Input
+                id="father_groom_size"
+                value={formData.father_groom_size}
+                onChange={(e) =>
+                  updateFormData("father_groom_size", e.target.value)
                 }
                 placeholder="Enter attire size"
               />
@@ -824,86 +891,6 @@ export function WeddingFormStep({
         )}
         {renderPartySection("Bearers", "bearers", <User className="h-5 w-5" />)}
       </div>
-
-      {/* Processing Information */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Processing Information
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="prepared_by">Prepared By</Label>
-              <Input
-                id="prepared_by"
-                value={formData.prepared_by}
-                onChange={(e) => updateFormData("prepared_by", e.target.value)}
-                placeholder="Enter preparer's name"
-              />
-            </div>
-            <div>
-              <Label htmlFor="received_by">Received By</Label>
-              <Input
-                id="received_by"
-                value={formData.received_by}
-                onChange={(e) => updateFormData("received_by", e.target.value)}
-                placeholder="Enter receiver's name"
-              />
-            </div>
-            <div>
-              <Label htmlFor="pick_up_date">Pick Up Date</Label>
-              <Input
-                id="pick_up_date"
-                type="date"
-                value={formData.pick_up_date}
-                onChange={(e) => updateFormData("pick_up_date", e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="return_date">Return Date</Label>
-              <Input
-                id="return_date"
-                type="date"
-                value={formData.return_date}
-                onChange={(e) => updateFormData("return_date", e.target.value)}
-              />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="customer_signature">Customer Signature</Label>
-            <Textarea
-              id="customer_signature"
-              value={formData.customer_signature}
-              onChange={(e) =>
-                updateFormData("customer_signature", e.target.value)
-              }
-              placeholder="Customer signature or notes"
-              rows={3}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Action Buttons
-      <div className="flex justify-end space-x-4 pt-6">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            // Save wedding details without proceeding
-            saveWeddingDetails();
-          }}
-          disabled={loading}
-        >
-          {loading ? "Saving..." : "Save Draft"}
-        </Button>
-        <Button type="button" onClick={handleNext} disabled={loading}>
-          {loading ? "Saving..." : "Next Step"}
-        </Button>
-      </div> */}
     </div>
   );
 }

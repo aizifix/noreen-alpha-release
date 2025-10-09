@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   TrendingUp,
   TrendingDown,
@@ -73,10 +75,10 @@ export default function SupplierAnalytics() {
       setLoading(true);
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getAnalytics&user_id=${userId}&time_range=${timeRange}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=getAnalytics&user_id=${userId}&time_range=${timeRange}`
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setAnalyticsData(data.analytics);

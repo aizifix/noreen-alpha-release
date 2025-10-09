@@ -74,8 +74,7 @@ export function DraftHandler({
         localStorage.setItem(draftKey, JSON.stringify(draftData));
 
         if (showToast) {
-          toast({
-            title: "Draft Saved",
+          toast.success("Draft Saved", {
             description: "Your progress has been saved automatically.",
           });
         }
@@ -84,10 +83,8 @@ export function DraftHandler({
       } catch (error) {
         console.error("Error saving draft:", error);
         if (showToast) {
-          toast({
-            title: "Save Failed",
+          toast.error("Save Failed", {
             description: "Failed to save draft. Please try again.",
-            variant: "destructive",
           });
         }
       }
@@ -138,8 +135,7 @@ export function DraftHandler({
       const draftKey = getDraftKey();
       localStorage.removeItem(draftKey);
       onClearDraft();
-      toast({
-        title: "Draft Cleared",
+      toast.info("Draft Cleared", {
         description: "All saved progress has been cleared.",
       });
       console.log("🗑️ Draft cleared");
@@ -177,16 +173,14 @@ export function DraftHandler({
         // On refresh, always start from step 1 but keep the form data
         const draftWithStep1 = { ...draft, currentStep: 1 };
         onLoadDraft(draftWithStep1);
-        toast({
-          title: "Draft Restored",
+        toast.info("Draft Restored", {
           description:
             "Your previous progress has been restored. Starting from step 1.",
         });
       } else {
         // On navigation, restore everything including the step
         onLoadDraft(draft);
-        toast({
-          title: "Draft Restored",
+        toast.info("Draft Restored", {
           description: "Your previous progress has been restored.",
         });
       }

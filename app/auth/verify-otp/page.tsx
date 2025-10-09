@@ -300,22 +300,29 @@ const VerifyOTP = () => {
   }, [timeLeft]);
 
   return (
-    <div className="flex flex-col min-h-screen items-center justify-center bg-gray-100">
-      <Image
-        src={Logo}
-        alt="Logo"
-        className="mb-6"
-        width={150}
-        height={150}
-        priority
-      />
-      <div className="w-full max-w-sm p-6 bg-white rounded-lg shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800 mb-6">Enter OTP</h2>
-        <p className="text-sm text-gray-600 mb-4">
-          Please enter the OTP sent to {userEmail ? userEmail : "your email"}
-        </p>
+    <div className="flex flex-col min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+      <div className="w-full max-w-md p-8 bg-white rounded-2xl shadow-xl border border-gray-100">
+        <div className="text-center mb-8">
+          <Image
+            src={Logo}
+            alt="Logo"
+            className="mx-auto mb-4"
+            width={80}
+            height={80}
+            priority
+          />
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Verify Your Identity
+          </h2>
+          <p className="text-sm text-gray-600">
+            Enter the 6-digit code sent to{" "}
+            <span className="font-medium text-blue-600">
+              {userEmail ? userEmail : "your email"}
+            </span>
+          </p>
+        </div>
 
-        <div className="flex gap-2 mb-6">
+        <div className="flex justify-center gap-3 mb-8">
           {otpValues.map((digit, index) => (
             <input
               key={index}
@@ -329,59 +336,86 @@ const VerifyOTP = () => {
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
               onPaste={handlePaste}
-              className={`w-12 h-12 text-center text-xl font-semibold border-2 rounded-lg
-                ${isValid ? "border-green-500" : digit ? "border-red-500" : "border-gray-300"}
-                focus:outline-none focus:border-blue-500`}
+              className={`w-14 h-14 text-center text-2xl font-bold border-2 rounded-xl transition-all duration-200
+                ${
+                  isValid
+                    ? "border-green-500 bg-green-50 text-green-700"
+                    : digit
+                      ? "border-red-500 bg-red-50 text-red-700"
+                      : "border-gray-300 bg-gray-50 text-gray-700"
+                }
+                focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100
+                hover:border-gray-400`}
               maxLength={1}
               disabled={isLoading}
             />
           ))}
         </div>
 
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-sm text-gray-500">
-            Time remaining: {formatTime(timeLeft)}
-          </span>
-          {isValid && <CheckCircle2 className="w-5 h-5 text-green-500" />}
-          {!isValid && otpValues.some((digit) => digit) && (
-            <XCircle className="w-5 h-5 text-red-500" />
-          )}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-3 h-3 rounded-full ${timeLeft > 60 ? "bg-green-500" : timeLeft > 30 ? "bg-yellow-500" : "bg-red-500"} animate-pulse`}
+            ></div>
+            <span className="text-sm font-medium text-gray-600">
+              {timeLeft > 0 ? formatTime(timeLeft) : "Expired"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {isValid && <CheckCircle2 className="w-6 h-6 text-green-500" />}
+            {!isValid && otpValues.some((digit) => digit) && (
+              <XCircle className="w-6 h-6 text-red-500" />
+            )}
+          </div>
         </div>
 
         <button
           onClick={handleVerify}
           disabled={isLoading || !isValid}
-          className="w-full bg-[#334746] text-white py-2 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 transition-colors"
+          className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-400 transition-all duration-200 transform hover:scale-[1.02] disabled:scale-100 shadow-lg disabled:shadow-none"
         >
-          {isLoading ? "Verifying..." : "Verify OTP"}
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-2">
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              Verifying...
+            </div>
+          ) : (
+            "Verify Code"
+          )}
         </button>
 
         {timeLeft === 0 ? (
-          <div className="mt-4 text-center">
-            <p className="text-sm text-gray-600">OTP expired.</p>
+          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-xl text-center">
+            <p className="text-sm text-red-700 font-medium mb-3">
+              OTP has expired
+            </p>
             <button
               onClick={handleResendOTP}
-              className="text-blue-600 hover:underline text-sm"
+              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
               disabled={isLoading}
             >
-              Resend OTP
+              {isLoading ? "Sending..." : "Send New Code"}
             </button>
           </div>
         ) : (
-          <p className="mt-4 text-sm text-center text-gray-500">
-            Didn't receive the code?{" "}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600 mb-3">
+              Didn't receive the code?
+            </p>
             <button
               onClick={handleResendOTP}
-              className="text-blue-600 hover:underline"
+              className="text-blue-600 hover:text-blue-700 font-medium text-sm transition-colors"
               disabled={isLoading || timeLeft > 240} // Allow resend after 1 minute
             >
-              Resend
+              {isLoading ? "Sending..." : "Resend Code"}
             </button>
-          </p>
+          </div>
         )}
 
         {message && (
-          <p className="mt-4 text-sm text-center text-red-600">{message}</p>
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-700 text-center">{message}</p>
+          </div>
         )}
       </div>
     </div>

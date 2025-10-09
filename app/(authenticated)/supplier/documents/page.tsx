@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   FileText,
   Upload,
@@ -65,7 +67,7 @@ export default function SupplierDocuments() {
   // Filters
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("/);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -82,10 +84,10 @@ export default function SupplierDocuments() {
       setLoading(true);
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getDocuments&user_id=${userId}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=getDocuments&user_id=${userId}`
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setDocuments(data.documents);
@@ -187,15 +189,13 @@ export default function SupplierDocuments() {
       formData.append("document_type", uploadForm.document_type);
       formData.append("title", uploadForm.document_title);
 
-      const response = await fetch(
-        `supplier.php?operation=uploadDocument&user_id=${userId}`,
-        {
-          method: "POST",
-          body: formData,
-        }
+      const response = await axios.post(
+        `${endpoints.supplier}?operation=uploadDocument&user_id=${userId}`,
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } }
       );
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         // Refresh documents list

@@ -9,6 +9,7 @@ import ClientRouteProtection from "@/app/components/client-route-protection";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import type ReCAPTCHAType from "react-google-recaptcha";
+import { Eye, EyeOff, RefreshCw } from "lucide-react";
 
 // Dynamic import for ReCAPTCHA to prevent hydration issues (temporarily disabled)
 // const ReCAPTCHA = dynamic(() => import("react-google-recaptcha"), {
@@ -29,6 +30,7 @@ const LoginPage = () => {
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   // Math challenge state instead of captcha
   const [mathChallenge, setMathChallenge] = useState({ num1: 0, num2: 0 });
   const [mathAnswer, setMathAnswer] = useState("");
@@ -437,23 +439,47 @@ const LoginPage = () => {
                   >
                     Password
                   </label>
-                  <input
-                    type="password"
-                    id="password"
-                    name="password"
-                    value={formData.password}
-                    onChange={handleChange}
-                    required
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200"
-                    placeholder="Enter your password"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      id="password"
+                      name="password"
+                      value={formData.password}
+                      onChange={handleChange}
+                      required
+                      className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200"
+                      placeholder="Enter your password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-5 w-5" />
+                      ) : (
+                        <Eye className="h-5 w-5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Simple Math Challenge */}
                 <div className="flex flex-col items-center p-4 border rounded-lg bg-gray-50">
-                  <label className="mb-2 text-sm font-medium text-gray-700">
-                    Please solve this simple math problem:
-                  </label>
+                  <div className="flex items-center justify-between w-full mb-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Please solve this simple math problem:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={generateMathChallenge}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors"
+                      title="Generate new math problem"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      Reset
+                    </button>
+                  </div>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="p-2 bg-white border rounded-md text-lg font-medium w-12 h-12 flex items-center justify-center">
                       {mathChallenge.num1}

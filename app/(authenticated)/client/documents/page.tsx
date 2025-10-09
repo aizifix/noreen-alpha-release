@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiClient } from "@/utils/apiClient";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 import {
@@ -115,7 +116,7 @@ export default function ClientDocuments() {
       }
       setIsLoading(true);
       const resp = await axios.get(
-        `client.php?operation=getClientEvents&user_id=${u.user_id}`
+        `${endpoints.client}?operation=getClientEvents&user_id=${u.user_id}`
       );
       if (resp.data?.status === "success") {
         const list: ClientEvent[] = (resp.data.events || []).map((e: any) => ({
@@ -144,7 +145,7 @@ export default function ClientDocuments() {
       if (!u?.user_id) return;
       setIsLoadingFiles(true);
       const resp = await axios.get(
-        `client.php?operation=getClientEventDetails&user_id=${u.user_id}&event_id=${eventId}`
+        `${endpoints.client}?operation=getClientEventDetails&user_id=${u.user_id}&event_id=${eventId}`
       );
       if (resp.data?.status === "success") {
         const raw = resp.data.event?.event_attachments;

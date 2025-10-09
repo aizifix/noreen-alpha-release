@@ -2,9 +2,7 @@
 
 import { useState, useEffect } from "react";
 import axios from "axios";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+import { endpoints } from "@/app/config/api";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -22,6 +20,10 @@ import {
   Users,
   MapPin,
   Pencil,
+  User,
+  Mail,
+  Phone,
+  MapPin as AddressIcon,
 } from "lucide-react";
 import {
   Command,
@@ -61,7 +63,16 @@ interface DbClient {
   user_lastName: string;
   user_email: string;
   user_contact: string;
-  user_pfp: string;
+  user_address?: string; // Address field now available in database
+  user_pfp?: string;
+  user_birthdate?: string;
+  user_username?: string;
+  registration_date?: string;
+  total_events?: number;
+  total_bookings?: number;
+  total_payments?: number;
+  last_event_date?: string;
+  [key: string]: any; // Allow for additional fields
 }
 
 // Sample client data for demonstration
@@ -273,7 +284,8 @@ export function ClientDetailsStep({
   const [isNewClient, setIsNewClient] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [newClientData, setNewClientData] = useState({
-    name: "",
+    firstName: "",
+    lastName: "",
     email: "",
     phone: "",
     address: "",
@@ -283,42 +295,52 @@ export function ClientDetailsStep({
   const [passwordError, setPasswordError] = useState("");
   const [clients, setClients] = useState<ClientData[]>(existingClients);
   const [isLoading, setIsLoading] = useState(true);
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [selectedClientForView, setSelectedClientForView] =
+    useState<ClientData | null>(null);
 
   // Fetch clients from the database
   useEffect(() => {
     const fetchClients = async () => {
       try {
         setIsLoading(true);
-        console.log(
-          "Fetching clients from:",
-          `${API_URL}/admin.php?operation=getClients`
-        );
+        console.log("Fetching clients from admin endpoint");
 
-        const response = await fetch(
-          `${API_URL}/admin.php?operation=getClients`
-        );
+        const response = await axios.get(endpoints.admin, {
+          params: {
+            operation: "getClients",
+          },
+        });
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        console.log("API response:", response.data);
+        console.log("Raw client data from API:", response.data.clients);
 
-        const data = await response.json();
-        console.log("API response:", data);
+        if (response.data.status === "success") {
+          // Log the first client to see all available fields
+          if (response.data.clients.length > 0) {
+            console.log(
+              "First client fields:",
+              Object.keys(response.data.clients[0])
+            );
+            console.log("First client data:", response.data.clients[0]);
+          }
 
-        if (data.status === "success") {
           // Transform client data to match our ClientData interface
-          const transformedClients = data.clients.map((client: DbClient) => ({
-            id: client.user_id.toString(),
-            name: `${client.user_firstName} ${client.user_lastName}`,
-            email: client.user_email,
-            phone: client.user_contact,
-            address: "", // Address field might not be available in the API response
-          }));
+          const transformedClients = response.data.clients.map(
+            (client: DbClient) => ({
+              id: client.user_id.toString(),
+              name: `${client.user_firstName} ${client.user_lastName}`,
+              email: client.user_email,
+              phone: client.user_contact,
+              address: client.user_address || "", // Now includes address from database
+              pfp: client.user_pfp || "", // Include profile picture path
+            })
+          );
 
           console.log("Transformed clients:", transformedClients);
           setClients(transformedClients);
         } else {
-          console.error("Error fetching clients:", data.message);
+          console.error("Error fetching clients:", response.data.message);
           // Keep using existingClients as fallback
         }
       } catch (error) {
@@ -333,6 +355,38 @@ export function ClientDetailsStep({
   }, []);
 
   // Fetch all bookings
+
+  // Helper function to get client initials
+  const getClientInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
+  // Helper function to get profile image URL
+  const getProfileImageUrl = (clientId: string) => {
+    const client = clients.find((c) => c.id === clientId);
+
+    console.log(`Getting profile image for client ${clientId}:`, {
+      client,
+      pfp: client?.pfp,
+    });
+
+    // If client has a profile picture, use the image serving endpoint
+    if (client?.pfp) {
+      const imageUrl = `${endpoints.serveImage}?path=${encodeURIComponent(client.pfp)}`;
+      console.log(`Using database profile image: ${imageUrl}`);
+      return imageUrl;
+    }
+
+    // Fallback to UI Avatars service
+    const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(client?.name || "Client")}&background=028A75&color=fff&size=40`;
+    console.log(`Using fallback avatar: ${fallbackUrl}`);
+    return fallbackUrl;
+  };
 
   // Helper function to map event type names from database to dropdown values
   const mapEventType = (eventTypeName: string): string => {
@@ -442,6 +496,12 @@ export function ClientDetailsStep({
     onUpdate(client);
   };
 
+  // Handle view client details
+  const handleViewClient = (client: ClientData) => {
+    setSelectedClientForView(client);
+    setViewModalOpen(true);
+  };
+
   // Handle new client input changes
   const handleNewClientChange = (field: string, value: string) => {
     setNewClientData({
@@ -456,7 +516,7 @@ export function ClientDetailsStep({
   };
 
   // Handle create client
-  const handleCreateClient = () => {
+  const handleCreateClient = async () => {
     // Validate passwords match
     if (newClientData.password !== newClientData.confirmPassword) {
       setPasswordError("Passwords do not match");
@@ -469,28 +529,69 @@ export function ClientDetailsStep({
       return;
     }
 
-    // In a real app, this would be an API call to create the client
-    const newClient = {
-      id: `client-${Date.now()}`, // Generate a unique ID
-      name: newClientData.name,
-      email: newClientData.email,
-      phone: newClientData.phone,
-      address: newClientData.address,
-    };
+    try {
+      // Call the API to create the client
+      const response = await axios.post(endpoints.admin, {
+        operation: "createClient",
+        firstName: newClientData.firstName,
+        lastName: newClientData.lastName,
+        email: newClientData.email,
+        contact: newClientData.phone,
+        address: newClientData.address,
+        password: newClientData.password,
+      });
 
-    // Update the client data in the parent component
-    onUpdate(newClient);
+      if (response.data.status === "success") {
+        // Create client object for the parent component
+        const fullName =
+          `${newClientData.firstName} ${newClientData.lastName}`.trim();
+        const newClient = {
+          id: response.data.client_id.toString(),
+          name: fullName,
+          email: newClientData.email,
+          phone: newClientData.phone,
+          address: newClientData.address,
+        };
 
-    // Reset the new client form and state
-    setIsNewClient(false);
-    setNewClientData({
-      name: "",
-      email: "",
-      phone: "",
-      address: "",
-      password: "",
-      confirmPassword: "",
-    });
+        // Update the client data in the parent component
+        onUpdate(newClient);
+
+        // Add the new client to the local clients list
+        setClients((prevClients) => [...prevClients, newClient]);
+
+        // Show success toast
+        toast({
+          title: "Client Created",
+          description: "New client has been created successfully.",
+        });
+
+        // Reset the new client form and state
+        setIsNewClient(false);
+        setNewClientData({
+          firstName: "",
+          lastName: "",
+          email: "",
+          phone: "",
+          address: "",
+          password: "",
+          confirmPassword: "",
+        });
+      } else {
+        // Show error toast
+        toast({
+          title: "Error",
+          description: response.data.message || "Failed to create client",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error creating client:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create client. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -512,10 +613,10 @@ export function ClientDetailsStep({
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-[300px] p-0">
+              <PopoverContent className="w-[400px] p-0">
                 <Command>
                   <CommandInput placeholder="Search clients..." />
-                  <CommandList>
+                  <CommandList className="max-h-[300px]">
                     <CommandEmpty>No client found.</CommandEmpty>
                     <CommandGroup heading="Existing Clients">
                       {isLoading ? (
@@ -536,34 +637,76 @@ export function ClientDetailsStep({
                               handleClientSelect(client);
                               setOpen(false);
                             }}
+                            className="flex items-center justify-between p-3"
                           >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                initialData?.id === client.id
-                                  ? "opacity-100"
-                                  : "opacity-0"
-                              )}
-                            />
-                            {client.name}
+                            <div className="flex items-center gap-3">
+                              <Check
+                                className={cn(
+                                  "h-4 w-4",
+                                  initialData?.id === client.id
+                                    ? "opacity-100"
+                                    : "opacity-0"
+                                )}
+                              />
+                              <div className="relative">
+                                <img
+                                  src={getProfileImageUrl(client.id)}
+                                  alt={`${client.name}'s profile`}
+                                  className="w-8 h-8 rounded-full object-cover border-2 border-gray-200"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                    const fallback = e.currentTarget
+                                      .nextElementSibling as HTMLElement;
+                                    if (fallback) {
+                                      fallback.classList.remove("hidden");
+                                      fallback.classList.add("flex");
+                                    }
+                                  }}
+                                />
+                                <div className="w-8 h-8 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full items-center justify-center hidden">
+                                  <span className="text-white font-medium text-xs">
+                                    {getClientInitials(client.name)}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="font-medium">
+                                  {client.name}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {client.email}
+                                </span>
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewClient(client);
+                              }}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
                           </CommandItem>
                         ))
                       )}
                     </CommandGroup>
-                    <CommandSeparator />
-                    <CommandGroup>
-                      <CommandItem
-                        key="create-new-client"
-                        onSelect={() => {
-                          setIsNewClient(true);
-                          setOpen(false);
-                        }}
-                      >
-                        <PlusCircle className="mr-2 h-4 w-4" />
-                        Create new client
-                      </CommandItem>
-                    </CommandGroup>
                   </CommandList>
+                  <div className="border-t p-2 bg-gray-50">
+                    <CommandItem
+                      key="create-new-client"
+                      onSelect={() => {
+                        setIsNewClient(true);
+                        setOpen(false);
+                      }}
+                      className="cursor-pointer"
+                    >
+                      <PlusCircle className="mr-2 h-4 w-4" />
+                      Create new client
+                    </CommandItem>
+                  </div>
                 </Command>
               </PopoverContent>
             </Popover>
@@ -588,7 +731,7 @@ export function ClientDetailsStep({
                   </div>
                   <div>
                     <p className="font-medium">Address:</p>
-                    <p>{initialData.address}</p>
+                    <p>{initialData.address || "Not specified"}</p>
                   </div>
                 </div>
               </CardContent>
@@ -680,16 +823,30 @@ export function ClientDetailsStep({
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="new-client-name">
-                    Full Name <span className="text-red-500">*</span>
+                  <Label htmlFor="new-client-first-name">
+                    First Name <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    id="new-client-name"
-                    value={newClientData.name}
+                    id="new-client-first-name"
+                    value={newClientData.firstName}
                     onChange={(e) =>
-                      handleNewClientChange("name", e.target.value)
+                      handleNewClientChange("firstName", e.target.value)
                     }
-                    placeholder="Enter client name"
+                    placeholder="Enter first name"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-client-last-name">
+                    Last Name <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="new-client-last-name"
+                    value={newClientData.lastName}
+                    onChange={(e) =>
+                      handleNewClientChange("lastName", e.target.value)
+                    }
+                    placeholder="Enter last name"
                     required
                   />
                 </div>
@@ -802,7 +959,8 @@ export function ClientDetailsStep({
                   onClick={() => {
                     setIsNewClient(false);
                     setNewClientData({
-                      name: "",
+                      firstName: "",
+                      lastName: "",
                       email: "",
                       phone: "",
                       address: "",
@@ -817,7 +975,8 @@ export function ClientDetailsStep({
                   type="button"
                   onClick={handleCreateClient}
                   disabled={
-                    !newClientData.name ||
+                    !newClientData.firstName ||
+                    !newClientData.lastName ||
                     !newClientData.email ||
                     !newClientData.phone ||
                     !newClientData.password ||
@@ -933,6 +1092,136 @@ export function ClientDetailsStep({
           </Card>
         </div>
       )}
+
+      {/* Client View Modal */}
+      <Dialog open={viewModalOpen} onOpenChange={setViewModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="relative">
+                {selectedClientForView && (
+                  <>
+                    <img
+                      src={getProfileImageUrl(selectedClientForView.id)}
+                      alt={`${selectedClientForView.name}'s profile`}
+                      className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                        const fallback = e.currentTarget
+                          .nextElementSibling as HTMLElement;
+                        if (fallback) {
+                          fallback.classList.remove("hidden");
+                          fallback.classList.add("flex");
+                        }
+                      }}
+                    />
+                    <div className="w-12 h-12 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full items-center justify-center hidden">
+                      <span className="text-white font-medium text-sm">
+                        {getClientInitials(selectedClientForView.name)}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold">
+                  {selectedClientForView?.name}
+                </h2>
+                <p className="text-sm text-muted-foreground">Client Details</p>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedClientForView && (
+            <div className="space-y-6">
+              {/* Contact Information */}
+              <Card>
+                <CardContent className="p-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <User className="h-5 w-5" />
+                    Contact Information
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">Email</p>
+                          <p className="text-sm text-muted-foreground">
+                            {selectedClientForView.email}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Phone className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">Phone</p>
+                          <p className="text-sm text-muted-foreground">
+                            {selectedClientForView.phone}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <AddressIcon className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">Address</p>
+                          <p className="text-sm text-muted-foreground">
+                            {selectedClientForView.address || "Not specified"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Quick Stats */}
+              <Card>
+                <CardContent className="p-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <CalendarIcon className="h-5 w-5" />
+                    Event History
+                  </h3>
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <p className="text-2xl font-bold text-blue-600">0</p>
+                      <p className="text-sm text-blue-600">Total Events</p>
+                    </div>
+                    <div className="p-4 bg-green-50 rounded-lg">
+                      <p className="text-2xl font-bold text-green-600">0</p>
+                      <p className="text-sm text-green-600">Completed</p>
+                    </div>
+                    <div className="p-4 bg-yellow-50 rounded-lg">
+                      <p className="text-2xl font-bold text-yellow-600">0</p>
+                      <p className="text-sm text-yellow-600">Upcoming</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setViewModalOpen(false)}
+                >
+                  Close
+                </Button>
+                <Button
+                  onClick={() => {
+                    handleClientSelect(selectedClientForView);
+                    setViewModalOpen(false);
+                  }}
+                >
+                  Select This Client
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

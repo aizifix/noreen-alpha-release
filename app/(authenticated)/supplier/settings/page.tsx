@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   Settings,
   User,
@@ -57,7 +59,7 @@ export default function SupplierSettings() {
   const [passwordForm, setPasswordForm] = useState({
     current_password: "",
     new_password: "",
-    confirm_password: "/,
+    confirm_password: "",
   });
   const [showPasswords, setShowPasswords] = useState({
     current: false,
@@ -74,10 +76,10 @@ export default function SupplierSettings() {
       setLoading(true);
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getDashboard&user_id=${userId}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=getDashboard&user_id=${userId}`
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setSettings(data.settings);
@@ -143,18 +145,13 @@ export default function SupplierSettings() {
       setSaving(true);
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=updateProfile&user_id=${userId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(settings),
-        }
+      const response = await axios.post(
+        endpoints.supplier,
+        { operation: "updateProfile", user_id: userId, ...settings },
+        { headers: { "Content-Type": "application/json" } }
       );
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         // Show success message
@@ -194,18 +191,13 @@ export default function SupplierSettings() {
     try {
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=updateProfile&user_id=${userId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(passwordForm),
-        }
+      const response = await axios.post(
+        endpoints.supplier,
+        { operation: "changePassword", user_id: userId, ...passwordForm },
+        { headers: { "Content-Type": "application/json" } }
       );
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setPasswordForm({
@@ -228,12 +220,13 @@ export default function SupplierSettings() {
     try {
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getAnalytics&user_id=${userId}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=exportData&user_id=${userId}`,
+        { responseType: "blob" }
       );
 
-      if (response.ok) {
-        const blob = await response.blob();
+      if (response.status === 200) {
+        const blob = response.data as Blob;
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;

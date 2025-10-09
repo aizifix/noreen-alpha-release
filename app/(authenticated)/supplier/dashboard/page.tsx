@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   Package,
   Star,
@@ -98,10 +100,10 @@ export default function SupplierDashboard() {
       // In a real implementation, get userId from auth context
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getDashboard&user_id=${userId}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=getDashboard&user_id=${userId}`
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setDashboardData(data.dashboard);
@@ -117,10 +119,10 @@ export default function SupplierDashboard() {
     try {
       const userId = 1; // This should come from authentication
 
-      const response = await fetch(
-        `supplier.php?operation=getOffers&user_id=${userId}`
+      const response = await axios.get(
+        `${endpoints.supplier}?operation=getOffers&user_id=${userId}`
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         setOffers(data.offers);

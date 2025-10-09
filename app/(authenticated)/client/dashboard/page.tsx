@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiClient } from "@/utils/apiClient";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 import {
@@ -188,12 +189,12 @@ export default function ClientDashboard() {
       const [eventsResponse, paymentsResponse, packagesResponse] =
         await Promise.all([
           axios.get(
-            `client.php?operation=getClientEvents&user_id=${userData.user_id}`
+            `${endpoints.client}?operation=getClientEvents&user_id=${userData.user_id}`
           ),
           axios.get(
-            `client.php?operation=getClientNextPayments&user_id=${userData.user_id}`
+            `${endpoints.client}?operation=getClientNextPayments&user_id=${userData.user_id}`
           ),
-          axios.get(`client.php?operation=getAllPackages`),
+          axios.get(`${endpoints.client}?operation=getAllPackages`),
         ]);
 
       if (eventsResponse.data.status === "success") {
@@ -264,10 +265,10 @@ export default function ClientDashboard() {
     try {
       setIsPackageLoading(true);
       const response = await axios.get(
-        `client.php?operation=getPackageDetails&package_id=${packageId}`
+        `${endpoints.client}?operation=getPackageDetails&package_id=${packageId}`
       );
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         // Transform the venues data to match our interface
         const packageData = response.data.package;
         const transformedPackage = {

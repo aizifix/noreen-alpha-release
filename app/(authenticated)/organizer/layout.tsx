@@ -16,12 +16,13 @@ import {
   Moon,
   ChevronDown,
   User,
-  CalendarCheck,
   MapPin,
   ChevronRight,
   Plus,
   Store,
   BarChart3,
+  Menu,
+  X,
 } from "lucide-react";
 import {
   Sidebar,
@@ -78,6 +79,7 @@ export default function OrganizerLayout({
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [pendingInvites, setPendingInvites] = useState<any[]>([]);
   const [decisions, setDecisions] = useState<
@@ -88,6 +90,7 @@ export default function OrganizerLayout({
   const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
   const [isNotifLoading, setIsNotifLoading] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const notifRef = useRef<HTMLDivElement | null>(null);
 
   const menuSections: MenuSection[] = [
     {
@@ -103,8 +106,19 @@ export default function OrganizerLayout({
     },
     {
       label: "Event Management",
-      items: [{ icon: Calendar, label: "Events", href: "/organizer/events" }],
+      items: [
+        { icon: Calendar, label: "Events", href: "/organizer/events" },
+        { icon: Users, label: "Assignments", href: "/organizer/assignments" },
+      ],
     },
+  ];
+
+  // Mobile navigation items for bottom nav
+  const mobileNavItems = [
+    { icon: LayoutDashboard, label: "Dashboard", href: "/organizer/dashboard" },
+    { icon: BarChart3, label: "Overview", href: "/organizer/overview" },
+    { icon: Calendar, label: "Events", href: "/organizer/events" },
+    { icon: Users, label: "Assignments", href: "/organizer/assignments" },
   ];
 
   // Initialize expandedSections with all section labels
@@ -124,13 +138,23 @@ export default function OrganizerLayout({
       if (isUserDropdownOpen && !target.closest(".relative")) {
         setIsUserDropdownOpen(false);
       }
+      if (isMobileMenuOpen && !target.closest(".mobile-menu")) {
+        setIsMobileMenuOpen(false);
+      }
+      if (
+        notificationsOpen &&
+        notifRef.current &&
+        !notifRef.current.contains(target)
+      ) {
+        setNotificationsOpen(false);
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isUserDropdownOpen]);
+  }, [isUserDropdownOpen, isMobileMenuOpen, notificationsOpen]);
 
   useEffect(() => {
     // Start session timeout watcher for organizer portal
@@ -433,6 +457,17 @@ export default function OrganizerLayout({
           setPendingInvites((prev) =>
             prev.filter((e) => e.event_id !== eventItem.event_id)
           );
+
+          // Refresh notifications to sync with the action
+          await refreshNotifications(currentUser);
+
+          // Trigger calendar refresh
+          window.dispatchEvent(
+            new CustomEvent("calendarRefresh", {
+              detail: { eventId: eventItem.event_id, action: status },
+            })
+          );
+
           toast({
             title:
               status === "accepted" ? "Invite accepted" : "Invite rejected",
@@ -480,6 +515,55 @@ export default function OrganizerLayout({
     return null;
   };
 
+  const handleClearAllNotifications = async () => {
+    try {
+      const currentUser = secureStorage.getItem("user");
+      if (!currentUser?.user_id) return;
+
+      // Clear pending invites
+      setPendingInvites([]);
+
+      // Mark all notifications as read
+      await axios.put("notifications.php", {
+        operation: "mark_read",
+        user_id: currentUser.user_id,
+      });
+
+      // Clear notifications from state
+      setNotifications([]);
+      setUnreadNotifCount(0);
+
+      toast({
+        title: "Notifications Cleared",
+        description: "All notifications have been cleared.",
+      });
+    } catch (error) {
+      console.error("Error clearing notifications:", error);
+      toast({
+        title: "Error",
+        description: "Failed to clear notifications. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const refreshNotifications = async (currentUser: any) => {
+    try {
+      // Refresh notification counts
+      await fetchNotificationCounts(currentUser);
+
+      // Refresh notifications list if dropdown is open
+      if (notificationsOpen) {
+        await fetchNotificationsList(currentUser);
+      }
+
+      // Refresh pending invites
+      await fetchPendingInvites();
+    } catch (error) {
+      console.error("Error refreshing notifications:", error);
+    }
+  };
+
   // Listen for user data changes (like profile picture updates)
   useEffect(() => {
     const handleUserDataChange = () => {
@@ -501,11 +585,35 @@ export default function OrganizerLayout({
       }
     };
 
+    const handleAssignmentAction = async (event: any) => {
+      try {
+        const { eventId, action } = event.detail;
+        console.log("Assignment action taken:", { eventId, action });
+
+        // Remove the specific event from pending invites
+        setPendingInvites((prev) => prev.filter((e) => e.event_id !== eventId));
+
+        // Refresh notifications
+        const currentUser = secureStorage.getItem("user");
+        if (currentUser?.user_id) {
+          await refreshNotifications(currentUser);
+        }
+      } catch (error) {
+        console.error("Error handling assignment action:", error);
+      }
+    };
+
     // Listen for storage changes
     window.addEventListener("userDataChanged", handleUserDataChange);
+    // Listen for assignment actions from other pages
+    window.addEventListener("assignmentActionTaken", handleAssignmentAction);
 
     return () => {
       window.removeEventListener("userDataChanged", handleUserDataChange);
+      window.removeEventListener(
+        "assignmentActionTaken",
+        handleAssignmentAction
+      );
     };
   }, []);
 
@@ -650,9 +758,9 @@ export default function OrganizerLayout({
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Sidebar (Fixed) */}
-      <div className="fixed inset-y-0 left-0 z-20 w-64">
+    <div className="flex h-screen bg-gray-100 w-full overflow-x-hidden lg:pl-64">
+      {/* Desktop Sidebar (Fixed) - Hidden on mobile */}
+      <div className="hidden lg:block fixed inset-y-0 left-0 z-20 w-64">
         <Sidebar className="h-full w-64 bg-white border-r">
           <SidebarHeader className="border-b px-3 py-4 h-16 flex items-center justify-start">
             <Image
@@ -745,9 +853,9 @@ export default function OrganizerLayout({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 ml-64">
-        {/* Navbar */}
-        <header className="fixed top-0 right-0 left-64 z-10 bg-white border-b px-6 py-4 h-16 flex justify-end items-center">
+      <div className="flex-1 min-w-0">
+        {/* Desktop Navbar - Hidden on mobile */}
+        <header className="hidden lg:flex fixed top-0 right-0 left-64 z-10 bg-white border-b px-6 py-4 h-16 justify-end items-center">
           {/* User Info on the Right */}
           <div className="flex items-center gap-3">
             {/* Theme Toggle */}
@@ -763,7 +871,7 @@ export default function OrganizerLayout({
               )}
             </button>
 
-            <div className="relative">
+            <div className="relative cursor-pointer" ref={notifRef}>
               <button
                 onClick={() => {
                   setNotificationsOpen(!notificationsOpen);
@@ -786,8 +894,17 @@ export default function OrganizerLayout({
               </button>
               {notificationsOpen && (
                 <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                  <div className="px-4 py-2 text-sm font-semibold text-gray-700 border-b">
-                    Notifications
+                  <div className="px-4 py-2 text-sm font-semibold text-gray-700 border-b flex items-center justify-between">
+                    <span>Notifications</span>
+                    {(pendingInvites?.length > 0 ||
+                      notifications?.length > 0) && (
+                      <button
+                        onClick={handleClearAllNotifications}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        Clear All
+                      </button>
+                    )}
                   </div>
                   <div className="max-h-80 overflow-auto">
                     {/* Pending assignment invites */}
@@ -950,11 +1067,317 @@ export default function OrganizerLayout({
           </div>
         </header>
 
+        {/* Mobile Header - Only shown on mobile */}
+        <header className="lg:hidden bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-30">
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <Image
+              src={Logo || "/placeholder.svg"}
+              alt="Noreen Logo"
+              width={80}
+              height={32}
+              className="object-contain"
+            />
+          </div>
+
+          {/* Right Side - User Actions */}
+          <div className="flex items-center gap-2">
+            {/* Notifications */}
+            <div
+              className="relative cursor-pointer"
+              ref={notifRef}
+              onClick={() => {
+                setNotificationsOpen(!notificationsOpen);
+                if (!notificationsOpen) {
+                  const currentUser = secureStorage.getItem("user");
+                  if (currentUser?.user_id) {
+                    fetchNotificationsList(currentUser);
+                  }
+                }
+              }}
+            >
+              <Bell className="h-5 w-5 text-gray-600" />
+              {(pendingInvites?.length || 0) > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[1rem] h-4 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center px-1">
+                  {pendingInvites.length}
+                </span>
+              )}
+
+              {notificationsOpen && (
+                <div className="absolute right-0 mt-2 w-[280px] max-h-[80vh] overflow-auto bg-white rounded-lg shadow-lg border border-gray-200 z-50 fixed-dropdown">
+                  <div className="px-4 py-2 border-b flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-700">
+                      Notifications
+                    </span>
+                    {(pendingInvites?.length > 0 ||
+                      notifications?.length > 0) && (
+                      <button
+                        onClick={handleClearAllNotifications}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+                  <div className="p-2">
+                    {isNotifLoading ? (
+                      <div className="py-6 text-center text-sm text-gray-500">
+                        Loading...
+                      </div>
+                    ) : (
+                      <div className="max-h-80 overflow-auto">
+                        {/* Pending assignment invites */}
+                        {pendingInvites && pendingInvites.length > 0 && (
+                          <>
+                            {pendingInvites.map((evt: any) => (
+                              <div
+                                key={`invite-${evt.event_id}`}
+                                className="px-4 py-3 border-b last:border-b-0"
+                              >
+                                <div className="text-sm font-medium text-gray-900">
+                                  Pending Organizer Invite
+                                </div>
+                                <div className="text-sm text-gray-700 truncate">
+                                  {evt.event_title}
+                                </div>
+                                <div className="mt-2 flex gap-2">
+                                  <button
+                                    onClick={() =>
+                                      handleInviteDecision(evt, "accepted")
+                                    }
+                                    className="px-2 py-1 rounded bg-green-600 text-white text-xs"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      handleInviteDecision(evt, "rejected")
+                                    }
+                                    className="px-2 py-1 rounded bg-red-600 text-white text-xs"
+                                  >
+                                    Reject
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      router.push("/organizer/events")
+                                    }
+                                    className="ml-auto px-2 py-1 rounded bg-gray-100 text-gray-700 text-xs border"
+                                  >
+                                    View
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {/* General notifications */}
+                        {notifications && notifications.length > 0 && (
+                          <>
+                            {notifications.map((n, idx) => (
+                              <div
+                                key={`organizer-notification-${n.notification_id || "temp"}-${idx}-${Date.now()}`}
+                                className="px-4 py-3 border-b last:border-b-0"
+                              >
+                                <div className="text-sm font-medium text-gray-900 truncate">
+                                  {n.notification_title || "Notification"}
+                                </div>
+                                <div className="text-sm text-gray-700 truncate">
+                                  {n.notification_message}
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {(!pendingInvites || pendingInvites.length === 0) &&
+                          (!notifications || notifications.length === 0) && (
+                            <div className="px-4 py-3 text-sm text-gray-600">
+                              No new notifications
+                            </div>
+                          )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* User Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                className="flex items-center gap-2 p-1 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="h-8 w-8 border border-gray-300 rounded-full overflow-hidden">
+                  {user.user_pfp && user.user_pfp.trim() !== "" ? (
+                    <img
+                      src={api.getServeImageUrl(user.user_pfp)}
+                      alt={`${user.user_firstName} ${user.user_lastName}`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : user.profilePicture ? (
+                    <Image
+                      src={user.profilePicture || "/placeholder.svg"}
+                      alt={`${user.user_firstName} ${user.user_lastName}`}
+                      width={32}
+                      height={32}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-gray-200 flex items-center justify-center">
+                      <span className="text-xs font-medium text-gray-600">
+                        {user?.user_firstName.charAt(0)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </button>
+
+              {/* Mobile Dropdown Menu */}
+              {isUserDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 border z-50">
+                  <div className="px-4 py-2 border-b">
+                    <div className="font-medium text-gray-900">
+                      {user?.user_firstName} {user?.user_lastName}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {user?.user_role}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setIsUserDropdownOpen(false);
+                      router.push("/organizer/profile");
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    <User className="h-4 w-4" />
+                    Profile
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsUserDropdownOpen(false);
+                      router.push("/organizer/settings");
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </button>
+                  <button
+                    onClick={() =>
+                      setTheme(theme === "dark" ? "light" : "dark")
+                    }
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    {mounted && theme === "dark" ? (
+                      <Sun className="h-4 w-4" />
+                    ) : (
+                      <Moon className="h-4 w-4" />
+                    )}
+                    Theme
+                  </button>
+                  <hr className="my-1" />
+                  <button
+                    onClick={handleLogout}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 rounded-full hover:bg-gray-100 ml-1"
+              aria-label="Toggle menu"
+            >
+              {isMobileMenuOpen ? (
+                <X className="h-5 w-5 text-gray-600" />
+              ) : (
+                <Menu className="h-5 w-5 text-gray-600" />
+              )}
+            </button>
+          </div>
+
+          {/* Mobile Menu Overlay */}
+          {isMobileMenuOpen && (
+            <div className="absolute top-full left-0 right-0 bg-white border-b shadow-lg z-40 mobile-menu">
+              <div className="py-2">
+                {menuSections.map((section) => (
+                  <div key={section.label}>
+                    <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      {section.label}
+                    </div>
+                    {section.items.map((item) => {
+                      const isActive =
+                        pathname === item.href ||
+                        pathname.startsWith(`${item.href}/`);
+                      return (
+                        <Link
+                          key={item.label}
+                          href={item.href || "#"}
+                          className={`flex items-center gap-3 px-4 py-3 transition ${
+                            isActive
+                              ? "bg-brand-50 text-brand-600 border-r-2 border-brand-500"
+                              : "text-gray-700 hover:bg-gray-50"
+                          }`}
+                          onClick={() => setIsMobileMenuOpen(false)}
+                        >
+                          <item.icon className="h-5 w-5" />
+                          <span>{item.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </header>
+
         {/* Page Content - Adjusted for Navbar */}
-        <main className="pt-24 p-6 h-screen overflow-auto animate-in fade-in-50 duration-300">
-          {children}
+        <main className="lg:pt-24 lg:p-6 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 min-w-0 max-w-full">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+            {children}
+          </div>
         </main>
       </div>
+
+      {/* Bottom Navigation - Mobile Only */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t z-30 lg:hidden">
+        <div className="flex items-center justify-around">
+          {mobileNavItems.map((item) => {
+            const isActive =
+              pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={`flex flex-col items-center gap-1 py-2 px-3 min-w-0 flex-1 transition ${
+                  isActive
+                    ? "text-brand-600"
+                    : "text-gray-600 hover:text-brand-600"
+                }`}
+              >
+                <item.icon
+                  className={`h-5 w-5 ${isActive ? "text-brand-600" : "text-gray-600"}`}
+                />
+                <span
+                  className={`text-xs font-medium truncate ${
+                    isActive ? "text-brand-600" : "text-gray-600"
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }

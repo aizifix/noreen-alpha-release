@@ -282,34 +282,24 @@ export default function OrganizersPage() {
   // Bulk actions
   const handleBulkDelete = () => {
     if (selectedOrganizers.length === 0) {
-      toast({
-        title: "No organizers selected",
-        description: "Please select organizers to delete",
-        variant: "destructive",
-      });
+      toast.error(
+        "No organizers selected - Please select organizers to delete"
+      );
       return;
     }
     // Implement bulk delete logic here
-    toast({
-      title: "Bulk delete",
-      description: `Deleting ${selectedOrganizers.length} organizers...`,
-    });
+    toast.success(`Deleting ${selectedOrganizers.length} organizers...`);
   };
 
   const handleBulkExport = () => {
     if (selectedOrganizers.length === 0) {
-      toast({
-        title: "No organizers selected",
-        description: "Please select organizers to export",
-        variant: "destructive",
-      });
+      toast.error(
+        "No organizers selected - Please select organizers to export"
+      );
       return;
     }
     // Implement bulk export logic here
-    toast({
-      title: "Bulk export",
-      description: `Exporting ${selectedOrganizers.length} organizers...`,
-    });
+    toast.success(`Exporting ${selectedOrganizers.length} organizers...`);
   };
 
   // Auto-generate username when name changes
@@ -354,10 +344,7 @@ export default function OrganizersPage() {
 
   const copyToClipboard = (text: string, type: string) => {
     navigator.clipboard.writeText(text);
-    toast({
-      title: "Copied!",
-      description: `${type} copied to clipboard`,
-    });
+    toast.success(`${type} copied to clipboard`);
   };
 
   const uploadFile = async (file: File, fileType: string): Promise<string> => {
@@ -389,11 +376,7 @@ export default function OrganizersPage() {
     const maxSize = 5 * 1024 * 1024; // 5MB
 
     if (file.size > maxSize) {
-      toast({
-        title: "File too large",
-        description: "Please select a file smaller than 5MB",
-        variant: "destructive",
-      });
+      toast.error("File too large - Please select a file smaller than 5MB");
       return;
     }
 
@@ -408,11 +391,7 @@ export default function OrganizersPage() {
     };
 
     if (!allowedTypes[type].includes(file.type)) {
-      toast({
-        title: "Invalid file type",
-        description: `Please select a valid ${type} file`,
-        variant: "destructive",
-      });
+      toast.error("Invalid file type - Please select a valid ${type} file");
       return;
     }
 
@@ -460,17 +439,10 @@ export default function OrganizersPage() {
         );
       }
 
-      toast({
-        title: "Upload successful",
-        description: `${type} uploaded successfully`,
-      });
+      toast.success("Upload successful - ${type} uploaded successfully");
     } catch (error) {
       console.error("Upload error:", error);
-      toast({
-        title: "Upload failed",
-        description: "Failed to upload file. Please try again.",
-        variant: "destructive",
-      });
+      toast.error("Upload failed - Failed to upload file. Please try again.");
     }
   };
 
@@ -584,20 +556,15 @@ export default function OrganizersPage() {
     try {
       // Optimistically close modal and show loading toast
       setIsModalOpen(false);
-      toast({
-        title: "Saving organizer...",
-        description: "Please wait while we apply your changes.",
-      });
+      toast.success(
+        "Saving organizer... - Please wait while we apply your changes."
+      );
       // Client-side validation: ensure fee min/max are logical
       if (
         (formData.talent_fee_min != null && formData.talent_fee_min < 0) ||
         (formData.talent_fee_max != null && formData.talent_fee_max < 0)
       ) {
-        toast({
-          title: "Invalid fee",
-          description: "Talent fees cannot be negative.",
-          variant: "destructive",
-        });
+        toast.error("Invalid fee - Talent fees cannot be negative.");
         setIsSubmitting(false);
         return;
       }
@@ -606,11 +573,9 @@ export default function OrganizersPage() {
         formData.talent_fee_max != null &&
         formData.talent_fee_min > formData.talent_fee_max
       ) {
-        toast({
-          title: "Invalid fee range",
-          description: "Minimum fee cannot be greater than maximum fee.",
-          variant: "destructive",
-        });
+        toast.error(
+          "Invalid fee range - Minimum fee cannot be greater than maximum fee."
+        );
         setIsSubmitting(false);
         return;
       }
@@ -682,10 +647,7 @@ export default function OrganizersPage() {
       const data = response.data;
 
       if (data.status === "success") {
-        toast({
-          title: "Success!",
-          description: "Organizer deleted successfully",
-        });
+        toast.success("Success! - Organizer deleted successfully");
         fetchOrganizers();
       } else {
         toast({
@@ -696,11 +658,7 @@ export default function OrganizersPage() {
       }
     } catch (error) {
       console.error("Delete error:", error);
-      toast({
-        title: "Error",
-        description: "An error occurred. Please try again.",
-        variant: "destructive",
-      });
+      toast.error("Error - An error occurred. Please try again.");
     }
   };
 

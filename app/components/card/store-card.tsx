@@ -1,5 +1,6 @@
 "use client";
 import Image from "next/image";
+import { endpoints } from "@/app/config/api";
 
 interface StoreCardProps {
   id: number;
@@ -26,7 +27,7 @@ export function StoreCard({
   const normalizePath = (path: string | null) => {
     if (!path || path.startsWith("http")) return path;
     // Use the image serving script for proper image delivery
-    return `serve-image.php?path=${encodeURIComponent(path)}`;
+    return `${endpoints.serveImage}?path=${encodeURIComponent(path)}`;
   };
 
   const coverPhotoUrl = normalizePath(coverPhoto) || "/placeholder.svg";

@@ -29,6 +29,7 @@ import {
 import { secureStorage } from "@/app/utils/encryption";
 import { toast } from "@/components/ui/use-toast";
 import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   Dialog,
   DialogContent,
@@ -243,7 +244,7 @@ export default function AdminPaymentsPage() {
 
       // Fetch events with payment status
       const eventsResponse = await axios.get(
-        `admin.php?operation=getEventsWithPaymentStatus&admin_id=${adminId}`
+        `${endpoints.admin}?operation=getEventsWithPaymentStatus&admin_id=${adminId}`
       );
 
       if (eventsResponse.data.status === "success") {
@@ -252,7 +253,7 @@ export default function AdminPaymentsPage() {
 
       // Fetch payments
       const paymentsResponse = await axios.get(
-        `admin.php?operation=getAdminPayments&admin_id=${adminId}`
+        `${endpoints.admin}?operation=getAdminPayments&admin_id=${adminId}`
       );
 
       if (paymentsResponse.data.status === "success") {
@@ -261,7 +262,7 @@ export default function AdminPaymentsPage() {
 
       // Fetch analytics
       const analyticsResponse = await axios.get(
-        `admin.php?operation=getPaymentAnalytics&admin_id=${adminId}`
+        `${endpoints.admin}?operation=getPaymentAnalytics&admin_id=${adminId}`
       );
 
       if (analyticsResponse.data.status === "success") {
@@ -285,7 +286,7 @@ export default function AdminPaymentsPage() {
   ) => {
     try {
       const response = await axios.get(
-        `admin.php?operation=getEventsForPayments&admin_id=${adminId}&search_term=${encodeURIComponent(searchTerm)}`
+        `${endpoints.admin}?operation=getEventsForPayments&admin_id=${adminId}&search_term=${encodeURIComponent(searchTerm)}`
       );
 
       if (response.data.status === "success") {
@@ -300,7 +301,7 @@ export default function AdminPaymentsPage() {
     try {
       setLoadingEventDetails(true);
       const response = await axios.get(
-        `admin.php?operation=getEventPaymentDetails&event_id=${eventId}`
+        `${endpoints.admin}?operation=getEventPaymentDetails&event_id=${eventId}`
       );
 
       if (response.data.status === "success") {
@@ -410,7 +411,7 @@ export default function AdminPaymentsPage() {
         payment_percentage: null, // Will be calculated by backend
       };
 
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "createPayment",
         ...paymentData,
       });
@@ -432,11 +433,15 @@ export default function AdminPaymentsPage() {
             formData.append("description", description);
 
             try {
-              const uploadResponse = await axios.post("/admin.php", formData, {
-                headers: {
-                  "Content-Type": "multipart/form-data",
-                },
-              });
+              const uploadResponse = await axios.post(
+                endpoints.admin,
+                formData,
+                {
+                  headers: {
+                    "Content-Type": "multipart/form-data",
+                  },
+                }
+              );
 
               if (uploadResponse.data.status !== "success") {
                 console.error(
@@ -533,7 +538,7 @@ export default function AdminPaymentsPage() {
 
   const updatePaymentStatus = async (paymentId: number, status: string) => {
     try {
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "updatePaymentStatus",
         payment_id: paymentId,
         status: status,

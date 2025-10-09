@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { API_URL } from "@/app/config/api";
+import { API_URL, endpoints } from "@/app/config/api";
 import type { OrganizerSelectionProps } from "@/app/types/event-builder";
 
 // Interface for organizer data from API
@@ -93,7 +93,7 @@ export function OrganizerSelection({
 
         console.log("🔄 Fetching organizers from API...");
 
-        const response = await axios.post("/admin.php", {
+        const response = await axios.post(endpoints.admin, {
           operation: "getAllOrganizers",
           page: 1,
           limit: 100, // Get all organizers
@@ -332,9 +332,12 @@ export function OrganizerSelection({
                             : "/default_pfp.png"
                         }
                         alt={organizer.organizer_name}
-                        onError={(e) => {
+                        onError={(
+                          e: React.SyntheticEvent<HTMLImageElement>
+                        ) => {
                           // Fallback to default if image fails to load
-                          e.currentTarget.src = "/default_pfp.png";
+                          (e.currentTarget as HTMLImageElement).src =
+                            "/default_pfp.png";
                         }}
                       />
                       <AvatarFallback>

@@ -11,6 +11,8 @@ import {
   Package,
 } from "lucide-react";
 import { apiClient } from "@/utils/apiClient";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 
 const statusColors: { [key: string]: string } = {
   confirmed: "bg-green-100 text-green-700",
@@ -146,17 +148,14 @@ export default function BookingsPage() {
   const fetchBookings = async (uid: number) => {
     try {
       setLoading(true);
-      const response = await axios.get(
-        "/client.php",
-        {
-          params: {
-            operation: "getClientBookings",
-            user_id: uid,
-          },
-        }
-      );
+      const response = await axios.get(`${endpoints.client}`, {
+        params: {
+          operation: "getClientBookings",
+          user_id: uid,
+        },
+      });
 
-      if (response.data && response.status === "success") {
+      if (response.data && response.data.status === "success") {
         // Merge API bookings with local bookings if any
         const localBookings = localStorage.getItem("newBookings");
         let mergedBookings = [...response.data.bookings];

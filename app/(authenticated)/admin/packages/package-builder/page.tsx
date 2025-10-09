@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { X, Plus, Check, ArrowLeft } from "lucide-react";
-import { apiClient } from "@/utils/apiClient";
+import axios from "axios";
 import { endpoints } from "@/app/config/api";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -129,15 +129,10 @@ export default function PackageBuilderPage() {
         console.log("Fetching event types and venues...");
 
         // Fetch event types
-        const eventTypesResponse = await fetch(
+        const eventTypesResponse = await axios.get(
           `${endpoints.admin}?operation=getEventTypes`
         );
-
-        if (!eventTypesResponse.ok) {
-          throw new Error(`HTTP error! status: ${eventTypesResponse.status}`);
-        }
-
-        const eventTypesData = await eventTypesResponse.json();
+        const eventTypesData = eventTypesResponse.data;
         console.log("Event types response:", eventTypesData);
         if (eventTypesData.status === "success") {
           setEventTypes(eventTypesData.event_types);
@@ -150,15 +145,10 @@ export default function PackageBuilderPage() {
         setVenuesLoading(true);
         setVenuesError(null);
 
-        const venuesResponse = await fetch(
+        const venuesResponse = await axios.get(
           `${endpoints.admin}?operation=getVenuesForPackage`
         );
-
-        if (!venuesResponse.ok) {
-          throw new Error(`HTTP error! status: ${venuesResponse.status}`);
-        }
-
-        const venuesData = await venuesResponse.json();
+        const venuesData = venuesResponse.data;
         console.log("Venues response:", venuesData);
         if (venuesData.status === "success") {
           setVenues(venuesData.venues);
@@ -482,19 +472,10 @@ export default function PackageBuilderPage() {
 
       console.log("Creating package with data:", packageData);
 
-      const response = await fetch(`${endpoints.admin}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(packageData),
+      const response = await axios.post(endpoints.admin, packageData, {
+        headers: { "Content-Type": "application/json" },
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const responseData = await response.json();
+      const responseData = response.data;
       console.log("Package creation response:", responseData);
 
       if (responseData.status === "success") {

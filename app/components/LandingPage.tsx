@@ -109,6 +109,19 @@ export default function LandingPage() {
   const [isPackageModalOpen, setIsPackageModalOpen] = useState(false);
   const [isPackageLoading, setIsPackageLoading] = useState(false);
   const [currentVenueIndex, setCurrentVenueIndex] = useState(0);
+  const [isMounted, setIsMounted] = useState(false);
+
+  const handleSmoothScroll = (
+    event: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
+    targetId: string
+  ) => {
+    event.preventDefault();
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    const y = target.getBoundingClientRect().top + window.pageYOffset - 80; // offset for sticky nav
+    window.scrollTo({ top: y, behavior: "smooth" });
+    setIsMenuOpen(false);
+  };
 
   // Fetch packages on component mount
   useEffect(() => {
@@ -128,6 +141,12 @@ export default function LandingPage() {
     };
 
     fetchPackages();
+  }, []);
+
+  // simple mount animation trigger
+  useEffect(() => {
+    const timer = setTimeout(() => setIsMounted(true), 50);
+    return () => clearTimeout(timer);
   }, []);
 
   // Auto-scroll carousel
@@ -214,24 +233,42 @@ export default function LandingPage() {
               <div className="ml-10 flex items-baseline space-x-8">
                 <Link
                   href="#features"
+                  onClick={(e) => handleSmoothScroll(e, "features")}
                   className="text-gray-700 hover:text-brand-500 transition-colors"
                 >
                   Features
                 </Link>
                 <Link
                   href="#services"
+                  onClick={(e) => handleSmoothScroll(e, "services")}
                   className="text-gray-700 hover:text-brand-500 transition-colors"
                 >
                   Services
                 </Link>
                 <Link
+                  href="#gallery"
+                  onClick={(e) => handleSmoothScroll(e, "gallery")}
+                  className="text-gray-700 hover:text-brand-500 transition-colors"
+                >
+                  Gallery
+                </Link>
+                <Link
+                  href="#location"
+                  onClick={(e) => handleSmoothScroll(e, "location")}
+                  className="text-gray-700 hover:text-brand-500 transition-colors"
+                >
+                  Location
+                </Link>
+                <Link
                   href="#about"
+                  onClick={(e) => handleSmoothScroll(e, "about")}
                   className="text-gray-700 hover:text-brand-500 transition-colors"
                 >
                   About
                 </Link>
                 <Link
                   href="#contact"
+                  onClick={(e) => handleSmoothScroll(e, "contact")}
                   className="text-gray-700 hover:text-brand-500 transition-colors"
                 >
                   Contact
@@ -242,12 +279,12 @@ export default function LandingPage() {
             {/* CTA Buttons */}
             <div className="hidden md:flex items-center space-x-4">
               <Link href="/auth/login">
-                <Button className="text-gray-700 hover:text-brand-500 bg-transparent hover:bg-gray-100">
+                <Button className="border border-[#334746] text-[#334746] hover:bg-[#334746] hover:text-white bg-white">
                   Login
                 </Button>
               </Link>
               <Link href="/auth/signup">
-                <Button className="bg-brand-500 hover:bg-brand-600">
+                <Button className="bg-brand-500 hover:bg-brand-600 text-white">
                   Get Started
                 </Button>
               </Link>
@@ -258,12 +295,25 @@ export default function LandingPage() {
               <Button
                 className="bg-transparent hover:bg-gray-100 p-2"
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
+                aria-expanded={isMenuOpen}
+                aria-label={isMenuOpen ? "Close menu" : "Open menu"}
               >
-                {isMenuOpen ? (
-                  <X className="h-6 w-6" />
-                ) : (
-                  <Menu className="h-6 w-6" />
-                )}
+                <span className="relative block w-6 h-6">
+                  <Menu
+                    className={`absolute inset-0 h-6 w-6 transition-all duration-300 ${
+                      isMenuOpen
+                        ? "opacity-0 scale-75 rotate-90"
+                        : "opacity-100 scale-100 rotate-0"
+                    }`}
+                  />
+                  <X
+                    className={`absolute inset-0 h-6 w-6 transition-all duration-300 ${
+                      isMenuOpen
+                        ? "opacity-100 scale-100 rotate-0"
+                        : "opacity-0 scale-75 -rotate-90"
+                    }`}
+                  />
+                </span>
               </Button>
             </div>
           </div>
@@ -274,36 +324,54 @@ export default function LandingPage() {
               <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
                 <Link
                   href="#features"
+                  onClick={(e) => handleSmoothScroll(e, "features")}
                   className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
                 >
                   Features
                 </Link>
                 <Link
                   href="#services"
+                  onClick={(e) => handleSmoothScroll(e, "services")}
                   className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
                 >
                   Services
                 </Link>
                 <Link
+                  href="#gallery"
+                  onClick={(e) => handleSmoothScroll(e, "gallery")}
+                  className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
+                >
+                  Gallery
+                </Link>
+                <Link
+                  href="#location"
+                  onClick={(e) => handleSmoothScroll(e, "location")}
+                  className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
+                >
+                  Location
+                </Link>
+                <Link
                   href="#about"
+                  onClick={(e) => handleSmoothScroll(e, "about")}
                   className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
                 >
                   About
                 </Link>
                 <Link
                   href="#contact"
+                  onClick={(e) => handleSmoothScroll(e, "contact")}
                   className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
                 >
                   Contact
                 </Link>
                 <div className="flex flex-col space-y-2 px-3 pt-4">
                   <Link href="/auth/login">
-                    <Button className="w-full border border-gray-300 bg-transparent hover:bg-gray-100">
+                    <Button className="w-full border border-[#334746] text-[#334746] bg-white hover:bg-[#334746] hover:text-white">
                       Login
                     </Button>
                   </Link>
                   <Link href="/auth/signup">
-                    <Button className="w-full bg-[#334746] hover:bg-gray-800">
+                    <Button className="w-full bg-[#334746] text-white hover:bg-gray-800">
                       Get Started
                     </Button>
                   </Link>
@@ -315,7 +383,9 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden">
+      <section
+        className={`relative overflow-hidden ${isMounted ? "opacity-100" : "opacity-0"} transition-opacity duration-700`}
+      >
         <div className="absolute inset-0 w-full h-full">
           <video
             autoPlay
@@ -327,11 +397,13 @@ export default function LandingPage() {
             <source src="/noreen.mp4" type="video/mp4" />
             Your browser does not support the video tag.
           </video>
-          <div className="absolute inset-0 bg-black/50" />{" "}
+          <div className="absolute inset-0 bg-black/50" />
           {/* Darker overlay for better text visibility */}
         </div>
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
-          <div className="text-center">
+          <div
+            className={`text-center ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+          >
             <h1 className="text-4xl md:text-6xl font-bold text-white mb-6">
               Plan Your Perfect Event
             </h1>
@@ -346,8 +418,11 @@ export default function LandingPage() {
                   Start Planning <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
-              <Link href="#features">
-                <Button className="text-black border-white border-2 bg-transparent hover:bg-white hover:text-black px-8 py-3 text-lg">
+              <Link
+                href="#features"
+                onClick={(e) => handleSmoothScroll(e, "features")}
+              >
+                <Button className="text-white border-white border-2 bg-transparent hover:bg-white hover:text-black px-8 py-3 text-lg">
                   Learn More
                 </Button>
               </Link>
@@ -357,7 +432,10 @@ export default function LandingPage() {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-24 bg-white">
+      <section
+        id="features"
+        className={`py-24 bg-white ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
@@ -370,7 +448,7 @@ export default function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            <Card className="border-none shadow-lg hover:shadow-xl transition-shadow">
+            <Card className="border border-gray-200">
               <CardHeader className="text-center">
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Calendar className="h-8 w-8 text-[#334746]" />
@@ -385,7 +463,7 @@ export default function LandingPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-none shadow-lg hover:shadow-xl transition-shadow">
+            <Card className="border border-gray-200">
               <CardHeader className="text-center">
                 <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <MapPin className="h-8 w-8 text-brand-500" />
@@ -400,7 +478,7 @@ export default function LandingPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-none shadow-lg hover:shadow-xl transition-shadow">
+            <Card className="border border-gray-200">
               <CardHeader className="text-center">
                 <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Users className="h-8 w-8 text-brand-500" />
@@ -415,7 +493,7 @@ export default function LandingPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-none shadow-lg hover:shadow-xl transition-shadow">
+            <Card className="border border-gray-200">
               <CardHeader className="text-center">
                 <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Star className="h-8 w-8 text-brand-500" />
@@ -434,7 +512,10 @@ export default function LandingPage() {
       </section>
 
       {/* Packages Section */}
-      <section id="packages" className="py-24 bg-white">
+      <section
+        id="packages"
+        className={`py-24 bg-white ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
@@ -465,7 +546,7 @@ export default function LandingPage() {
                       key={pkg.package_id}
                       className="w-full flex-shrink-0 px-4"
                     >
-                      <Card className="mx-auto max-w-2xl bg-white shadow-xl hover:shadow-2xl transition-all duration-300">
+                      <Card className="mx-auto max-w-2xl bg-white border border-gray-200">
                         <div className="p-8">
                           {/* Package Header */}
                           <div className="text-center space-y-4">
@@ -498,7 +579,10 @@ export default function LandingPage() {
 
                             {/* Price */}
                             <div className="text-4xl font-bold text-[#334746] py-4">
-                              ₱{pkg.package_price.toLocaleString()}
+                              ₱
+                              {new Intl.NumberFormat("en-PH", {
+                                maximumFractionDigits: 0,
+                              }).format(pkg.package_price)}
                             </div>
 
                             {/* Action Buttons */}
@@ -570,8 +654,36 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Gallery Section (layout only) */}
+      <section
+        id="gallery"
+        className={`py-24 bg-gray-50 ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              Gallery
+            </h2>
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+              A glimpse of venues and moments. Full gallery coming soon.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div
+                key={i}
+                className="aspect-square rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200"
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Services Section */}
-      <section id="services" className="py-24 bg-gray-50">
+      <section
+        id="services"
+        className={`py-24 bg-gray-50 ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
@@ -644,8 +756,61 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Location Section */}
+      <section
+        id="location"
+        className={`py-24 bg-white ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              Visit Us
+            </h2>
+            <p className="text-lg text-gray-600">
+              Find our office and venues easily on the map below.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+            <div className="rounded-xl overflow-hidden border border-gray-200 h-[320px]">
+              <iframe
+                title="Map"
+                src="https://maps.google.com/maps?q=Manila&t=&z=12&ie=UTF8&iwloc=&output=embed"
+                width="100%"
+                height="100%"
+                style={{ border: 0 }}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            </div>
+            <div className="p-6 bg-gray-50 rounded-xl border border-gray-200 h-full flex flex-col justify-center">
+              <h3 className="text-2xl font-semibold text-gray-900">
+                Our Location
+              </h3>
+              <p className="text-gray-700 mt-3">Metro Manila, Philippines</p>
+              <p className="text-gray-600 mt-2">
+                Open Mon–Sat, 9:00 AM – 6:00 PM
+              </p>
+              <div className="mt-6 flex gap-3">
+                <Link href="/auth/login">
+                  <Button className="border border-[#334746] text-[#334746] hover:bg-[#334746] hover:text-white">
+                    Login
+                  </Button>
+                </Link>
+                <Link href="/auth/signup">
+                  <Button className="bg-[#334746] text-white hover:bg-gray-800">
+                    Get Started
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
-      <section className="py-24 bg-brand-500">
+      <section
+        className={`py-24 bg-brand-500 ${isMounted ? "opacity-100" : "opacity-0"} transition-opacity duration-700`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
             Ready to Plan Your Next Event?

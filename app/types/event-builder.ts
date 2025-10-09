@@ -68,6 +68,7 @@ export interface ClientData {
   email: string;
   phone: string;
   address: string;
+  pfp?: string;
 }
 
 export interface EventDetails {
@@ -101,6 +102,7 @@ export interface PaymentAttachment {
   description: string;
   proof_type: string;
   uploaded_at: string;
+  file?: File; // Optional File object for uploads
 }
 
 export interface PaymentScheduleItem {
@@ -141,7 +143,8 @@ export interface PaymentData {
     date: string;
   };
   // Add missing properties
-  paymentAttachments?: PaymentAttachment[];
+  payment_attachments?: PaymentAttachment[];
+  paymentAttachments?: PaymentAttachment[]; // Keep for backward compatibility
   paymentSchedule?: PaymentScheduleItem[];
 }
 

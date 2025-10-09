@@ -18,7 +18,8 @@ import {
   CreditCard,
   Calendar as CalendarIcon,
 } from "lucide-react";
-import { apiClient } from "@/utils/apiClient";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 import { Card } from "@/components/ui/card";
@@ -91,10 +92,10 @@ export default function ClientEventsPage() {
     try {
       setIsLoading(true);
       const response = await axios.get(
-        `client.php?operation=getClientEvents&user_id=${userId}`
+        `${endpoints.client}?operation=getClientEvents&user_id=${userId}`
       );
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         setEvents(response.data.events || []);
       } else {
         toast({

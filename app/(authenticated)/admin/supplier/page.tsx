@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   Plus,
   Search,
@@ -157,10 +156,10 @@ export default function SupplierPage() {
           ),
         });
 
-        const response = await fetch(
-          `${API_URL}/admin.php?operation=getAllSuppliers&${queryParams}`
+        const response = await axios.get(
+          `${endpoints.admin}?operation=getAllSuppliers&${queryParams}`
         );
-        const data = await response.json();
+        const data = response.data;
 
         if (data.status === "success") {
           setSuppliers(data.suppliers || []);
@@ -188,14 +187,14 @@ export default function SupplierPage() {
   const fetchMetadata = async () => {
     try {
       const [categoriesRes, statsRes, docTypesRes] = await Promise.all([
-        fetch(`${API_URL}/admin.php?operation=getSupplierCategories`),
-        fetch(`${API_URL}/admin.php?operation=getSupplierStats`),
-        fetch(`${API_URL}/admin.php?operation=getDocumentTypes`),
+        axios.get(`${endpoints.admin}?operation=getSupplierCategories`),
+        axios.get(`${endpoints.admin}?operation=getSupplierStats`),
+        axios.get(`${endpoints.admin}?operation=getDocumentTypes`),
       ]);
 
-      const categoriesData = await categoriesRes.json();
-      const statsData = await statsRes.json();
-      const docTypesData = await docTypesRes.json();
+      const categoriesData = categoriesRes.data;
+      const statsData = statsRes.data;
+      const docTypesData = docTypesRes.data;
 
       if (categoriesData.status === "success") {
         // Ensure categories is an array of strings
@@ -364,13 +363,12 @@ export default function SupplierPage() {
     if (!confirm("Are you sure you want to delete this supplier?")) return;
 
     try {
-      const response = await fetch(
-        `${API_URL}/admin.php?operation=deleteSupplier&supplier_id=${supplierId}`,
-        {
-          method: "DELETE",
-        }
+      const response = await axios.post(
+        endpoints.admin,
+        { operation: "deleteSupplier", supplier_id: supplierId },
+        { headers: { "Content-Type": "application/json" } }
       );
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         fetchSuppliers();
@@ -979,10 +977,10 @@ function EnhancedSupplierModal({
 
   const fetchSupplierDocuments = async (supplierId: number) => {
     try {
-      const response = await fetch(
-        `${API_URL}/admin.php?operation=getSupplierDocuments&supplier_id=${supplierId}`
+      const response = await axios.get(
+        `${endpoints.admin}?operation=getSupplierDocuments&supplier_id=${supplierId}`
       );
-      const data = await response.json();
+      const data = response.data;
       if (data.status === "success") {
         setUploadedDocuments(data.documents);
       }
@@ -993,10 +991,10 @@ function EnhancedSupplierModal({
 
   const fetchSupplierOffers = async (supplierId: number) => {
     try {
-      const response = await fetch(
-        `${API_URL}/admin.php?operation=getSupplierById&supplier_id=${supplierId}`
+      const response = await axios.get(
+        `${endpoints.admin}?operation=getSupplierById&supplier_id=${supplierId}`
       );
-      const data = await response.json();
+      const data = response.data;
       if (data.status === "success" && data.supplier.offers) {
         setSupplierOffers(data.supplier.offers);
         // Convert offers to tiers format
@@ -1069,19 +1067,21 @@ function EnhancedSupplierModal({
         }
       });
 
-      const url =
-        mode === "edit"
-          ? `${API_URL}/admin.php?operation=updateSupplier&supplier_id=${supplier?.supplier_id}`
-          : `${API_URL}/admin.php?operation=createSupplier`;
+      // Build operation-specific request
+      if (mode === "edit") {
+        formDataToSend.append("operation", "updateSupplier");
+        if (supplier?.supplier_id) {
+          formDataToSend.append("supplier_id", String(supplier.supplier_id));
+        }
+      } else {
+        formDataToSend.append("operation", "createSupplier");
+      }
 
-      const method = mode === "edit" ? "PUT" : "POST";
-
-      const response = await fetch(url, {
-        method,
-        body: formDataToSend,
+      const response = await axios.post(endpoints.admin, formDataToSend, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.status === "success") {
         if (mode === "add" && data.credentials) {

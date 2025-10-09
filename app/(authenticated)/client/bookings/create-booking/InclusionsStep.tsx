@@ -42,8 +42,9 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { apiClient } from "@/utils/apiClient";
+import { apiClient } from "@/app/utils/apiClient";
 import axios from "axios";
+import { endpoints } from "@/app/config/api";
 
 // Types
 interface Inclusion {
@@ -196,14 +197,14 @@ export default function InclusionsStep({
   // Fetch venue inclusions
   const fetchVenueInclusions = async (venueId: number) => {
     try {
-      const response = await axios.get("/api/client.php", {
+      const response = await axios.get(`${endpoints.client}`, {
         params: {
           operation: "getVenueInclusions",
           venue_id: venueId,
         },
       });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         const inclusions = response.data.inclusions || [];
         setVenueInclusions(inclusions);
         const total = inclusions.reduce(
@@ -221,15 +222,15 @@ export default function InclusionsStep({
   const fetchAvailableInclusions = async () => {
     setLoading(true);
     try {
-      const response = await axios.get("/api/client.php", {
+      const response = await axios.get(`${endpoints.client}`, {
         params: {
           operation: "getPackageComponents",
           package_id: packageId ?? 0,
         },
       });
 
-      if (response.status === "success") {
-        const raw = response.data.inclusions || response.data.components || [];
+      if (response.data.status === "success") {
+        const raw = response.data.components || response.data.inclusions || [];
         const mapped: Inclusion[] = raw.map((item: any) => ({
           inclusion_id:
             item.inclusion_id ?? item.component_id ?? item.id ?? Math.random(),
@@ -260,10 +261,10 @@ export default function InclusionsStep({
     try {
       // Fetch suppliers with offers (primary) and admin suppliers (for registration_docs fallback) in parallel
       const [clientRes, adminRes] = await Promise.all([
-        apiClient.get("/client.php", {
+        axios.get(`${endpoints.client}`, {
           params: { operation: "getSuppliersWithTiers" },
         }),
-        apiClient.get("/admin.php", {
+        axios.get(`${endpoints.admin}`, {
           params: {
             operation: "getAllSuppliers",
             page: 1,
@@ -351,15 +352,15 @@ export default function InclusionsStep({
   // Fetch freebies for the current package
   const fetchPackageFreebies = async (pkgId: number) => {
     try {
-      const response = await axios.get("/api/client.php", {
+      const response = await axios.get(`${endpoints.client}`, {
         params: {
           operation: "getPackageDetails",
           package_id: pkgId,
         },
       });
 
-      if (response.status === "success") {
-        const freebies: Freebie[] = response.data?.package?.freebies || [];
+      if (response.data.status === "success") {
+        const freebies: Freebie[] = response.data.package?.freebies || [];
         setPackageFreebies(freebies);
       } else {
         setPackageFreebies([]);
@@ -383,7 +384,7 @@ export default function InclusionsStep({
       const dd = String(today.getDate()).padStart(2, "0");
       const dateStr = `${yyyy}-${mm}-${dd}`;
 
-      const response = await axios.get("/api/client.php", {
+      const response = await axios.get(`${endpoints.client}`, {
         params: {
           operation: "getVenuesByPackage",
           package_id: pkgId,
@@ -392,8 +393,8 @@ export default function InclusionsStep({
         },
       });
 
-      if (response.status === "success") {
-        const venues: any[] = response.data?.venues || [];
+      if (response.data.status === "success") {
+        const venues: any[] = response.data.venues || [];
         const venue = venues.find((v) => Number(v.venue_id) === Number(vId));
         if (venue) {
           const base = parseFloat(String(venue.venue_price)) || 0;

@@ -21,14 +21,11 @@ import {
   QrCode,
   Copy,
   Check,
-  Upload,
   Wallet,
   BanknoteIcon,
   Smartphone,
   Building,
   FileText,
-  X,
-  Paperclip,
 } from "lucide-react";
 import {
   Dialog,
@@ -59,7 +56,6 @@ interface PaymentData {
   balanceStatus: string;
   notes: string;
   balanceNotes: string;
-  attachments: File[];
   customPercentage: number;
   cashBondRequired: boolean;
   cashBondStatus: string;
@@ -83,7 +79,6 @@ export function PaymentMethod({ totalAmount, onSubmit }: PaymentMethodProps) {
     balanceStatus: "pending",
     notes: "",
     balanceNotes: "",
-    attachments: [] as File[],
     customPercentage: 50,
     cashBondRequired: true,
     cashBondStatus: "pending",
@@ -107,11 +102,6 @@ export function PaymentMethod({ totalAmount, onSubmit }: PaymentMethodProps) {
   const [copied, setCopied] = useState(false);
   const [showReferenceModal, setShowReferenceModal] = useState(false);
   const [tempReferenceNumber, setTempReferenceNumber] = useState("");
-  const [paymentProof, setPaymentProof] = useState<File | null>(null);
-  const [showAttachmentModal, setShowAttachmentModal] = useState(false);
-  const [attachmentDescription, setAttachmentDescription] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [showDamageEdit, setShowDamageEdit] = useState(false);
   const [damageDetails, setDamageDetails] = useState({
     description: "",
@@ -152,56 +142,6 @@ export function PaymentMethod({ totalAmount, onSubmit }: PaymentMethodProps) {
     navigator.clipboard.writeText(refNumber);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Handle file upload
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setPaymentProof(e.target.files[0]);
-    }
-  };
-
-  // Handle attachment upload
-  const handleAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setShowAttachmentModal(true);
-      // Reset the file input
-      if (attachmentInputRef.current) {
-        attachmentInputRef.current.value = "";
-      }
-    }
-  };
-
-  // Save attachment with description
-  const saveAttachment = () => {
-    if (
-      attachmentInputRef.current?.files &&
-      attachmentInputRef.current.files[0]
-    ) {
-      const file = attachmentInputRef.current.files[0];
-      const newAttachments = [...paymentData.attachments, file];
-      setPaymentData((prev) => ({
-        ...prev,
-        attachments: newAttachments,
-      }));
-      setAttachmentDescription("");
-      setShowAttachmentModal(false);
-      toast({
-        title: "Attachment added",
-        description: `${file.name} has been added to the payment.`,
-      });
-    }
-  };
-
-  // Remove attachment
-  const removeAttachment = (index: number) => {
-    const newAttachments = [...paymentData.attachments];
-    newAttachments.splice(index, 1);
-    setPaymentData((prev) => ({
-      ...prev,
-      attachments: newAttachments,
-    }));
   };
 
   // Save reference number from modal
@@ -682,51 +622,6 @@ export function PaymentMethod({ totalAmount, onSubmit }: PaymentMethodProps) {
               placeholder="Add notes about this payment"
               className="w-full"
             />
-          </div>
-
-          {/* Attachments */}
-          <div className="mt-6">
-            <Label className="font-semibold mb-2 block">Attachments</Label>
-            <div className="flex items-center gap-2 mb-2">
-              <input
-                type="file"
-                ref={attachmentInputRef}
-                onChange={handleAttachmentUpload}
-                className="hidden"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  attachmentInputRef.current &&
-                  attachmentInputRef.current.click()
-                }
-                className="flex items-center gap-2"
-              >
-                <Paperclip className="h-4 w-4" /> Add Attachment
-              </Button>
-            </div>
-            <div className="space-y-2">
-              {paymentData.attachments.map((file, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center gap-2 bg-white rounded p-2 border"
-                >
-                  <Paperclip className="h-4 w-4 text-muted-foreground" />
-                  <span>{file.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {(file.size / 1024).toFixed(1)} KB
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeAttachment(idx)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
           </div>
 
           {/* Action Buttons */}

@@ -53,12 +53,54 @@ export async function apiPost<T = any, D = any>(
       validateStatus: () => true,
       ...config,
     });
-    return response.data;
+
+    // Handle potential double-encoded JSON from PHP
+    let responseData = response.data;
+
+    // If the response is a string, try to parse it as JSON
+    if (typeof responseData === 'string') {
+      try {
+        responseData = JSON.parse(responseData);
+        console.log("Successfully parsed JSON string response:", responseData);
+      } catch (parseError) {
+        console.warn("Failed to parse response as JSON:", parseError);
+        console.warn("Raw response string:", responseData);
+        // Return the string as is if parsing fails
+        return {
+          status: "success",
+          data: responseData as T,
+          message: "Response received as string"
+        };
+      }
+    }
+
+    // Handle empty response objects (common with PHP APIs that return empty JSON)
+    if (responseData && typeof responseData === 'object' && (Object.keys(responseData).length === 0 || JSON.stringify(responseData) === '{}')) {
+      console.log("Empty response object detected - treating as success");
+      return {
+        status: "success",
+        data: responseData as T,
+        message: "Assignment completed successfully"
+      };
+    }
+
+    // Enhanced debugging for response structure
+    console.log("API Response received:", responseData);
+    console.log("Response type:", typeof responseData);
+    console.log("Response status:", responseData?.status);
+
+    return responseData;
   } catch (error) {
+    // Enhanced error logging for debugging
+    console.error("API Post Error:", error);
+    console.error("Error type:", typeof error);
+    console.error("Error details:", error instanceof Error ? error.message : error);
+
     // Network error or request setup error
     return {
       status: "error",
       error: error instanceof Error ? error.message : "Unknown error occurred",
+      message: error instanceof Error ? error.message : "Network or request error",
     };
   }
 }

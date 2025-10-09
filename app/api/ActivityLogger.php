@@ -8,6 +8,18 @@ class ActivityLogger {
 
     public function __construct($pdo) {
         $this->conn = $pdo;
+        // Enforce collation settings to prevent CONCAT errors
+        try {
+            $this->conn->exec("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci");
+            $this->conn->exec("SET SESSION collation_connection = 'utf8mb4_general_ci'");
+            $this->conn->exec("SET SESSION collation_database = 'utf8mb4_general_ci'");
+            $this->conn->exec("SET SESSION collation_server = 'utf8mb4_general_ci'");
+            $this->conn->exec("SET SESSION character_set_connection = 'utf8mb4'");
+            $this->conn->exec("SET SESSION character_set_database = 'utf8mb4'");
+            $this->conn->exec("SET SESSION character_set_server = 'utf8mb4'");
+        } catch (Exception $e) {
+            error_log("ActivityLogger collation enforcement failed: " . $e->getMessage());
+        }
     }
 
     /**
@@ -297,7 +309,7 @@ class ActivityLogger {
             // Get top active users
             $sql = "SELECT
                         u.user_id,
-                        CONCAT(u.user_firstName, ' ', u.user_lastName) as user_name,
+                        CONCAT(u.user_firstName COLLATE utf8mb4_general_ci, ' ', u.user_lastName COLLATE utf8mb4_general_ci) as user_name,
                         u.user_role,
                         COUNT(ual.id) as activity_count
                     FROM tbl_user_activity_logs ual

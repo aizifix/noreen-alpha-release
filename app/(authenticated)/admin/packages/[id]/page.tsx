@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import {
   ArrowLeft,
   Package,
@@ -97,8 +98,7 @@ interface EventType {
   event_description: string | null;
 }
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+// Use centralized endpoints from config
 
 export default function PackageDetailsPage() {
   const params = useParams();
@@ -178,10 +178,14 @@ export default function PackageDetailsPage() {
   const fetchPackageDetails = async () => {
     try {
       setIsLoading(true);
-      const response = await axios.post(`${API_URL}/admin.php`, {
-        operation: "getPackageDetails",
-        package_id: params.id,
-      });
+      const response = await axios.post(
+        endpoints.admin,
+        {
+          operation: "getPackageDetails",
+          package_id: params.id,
+        },
+        { headers: { "Content-Type": "application/json" } }
+      );
 
       console.log("Package details response:", response.data);
 
@@ -239,9 +243,13 @@ export default function PackageDetailsPage() {
 
   const fetchAvailableVenues = async () => {
     try {
-      const response = await axios.post(`${API_URL}/admin.php`, {
-        operation: "getVenuesForPackage",
-      });
+      const response = await axios.post(
+        endpoints.admin,
+        {
+          operation: "getVenuesForPackage",
+        },
+        { headers: { "Content-Type": "application/json" } }
+      );
 
       console.log("Venues response:", response.data);
 
@@ -260,9 +268,13 @@ export default function PackageDetailsPage() {
 
   const fetchAvailableEventTypes = async () => {
     try {
-      const response = await axios.post(`${API_URL}/admin.php`, {
-        operation: "getEventTypes",
-      });
+      const response = await axios.post(
+        endpoints.admin,
+        {
+          operation: "getEventTypes",
+        },
+        { headers: { "Content-Type": "application/json" } }
+      );
 
       console.log("Event types response:", response.data);
 
@@ -290,10 +302,14 @@ export default function PackageDetailsPage() {
         "Are you sure you want to delete this package? This action cannot be undone.",
       onConfirm: async () => {
         try {
-          const response = await axios.post(`${API_URL}/admin.php`, {
-            operation: "deletePackage",
-            package_id: params.id,
-          });
+          const response = await axios.post(
+            endpoints.admin,
+            {
+              operation: "deletePackage",
+              package_id: params.id,
+            },
+            { headers: { "Content-Type": "application/json" } }
+          );
 
           if (response.data.status === "success") {
             toast.success("Package deleted successfully");
@@ -317,11 +333,8 @@ export default function PackageDetailsPage() {
     const cleanPath = imagePath.startsWith("uploads/")
       ? imagePath
       : `uploads/${imagePath}`;
-    // Use the events-api endpoint for serving images
-    const eventsApiUrl = process.env.NEXT_PUBLIC_API_URL
-      ? process.env.NEXT_PUBLIC_API_URL.replace("/app/api", "/events-api")
-      : "http://localhost/events-api";
-    return `${eventsApiUrl}/${cleanPath}`;
+    // Use centralized serve-image endpoint
+    return `${endpoints.serveImage}?path=${encodeURIComponent(cleanPath)}`;
   };
 
   const handleEditPackage = () => {
@@ -410,7 +423,7 @@ export default function PackageDetailsPage() {
       console.log("Event types being sent:", editedEventTypes);
 
       // Make the API call with proper error handling
-      const response = await axios.post(`${API_URL}/admin.php`, updateData, {
+      const response = await axios.post(endpoints.admin, updateData, {
         headers: {
           "Content-Type": "application/json",
         },
@@ -489,8 +502,11 @@ export default function PackageDetailsPage() {
           onConfirm: async () => {
             updateData.confirm_overage = true;
             const retryResponse = await axios.post(
-              `${API_URL}/admin.php`,
-              updateData
+              endpoints.admin,
+              updateData,
+              {
+                headers: { "Content-Type": "application/json" },
+              }
             );
 
             if (retryResponse.data.status === "success") {
@@ -724,11 +740,15 @@ export default function PackageDetailsPage() {
     if (!packageDetails) return;
 
     try {
-      const response = await axios.post(`${API_URL}/admin.php`, {
-        operation: "updatePackageEventTypes",
-        package_id: packageDetails.package_id,
-        event_type_ids: selectedTypes,
-      });
+      const response = await axios.post(
+        endpoints.admin,
+        {
+          operation: "updatePackageEventTypes",
+          package_id: packageDetails.package_id,
+          event_type_ids: selectedTypes,
+        },
+        { headers: { "Content-Type": "application/json" } }
+      );
 
       if (response.data.status === "success") {
         toast.success("Event types updated successfully");

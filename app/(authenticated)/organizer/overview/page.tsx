@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
-import { apiClient } from "@/utils/apiClient";
 import { Filter, Search } from "lucide-react";
 
 interface Store {
@@ -39,9 +40,6 @@ interface ApiResponse<T> {
   venues?: T[];
   message?: string;
 }
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://noreen-events.online/noreen-events";
 
 export default function VendorDashboard() {
   const router = useRouter();
@@ -80,13 +78,13 @@ export default function VendorDashboard() {
     try {
       setLoading(true);
       const [storesResponse, venuesResponse] = await Promise.all([
-        axios.get<ApiResponse<Store>>(`${API_URL}/vendor.php`, {
+        axios.get<ApiResponse<Store>>(endpoints.vendor, {
           params: {
             operation: "getStores",
             user_id: userId,
           },
         }),
-        axios.get<ApiResponse<Venue>>(`${API_URL}/vendor.php`, {
+        axios.get<ApiResponse<Venue>>(endpoints.vendor, {
           params: {
             operation: "getVenues",
             user_id: userId,

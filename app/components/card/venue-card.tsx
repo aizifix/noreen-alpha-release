@@ -1,6 +1,7 @@
 "use client";
 import Image from "next/image";
 import type React from "react";
+import { endpoints } from "@/app/config/api";
 
 interface VenueCardProps {
   id: number;
@@ -25,7 +26,7 @@ export function VenueCard({
   const normalizePath = (path: string | null) => {
     if (!path || path.startsWith("http")) return path;
     // Use the image serving script for proper image delivery
-    return `serve-image.php?path=${encodeURIComponent(path)}`;
+    return `${endpoints.serveImage}?path=${encodeURIComponent(path)}`;
   };
 
   const coverPhotoUrl =

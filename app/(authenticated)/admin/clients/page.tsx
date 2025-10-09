@@ -2,14 +2,13 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/events-api";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatCurrency } from "@/lib/utils";
-import { api } from "@/app/utils/apiWrapper";
 import {
   Search,
   Users,
@@ -48,6 +47,11 @@ interface Client {
   user_email: string;
   user_contact: string;
   user_pfp: string;
+  user_address: string;
+  user_city: string;
+  user_state: string;
+  user_zipcode: string;
+  user_country: string;
   registration_date: string;
   total_events: number;
   total_bookings: number;
@@ -78,14 +82,16 @@ export default function ClientsPage() {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(20);
 
   const fetchClients = useCallback(
     async (searchTerm?: string) => {
       try {
         setLoading(true);
+        setError(null);
         const queryParams = new URLSearchParams({
           page: currentPage.toString(),
-          limit: "20",
+          limit: itemsPerPage.toString(),
           ...Object.fromEntries(
             Object.entries({
               ...filters,
@@ -94,10 +100,10 @@ export default function ClientsPage() {
           ),
         });
 
-        const response = await fetch(
-          `${API_URL}/admin.php?operation=getClients&${queryParams}`
+        const response = await axios.get(
+          `${endpoints.admin}?operation=getClients&${queryParams}`
         );
-        const data = await response.json();
+        const data = response.data;
 
         if (data.status === "success") {
           setClients(data.clients || []);
@@ -106,14 +112,22 @@ export default function ClientsPage() {
           console.error("API Error:", data.message);
           setError(data.message || "Failed to fetch clients");
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching clients:", error);
-        setError("Failed to fetch clients");
+        if (error.code === "ERR_NETWORK") {
+          setError(
+            "Network error: Unable to connect to server. Please check your connection and try again."
+          );
+        } else if (error.response?.status === 500) {
+          setError("Server error: Please try again later or contact support.");
+        } else {
+          setError("Failed to fetch clients. Please try again.");
+        }
       } finally {
         setLoading(false);
       }
     },
-    [currentPage, filters.status, filters.activity_level]
+    [currentPage, itemsPerPage, filters.status, filters.activity_level]
   );
 
   // Effect for filters (immediate)
@@ -205,34 +219,20 @@ export default function ClientsPage() {
   // Bulk actions
   const handleBulkDelete = () => {
     if (selectedClients.length === 0) {
-      toast({
-        title: "No clients selected",
-        description: "Please select clients to delete",
-        variant: "destructive",
-      });
+      toast.error("No clients selected - Please select clients to delete");
       return;
     }
     // Implement bulk delete logic here
-    toast({
-      title: "Bulk delete",
-      description: `Deleting ${selectedClients.length} clients...`,
-    });
+    toast.success(`Deleting ${selectedClients.length} clients...`);
   };
 
   const handleBulkExport = () => {
     if (selectedClients.length === 0) {
-      toast({
-        title: "No clients selected",
-        description: "Please select clients to export",
-        variant: "destructive",
-      });
+      toast.error("No clients selected - Please select clients to export");
       return;
     }
     // Implement bulk export logic here
-    toast({
-      title: "Bulk export",
-      description: `Exporting ${selectedClients.length} clients...`,
-    });
+    toast.success(`Exporting ${selectedClients.length} clients...`);
   };
 
   if (loading) {
@@ -268,6 +268,47 @@ export default function ClientsPage() {
           Refresh
         </Button>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <Card className="border border-red-200 bg-red-50 mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg
+                  className="h-5 w-5 text-red-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">
+                  Error Loading Clients
+                </h3>
+                <div className="mt-2 text-sm text-red-700">
+                  <p>{error}</p>
+                </div>
+                <div className="mt-4">
+                  <Button
+                    onClick={() => fetchClients()}
+                    variant="outline"
+                    size="sm"
+                    className="border-red-300 text-red-700 hover:bg-red-100"
+                  >
+                    Try Again
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -358,7 +399,7 @@ export default function ClientsPage() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="Search clients... (Press Enter)"
+                  placeholder="Search clients, email, phone, or address... (Press Enter)"
                   value={filters.search}
                   onChange={(e) => handleFilterChange("search", e.target.value)}
                   onKeyPress={handleSearchKeyPress}
@@ -438,29 +479,72 @@ export default function ClientsPage() {
 
       {/* Clients Table */}
       <Card className="border">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Clients ({clients.length})</CardTitle>
+          <div className="flex items-center gap-3">
+            <Label htmlFor="clientsPageSize" className="text-sm text-gray-600">
+              Rows per page
+            </Label>
+            <select
+              id="clientsPageSize"
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="w-28 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {[10, 20, 50, 100].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div
+            className="overflow-x-auto"
+            style={{
+              scrollbarWidth: "thin",
+              scrollbarColor: "#d1d5db #f3f4f6",
+            }}
+          >
+            <style jsx>{`
+              div::-webkit-scrollbar {
+                height: 8px;
+              }
+              div::-webkit-scrollbar-track {
+                background: #f3f4f6;
+                border-radius: 4px;
+              }
+              div::-webkit-scrollbar-thumb {
+                background: #d1d5db;
+                border-radius: 4px;
+              }
+              div::-webkit-scrollbar-thumb:hover {
+                background: #9ca3af;
+              }
+            `}</style>
+            <table className="w-full text-sm" style={{ minWidth: "1200px" }}>
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-3 px-4">
+                  <th className="text-left py-3 px-4 w-12">
                     <Checkbox
                       checked={selectAll}
                       onCheckedChange={handleSelectAll}
                     />
                   </th>
-                  <th className="text-left py-3 px-4">Profile</th>
-                  <th className="text-left py-3 px-4">Name</th>
-                  <th className="text-left py-3 px-4">Email</th>
-                  <th className="text-left py-3 px-4">Phone</th>
-                  <th className="text-left py-3 px-4">Status</th>
-                  <th className="text-left py-3 px-4">Events</th>
-                  <th className="text-left py-3 px-4">Revenue</th>
-                  <th className="text-left py-3 px-4">Registered</th>
-                  <th className="text-left py-3 px-4">Actions</th>
+                  <th className="text-left py-3 px-4 w-16">Profile</th>
+                  <th className="text-left py-3 px-4 w-40">Name</th>
+                  <th className="text-left py-3 px-4 w-48">Email</th>
+                  <th className="text-left py-3 px-4 w-32">Phone</th>
+                  <th className="text-left py-3 px-4 w-64">Address</th>
+                  <th className="text-left py-3 px-4 w-24">Status</th>
+                  <th className="text-left py-3 px-4 w-20">Events</th>
+                  <th className="text-left py-3 px-4 w-28">Revenue</th>
+                  <th className="text-left py-3 px-4 w-28">Registered</th>
+                  <th className="text-left py-3 px-4 w-20">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -482,7 +566,7 @@ export default function ClientsPage() {
                         <AvatarImage
                           src={
                             client.user_pfp
-                              ? api.getServeImageUrl(client.user_pfp)
+                              ? `${endpoints.serveImage}?path=${client.user_pfp}`
                               : undefined
                           }
                           alt={`${client.user_firstName} ${client.user_lastName}`}
@@ -502,6 +586,33 @@ export default function ClientsPage() {
                     </td>
                     <td className="py-3 px-4">{client.user_email}</td>
                     <td className="py-3 px-4">{client.user_contact}</td>
+                    <td className="py-3 px-4">
+                      <div className="text-sm">
+                        {client.user_address && (
+                          <div className="font-medium">
+                            {client.user_address}
+                          </div>
+                        )}
+                        {(client.user_city ||
+                          client.user_state ||
+                          client.user_zipcode) && (
+                          <div className="text-gray-600">
+                            {[
+                              client.user_city,
+                              client.user_state,
+                              client.user_zipcode,
+                            ]
+                              .filter(Boolean)
+                              .join(", ")}
+                          </div>
+                        )}
+                        {client.user_country && (
+                          <div className="text-gray-500 text-xs">
+                            {client.user_country}
+                          </div>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-3 px-4">
                       <span
                         className={`px-2 py-1 rounded-full text-xs ${getClientStatusColor(client)}`}
@@ -555,26 +666,87 @@ export default function ClientsPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex justify-center mt-4">
-              <div className="flex space-x-2">
+            <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between pt-2">
+              <div className="text-xs text-gray-600">
+                Page {currentPage} of {totalPages}
+              </div>
+              <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                  disabled={currentPage === 1}
-                  className="px-3 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage <= 1}
+                  className="px-2 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
+                  aria-label="First page"
                 >
-                  Previous
+                  «
                 </button>
-                <span className="px-3 py-1">
-                  Page {currentPage} of {totalPages}
-                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="px-2 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
+                  aria-label="Previous page"
+                >
+                  ‹
+                </button>
+                {(() => {
+                  const pages: number[] = [];
+                  const total = totalPages;
+                  const current = currentPage;
+                  const add = (n: number) => {
+                    if (!pages.includes(n) && n >= 1 && n <= total)
+                      pages.push(n);
+                  };
+                  add(1);
+                  add(current - 1);
+                  add(current);
+                  add(current + 1);
+                  add(total);
+                  const uniqueSorted = [...new Set(pages)].sort(
+                    (a, b) => a - b
+                  );
+                  const items: (number | string)[] = [];
+                  uniqueSorted.forEach((n, i) => {
+                    if (i > 0 && n - (uniqueSorted[i - 1] as number) > 1)
+                      items.push("...");
+                    items.push(n);
+                  });
+                  return items.map((p, i) =>
+                    typeof p === "number" ? (
+                      <button
+                        key={`clients-page-${p}-${i}`}
+                        onClick={() => setCurrentPage(p)}
+                        className={`px-3 py-1 border rounded hover:bg-gray-50 ${
+                          p === current ? "bg-gray-100 font-semibold" : ""
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ) : (
+                      <span
+                        key={`clients-gap-${i}`}
+                        className="px-2 text-gray-500"
+                      >
+                        {p}
+                      </span>
+                    )
+                  );
+                })()}
                 <button
                   onClick={() =>
-                    setCurrentPage(Math.min(totalPages, currentPage + 1))
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
                   }
-                  disabled={currentPage === totalPages}
-                  className="px-3 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
+                  disabled={currentPage >= totalPages}
+                  className="px-2 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
+                  aria-label="Next page"
                 >
-                  Next
+                  ›
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage >= totalPages}
+                  className="px-2 py-1 border rounded disabled:opacity-50 hover:bg-gray-50"
+                  aria-label="Last page"
+                >
+                  »
                 </button>
               </div>
             </div>
@@ -599,7 +771,7 @@ export default function ClientsPage() {
                   <AvatarImage
                     src={
                       selectedClient.user_pfp
-                        ? api.getServeImageUrl(selectedClient.user_pfp)
+                        ? `${endpoints.serveImage}?path=${selectedClient.user_pfp}`
                         : undefined
                     }
                     alt={`${selectedClient.user_firstName} ${selectedClient.user_lastName}`}
@@ -652,6 +824,55 @@ export default function ClientsPage() {
                       ? formatDate(selectedClient.last_event_date)
                       : "No events yet"}
                   </p>
+                </div>
+              </div>
+
+              {/* Address Section */}
+              <div>
+                <h4 className="text-sm font-medium text-muted-foreground mb-3">
+                  Address Information
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="text-sm font-medium text-muted-foreground">
+                      Street Address
+                    </label>
+                    <p className="text-sm">
+                      {selectedClient.user_address || "Not provided"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      City
+                    </label>
+                    <p className="text-sm">
+                      {selectedClient.user_city || "Not provided"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      State/Province
+                    </label>
+                    <p className="text-sm">
+                      {selectedClient.user_state || "Not provided"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      ZIP/Postal Code
+                    </label>
+                    <p className="text-sm">
+                      {selectedClient.user_zipcode || "Not provided"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      Country
+                    </label>
+                    <p className="text-sm">
+                      {selectedClient.user_country || "Not provided"}
+                    </p>
+                  </div>
                 </div>
               </div>
 

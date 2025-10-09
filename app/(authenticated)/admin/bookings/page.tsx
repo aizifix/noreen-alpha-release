@@ -970,10 +970,7 @@ export default function AdminBookingsPage() {
                 ) : (
                   <div className="grid gap-4">
                     {filteredBookings.map((booking) => (
-                      <BookingCard
-                        key={booking.booking_reference}
-                        booking={booking}
-                      />
+                      <BookingCard key={booking.booking_id} booking={booking} />
                     ))}
                   </div>
                 )}
@@ -1224,7 +1221,9 @@ export default function AdminBookingsPage() {
                               });
                               return items.map((p, i) =>
                                 typeof p === "number" ? (
-                                  <PaginationItem key={`page-${p}-${i}`}>
+                                  <PaginationItem
+                                    key={`pagination-page-${p}-${i}`}
+                                  >
                                     <PaginationLink
                                       href="#"
                                       isActive={p === current}
@@ -1237,7 +1236,7 @@ export default function AdminBookingsPage() {
                                     </PaginationLink>
                                   </PaginationItem>
                                 ) : (
-                                  <PaginationItem key={`gap-${i}`}>
+                                  <PaginationItem key={`pagination-gap-${i}`}>
                                     <PaginationEllipsis />
                                   </PaginationItem>
                                 )
@@ -1330,7 +1329,7 @@ export default function AdminBookingsPage() {
                                       .slice(0, 6)
                                       .map((f: any, i: number) => (
                                         <span
-                                          key={`freebie-pill-${i}`}
+                                          key={`summary-freebie-pill-${i}`}
                                           className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700 border"
                                         >
                                           {typeof f === "string"
@@ -1647,7 +1646,7 @@ export default function AdminBookingsPage() {
                                         {packageDetails.freebies.map(
                                           (f: any, i: number) => (
                                             <span
-                                              key={`freebie-chip-${i}`}
+                                              key={`package-freebie-chip-${i}`}
                                               className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700 border"
                                             >
                                               {typeof f === "string"

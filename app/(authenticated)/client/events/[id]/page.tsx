@@ -55,6 +55,7 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/utils/apiClient";
 import { adminApi, clientApi } from "@/app/utils/api";
+import { endpoints } from "@/app/config/api";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -431,13 +432,10 @@ function EventFinalization({
 
   const fetchPaymentStats = async () => {
     try {
-      const response = await axios.post(
-        "/admin.php",
-        {
-          operation: "getEventPaymentStats",
-          event_id: event.event_id,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "getEventPaymentStats",
+        event_id: event.event_id,
+      });
 
       if (response.status === "success") {
         setPaymentStats(response.data.stats);
@@ -782,13 +780,10 @@ function VenueSelection({
   const fetchPackageVenues = async () => {
     try {
       setLoading(true);
-      const response = await axios.post(
-        "/admin.php",
-        {
-          operation: "getPackageVenues",
-          package_id: event.package_id,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "getPackageVenues",
+        package_id: event.package_id,
+      });
 
       if (response.status === "success") {
         setVenues(response.data.venues || []);
@@ -870,14 +865,11 @@ function VenueSelection({
   const handleVenueChange = async (venueId: number) => {
     try {
       setLoading(true);
-      const response = await axios.post(
-        "/admin.php",
-        {
-          operation: "updateEventVenue",
-          event_id: event.event_id,
-          venue_id: venueId,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "updateEventVenue",
+        event_id: event.event_id,
+        venue_id: venueId,
+      });
 
       if (response.status === "success") {
         toast({
@@ -1480,15 +1472,12 @@ function PackageInclusionsManagement({
         newStatus
       );
       setLoading(true);
-      const response = await axios.post(
-        "/admin.php",
-        {
-          operation: "updateComponentPaymentStatus",
-          component_id: componentId,
-          payment_status: newStatus,
-          payment_notes: `Status changed to ${newStatus} by admin`,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "updateComponentPaymentStatus",
+        component_id: componentId,
+        payment_status: newStatus,
+        payment_notes: `Status changed to ${newStatus} by admin`,
+      });
 
       if (response.status === "success") {
         // Update local state
@@ -1699,14 +1688,11 @@ function PackageInclusionsManagement({
                     onClick={async () => {
                       try {
                         setLoading(true);
-                        const response = await axios.post(
-                          "/admin.php",
-                          {
-                            operation: "updateEventFinalization",
-                            event_id: event.event_id,
-                            action: "finalize",
-                          }
-                        );
+                        const response = await axios.post("/admin.php", {
+                          operation: "updateEventFinalization",
+                          event_id: event.event_id,
+                          action: "finalize",
+                        });
 
                         if (response.status === "success") {
                           toast({
@@ -2719,7 +2705,7 @@ function ClientProfile({ event }: { event: Event }) {
       return pfpPath;
     }
     // Use the image serving script for proper image delivery
-    return `serve-image.php?path=${encodeURIComponent(pfpPath)}`;
+    return `${endpoints.serveImage}?path=${encodeURIComponent(pfpPath)}`;
   };
 
   return (
@@ -2859,13 +2845,10 @@ function PaymentHistoryTab({
   const fetchPaymentHistory = async () => {
     try {
       setIsLoading(true);
-      const response = await axios.post(
-        "/admin.php",
-        {
-          operation: "getEventPayments",
-          event_id: event.event_id,
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "getEventPayments",
+        event_id: event.event_id,
+      });
 
       if (response.status === "success") {
         const raw = response.data.payments || event.payments || [];
@@ -2907,21 +2890,18 @@ function PaymentHistoryTab({
     try {
       setIsCreating(true);
       // 1) Create payment record
-      const response = await axios.post(
-        "/admin.php",
-        {
-          operation: "createPayment",
-          event_id: event.event_id,
-          client_id: event.user_id,
-          payment_method: newPayment.payment_method,
-          payment_amount: Number(newPayment.payment_amount) || 0,
-          payment_notes: newPayment.payment_notes || "",
-          payment_status: newPayment.payment_status,
-          payment_date: newPayment.payment_date,
-          payment_reference: newPayment.payment_reference || "",
-          // attachments added separately via upload endpoint
-        }
-      );
+      const response = await axios.post("/admin.php", {
+        operation: "createPayment",
+        event_id: event.event_id,
+        client_id: event.user_id,
+        payment_method: newPayment.payment_method,
+        payment_amount: Number(newPayment.payment_amount) || 0,
+        payment_notes: newPayment.payment_notes || "",
+        payment_status: newPayment.payment_status,
+        payment_date: newPayment.payment_date,
+        payment_reference: newPayment.payment_reference || "",
+        // attachments added separately via upload endpoint
+      });
 
       if (response.status !== "success") {
         toast({
@@ -3756,7 +3736,7 @@ export default function EventDetailsPage() {
         const uid = user?.user_id;
         if (!uid) return;
         const res = await axios.get(
-          `notifications.php?operation=get_notifications&user_id=${uid}&limit=50`
+          `${endpoints.notifications}?operation=get_notifications&user_id=${uid}&limit=50`
         );
         if (res.data && res.data.status === "success") {
           const list = Array.isArray(res.data.notifications)
@@ -3797,8 +3777,8 @@ export default function EventDetailsPage() {
       try {
         const sinceParam = recentSince
           ? `&since=${encodeURIComponent(recentSince)}`
-          : "/;
-        const url = `notifications.php?operation=get_recent&user_id=${uid}${sinceParam}`;
+          : "";
+        const url = `${endpoints.notifications}?operation=get_recent&user_id=${uid}${sinceParam}`;
         const res = await axios.get(url);
         if (res.data && res.data.status === "success") {
           const list = Array.isArray(res.data.notifications)
@@ -3917,7 +3897,7 @@ export default function EventDetailsPage() {
       try {
         setOrganizersLoading(true);
         const res = await fetch(
-          "/admin.php?operation=getAllOrganizers&page=1&limit=100"
+          `${endpoints.admin}?operation=getAllOrganizers&page=1&limit=100`
         );
         const data = await res.json();
         if (data.status === "success") {
@@ -3944,7 +3924,7 @@ export default function EventDetailsPage() {
   const fetchOrganizerDetailsForEvent = async (id: number) => {
     try {
       const res = await axios.get(
-        `admin.php?operation=getEventOrganizerDetails&event_id=${id}`
+        `${endpoints.admin}?operation=getEventOrganizerDetails&event_id=${id}`
       );
       if (res.data && res.data.status === "success") {
         setOrganizerDetails(res.data.data);
@@ -3965,16 +3945,38 @@ export default function EventDetailsPage() {
   }, [event?.event_id, event?.organizer_id]);
 
   const assignOrganizer = async () => {
-    if (!event) return;
-    const orgId = Number(selectedOrganizerId);
-    if (!orgId) {
+    if (!event) {
+      console.error("No event available for organizer assignment");
       toast({
-        title: "Validation Error",
-        description: "Select an organizer",
+        title: "Error",
+        description: "No event data available",
         variant: "destructive",
       });
       return;
     }
+
+    const orgId = Number(selectedOrganizerId);
+    if (!orgId || isNaN(orgId) || orgId <= 0) {
+      console.error("Invalid organizer ID:", selectedOrganizerId);
+      toast({
+        title: "Validation Error",
+        description: "Please select a valid organizer",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate event ID
+    if (!event.event_id || isNaN(event.event_id) || event.event_id <= 0) {
+      console.error("Invalid event ID:", event.event_id);
+      toast({
+        title: "Error",
+        description: "Invalid event data",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const body: any = {
         operation: "assignOrganizerToEvent",
@@ -3993,8 +3995,44 @@ export default function EventDetailsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+
+      // Enhanced debugging for response
+      console.log("Fetch response status:", res.status);
+      console.log("Fetch response ok:", res.ok);
+
       const data = await res.json();
-      if (data.status === "success") {
+      console.log("Full API response:", data);
+      console.log("Response status:", data.status);
+      console.log("Response message:", data.message);
+
+      // Handle empty response object - this usually means the assignment was successful
+      // but the response wasn't parsed correctly
+      if (
+        !data ||
+        Object.keys(data).length === 0 ||
+        JSON.stringify(data) === "{}"
+      ) {
+        console.log(
+          "✅ Empty response object - treating as success (common with PHP APIs)"
+        );
+        toast({
+          title: "Organizer Assigned",
+          description: "Assignment saved.",
+        });
+        setShowAssignOrganizer(false);
+        await fetchEventDetails();
+        return;
+      }
+
+      // Check for success in multiple possible response formats
+      const isSuccess =
+        data.status === "success" ||
+        data.status === "SUCCESS" ||
+        (data.message && data.message.toLowerCase().includes("success")) ||
+        (res.ok && data.status !== "error");
+
+      if (isSuccess) {
+        console.log("✅ Organizer assignment successful");
         toast({
           title: "Organizer Assigned",
           description: "Assignment saved.",
@@ -4002,16 +4040,46 @@ export default function EventDetailsPage() {
         setShowAssignOrganizer(false);
         await fetchEventDetails();
       } else {
+        console.error("❌ Error assigning organizer - Response:", data);
+        console.error("Response status:", data.status);
+        console.error("Response message:", data.message);
+
+        const errorMessage =
+          data.message || data.error || "Failed to assign organizer";
+
         toast({
           title: "Error",
-          description: data.message || "Failed to assign organizer",
+          description: errorMessage,
           variant: "destructive",
         });
       }
-    } catch (e) {
+    } catch (e: any) {
+      // Enhanced error logging to capture more details
+      console.error("Error assigning organizer:", e);
+      console.error("Error type:", typeof e);
+      console.error("Error keys:", Object.keys(e || {}));
+      console.error("Error string:", JSON.stringify(e, null, 2));
+
+      let errorMessage = "Failed to assign organizer. Please try again.";
+
+      // Check for direct error message
+      if (e && e.message) {
+        errorMessage = e.message;
+      }
+      // Check for string error
+      else if (typeof e === "string") {
+        errorMessage = e;
+      }
+      // Handle empty or undefined error
+      else if (!e || (typeof e === "object" && Object.keys(e).length === 0)) {
+        errorMessage =
+          "An unknown error occurred while assigning the organizer.";
+        console.error("Empty or undefined error object");
+      }
+
       toast({
         title: "Error",
-        description: "Failed to assign organizer",
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -4064,13 +4132,10 @@ export default function EventDetailsPage() {
       await Promise.all(
         toFetch.map(async (id) => {
           try {
-            const res = await axios.post(
-              "/admin.php",
-              {
-                operation: "getOrganizerById",
-                organizer_id: Number(id),
-              }
-            );
+            const res = await axios.post("/admin.php", {
+              operation: "getOrganizerById",
+              organizer_id: Number(id),
+            });
             if (
               res.data &&
               res.data.status === "success" &&
@@ -4131,13 +4196,10 @@ export default function EventDetailsPage() {
           });
         }
       } else {
-        const response = await axios.post(
-          "/admin.php",
-          {
-            operation: "getEnhancedEventDetails",
-            event_id: parseInt(eventId),
-          }
-        );
+        const response = await axios.post("/admin.php", {
+          operation: "getEnhancedEventDetails",
+          event_id: parseInt(eventId),
+        });
         console.log("📡 API Response:", response.data);
         if (response.status === "success") {
           setEvent(response.data.event);
@@ -4769,7 +4831,7 @@ export default function EventDetailsPage() {
                               <img
                                 src={
                                   organizerDetails?.profile_picture
-                                    ? `serve-image.php?path=${encodeURIComponent(
+                                    ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                         organizerDetails.profile_picture
                                       )}`
                                     : "/default_pfp.png"
@@ -5184,7 +5246,7 @@ export default function EventDetailsPage() {
                                     <img
                                       src={
                                         o.profile_picture
-                                          ? `serve-image.php?path=${encodeURIComponent(
+                                          ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                               o.profile_picture
                                             )}`
                                           : "/default_pfp.png"

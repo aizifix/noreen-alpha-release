@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/utils/apiClient";
 import { apiPost } from "@/app/utils/api";
+import axios from "axios";
 
 interface ProfilePictureModalProps {
   isOpen: boolean;
@@ -235,6 +236,13 @@ export default function ProfilePictureModal({
       formData.append("user_id", userId.toString());
       formData.append("fileType", "profile");
 
+      console.log("Uploading profile picture:", {
+        userId,
+        endpoint: uploadEndpoint,
+        fileSize: blob.size,
+        fileType: blob.type,
+      });
+
       // Upload to server
       let response;
 
@@ -243,16 +251,13 @@ export default function ProfilePictureModal({
         response = await axios.post(uploadEndpoint, formData, {
           headers: { "Content-Type": "multipart/form-data" },
         });
-      } else if (typeof uploadEndpoint === "object" && uploadEndpoint.post) {
-        // API utility object
-        response = await uploadEndpoint.post(formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
       } else {
         throw new Error("Invalid upload endpoint");
       }
 
-      if (response.status === "success") {
+      console.log("Upload response:", response.data);
+
+      if (response.data.status === "success") {
         toast({
           title: "Success",
           description: "Profile picture updated successfully",
@@ -270,6 +275,9 @@ export default function ProfilePictureModal({
       }
     } catch (error: any) {
       console.error("Profile picture upload error:", error);
+      console.error("Error response:", error.response?.data);
+      console.error("Error status:", error.response?.status);
+
       toast({
         title: "Error",
         description:
@@ -295,10 +303,12 @@ export default function ProfilePictureModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-4xl">
+      <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Upload Profile Picture</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-lg md:text-xl">
+            Upload Profile Picture
+          </DialogTitle>
+          <DialogDescription className="text-sm md:text-base">
             Upload and crop your profile picture
           </DialogDescription>
         </DialogHeader>
@@ -306,7 +316,7 @@ export default function ProfilePictureModal({
         <div className="space-y-4">
           {!imgSrc && (
             <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+              className={`border-2 border-dashed rounded-lg p-4 md:p-8 text-center transition-colors ${
                 isDragging
                   ? "border-primary bg-primary/10"
                   : "border-gray-300 hover:border-gray-400"
@@ -316,13 +326,13 @@ export default function ProfilePictureModal({
               onDragOver={handleDragOver}
               onDrop={handleDrop}
             >
-              <Upload className="mx-auto h-12 w-12 text-gray-400" />
-              <p className="mt-2 text-sm text-gray-600">
+              <Upload className="mx-auto h-8 w-8 md:h-12 md:w-12 text-gray-400" />
+              <p className="mt-2 text-xs md:text-sm text-gray-600">
                 Drag and drop your image here, or click to select
               </p>
               <Button
                 variant="outline"
-                className="mt-4"
+                className="mt-4 w-full sm:w-auto"
                 onClick={() => fileInputRef.current?.click()}
               >
                 Select Image
@@ -339,10 +349,10 @@ export default function ProfilePictureModal({
 
           {imgSrc && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Crop Area */}
                 <div>
-                  <Label>Crop Area</Label>
+                  <Label className="text-sm md:text-base">Crop Area</Label>
                   <div className="mt-2 relative bg-gray-100 rounded-lg overflow-hidden">
                     <ReactCrop
                       crop={crop}
@@ -359,7 +369,7 @@ export default function ProfilePictureModal({
                           transform: `scale(${scale}) rotate(${rotate}deg)`,
                         }}
                         onLoad={onImageLoad}
-                        className="max-h-[400px] w-auto mx-auto"
+                        className="max-h-[250px] md:max-h-[400px] w-auto mx-auto"
                       />
                     </ReactCrop>
                   </div>
@@ -367,15 +377,15 @@ export default function ProfilePictureModal({
 
                 {/* Preview */}
                 <div>
-                  <Label>Preview</Label>
-                  <div className="mt-2 flex justify-center items-center bg-gray-100 rounded-lg h-[400px]">
+                  <Label className="text-sm md:text-base">Preview</Label>
+                  <div className="mt-2 flex justify-center items-center bg-gray-100 rounded-lg h-[250px] md:h-[400px]">
                     <div className="relative">
                       <canvas
                         ref={previewCanvasRef}
                         className="rounded-full border-4 border-white shadow-lg"
                         style={{
-                          width: "200px",
-                          height: "200px",
+                          width: "150px",
+                          height: "150px",
                           objectFit: "contain",
                         }}
                       />
@@ -387,7 +397,7 @@ export default function ProfilePictureModal({
               {/* Controls */}
               <div className="space-y-4">
                 <div>
-                  <Label className="flex items-center gap-2">
+                  <Label className="flex items-center gap-2 text-sm md:text-base">
                     <ZoomIn className="h-4 w-4" />
                     Zoom: {scale.toFixed(2)}x
                   </Label>
@@ -402,7 +412,7 @@ export default function ProfilePictureModal({
                 </div>
 
                 <div>
-                  <Label className="flex items-center gap-2">
+                  <Label className="flex items-center gap-2 text-sm md:text-base">
                     <RotateCw className="h-4 w-4" />
                     Rotate: {rotate}°
                   </Label>
@@ -420,6 +430,7 @@ export default function ProfilePictureModal({
               <div className="flex justify-center">
                 <Button
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={() => {
                     setImgSrc("");
                     setCrop(undefined);
@@ -435,11 +446,12 @@ export default function ProfilePictureModal({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button
             variant="outline"
             onClick={handleClose}
             disabled={isUploading}
+            className="w-full sm:w-auto"
           >
             <X className="h-4 w-4 mr-2" />
             Cancel
@@ -447,6 +459,7 @@ export default function ProfilePictureModal({
           <Button
             onClick={handleUpload}
             disabled={!completedCrop || isUploading}
+            className="w-full sm:w-auto"
           >
             {isUploading ? (
               <>

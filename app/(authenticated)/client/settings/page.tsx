@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiClient } from "@/utils/apiClient";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -176,9 +177,9 @@ export default function ClientSettingsPage() {
       }
 
       const response = await axios.get(
-        `client.php?operation=getUserProfile&user_id=${userData.user_id}`
+        `${endpoints.client}?operation=getUserProfile&user_id=${userData.user_id}`
       );
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         const profile = response.data.profile;
         setUserProfile(profile);
         setProfileForm({
@@ -201,9 +202,9 @@ export default function ClientSettingsPage() {
   const loadWebsiteSettings = async () => {
     try {
       const response = await axios.get(
-        "/client.php?operation=getWebsiteSettings"
+        `${endpoints.client}?operation=getWebsiteSettings`
       );
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         setWebsiteSettings(response.data.settings);
       }
     } catch (error) {
@@ -214,9 +215,9 @@ export default function ClientSettingsPage() {
   const loadFeedbacks = async () => {
     try {
       const response = await axios.get(
-        "/admin.php?operation=getFeedbacks"
+        `${endpoints.admin}?operation=getFeedbacks`
       );
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         setFeedbacks(response.data.feedbacks);
       }
     } catch (error) {
@@ -229,19 +230,16 @@ export default function ClientSettingsPage() {
 
     setIsSaving(true);
     try {
-      const response = await axios.post(
-        "/client.php",
-        {
-          operation: "updateUserProfile",
-          user_id: userProfile.user_id,
-          firstName: profileForm.firstName,
-          lastName: profileForm.lastName,
-          email: profileForm.email,
-          contact: profileForm.contact,
-        }
-      );
+      const response = await axios.post(`${endpoints.client}`, {
+        operation: "updateUserProfile",
+        user_id: userProfile.user_id,
+        firstName: profileForm.firstName,
+        lastName: profileForm.lastName,
+        email: profileForm.email,
+        contact: profileForm.contact,
+      });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         toast({
           title: "Success",
           description: "Profile updated successfully",
@@ -286,18 +284,15 @@ export default function ClientSettingsPage() {
 
     setIsSaving(true);
     try {
-      const response = await axios.post(
-        "/client.php",
-        {
-          operation: "changePassword",
-          user_id: userProfile.user_id,
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword,
-          confirmPassword: passwordForm.confirmPassword,
-        }
-      );
+      const response = await axios.post(`${endpoints.client}`, {
+        operation: "changePassword",
+        user_id: userProfile.user_id,
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+        confirmPassword: passwordForm.confirmPassword,
+      });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         toast({
           title: "Success",
           description: "Password changed successfully",
@@ -327,26 +322,30 @@ export default function ClientSettingsPage() {
     if (!userProfile) return;
 
     try {
-      // The filePath is already saved to the database by the uploadProfilePicture operation
-      // We just need to update the local state and storage
+      // Update the user profile state immediately for real-time update
+      setUserProfile((prev) => (prev ? { ...prev, user_pfp: filePath } : null));
+
+      // Update user data in storage for persistence
+      const userData = secureStorage.getItem("user");
+      if (userData && userData.user_id) {
+        userData.user_pfp = filePath;
+        secureStorage.setItem("user", userData);
+
+        // Trigger user data change event for other components
+        window.dispatchEvent(
+          new CustomEvent("userDataChanged", {
+            detail: { user_pfp: filePath },
+          })
+        );
+      }
+
       toast({
         title: "Success",
         description: "Profile picture updated successfully",
       });
 
-      // Reload user profile to get the updated data
+      // Reload user profile to ensure data consistency
       await loadUserProfile();
-
-      // Update user data in storage
-      const userData = secureStorage.getItem("user");
-      if (userData && userData.user_id) {
-        userData.user_pfp = filePath;
-        secureStorage.setItem("user", userData);
-        // Trigger user data change event
-        window.dispatchEvent(new CustomEvent("userDataChanged"));
-      } else {
-        console.error("Invalid user data for profile picture update");
-      }
     } catch (error: any) {
       console.error("Profile picture update failed:", error);
       toast({
@@ -359,18 +358,15 @@ export default function ClientSettingsPage() {
 
   const handleOTPToggle = async (enabled: boolean) => {
     try {
-      const response = await axios.post(
-        "/client.php",
-        {
-          operation: "updateWebsiteSettings",
-          settings: {
-            ...websiteSettings,
-            require_otp_on_login: enabled ? 1 : 0,
-          },
-        }
-      );
+      const response = await axios.post(`${endpoints.client}`, {
+        operation: "updateWebsiteSettings",
+        settings: {
+          ...websiteSettings,
+          require_otp_on_login: enabled ? 1 : 0,
+        },
+      });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         setWebsiteSettings((prev) => ({
           ...prev,
           require_otp_on_login: enabled ? 1 : 0,
@@ -404,11 +400,13 @@ export default function ClientSettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6 px-4 md:px-0">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-          <p className="text-gray-600">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
+            Settings
+          </h1>
+          <p className="text-sm md:text-base text-gray-600">
             Manage your account settings and preferences
           </p>
         </div>
@@ -419,11 +417,19 @@ export default function ClientSettingsPage() {
         onValueChange={setActiveTab}
         className="space-y-6"
       >
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-          <TabsTrigger value="preferences">Preferences</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 gap-1">
+          <TabsTrigger value="profile" className="text-xs md:text-sm">
+            Profile
+          </TabsTrigger>
+          <TabsTrigger value="security" className="text-xs md:text-sm">
+            Security
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="text-xs md:text-sm">
+            Notifications
+          </TabsTrigger>
+          <TabsTrigger value="preferences" className="text-xs md:text-sm">
+            Preferences
+          </TabsTrigger>
         </TabsList>
 
         {/* Profile Tab */}
@@ -437,33 +443,33 @@ export default function ClientSettingsPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Profile Picture */}
-              <div className="flex items-center space-x-6">
+              <div className="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6">
                 <div className="relative">
                   <img
                     src={
                       userProfile?.user_pfp &&
-                      userProfile.user_pfp.trim() !== "/
-                        ? `serve-image.php?path=${encodeURIComponent(userProfile.user_pfp)}`
+                      userProfile.user_pfp.trim() !== ""
+                        ? `${endpoints.serveImage}?path=${encodeURIComponent(userProfile.user_pfp)}`
                         : "/default_pfp.png"
                     }
                     alt="Profile"
-                    className="h-24 w-24 rounded-full object-cover border-4 border-gray-200"
+                    className="h-20 w-20 sm:h-24 sm:w-24 rounded-full object-cover border-4 border-gray-200"
                   />
                   <button
                     type="button"
                     onClick={() => setShowProfilePictureModal(true)}
-                    className="absolute bottom-0 right-0 bg-green-600 text-white p-2 rounded-full cursor-pointer hover:bg-green-700 transition-colors"
+                    className="absolute bottom-0 right-0 bg-green-600 text-white p-1.5 sm:p-2 rounded-full cursor-pointer hover:bg-green-700 transition-colors"
                   >
-                    <Camera className="h-4 w-4" />
+                    <Camera className="h-3 w-3 sm:h-4 sm:w-4" />
                   </button>
                 </div>
-                <div>
-                  <h3 className="text-lg font-medium">
+                <div className="text-center sm:text-left">
+                  <h3 className="text-base sm:text-lg font-medium">
                     {userProfile?.user_firstName || ""}{" "}
                     {userProfile?.user_lastName || ""}
                   </h3>
-                  <p className="text-gray-500">Client</p>
-                  <p className="text-sm text-gray-400">
+                  <p className="text-sm text-gray-500">Client</p>
+                  <p className="text-xs sm:text-sm text-gray-400">
                     Member since{" "}
                     {userProfile?.created_at
                       ? new Date(userProfile.created_at).toLocaleDateString()
@@ -530,7 +536,11 @@ export default function ClientSettingsPage() {
                 </div>
               </div>
 
-              <Button onClick={handleProfileUpdate} disabled={isSaving}>
+              <Button
+                onClick={handleProfileUpdate}
+                disabled={isSaving}
+                className="w-full sm:w-auto"
+              >
                 {isSaving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -641,7 +651,11 @@ export default function ClientSettingsPage() {
                 </div>
               </div>
 
-              <Button onClick={handlePasswordChange} disabled={isSaving}>
+              <Button
+                onClick={handlePasswordChange}
+                disabled={isSaving}
+                className="w-full sm:w-auto"
+              >
                 {isSaving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -678,26 +692,28 @@ export default function ClientSettingsPage() {
         </TabsContent>
 
         {/* Notifications Tab */}
-        <TabsContent value="notifications" className="space-y-6">
+        <TabsContent value="notifications" className="space-y-4 md:space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="h-5 w-5" />
+              <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+                <Bell className="h-4 w-4 md:h-5 md:w-5" />
                 Notification Preferences
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">Email Notifications</h4>
-                    <p className="text-sm text-gray-500">
+            <CardContent className="space-y-4 md:space-y-6">
+              <div className="space-y-3 md:space-y-4">
+                <div className="flex items-center justify-between py-2">
+                  <div className="flex-1 pr-4">
+                    <h4 className="font-medium text-sm md:text-base">
+                      Email Notifications
+                    </h4>
+                    <p className="text-xs md:text-sm text-gray-500">
                       Receive notifications via email
                     </p>
                   </div>
                   <Switch
                     checked={notificationSettings.emailNotifications}
-                    onCheckedChange={(checked) =>
+                    onCheckedChange={(checked: boolean) =>
                       setNotificationSettings({
                         ...notificationSettings,
                         emailNotifications: checked,
@@ -705,16 +721,18 @@ export default function ClientSettingsPage() {
                     }
                   />
                 </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">SMS Notifications</h4>
-                    <p className="text-sm text-gray-500">
+                <div className="flex items-center justify-between py-2">
+                  <div className="flex-1 pr-4">
+                    <h4 className="font-medium text-sm md:text-base">
+                      SMS Notifications
+                    </h4>
+                    <p className="text-xs md:text-sm text-gray-500">
                       Receive notifications via SMS
                     </p>
                   </div>
                   <Switch
                     checked={notificationSettings.smsNotifications}
-                    onCheckedChange={(checked) =>
+                    onCheckedChange={(checked: boolean) =>
                       setNotificationSettings({
                         ...notificationSettings,
                         smsNotifications: checked,
@@ -722,16 +740,18 @@ export default function ClientSettingsPage() {
                     }
                   />
                 </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">New Bookings</h4>
-                    <p className="text-sm text-gray-500">
+                <div className="flex items-center justify-between py-2">
+                  <div className="flex-1 pr-4">
+                    <h4 className="font-medium text-sm md:text-base">
+                      New Bookings
+                    </h4>
+                    <p className="text-xs md:text-sm text-gray-500">
                       Get notified about new bookings
                     </p>
                   </div>
                   <Switch
                     checked={notificationSettings.newBookings}
-                    onCheckedChange={(checked) =>
+                    onCheckedChange={(checked: boolean) =>
                       setNotificationSettings({
                         ...notificationSettings,
                         newBookings: checked,
@@ -739,16 +759,18 @@ export default function ClientSettingsPage() {
                     }
                   />
                 </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">Payment Reminders</h4>
-                    <p className="text-sm text-gray-500">
+                <div className="flex items-center justify-between py-2">
+                  <div className="flex-1 pr-4">
+                    <h4 className="font-medium text-sm md:text-base">
+                      Payment Reminders
+                    </h4>
+                    <p className="text-xs md:text-sm text-gray-500">
                       Get notified about payment due dates
                     </p>
                   </div>
                   <Switch
                     checked={notificationSettings.paymentReminders}
-                    onCheckedChange={(checked) =>
+                    onCheckedChange={(checked: boolean) =>
                       setNotificationSettings({
                         ...notificationSettings,
                         paymentReminders: checked,
@@ -756,16 +778,18 @@ export default function ClientSettingsPage() {
                     }
                   />
                 </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">Event Reminders</h4>
-                    <p className="text-sm text-gray-500">
+                <div className="flex items-center justify-between py-2">
+                  <div className="flex-1 pr-4">
+                    <h4 className="font-medium text-sm md:text-base">
+                      Event Reminders
+                    </h4>
+                    <p className="text-xs md:text-sm text-gray-500">
                       Get notified about upcoming events
                     </p>
                   </div>
                   <Switch
                     checked={notificationSettings.eventReminders}
-                    onCheckedChange={(checked) =>
+                    onCheckedChange={(checked: boolean) =>
                       setNotificationSettings({
                         ...notificationSettings,
                         eventReminders: checked,
@@ -779,26 +803,28 @@ export default function ClientSettingsPage() {
         </TabsContent>
 
         {/* Preferences Tab */}
-        <TabsContent value="preferences" className="space-y-6">
+        <TabsContent value="preferences" className="space-y-4 md:space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
+              <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+                <Settings className="h-4 w-4 md:h-5 md:w-5" />
                 Account Preferences
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-4 md:space-y-6">
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">Login Alerts</h4>
-                    <p className="text-sm text-gray-500">
+                <div className="flex items-center justify-between py-2">
+                  <div className="flex-1 pr-4">
+                    <h4 className="font-medium text-sm md:text-base">
+                      Login Alerts
+                    </h4>
+                    <p className="text-xs md:text-sm text-gray-500">
                       Get notified when someone logs into your account
                     </p>
                   </div>
                   <Switch
                     checked={securitySettings.loginAlerts}
-                    onCheckedChange={(checked) =>
+                    onCheckedChange={(checked: boolean) =>
                       setSecuritySettings({
                         ...securitySettings,
                         loginAlerts: checked,
@@ -807,7 +833,10 @@ export default function ClientSettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="sessionTimeout">
+                  <Label
+                    htmlFor="sessionTimeout"
+                    className="text-sm md:text-base"
+                  >
                     Session Timeout (minutes)
                   </Label>
                   <Input
@@ -822,6 +851,7 @@ export default function ClientSettingsPage() {
                     }
                     min="5"
                     max="480"
+                    className="w-full"
                   />
                 </div>
               </div>
@@ -835,7 +865,7 @@ export default function ClientSettingsPage() {
         isOpen={showProfilePictureModal}
         onClose={() => setShowProfilePictureModal(false)}
         onUploadSuccess={handleProfilePictureUpload}
-        uploadEndpoint="/client.php"
+        uploadEndpoint={endpoints.client}
         userId={userProfile?.user_id || 0}
       />
     </div>

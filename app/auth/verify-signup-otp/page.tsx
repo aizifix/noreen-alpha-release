@@ -208,6 +208,9 @@ const VerifySignupOTP = () => {
         document.cookie =
           "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
 
+        // Clear saved form data since verification was successful
+        clearSavedData();
+
         // Redirect to login after successful verification
         setTimeout(() => {
           router.push("/auth/login");
@@ -299,6 +302,16 @@ const VerifySignupOTP = () => {
     return null;
   };
 
+  // Function to clear saved form data
+  const clearSavedData = () => {
+    try {
+      localStorage.removeItem("signup_form_data");
+      console.log("Cleared saved signup data after successful verification");
+    } catch (error) {
+      console.error("Error clearing saved signup data:", error);
+    }
+  };
+
   const isOtpComplete = otpValues.every((val) => val !== "");
 
   return (
@@ -318,7 +331,7 @@ const VerifySignupOTP = () => {
             className="text-sm text-gray-600 hover:text-gray-800 flex items-center"
           >
             <X className="h-4 w-4 mr-1" />
-            Start Over
+            Go Back to Edit Details
           </button>
         </div>
 
@@ -457,7 +470,7 @@ const VerifySignupOTP = () => {
               }}
               className="text-[#028A75] hover:underline font-medium"
             >
-              Start over
+              Go back to edit details
             </button>
           </p>
         </div>

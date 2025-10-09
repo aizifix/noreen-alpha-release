@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { CheckIcon } from "lucide-react";
-import { apiClient } from "@/utils/apiClient";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 import { StoreCard } from "../../../components/card/store-card";
 import { secureStorage } from "@/app/utils/encryption";
 
@@ -399,14 +400,11 @@ export default function VendorStoreCreation() {
       }
 
       console.log("Fetching stores with user ID:", userId);
-      const response = await axios.get(
-        "/vendor.php",
-        {
-          params: { operation: "getStores", user_id: userId },
-        }
-      );
+      const response = await axios.get(endpoints.vendor, {
+        params: { operation: "getStores", user_id: userId },
+      });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         console.log("Fetched Stores:", response.data.stores);
         setStores(response.data.stores);
       } else {
@@ -435,18 +433,15 @@ export default function VendorStoreCreation() {
   useEffect(() => {
     const fetchStoreCategories = async () => {
       try {
-        const response = await axios.get(
-          "/vendor.php",
-          {
-            params: { operation: "getStoreCategories" },
-          }
-        );
+        const response = await axios.get(endpoints.vendor, {
+          params: { operation: "getStoreCategories" },
+        });
 
-        if (response.status === "success") {
+        if (response.data.status === "success") {
           setStoreCategories(response.data.categories);
         }
       } catch (error) {
-        // console.error("Error fetching store categories:", error)
+        console.error("Error fetching store categories:", error);
       }
     };
 
@@ -492,17 +487,13 @@ export default function VendorStoreCreation() {
         Object.fromEntries(formData.entries())
       );
 
-      const response = await axios.post(
-        "/vendor.php",
-        formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        }
-      );
+      const response = await axios.post(endpoints.vendor, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
       console.log("Response:", response.data);
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         alert("Vendor store created successfully!");
         closeModal();
         fetchStores();

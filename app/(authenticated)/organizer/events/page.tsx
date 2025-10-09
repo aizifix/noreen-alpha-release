@@ -18,10 +18,10 @@ import {
   Users,
   DollarSign,
 } from "lucide-react";
-import { apiClient } from "@/utils/apiClient";
-import { adminApi, organizerApi } from "@/app/utils/api";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
+import axios from "axios";
+import { organizerApi } from "@/app/utils/api";
 
 // Enhanced interface to match updated tbl_events structure
 interface Event {
@@ -101,15 +101,34 @@ export default function OrganizerEventsPage() {
             operation: "getOrganizerProfile",
             user_id: userData.user_id,
           });
-          if (organizerResponse.status === "success") {
-            setOrganizerId(
-              (organizerResponse.data as any)?.organizer_id || userData.user_id
-            );
+          if (
+            organizerResponse.status === "success" &&
+            (organizerResponse.data as any)?.organizer_id
+          ) {
+            setOrganizerId((organizerResponse.data as any).organizer_id);
           } else {
-            setOrganizerId(userData.user_id);
+            console.error(
+              "Failed to get organizer profile or organizer_id not found"
+            );
+            toast({
+              title: "Error",
+              description:
+                "Unable to resolve organizer ID. Please contact support.",
+              variant: "destructive",
+            });
+            router.push("/auth/login");
+            return;
           }
-        } catch {
-          setOrganizerId(userData.user_id);
+        } catch (error) {
+          console.error("Error fetching organizer profile:", error);
+          toast({
+            title: "Error",
+            description:
+              "Unable to load organizer profile. Please contact support.",
+            variant: "destructive",
+          });
+          router.push("/auth/login");
+          return;
         }
         // Load events assigned to organizer and pending invitations from all events
         await fetchOrganizerEventsAndInvites(userData.user_id);
@@ -119,6 +138,41 @@ export default function OrganizerEventsPage() {
     };
     checkAuth();
   }, [router]);
+
+  // Listen for assignment actions from other pages to refresh calendar
+  useEffect(() => {
+    const handleAssignmentAction = async (event: any) => {
+      try {
+        const { eventId, action } = event.detail;
+        console.log("Calendar: Assignment action received:", {
+          eventId,
+          action,
+        });
+
+        // Refresh events data to reflect the changes
+        const userData = secureStorage.getItem("user");
+        if (userData?.user_id) {
+          await fetchOrganizerEventsAndInvites(userData.user_id);
+        }
+      } catch (error) {
+        console.error("Error handling assignment action in calendar:", error);
+      }
+    };
+
+    // Listen for assignment actions from other pages
+    window.addEventListener("assignmentActionTaken", handleAssignmentAction);
+
+    // Also listen for direct calendar refresh events
+    window.addEventListener("calendarRefresh", handleAssignmentAction);
+
+    return () => {
+      window.removeEventListener(
+        "assignmentActionTaken",
+        handleAssignmentAction
+      );
+      window.removeEventListener("calendarRefresh", handleAssignmentAction);
+    };
+  }, []);
 
   const normalizeEvent = (raw: any): Event => {
     const normalized: Event = {
@@ -181,15 +235,15 @@ export default function OrganizerEventsPage() {
 
       // Try to get the actual organizer_id from the profile first
       try {
-        const organizerResponse = await organizerApi.post({
+        const organizerResponse = await axios.post("/organizer.php", {
           operation: "getOrganizerProfile",
           user_id: organizerUserId,
         });
 
         console.log("📡 Organizer profile response:", organizerResponse);
 
-        if (organizerResponse.status === "success") {
-          organizerId = (organizerResponse.data as any).organizer_id;
+        if (organizerResponse.data.status === "success") {
+          organizerId = organizerResponse.data.data?.organizer_id;
           console.log("✅ Found organizer ID:", organizerId);
         } else {
           console.warn(
@@ -206,19 +260,16 @@ export default function OrganizerEventsPage() {
       // Fetch events assigned to this organizer using the organizer_id
       let assignedEvents: Event[] = [];
       try {
-        const eventsResponse = await organizerApi.post({
+        const eventsResponse = await axios.post("/organizer.php", {
           operation: "getOrganizerEvents",
           organizer_id: organizerId,
         });
         console.log("📡 Events API Response:", eventsResponse);
-        if (eventsResponse.status === "success") {
-          const raw = (eventsResponse.data as any[]) || [];
+        if (eventsResponse.data.status === "success") {
+          const raw = eventsResponse.data.data || [];
           assignedEvents = dedupeById(raw.map(normalizeEvent));
         } else {
-          console.warn(
-            "⚠️ API returned error:",
-            (eventsResponse as any).message
-          );
+          console.warn("⚠️ API returned error:", eventsResponse.data.message);
         }
       } catch (e) {
         console.warn("⚠️ API error; falling back to attachments for invites");
@@ -226,7 +277,9 @@ export default function OrganizerEventsPage() {
       // Always also scan attachments for organizer_invites and merge
       let attachmentPending: Event[] = [];
       try {
-        const response = await adminApi.post({ operation: "getAllEvents" });
+        const response = await axios.post("/admin.php", {
+          operation: "getAllEvents",
+        });
         const allEvents =
           response.data?.status === "success" ? response.data.events || [] : [];
         const pendingEvents = allEvents.filter((e: any) => {
@@ -252,14 +305,14 @@ export default function OrganizerEventsPage() {
         attachmentPending = dedupeById(pendingEvents.map(normalizeEvent));
       } catch {}
 
-      // Merge final events and pending invites
-      setEvents(
-        assignedEvents.length > 0
-          ? assignedEvents
-          : attachmentPending.length > 0
-            ? attachmentPending
-            : sampleEvents
+      // Only show events that are actually assigned to this organizer
+      // Filter assignedEvents to only include accepted events
+      const acceptedEvents = assignedEvents.filter(
+        (event) => event.assignment_status === "accepted"
       );
+
+      // Set events to only accepted events (no fallback to sample data)
+      setEvents(acceptedEvents);
       const assignedPending = assignedEvents.filter(
         (e: any) => e.assignment_status === "assigned"
       );
@@ -271,8 +324,8 @@ export default function OrganizerEventsPage() {
       setPendingInvites(Array.from(mergedPendingMap.values()));
     } catch (error) {
       console.error("❌ Error fetching organizer events:", error);
-      // Fallback to sample data if API fails
-      setEvents(sampleEvents);
+      // Don't fallback to sample data - only show actual assigned events
+      setEvents([]);
       setPendingInvites([]);
     } finally {
       setLoading(false);
@@ -285,10 +338,28 @@ export default function OrganizerEventsPage() {
     );
   }, [pendingInvites]);
 
-  // Show ONLY pending invites on the calendar per requirement
+  // Show both accepted events and pending invites on the calendar
   const calendarEvents = useMemo(() => {
-    return [...pendingInvites];
-  }, [pendingInvites]);
+    // Only show events that are assigned to this organizer
+    // events = accepted events assigned to this organizer
+    // pendingInvites = pending invitations for this organizer
+
+    // Combine accepted events and pending invites
+    const allEvents = [...events, ...pendingInvites];
+
+    // Remove duplicates based on event_id
+    const uniqueEvents = allEvents.filter(
+      (event, index, self) =>
+        index === self.findIndex((e) => e.event_id === event.event_id)
+    );
+
+    // Additional safety check: ensure we only show organizer's assigned events
+    return uniqueEvents.filter((event) => {
+      // Events should either be accepted (in events array) or pending (in pendingInvites)
+      // Both arrays are already filtered to only contain organizer's events
+      return true;
+    });
+  }, [events, pendingInvites]);
 
   const pendingInviteIds = useMemo(() => {
     return new Set(pendingInvites.map((e) => e.event_id));
@@ -305,7 +376,7 @@ export default function OrganizerEventsPage() {
         assignmentId,
         organizerId,
       });
-      await organizerApi.post({
+      await axios.post("/organizer.php", {
         operation: "updateAssignmentStatus",
         ...(assignmentId ? { assignment_id: assignmentId } : {}),
         event_id: eventItem.event_id,
@@ -325,6 +396,20 @@ export default function OrganizerEventsPage() {
         if (prev.find((e) => e.event_id === eventItem.event_id)) return prev;
         return [eventItem, ...prev];
       });
+
+      // Trigger notification refresh in parent layout
+      window.dispatchEvent(
+        new CustomEvent("assignmentActionTaken", {
+          detail: { eventId: eventItem.event_id, action: "accepted" },
+        })
+      );
+
+      // Trigger calendar refresh
+      window.dispatchEvent(
+        new CustomEvent("calendarRefresh", {
+          detail: { eventId: eventItem.event_id, action: "accepted" },
+        })
+      );
     } catch (e) {
       console.error("[Organizer] Accept invite:error", e);
       toast({
@@ -344,7 +429,7 @@ export default function OrganizerEventsPage() {
         assignmentId,
         organizerId,
       });
-      await organizerApi.post({
+      await axios.post("/organizer.php", {
         operation: "updateAssignmentStatus",
         ...(assignmentId ? { assignment_id: assignmentId } : {}),
         event_id: eventItem.event_id,
@@ -359,6 +444,20 @@ export default function OrganizerEventsPage() {
       setDecisions((prev) => ({ ...prev, [key]: { status: "rejected" } }));
       setPendingInvites((prev) =>
         prev.filter((e) => e.event_id !== eventItem.event_id)
+      );
+
+      // Trigger notification refresh in parent layout
+      window.dispatchEvent(
+        new CustomEvent("assignmentActionTaken", {
+          detail: { eventId: eventItem.event_id, action: "rejected" },
+        })
+      );
+
+      // Trigger calendar refresh
+      window.dispatchEvent(
+        new CustomEvent("calendarRefresh", {
+          detail: { eventId: eventItem.event_id, action: "rejected" },
+        })
       );
     } catch (e) {
       console.error("[Organizer] Reject invite:error", e);
@@ -520,64 +619,93 @@ export default function OrganizerEventsPage() {
       calendarDays.push(
         <div
           key={i}
-          className={`min-h-[120px] p-2 border-r border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors ${
+          className={`min-h-[60px] sm:min-h-[80px] lg:min-h-[120px] p-1 sm:p-2 border-r border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors ${
             !isCurrentMonth ? "bg-gray-50 text-gray-400" : "bg-white"
           } ${isToday ? "bg-blue-50 border-blue-300" : ""} ${
             isSelected ? "bg-green-50 border-green-300" : ""
           }`}
           onClick={() => setSelectedDate(date)}
         >
-          <div className="text-sm font-medium mb-1">{format(date, "d")}</div>
-          <div className="space-y-1">
-            {dayEvents.slice(0, 2).map((event) => {
-              const colors = getStatusColor(event.event_status);
-              return (
-                <div
-                  key={event.event_id}
-                  className={`text-xs p-1 rounded truncate ${colors.bg} ${colors.text} cursor-pointer hover:opacity-80`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    router.push(`/organizer/events/${event.event_id}`);
-                  }}
-                >
-                  {event.event_title}
+          <div className="text-xs sm:text-sm font-medium mb-1">
+            {format(date, "d")}
+          </div>
+          <div className="space-y-0.5 sm:space-y-1">
+            {/* Show only 1 event on mobile, 2 on larger screens */}
+            <div className="block sm:hidden">
+              {dayEvents.slice(0, 1).map((event) => {
+                const colors = getStatusColor(event.event_status);
+                return (
+                  <div
+                    key={event.event_id}
+                    className={`text-[10px] p-0.5 rounded truncate ${colors.bg} ${colors.text} cursor-pointer hover:opacity-80`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      router.push(`/organizer/events/${event.event_id}`);
+                    }}
+                  >
+                    {event.event_title}
+                  </div>
+                );
+              })}
+              {dayEvents.length > 1 && (
+                <div className="text-[10px] text-gray-500">
+                  +{dayEvents.length - 1} more
                 </div>
-              );
-            })}
-            {dayEvents.length > 2 && (
-              <div className="text-xs text-gray-500">
-                +{dayEvents.length - 2} more
-              </div>
-            )}
+              )}
+            </div>
+
+            {/* Show 2 events on larger screens */}
+            <div className="hidden sm:block">
+              {dayEvents.slice(0, 2).map((event) => {
+                const colors = getStatusColor(event.event_status);
+                return (
+                  <div
+                    key={event.event_id}
+                    className={`text-xs p-1 rounded truncate ${colors.bg} ${colors.text} cursor-pointer hover:opacity-80`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      router.push(`/organizer/events/${event.event_id}`);
+                    }}
+                  >
+                    {event.event_title}
+                  </div>
+                );
+              })}
+              {dayEvents.length > 2 && (
+                <div className="text-xs text-gray-500">
+                  +{dayEvents.length - 2} more
+                </div>
+              )}
+            </div>
           </div>
         </div>
       );
     }
 
     return (
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden overflow-x-auto">
         {/* Calendar Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <div className="flex items-center space-x-4">
+        <div className="flex flex-col sm:flex-row items-center justify-between p-3 sm:p-4 border-b border-gray-200 gap-3 sm:gap-0">
+          <div className="flex items-center space-x-2 sm:space-x-4">
             <button
               onClick={goToPreviousMonth}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors"
             >
-              <ChevronLeft className="h-5 w-5" />
+              <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
-            <h2 className="text-xl font-semibold text-gray-900">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
               {format(currentDate, "MMMM yyyy")}
             </h2>
             <button
               onClick={goToNextMonth}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors"
             >
-              <ChevronRight className="h-5 w-5" />
+              <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
           </div>
           <button
             onClick={goToToday}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            className="px-3 py-1.5 sm:px-4 sm:py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm sm:text-base"
           >
             Today
           </button>
@@ -588,7 +716,7 @@ export default function OrganizerEventsPage() {
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
             <div
               key={day}
-              className="p-4 text-sm font-medium text-gray-600 text-center border-r border-gray-200 last:border-r-0 bg-gray-50"
+              className="p-2 sm:p-4 text-xs sm:text-sm font-medium text-gray-600 text-center border-r border-gray-200 last:border-r-0 bg-gray-50"
             >
               {day}
             </div>
@@ -596,7 +724,7 @@ export default function OrganizerEventsPage() {
         </div>
 
         {/* Calendar Grid */}
-        <div className="grid grid-cols-7">{calendarDays}</div>
+        <div className="grid grid-cols-7 min-w-[280px]">{calendarDays}</div>
       </div>
     );
   };
@@ -825,28 +953,30 @@ export default function OrganizerEventsPage() {
       </div>
 
       {/* Search and filters */}
-      <div className="flex flex-wrap gap-4 mb-6">
-        <div className="relative flex-1 min-w-[300px]">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-4 mb-6">
+        <div className="relative flex-1 min-w-[250px] sm:min-w-[300px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
             placeholder="Search events..."
           />
         </div>
-        <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-          <option>All Types</option>
-          <option>Wedding</option>
-          <option>Birthday</option>
-          <option>Corporate</option>
-          <option>Others</option>
-        </select>
-        <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-          <option>All Statuses</option>
-          <option>Draft</option>
-          <option>Confirmed</option>
-          <option>On Going</option>
-          <option>Done</option>
-        </select>
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
+          <select className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm sm:text-base">
+            <option>All Types</option>
+            <option>Wedding</option>
+            <option>Birthday</option>
+            <option>Corporate</option>
+            <option>Others</option>
+          </select>
+          <select className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm sm:text-base">
+            <option>All Statuses</option>
+            <option>Draft</option>
+            <option>Confirmed</option>
+            <option>On Going</option>
+            <option>Done</option>
+          </select>
+        </div>
       </div>
 
       {loading ? (

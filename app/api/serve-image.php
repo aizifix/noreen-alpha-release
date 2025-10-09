@@ -28,8 +28,18 @@ if (!file_exists($fullPath) || !is_file($fullPath)) {
     if (file_exists($defaultImage)) {
         $fullPath = $defaultImage;
     } else {
-        header('HTTP/1.0 404 Not Found');
-        exit('File not found');
+        // Try alternative default image paths
+        $altDefault1 = dirname(__FILE__) . '/uploads/user_profile/default_pfp.png';
+        $altDefault2 = dirname(__FILE__) . '/uploads/profile_pictures/default_pfp.png';
+
+        if (file_exists($altDefault1)) {
+            $fullPath = $altDefault1;
+        } elseif (file_exists($altDefault2)) {
+            $fullPath = $altDefault2;
+        } else {
+            header('HTTP/1.0 404 Not Found');
+            exit('File not found');
+        }
     }
 }
 

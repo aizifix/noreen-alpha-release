@@ -1631,6 +1631,7 @@ export default function EventBuilderPage() {
       console.log("❌ Admin user validation failed");
       toast.error("Admin user information not found. Please log in again.");
       setLoading(false);
+      submitLockRef.current = false;
       return;
     }
     console.log("✅ Admin user validation passed");
@@ -1654,8 +1655,43 @@ export default function EventBuilderPage() {
       );
       setShowMissingRefDialog(true);
       setLoading(false);
+      submitLockRef.current = false;
       return;
     }
+
+    // Validate payment amount
+    if (paymentData.downPayment && paymentData.downPayment < 0) {
+      console.log("❌ Invalid down payment amount:", paymentData.downPayment);
+      toast.error("Down payment amount cannot be negative.");
+      setLoading(false);
+      submitLockRef.current = false;
+      return;
+    }
+
+    // Validate total budget
+    const totalBudget = getTotalBudget();
+    if (totalBudget <= 0) {
+      console.log("❌ Invalid total budget:", totalBudget);
+      toast.error("Total budget must be greater than 0.");
+      setLoading(false);
+      submitLockRef.current = false;
+      return;
+    }
+
+    // Validate down payment doesn't exceed total budget
+    if (paymentData.downPayment > totalBudget) {
+      console.log(
+        "❌ Down payment exceeds total budget:",
+        paymentData.downPayment,
+        ">",
+        totalBudget
+      );
+      toast.error("Down payment cannot exceed the total budget.");
+      setLoading(false);
+      submitLockRef.current = false;
+      return;
+    }
+
     console.log("✅ Payment validation passed");
 
     console.log("🔍 Starting additional validations...");
@@ -1666,6 +1702,7 @@ export default function EventBuilderPage() {
       console.log("❌ Client validation failed - no client ID");
       toast.error("Please select a client before creating an event.");
       setLoading(false);
+      submitLockRef.current = false;
       return;
     }
     console.log("✅ Client validation passed");
@@ -1683,7 +1720,7 @@ export default function EventBuilderPage() {
     if (!eventDetails.title || eventDetails.title.trim() === "") {
       const eventTypeName = eventDetails.type || "Event";
       const defaultTitle = `${eventTypeName.charAt(0).toUpperCase() + eventTypeName.slice(1)} Event`;
-      eventDetails.title = defaultTitle;
+      setEventDetails((prev) => ({ ...prev, title: defaultTitle }));
       console.log("✅ Set default event title:", defaultTitle);
     }
 
@@ -1694,6 +1731,7 @@ export default function EventBuilderPage() {
       );
       toast.error("Event date is required");
       setLoading(false);
+      submitLockRef.current = false;
       return;
     }
     console.log("✅ Event date validation passed");
@@ -1705,17 +1743,19 @@ export default function EventBuilderPage() {
       );
       toast.error("Guest count must be greater than 0");
       setLoading(false);
+      submitLockRef.current = false;
       return;
     }
     console.log("✅ Event capacity validation passed");
 
-    if (!eventDetails.theme) {
+    if (!eventDetails.theme || eventDetails.theme.trim() === "") {
       console.log(
         "❌ Event theme validation failed - theme is:",
         eventDetails.theme
       );
       toast.error("Event theme is required");
       setLoading(false);
+      submitLockRef.current = false;
       return;
     }
     console.log("✅ Event theme validation passed");
@@ -1739,6 +1779,7 @@ export default function EventBuilderPage() {
         );
       }
       setLoading(false);
+      submitLockRef.current = false;
       return;
     }
     console.log("✅ No scheduling conflicts detected");
@@ -1764,6 +1805,15 @@ export default function EventBuilderPage() {
 
     try {
       console.log("📝 Preparing event data for API...");
+
+      // Get current event details with any updates
+      const currentEventDetails = {
+        ...eventDetails,
+        title:
+          eventDetails.title ||
+          `${eventDetails.type?.charAt(0).toUpperCase() + eventDetails.type?.slice(1)} Event`,
+      };
+
       // Prepare event data for API with proper field mapping to match backend expectations
       const eventData = {
         operation: "createEvent",
@@ -1777,22 +1827,23 @@ export default function EventBuilderPage() {
             : parseInt(userData.user_id),
         external_organizer:
           (externalOrganizer && externalOrganizer.trim()) || "N/A",
-        event_title:
-          (eventDetails.title && eventDetails.title.trim()) || "Event",
-        event_theme: (eventDetails.theme && eventDetails.theme.trim()) || "N/A",
+        event_title: currentEventDetails.title.trim(),
+        event_theme: currentEventDetails.theme.trim(),
         event_description:
-          (eventDetails.description && eventDetails.description.trim()) ||
+          (currentEventDetails.description &&
+            currentEventDetails.description.trim()) ||
           "N/A",
         church_location:
-          (eventDetails.churchLocation && eventDetails.churchLocation.trim()) ||
+          (currentEventDetails.churchLocation &&
+            currentEventDetails.churchLocation.trim()) ||
           "N/A",
         church_start_time:
-          (eventDetails.churchStartTime &&
-            eventDetails.churchStartTime.trim()) ||
+          (currentEventDetails.churchStartTime &&
+            currentEventDetails.churchStartTime.trim()) ||
           "00:00:00",
-        event_type_id: getEventTypeIdFromName(eventDetails.type) || 1, // Default to wedding if not found
-        guest_count: parseInt(eventDetails.capacity?.toString()) || 100,
-        event_date: eventDetails.date || "",
+        event_type_id: getEventTypeIdFromName(currentEventDetails.type) || 1, // Default to wedding if not found
+        guest_count: parseInt(currentEventDetails.capacity?.toString()) || 100,
+        event_date: currentEventDetails.date,
         start_time: "00:00:00", // Ensure proper time format
         end_time: "23:59:59", // All events are whole day events
         package_id: selectedPackageId ? parseInt(selectedPackageId) : null, // No package for start from scratch events
@@ -1814,7 +1865,8 @@ export default function EventBuilderPage() {
           return ref.length > 0 ? ref : "";
         })(),
         additional_notes:
-          (eventDetails.notes && eventDetails.notes.trim()) || "N/A",
+          (currentEventDetails.notes && currentEventDetails.notes.trim()) ||
+          "N/A",
         // Must match DB enum: 'done' | 'confirmed' | 'on_going' | 'cancelled'
         event_status: "confirmed",
         // Enhanced fields
@@ -1903,16 +1955,16 @@ export default function EventBuilderPage() {
       if (!clientData?.id) {
         validationErrors.push("Please select a client");
       }
-      if (!eventDetails?.title?.trim()) {
+      if (!currentEventDetails?.title?.trim()) {
         validationErrors.push("Event title is required");
       }
-      if (!eventDetails?.date) {
+      if (!currentEventDetails?.date) {
         validationErrors.push("Event date is required");
       }
-      if (!eventDetails?.type) {
+      if (!currentEventDetails?.type) {
         validationErrors.push("Event type is required");
       }
-      if (!eventDetails?.capacity || eventDetails.capacity <= 0) {
+      if (!currentEventDetails?.capacity || currentEventDetails.capacity <= 0) {
         validationErrors.push("Guest count must be greater than 0");
       }
       if (!paymentData?.downPaymentMethod) {
@@ -1922,7 +1974,7 @@ export default function EventBuilderPage() {
       // Log current state for debugging
       console.log("🔍 Validation Debug - Current State:");
       console.log("clientData:", clientData);
-      console.log("eventDetails:", eventDetails);
+      console.log("currentEventDetails:", currentEventDetails);
       console.log("paymentData:", paymentData);
       console.log("selectedPackageId:", selectedPackageId);
       console.log("selectedVenueId:", selectedVenueId);
@@ -1936,6 +1988,7 @@ export default function EventBuilderPage() {
           `Please fix the following issues:\n${validationErrors.join("\n")}`
         );
         setLoading(false);
+        submitLockRef.current = false;
         return;
       }
 
@@ -1945,11 +1998,13 @@ export default function EventBuilderPage() {
         if (!selectedPackageId) {
           toast.error("Please select a package before creating the event.");
           setLoading(false);
+          submitLockRef.current = false;
           return;
         }
         if (!selectedVenueId) {
           toast.error("Please select a venue before creating the event.");
           setLoading(false);
+          submitLockRef.current = false;
           return;
         }
       } else {
@@ -1961,6 +2016,7 @@ export default function EventBuilderPage() {
       if ((parseFloat(getTotalBudget().toString()) || 0) <= 0) {
         toast.error("Total budget must be greater than 0.");
         setLoading(false);
+        submitLockRef.current = false;
         return;
       }
 
@@ -1972,7 +2028,13 @@ export default function EventBuilderPage() {
       // Call API to create event using the configured API wrapper
       console.log("🚀 Making API call to create event...");
       console.log("📤 Sending event data to API...");
-      const response = await api.admin.createEvent(eventData);
+
+      // Use axios directly to ensure proper error handling
+      const response = await axios.post(endpoints.admin, eventData, {
+        headers: { "Content-Type": "application/json" },
+        timeout: 30000, // 30 second timeout
+      });
+
       console.log("📡 API response received:", response);
       console.log("Response status:", response.status);
       console.log("Response status text:", response.statusText);
@@ -2209,6 +2271,11 @@ export default function EventBuilderPage() {
 
   // Helper function to convert event type name to ID
   const getEventTypeIdFromName = (typeName: string): number => {
+    if (!typeName || typeof typeName !== "string") {
+      console.warn("Invalid event type provided:", typeName);
+      return 5; // Default to "Others"
+    }
+
     const eventTypeMap: Record<string, number> = {
       wedding: 1,
       anniversary: 2,
@@ -2225,8 +2292,11 @@ export default function EventBuilderPage() {
       "new-year": 16,
     };
 
-    const eventTypeId = eventTypeMap[typeName.toLowerCase()] || 5; // Default to "Others" (5) if not found
-    console.log(`Event type "${typeName}" mapped to ID: ${eventTypeId}`);
+    const normalizedType = typeName.toLowerCase().trim();
+    const eventTypeId = eventTypeMap[normalizedType] || 5; // Default to "Others" (5) if not found
+    console.log(
+      `Event type "${typeName}" (normalized: "${normalizedType}") mapped to ID: ${eventTypeId}`
+    );
     return eventTypeId;
   };
 
@@ -3297,7 +3367,7 @@ export default function EventBuilderPage() {
               try {
                 switch (stepId) {
                   case "package-selection":
-                    return !!selectedPackageId;
+                    return !!selectedPackageId || true; // Allow start from scratch
                   case "client-details":
                     return !!clientData.id;
                   case "event-details":
@@ -3305,10 +3375,11 @@ export default function EventBuilderPage() {
                       !!eventDetails.title &&
                       !!eventDetails.date &&
                       !!eventDetails.type &&
+                      !!eventDetails.theme &&
                       (eventDetails.capacity || 0) > 0
                     );
                   case "venue-selection":
-                    return !!selectedVenueId;
+                    return !!selectedVenueId || !selectedPackageId; // Allow no venue for start from scratch
                   case "payment": {
                     const total = parseFloat(getTotalBudget().toString()) || 0;
                     const method = paymentData.downPaymentMethod;
@@ -3316,7 +3387,7 @@ export default function EventBuilderPage() {
                     const refOk =
                       method === "cash" ||
                       (paymentData.referenceNumber || "").trim().length > 0;
-                    return total > 0 && refOk;
+                    return total > 0 && refOk && !!method;
                   }
                   default:
                     return true;

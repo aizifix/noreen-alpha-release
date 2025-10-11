@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef, useMemo } from "react";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 
 // Helper function to create a stable hash for component IDs
 function hashString(str: string): number {
@@ -55,7 +57,6 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/utils/apiClient";
 import { adminApi, clientApi } from "@/app/utils/api";
-import { endpoints } from "@/app/config/api";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -432,7 +433,7 @@ function EventFinalization({
 
   const fetchPaymentStats = async () => {
     try {
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "getEventPaymentStats",
         event_id: event.event_id,
       });
@@ -780,7 +781,7 @@ function VenueSelection({
   const fetchPackageVenues = async () => {
     try {
       setLoading(true);
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "getPackageVenues",
         package_id: event.package_id,
       });
@@ -820,7 +821,7 @@ function VenueSelection({
     }
     try {
       setSavingCustom(true);
-      const res = await fetch("/admin.php", {
+      const res = await fetch(endpoints.admin, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -865,7 +866,7 @@ function VenueSelection({
   const handleVenueChange = async (venueId: number) => {
     try {
       setLoading(true);
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "updateEventVenue",
         event_id: event.event_id,
         venue_id: venueId,
@@ -1304,7 +1305,7 @@ function PackageInclusionsManagement({
   };
 
   const updateEventBudget = async (eventId: number, budgetChange: number) => {
-    const response = await fetch("/admin.php", {
+    const response = await fetch(endpoints.admin, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1323,7 +1324,7 @@ function PackageInclusionsManagement({
   };
 
   const performSaveComponent = async (componentData: any, isNew: boolean) => {
-    const response = await fetch("/admin.php", {
+    const response = await fetch(endpoints.admin, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1367,7 +1368,7 @@ function PackageInclusionsManagement({
   };
 
   const performDeleteComponent = async (componentId: number) => {
-    const response = await fetch("/admin.php", {
+    const response = await fetch(endpoints.admin, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1472,7 +1473,7 @@ function PackageInclusionsManagement({
         newStatus
       );
       setLoading(true);
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "updateComponentPaymentStatus",
         component_id: componentId,
         payment_status: newStatus,
@@ -1688,7 +1689,7 @@ function PackageInclusionsManagement({
                     onClick={async () => {
                       try {
                         setLoading(true);
-                        const response = await axios.post("/admin.php", {
+                        const response = await axios.post(endpoints.admin, {
                           operation: "updateEventFinalization",
                           event_id: event.event_id,
                           action: "finalize",
@@ -2839,18 +2840,24 @@ function PaymentHistoryTab({
   });
 
   useEffect(() => {
-    fetchPaymentHistory();
-  }, [event.event_id]);
+    if (event.event_id && event.user_id) {
+      fetchPaymentHistory();
+    }
+  }, [event.event_id, event.user_id]);
 
   const fetchPaymentHistory = async () => {
     try {
       setIsLoading(true);
-      const response = await axios.post("/admin.php", {
-        operation: "getEventPayments",
-        event_id: event.event_id,
+
+      const response = await axios.get(endpoints.client, {
+        params: {
+          operation: "getEventPayments",
+          user_id: event.user_id,
+          event_id: event.event_id,
+        },
       });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         const raw = response.data.payments || event.payments || [];
         const normalized = (raw || []).map((p: any) => {
           let attachments = p.payment_attachments;
@@ -2864,6 +2871,12 @@ function PaymentHistoryTab({
           return { ...p, payment_attachments: attachments || [] };
         });
         setPaymentHistory(normalized);
+      } else {
+        console.error(
+          "Failed to fetch payment history:",
+          response.data.message
+        );
+        setPaymentHistory([]);
       }
     } catch (error) {
       console.error("Error fetching payment history:", error);
@@ -2890,7 +2903,7 @@ function PaymentHistoryTab({
     try {
       setIsCreating(true);
       // 1) Create payment record
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post(endpoints.admin, {
         operation: "createPayment",
         event_id: event.event_id,
         client_id: event.user_id,
@@ -2923,7 +2936,7 @@ function PaymentHistoryTab({
         formData.append("description", newPayment.payment_notes || "");
         formData.append("file", file);
 
-        await fetch("/admin.php", {
+        await fetch(endpoints.admin, {
           method: "POST",
           body: formData,
         });
@@ -3990,7 +4003,7 @@ export default function EventDetailsPage() {
         body.fee_currency = "PHP";
         body.fee_status = "proposed";
       }
-      const res = await fetch("/admin.php", {
+      const res = await fetch(endpoints.admin, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -4132,7 +4145,7 @@ export default function EventDetailsPage() {
       await Promise.all(
         toFetch.map(async (id) => {
           try {
-            const res = await axios.post("/admin.php", {
+            const res = await axios.post(endpoints.admin, {
               operation: "getOrganizerById",
               organizer_id: Number(id),
             });
@@ -4182,43 +4195,61 @@ export default function EventDetailsPage() {
           user_id: uid,
           event_id: parseInt(eventId),
         });
+
+        console.log("📡 Client API Response:", res);
+
         // Support both direct JSON (res.status) and wrapped shape (res.data.status)
         const status = res?.status ?? res?.data?.status;
         const eventPayload = res?.event ?? res?.data?.event;
         const message = res?.message ?? res?.data?.message;
+
         if (status === "success" && eventPayload) {
           setEvent(eventPayload);
         } else {
+          const errorMessage = message || "Failed to load event details";
+          console.error("❌ Client API Error:", errorMessage);
           toast({
             title: "Error",
-            description: message || "Failed to load event",
+            description: errorMessage,
             variant: "destructive",
           });
         }
       } else {
-        const response = await axios.post("/admin.php", {
+        const response = await axios.post(endpoints.admin, {
           operation: "getEnhancedEventDetails",
           event_id: parseInt(eventId),
         });
-        console.log("📡 API Response:", response.data);
-        if (response.status === "success") {
+        console.log("📡 Admin API Response:", response.data);
+
+        if (response.data?.status === "success") {
           setEvent(response.data.event);
         } else {
-          console.error("❌ API Error:", response.data.message);
+          const errorMessage =
+            response.data?.message || "Failed to fetch event details";
+          console.error("❌ Admin API Error:", errorMessage);
           toast({
             title: "Error",
-            description:
-              response.data.message || "Failed to fetch event details",
+            description: errorMessage,
             variant: "destructive",
           });
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("❌ Network Error:", error);
+
+      // Extract meaningful error message
+      let errorMessage = "Failed to fetch event details";
+      if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === "string") {
+        errorMessage = error;
+      }
+
       toast({
         title: "Error",
-        description:
-          "Failed to connect to server. Please check if the backend is running.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
+import { toast } from "sonner";
 import {
   Settings,
   User,
@@ -155,14 +156,14 @@ export default function SupplierSettings() {
 
       if (data.status === "success") {
         // Show success message
-        alert("Settings saved successfully!");
+        toast.success("Settings saved successfully!");
       } else {
         console.error("Failed to save settings:", data.message);
-        alert("Failed to save settings: " + data.message);
+        toast.error("Failed to save settings: " + data.message);
       }
     } catch (error) {
       console.error("Error saving settings:", error);
-      alert("Error saving settings");
+      toast.error("Error saving settings");
     } finally {
       setSaving(false);
     }
@@ -174,17 +175,17 @@ export default function SupplierSettings() {
       !passwordForm.new_password ||
       !passwordForm.confirm_password
     ) {
-      alert("Please fill in all password fields");
+      toast.error("Please fill in all password fields");
       return;
     }
 
     if (passwordForm.new_password !== passwordForm.confirm_password) {
-      alert("New passwords do not match");
+      toast.error("New passwords do not match");
       return;
     }
 
     if (passwordForm.new_password.length < 8) {
-      alert("New password must be at least 8 characters long");
+      toast.error("New password must be at least 8 characters long");
       return;
     }
 
@@ -206,13 +207,13 @@ export default function SupplierSettings() {
           confirm_password: "",
         });
         setShowPasswordModal(false);
-        alert("Password changed successfully!");
+        toast.success("Password changed successfully!");
       } else {
-        alert("Failed to change password: " + data.message);
+        toast.error("Failed to change password: " + data.message);
       }
     } catch (error) {
       console.error("Error changing password:", error);
-      alert("Error changing password");
+      toast.error("Error changing password");
     }
   };
 
@@ -236,11 +237,11 @@ export default function SupplierSettings() {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
       } else {
-        alert("Failed to export data");
+        toast.error("Failed to export data");
       }
     } catch (error) {
       console.error("Error exporting data:", error);
-      alert("Error exporting data");
+      toast.error("Error exporting data");
     }
   };
 
@@ -1038,7 +1039,7 @@ export default function SupplierSettings() {
               <button
                 onClick={() => {
                   // Implement account deletion
-                  alert(
+                  toast.info(
                     "Account deletion functionality would be implemented here"
                   );
                   setShowDeleteModal(false);

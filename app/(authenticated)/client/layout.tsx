@@ -374,8 +374,8 @@ export default function ClientLayout({
 
   return (
     <div className="flex h-screen bg-gray-100 w-full overflow-x-hidden lg:pl-64">
-      {/* Desktop Sidebar (Fixed) - Hidden on mobile */}
-      <div className="hidden lg:block fixed inset-y-0 left-0 z-20 w-64">
+      {/* Desktop Sidebar (Fixed) - Completely hidden on mobile */}
+      <div className="hidden lg:fixed lg:block inset-y-0 left-0 z-20 w-64">
         <Sidebar className="h-full w-64 bg-white border-r">
           <SidebarHeader className="border-b px-3 py-4 h-16 flex items-center justify-start">
             <Image
@@ -891,7 +891,7 @@ export default function ClientLayout({
         </header>
 
         {/* Page Content - Adjusted for Navbar */}
-        <main className="lg:pt-24 lg:p-6 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 min-w-0 max-w-full">
+        <main className="pt-0 lg:pt-24 lg:p-6 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 min-w-0 max-w-full">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
             {children}
           </div>

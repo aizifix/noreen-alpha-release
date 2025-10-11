@@ -3,6 +3,7 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import {
   Select,
   SelectContent,
@@ -28,7 +29,7 @@ export function VenueDetails({ data, onChange }: VenueDetailsProps) {
       // Check file size (max 5MB)
       const maxSize = 5 * 1024 * 1024; // 5MB in bytes
       if (file.size > maxSize) {
-        alert(
+        toast.error(
           `File size must be less than 5MB. Current file size: ${(file.size / 1024 / 1024).toFixed(2)}MB`
         );
         return;
@@ -42,7 +43,7 @@ export function VenueDetails({ data, onChange }: VenueDetailsProps) {
         "image/webp",
       ];
       if (!allowedTypes.includes(file.type)) {
-        alert("Please select a valid image file (JPEG, PNG, or WebP)");
+        toast.error("Please select a valid image file (JPEG, PNG, or WebP)");
         return;
       }
 

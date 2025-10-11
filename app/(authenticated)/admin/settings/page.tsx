@@ -141,6 +141,11 @@ export default function SettingsPage() {
     passwordExpiry: 90,
   });
 
+  // UI settings
+  const [uiSettings, setUiSettings] = useState({
+    hideStaffButton: false,
+  });
+
   useEffect(() => {
     try {
       protectRoute();
@@ -156,11 +161,39 @@ export default function SettingsPage() {
       fetchUserProfile();
       fetchWebsiteSettings();
       fetchFeedbacks();
+      loadUISettings();
     } catch (error) {
       console.error("Error accessing user data:", error);
       router.push("/auth/login");
     }
   }, [router]);
+
+  const loadUISettings = () => {
+    try {
+      const savedUISettings = localStorage.getItem("adminUISettings");
+      if (savedUISettings) {
+        setUiSettings(JSON.parse(savedUISettings));
+      }
+    } catch (error) {
+      console.error("Error loading UI settings:", error);
+    }
+  };
+
+  const saveUISettings = (newSettings: typeof uiSettings) => {
+    try {
+      localStorage.setItem("adminUISettings", JSON.stringify(newSettings));
+      setUiSettings(newSettings);
+
+      // Dispatch event to notify other components
+      window.dispatchEvent(
+        new CustomEvent("adminUISettingsChanged", {
+          detail: newSettings,
+        })
+      );
+    } catch (error) {
+      console.error("Error saving UI settings:", error);
+    }
+  };
 
   const fetchUserProfile = async () => {
     try {
@@ -1226,6 +1259,38 @@ export default function SettingsPage() {
                     }
                     className="w-32"
                   />
+                </div>
+              </div>
+
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-medium mb-4">Interface Settings</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-base">Hide Staff Button</Label>
+                      <p className="text-sm text-gray-500">
+                        Hide the Staff button from the admin sidebar navigation
+                      </p>
+                    </div>
+                    <Switch
+                      checked={uiSettings.hideStaffButton}
+                      onCheckedChange={(checked: boolean) => {
+                        const newSettings = {
+                          ...uiSettings,
+                          hideStaffButton: checked,
+                        };
+                        saveUISettings(newSettings);
+                        toast({
+                          title: checked
+                            ? "Staff Button Hidden"
+                            : "Staff Button Shown",
+                          description: checked
+                            ? "The Staff button has been hidden from the sidebar"
+                            : "The Staff button is now visible in the sidebar",
+                        });
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
 

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
+import { toast } from "sonner";
 import {
   FileText,
   Upload,
@@ -139,7 +140,7 @@ export default function SupplierDocuments() {
     if (file) {
       // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
-        alert("File size must be less than 10MB");
+        toast.error("File size must be less than 10MB");
         return;
       }
 
@@ -154,7 +155,9 @@ export default function SupplierDocuments() {
       ];
 
       if (!allowedTypes.includes(file.type)) {
-        alert("Invalid file type. Please upload PDF, JPG, PNG, or DOC files.");
+        toast.error(
+          "Invalid file type. Please upload PDF, JPG, PNG, or DOC files."
+        );
         return;
       }
 
@@ -176,7 +179,7 @@ export default function SupplierDocuments() {
       !uploadForm.document_type ||
       !uploadForm.document_title
     ) {
-      alert("Please fill in all required fields and select a file");
+      toast.error("Please fill in all required fields and select a file");
       return;
     }
 
@@ -210,11 +213,11 @@ export default function SupplierDocuments() {
           fileInputRef.current.value = "";
         }
       } else {
-        alert("Failed to upload document: " + data.message);
+        toast.error("Failed to upload document: " + data.message);
       }
     } catch (error) {
       console.error("Error uploading document:", error);
-      alert("Error uploading document");
+      toast.error("Error uploading document");
     } finally {
       setUploading(false);
     }

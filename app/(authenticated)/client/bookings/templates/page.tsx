@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { apiClient } from "@/utils/apiClient";
+import { endpoints } from "@/app/config/api";
 import {
   Package,
   Clock,
@@ -57,14 +58,11 @@ export default function BookingTemplatesPage() {
   const fetchPackages = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(
-        "/client.php",
-        {
-          params: { operation: "getAllPackages" },
-        }
-      );
+      const response = await axios.get(`${endpoints.client}`, {
+        params: { operation: "getAllPackages" },
+      });
 
-      if (response.status === "success") {
+      if (response?.data?.status === "success") {
         const allPackages = response.data.packages || [];
 
         // Separate featured and regular packages
@@ -76,7 +74,7 @@ export default function BookingTemplatesPage() {
         setRegularPackages(regular);
         setPackages(allPackages);
       } else {
-        setError(response.data.message || "Failed to load packages");
+        setError(response?.data?.message || "Failed to load packages");
       }
     } catch (err) {
       console.error("Error fetching packages:", err);
@@ -92,8 +90,10 @@ export default function BookingTemplatesPage() {
   };
 
   // Handle selecting a package template
-  const handleSelectPackage = (packageId: number) => {
-    router.push(`/client/bookings/create-booking?package=${packageId}`);
+  const handleSelectPackage = (packageId: number, eventType?: string) => {
+    const qp = new URLSearchParams({ package: String(packageId) });
+    if (eventType) qp.set("eventType", eventType);
+    router.push(`/client/bookings/create-booking?${qp.toString()}`);
   };
 
   return (
@@ -204,7 +204,12 @@ export default function BookingTemplatesPage() {
                       </div>
 
                       <Button
-                        onClick={() => handleSelectPackage(pkg.package_id)}
+                        onClick={() =>
+                          handleSelectPackage(
+                            pkg.package_id,
+                            pkg.event_type_names?.[0]
+                          )
+                        }
                         className="w-full mt-2 bg-[#028A75] hover:bg-[#028A75]/90"
                       >
                         Select This Template
@@ -253,7 +258,12 @@ export default function BookingTemplatesPage() {
                       </div>
 
                       <Button
-                        onClick={() => handleSelectPackage(pkg.package_id)}
+                        onClick={() =>
+                          handleSelectPackage(
+                            pkg.package_id,
+                            pkg.event_type_names?.[0]
+                          )
+                        }
                         className="w-full mt-2 bg-[#028A75] hover:bg-[#028A75]/90"
                       >
                         Select This Template

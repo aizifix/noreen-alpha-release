@@ -178,7 +178,15 @@ export default function EventBuilderPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bookingId = searchParams.get("booking");
-  const bookingRefFromUrl = searchParams.get("booking_ref");
+  const bookingRefFromUrl =
+    searchParams.get("booking_ref") ||
+    searchParams.get("bookingReference") ||
+    searchParams.get("reference") ||
+    searchParams.get("ref") ||
+    searchParams.get("booking");
+  const skipRecovery =
+    searchParams.get("skip_recovery") === "1" ||
+    searchParams.get("fresh") === "1";
 
   // Local storage key for event builder data
   const STORAGE_KEY = "event_builder_data";
@@ -341,6 +349,7 @@ export default function EventBuilderPage() {
   const [showLocalStorageRecoveryModal, setShowLocalStorageRecoveryModal] =
     useState(false);
   const [hasUnsavedData, setHasUnsavedData] = useState(false);
+  const [isLoadingBookingData, setIsLoadingBookingData] = useState(false);
 
   // Determine if a draft or current state has meaningful data (not just defaults)
   const hasMeaningfulFormData = useCallback((data: any): boolean => {
@@ -372,6 +381,13 @@ export default function EventBuilderPage() {
 
   // Check for localStorage recovery on mount
   useEffect(() => {
+    if (skipRecovery || bookingRefFromUrl) {
+      // Explicitly skip recovery when coming from booking or when forced
+      clearLocalStorage();
+      setShowLocalStorageRecoveryModal(false);
+      setHasUnsavedData(false);
+      return;
+    }
     const savedData = loadFromLocalStorage();
     if (
       savedData &&
@@ -394,7 +410,7 @@ export default function EventBuilderPage() {
       // Ensure no stale/empty drafts trigger modal on a fresh start
       clearLocalStorage();
     }
-  }, [hasMeaningfulFormData]);
+  }, [hasMeaningfulFormData, skipRecovery, bookingRefFromUrl]);
 
   // Load data from localStorage after recovery modal
   useEffect(() => {
@@ -771,12 +787,35 @@ export default function EventBuilderPage() {
     fetchEventTypes();
   }, []);
 
-  // Auto-load booking data if booking_ref is provided in URL
+  // Reconcile selectedEventType with API-provided names once loaded
   useEffect(() => {
-    if (bookingRefFromUrl && !initializedRef.current) {
-      initializedRef.current = true;
+    if (!selectedEventType || eventTypes.length === 0) return;
+    // If selectedEventType is a normalized/lowercase variant, map it to the API exact name
+    const normalized = selectedEventType.toLowerCase().trim();
+    const apiMatch = eventTypes.find(
+      (t) => (t.event_name || "").toLowerCase().trim() === normalized
+    );
+    if (apiMatch && apiMatch.event_name !== selectedEventType) {
+      setSelectedEventType(apiMatch.event_name);
+      setEventDetails((prev) => ({ ...prev, type: apiMatch.event_name }));
+    }
+  }, [eventTypes, selectedEventType]);
+
+  // Auto-load booking data when booking reference is present/changes in URL
+  useEffect(() => {
+    console.log("🔍 URL Parameter Effect:", {
+      bookingRefFromUrl,
+      initializedRef: initializedRef.current,
+    });
+
+    if (bookingRefFromUrl) {
+      console.log(
+        "🚀 Starting auto-load for booking reference:",
+        bookingRefFromUrl
+      );
       setBookingReference(bookingRefFromUrl);
-      lookupBookingByReference();
+      initializedRef.current = true;
+      lookupBookingByReference(bookingRefFromUrl);
     }
   }, [bookingRefFromUrl]);
 
@@ -883,6 +922,11 @@ export default function EventBuilderPage() {
 
   // Track form dirty state separately - simplified to avoid infinite loops
   useEffect(() => {
+    // Don't mark as dirty if we're currently loading booking data
+    if (isLoadingBookingData) {
+      return;
+    }
+
     // Check if any form data has meaningful values - simplified check
     const hasData = Boolean(
       clientData.name ||
@@ -901,6 +945,7 @@ export default function EventBuilderPage() {
 
     setIsFormDirty(hasData);
   }, [
+    isLoadingBookingData,
     clientData.name,
     clientData.email,
     eventDetails.title,
@@ -1828,7 +1873,7 @@ export default function EventBuilderPage() {
         external_organizer:
           (externalOrganizer && externalOrganizer.trim()) || "N/A",
         event_title: currentEventDetails.title.trim(),
-        event_theme: currentEventDetails.theme.trim(),
+        event_theme: currentEventDetails.theme?.trim() || "N/A",
         event_description:
           (currentEventDetails.description &&
             currentEventDetails.description.trim()) ||
@@ -2301,27 +2346,43 @@ export default function EventBuilderPage() {
   };
 
   // Function to look up a booking by reference
-  const lookupBookingByReference = async () => {
-    if (!bookingReference) {
+  const lookupBookingByReference = async (refOverride?: string) => {
+    const refToUse = refOverride ?? bookingReference;
+    console.log("🔍 lookupBookingByReference called with:", refToUse);
+
+    if (!refToUse) {
+      console.log("❌ No booking reference provided");
       toast.error("Please enter a booking reference.");
       return;
     }
 
     try {
+      console.log("🚀 Making API call to get booking by reference:", refToUse);
       setLookupLoading(true);
+      setIsLoadingBookingData(true);
+
+      const apiUrl = `${endpoints.admin}?operation=getBookingByReference&reference=${encodeURIComponent(refToUse)}`;
+      console.log("🌐 API URL:", apiUrl);
+
       const response = await axios.get(endpoints.admin, {
         params: {
           operation: "getBookingByReference",
-          reference: bookingReference,
+          reference: refToUse,
         },
       });
 
+      console.log("📡 API Response:", response.data);
+
       if (response.data.status === "success" && response.data.booking) {
         const booking = response.data.booking;
+        console.log("✅ Booking found:", booking);
 
         // Check if booking is confirmed
         const status = (booking.booking_status || "").toString().toLowerCase();
+        console.log("📊 Booking status:", status);
+
         if (status !== "confirmed") {
+          console.log("❌ Booking not confirmed:", booking.booking_status);
           toast.error(
             `This booking is ${booking.booking_status}. Only confirmed bookings can be converted to events.`
           );
@@ -2339,13 +2400,16 @@ export default function EventBuilderPage() {
           return;
         }
 
-        // Set client data
+        // Set client data - use correct field names from API response
         setClientData({
           id: String(booking.user_id),
-          name: `${booking.user_firstName} ${booking.user_lastName}`,
-          email: booking.user_email,
-          phone: booking.user_contact,
-          address: booking.user_address || "",
+          name:
+            `${booking.user_firstName || ""} ${booking.user_lastName || ""}`.trim() ||
+            booking.client_name ||
+            "",
+          email: booking.user_email || booking.client_email || "",
+          phone: booking.user_contact || booking.client_phone || "",
+          address: booking.user_address || booking.client_address || "",
         });
 
         // Set event details with proper time parsing and event type mapping
@@ -2365,14 +2429,22 @@ export default function EventBuilderPage() {
             "engagement party": "engagement",
             "christmas party": "christmas",
             "new year's party": "new-year",
+            christening: "christening",
+            debut: "debut",
+            funeral: "funeral",
           };
 
           const normalizedType = eventTypeName.toLowerCase().trim();
           return typeMap[normalizedType] || "other";
         };
 
+        // Use the actual event type from booking, not hardcoded "birthday"
+        const mappedEventType = mapEventType(
+          booking.event_type_name || booking.event_type
+        );
+
         setEventDetails({
-          type: "birthday",
+          type: mappedEventType,
           title: booking.event_name || "",
           date: booking.event_date || "",
           capacity: parseInt(booking.guest_count) || 100,
@@ -2382,6 +2454,11 @@ export default function EventBuilderPage() {
           venueId: booking.venue_id ? String(booking.venue_id) : "", // Add venue ID for auto-selection
           bookingReference: bookingReference, // Store booking reference
         });
+
+        // Set the selected event type for proper step navigation (prefer API name)
+        setSelectedEventType(
+          booking.event_type_name || booking.event_type || mappedEventType
+        );
 
         // Set venue and package if available
         if (booking.venue_id) {
@@ -2395,6 +2472,30 @@ export default function EventBuilderPage() {
           // This will trigger venue loading
           await handlePackageSelect(String(booking.package_id));
         }
+
+        // Debug logging
+        console.log("Booking data loaded:", {
+          clientData: {
+            id: String(booking.user_id),
+            name:
+              `${booking.user_firstName || ""} ${booking.user_lastName || ""}`.trim() ||
+              booking.client_name ||
+              "",
+            email: booking.user_email || booking.client_email || "",
+            phone: booking.user_contact || booking.client_phone || "",
+            address: booking.user_address || booking.client_address || "",
+          },
+          eventDetails: {
+            type: mappedEventType,
+            title: booking.event_name || "",
+            date: booking.event_date || "",
+            capacity: parseInt(booking.guest_count) || 100,
+            package: booking.package_id ? String(booking.package_id) : "",
+            venueId: booking.venue_id ? String(booking.venue_id) : "",
+          },
+          packageId: booking.package_id,
+          venueId: booking.venue_id,
+        });
 
         // Apply client modifications (custom/removed inclusions, supplier services) if available
         try {
@@ -2466,16 +2567,41 @@ export default function EventBuilderPage() {
         }
 
         toast.success(
-          "Booking found and form fields populated. You can now create an event from this booking."
+          `Booking ${refToUse} found and form fields populated! Step 1 (Package) and Step 2 (Client Details) have been pre-filled. You can now create an event from this booking.`
         );
+
+        // Show a brief info message about unsaved changes
+        setTimeout(() => {
+          toast.info(
+            "Form has been populated with booking data. Any changes you make will be tracked as unsaved changes."
+          );
+        }, 1000);
       } else {
-        toast.error(response.data.message || "Booking not found.");
+        console.log("❌ API returned error or no booking:", response.data);
+
+        // Check if booking was found but has wrong status
+        if (response.data.booking_status) {
+          toast.error(
+            `Booking found but status is '${response.data.booking_status}'. Only confirmed bookings can be converted to events. Please confirm the booking first.`
+          );
+        } else {
+          toast.error(response.data.message || "Booking not found.");
+        }
       }
-    } catch (error) {
-      console.error("Error looking up booking:", error);
+    } catch (error: any) {
+      console.error("💥 Error looking up booking:", error);
+      console.error("Error details:", {
+        message: error?.message,
+        response: error?.response?.data,
+        status: error?.response?.status,
+      });
       toast.error("Failed to lookup booking. Please try again.");
     } finally {
       setLookupLoading(false);
+      // Add a small delay to ensure all state updates are complete before allowing dirty detection
+      setTimeout(() => {
+        setIsLoadingBookingData(false);
+      }, 500);
     }
   };
 
@@ -2545,6 +2671,9 @@ export default function EventBuilderPage() {
   };
 
   const loadBookingData = (booking: any) => {
+    // Set loading flag to prevent dirty detection during data loading
+    setIsLoadingBookingData(true);
+
     // Parse the booking data and populate the form
     const mapEventType = (eventTypeName: string): string => {
       const typeMap: { [key: string]: string } = {
@@ -2567,18 +2696,26 @@ export default function EventBuilderPage() {
       return typeMap[eventTypeName.toLowerCase()] || "other";
     };
 
-    // Populate client data - use correct field names from API
+    // Use the actual event type from booking, not hardcoded "birthday"
+    const mappedEventType = mapEventType(
+      booking.event_type_name || booking.event_type
+    );
+
+    // Populate client data - use correct field names from API response
     setClientData({
       id: booking.user_id?.toString() || "",
-      name: booking.client_name || "",
-      email: booking.client_email || "",
-      phone: booking.client_phone || "",
-      address: booking.client_address || "",
+      name:
+        `${booking.user_firstName || ""} ${booking.user_lastName || ""}`.trim() ||
+        booking.client_name ||
+        "",
+      email: booking.user_email || booking.client_email || "",
+      phone: booking.user_contact || booking.client_phone || "",
+      address: booking.user_address || booking.client_address || "",
     });
 
     // Populate event details - use correct field names from API
     setEventDetails({
-      type: "birthday",
+      type: mappedEventType,
       title: booking.event_name || "",
       date: booking.event_date || "",
       capacity: booking.guest_count || 100,
@@ -2590,6 +2727,11 @@ export default function EventBuilderPage() {
       theme: "", // Theme not available in booking data
     });
 
+    // Set the selected event type for proper step navigation (prefer API name)
+    setSelectedEventType(
+      booking.event_type_name || booking.event_type || mappedEventType
+    );
+
     // Ensure booking reference state is set so event creation marks it converted
     if (booking.booking_reference) {
       setBookingReference(String(booking.booking_reference));
@@ -2597,6 +2739,10 @@ export default function EventBuilderPage() {
 
     // Set package and venue IDs if available
     if (booking.package_id) {
+      console.log(
+        "loadBookingData: Setting package ID from booking:",
+        booking.package_id
+      );
       setSelectedPackageId(booking.package_id.toString());
       // Trigger package selection to load venues and components
       setTimeout(() => {
@@ -2604,8 +2750,36 @@ export default function EventBuilderPage() {
       }, 100);
     }
     if (booking.venue_id) {
+      console.log(
+        "loadBookingData: Setting venue ID from booking:",
+        booking.venue_id
+      );
       setSelectedVenueId(booking.venue_id.toString());
     }
+
+    // Debug logging
+    console.log("loadBookingData: Booking data loaded:", {
+      clientData: {
+        id: booking.user_id?.toString() || "",
+        name:
+          `${booking.user_firstName || ""} ${booking.user_lastName || ""}`.trim() ||
+          booking.client_name ||
+          "",
+        email: booking.user_email || booking.client_email || "",
+        phone: booking.user_contact || booking.client_phone || "",
+        address: booking.user_address || booking.client_address || "",
+      },
+      eventDetails: {
+        type: mappedEventType,
+        title: booking.event_name || "",
+        date: booking.event_date || "",
+        capacity: booking.guest_count || 100,
+        package: booking.package_id?.toString() || "",
+        venueId: booking.venue_id?.toString() || "",
+      },
+      packageId: booking.package_id,
+      venueId: booking.venue_id,
+    });
 
     // Set payment data with defaults since booking doesn't have payment info
     setPaymentData({
@@ -2628,6 +2802,15 @@ export default function EventBuilderPage() {
 
     setShowBookingLookupModal(false);
     setCurrentStep(2); // Go to Client Details step - NEVER skip step 2
+
+    // Add a small delay to ensure all state updates are complete before allowing dirty detection
+    setTimeout(() => {
+      setIsLoadingBookingData(false);
+      // Show a brief info message about unsaved changes
+      toast.info(
+        "Form has been populated with booking data. Any changes you make will be tracked as unsaved changes."
+      );
+    }, 500);
   };
 
   // Add logic for venue selection step to enforce venue budget
@@ -2649,29 +2832,12 @@ export default function EventBuilderPage() {
           {/* Header with booking lookup */}
           <div className="flex items-center justify-end gap-2">
             <Button
-              onClick={async () => {
-                try {
-                  const response = await axios.get(
-                    `${endpoints.admin}?operation=testBookings`
-                  );
-                  console.log("🧪 Test Bookings Response:", response.data);
-                  toast.success(
-                    `Test: Found ${response.data.count} confirmed bookings`
-                  );
-                } catch (error) {
-                  console.error("Test error:", error);
-                  toast.error("Test failed");
-                }
-              }}
-              variant="outline"
-            >
-              Test API
-            </Button>
-            <Button
               onClick={() => {
                 // Show booking lookup modal
                 setShowBookingLookupModal(true);
               }}
+              variant="outline"
+              className="bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
             >
               Look Up Existing Booking
             </Button>
@@ -2731,32 +2897,6 @@ export default function EventBuilderPage() {
             onSelect={handlePackageSelect}
             initialPackageId={selectedPackageId}
           />
-
-          {/* Action buttons */}
-          <div className="flex items-center justify-center pt-6">
-            <Button
-              className="px-6 py-3 border-2 border-dashed hover:bg-gray-50"
-              onClick={() => {
-                // Handle "Start from Scratch" option
-                console.log(
-                  "Starting from scratch - clearing package selection"
-                );
-                setSelectedPackageId(null);
-                setComponents([]);
-                setOriginalPackagePrice(null);
-                setPackageVenues([]); // Clear package venues since we'll use all venues
-
-                // Show confirmation toast
-                toast.success(
-                  "You can now select any venue and customize your event components individually."
-                );
-
-                setCurrentStep(2); // Go to Client Details
-              }}
-            >
-              Skip - Start from Scratch
-            </Button>
-          </div>
         </div>
       ),
     },
@@ -3332,25 +3472,27 @@ export default function EventBuilderPage() {
   };
 
   return (
-    <div className="container mx-auto py-4 lg:py-6 space-y-4 lg:space-y-6">
+    <div className="container mx-auto py-6 lg:py-8 space-y-6 lg:space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-          <h1 className="text-2xl lg:text-3xl font-bold">Event Builder</h1>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Event Builder
+          </h1>
           {isFormDirty && (
-            <div className="flex items-center gap-2 text-xs sm:text-sm text-blue-600 bg-blue-50 px-2 sm:px-3 py-1 rounded-md border border-blue-200">
+            <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-1 rounded-md border border-blue-200">
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
               Auto-saving...
             </div>
           )}
         </div>
         {bookingId && (
-          <div className="bg-primary/10 text-primary px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm">
+          <div className="bg-primary/10 text-primary px-3 py-1 rounded-md text-sm font-medium">
             Booking: {bookingId}
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         <div className="lg:col-span-2">
           <MultiStepWizard
             steps={steps}
@@ -3402,10 +3544,10 @@ export default function EventBuilderPage() {
         <div className="lg:col-span-1">
           <div className="space-y-6 sticky top-4">
             <Card className="p-6">
-              <h3 className="text-lg font-medium mb-4 border-b pb-2">
+              <h3 className="text-lg font-semibold tracking-tight mb-4 pb-3 border-b">
                 Event Summary
               </h3>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {clientData.name && (
                   <div>
                     <p className="text-sm text-muted-foreground">Client</p>
@@ -3555,13 +3697,17 @@ export default function EventBuilderPage() {
               </div>
             </Card>
 
-            <div className="flex flex-col gap-2">
-              <Button onClick={() => router.push("/admin/events")}>
+            <div className="flex flex-col gap-3">
+              <Button
+                variant="outline"
+                onClick={() => router.push("/admin/events")}
+              >
                 Cancel
               </Button>
               <Button
+                variant="outline"
                 onClick={handleClearForm}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                className="text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/10"
               >
                 Clear All Fields
               </Button>

@@ -197,10 +197,40 @@ export const api = {
       return imagePath;
     }
 
+    // Handle case where imagePath might be a JSON object instead of just a file path
+    let actualPath = imagePath;
+    try {
+      // Try to parse as JSON - if it's a JSON object, extract the filePath
+      const parsed = JSON.parse(imagePath);
+      if (parsed && typeof parsed === 'object' && parsed.filePath) {
+        actualPath = parsed.filePath;
+      }
+    } catch (e) {
+      // If parsing fails, it's not JSON, so use the original path
+      actualPath = imagePath;
+    }
+
     // Use the serve-image.php script for proper image serving
-    return apiClient.getFullUrl(`/serve-image.php?path=${encodeURIComponent(imagePath)}`);
+    return apiClient.getFullUrl(`/serve-image.php?path=${encodeURIComponent(actualPath)}`);
   },
-  getServeImageUrl: (imagePath: string) => apiClient.getFullUrl(`/serve-image.php?path=${encodeURIComponent(imagePath)}`),
+  getServeImageUrl: (imagePath: string) => {
+    if (!imagePath) return null;
+
+    // Handle case where imagePath might be a JSON object instead of just a file path
+    let actualPath = imagePath;
+    try {
+      // Try to parse as JSON - if it's a JSON object, extract the filePath
+      const parsed = JSON.parse(imagePath);
+      if (parsed && typeof parsed === 'object' && parsed.filePath) {
+        actualPath = parsed.filePath;
+      }
+    } catch (e) {
+      // If parsing fails, it's not JSON, so use the original path
+      actualPath = imagePath;
+    }
+
+    return apiClient.getFullUrl(`/serve-image.php?path=${encodeURIComponent(actualPath)}`);
+  },
 };
 
 // Export the base client for custom requests

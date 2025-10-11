@@ -20,6 +20,9 @@ import {
   ArrowRight,
   UserCheck,
   ChevronDown,
+  MapPin,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import Logo from "../../../public/logo.png";
 import { toast } from "@/hooks/use-toast";
@@ -41,6 +44,11 @@ interface FormData {
   lastName: string;
   suffix: string;
   birthdate: string;
+  street: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
   countryCode: string;
   contactNumber: string;
   email: string;
@@ -83,6 +91,11 @@ const SignUpPage = () => {
     lastName: "",
     suffix: "",
     birthdate: "",
+    street: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "Philippines",
     countryCode: "+63",
     contactNumber: "",
     email: "",
@@ -113,7 +126,25 @@ const SignUpPage = () => {
     "none" | "correct" | "incorrect"
   >("none");
 
+  // Mobile and animation state
+  const [isMobile, setIsMobile] = useState(false);
+  const [slideDirection, setSlideDirection] = useState<
+    "left" | "right" | "none"
+  >("none");
+  const [isAnimating, setIsAnimating] = useState(false);
+
   const router = useRouter();
+
+  // Helper function for mobile-optimized input styling
+  const getInputClassName = (hasError: boolean) => {
+    return cn(
+      "w-full border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent transition-all duration-200",
+      isMobile ? "px-4 py-4 text-base" : "px-4 py-3.5",
+      hasError
+        ? "border-red-500 bg-red-50/50 focus:ring-red-500"
+        : "border-gray-300 bg-white hover:border-gray-400"
+    );
+  };
 
   // Function to clear saved form data
   const clearSavedData = () => {
@@ -139,6 +170,26 @@ const SignUpPage = () => {
     generateMathChallenge();
   }, []);
 
+  // Mobile detection with debounce
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkMobile();
+    let timeoutId: NodeJS.Timeout;
+    const debouncedCheck = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(checkMobile, 150);
+    };
+
+    window.addEventListener("resize", debouncedCheck);
+    return () => {
+      window.removeEventListener("resize", debouncedCheck);
+      clearTimeout(timeoutId);
+    };
+  }, []);
+
   // Country codes for phone numbers
   const countryCodes = [
     { code: "+63", country: "Philippines", flag: "🇵🇭", maxDigits: 10 },
@@ -155,6 +206,12 @@ const SignUpPage = () => {
       title: "Personal Information",
       description: "Tell us about yourself",
       icon: User,
+    },
+    {
+      id: "address-info",
+      title: "Address Information",
+      description: "Where are you located?",
+      icon: MapPin,
     },
     {
       id: "account-details",
@@ -202,12 +259,26 @@ const SignUpPage = () => {
         setDataRestored(true);
         console.log("Loaded saved signup data:", parsedData);
 
-        // Show a toast notification that data was restored
-        toast({
-          title: "Form data restored",
-          description:
-            "Your previous form data has been restored. You can continue where you left off.",
-        });
+        // Check if this is a return from OTP verification (has pending cookies)
+        const hasPendingSignup = document.cookie.includes(
+          "pending_signup_user_id"
+        );
+
+        if (hasPendingSignup) {
+          // This is a return from OTP verification - show different message
+          toast({
+            title: "Form data restored",
+            description:
+              "Your form data has been restored. You can edit your details and register again.",
+          });
+        } else {
+          // This is a normal page load with saved data
+          toast({
+            title: "Form data restored",
+            description:
+              "Your previous form data has been restored. You can continue where you left off.",
+          });
+        }
       }
     } catch (error) {
       console.error("Error loading saved signup data:", error);
@@ -260,6 +331,12 @@ const SignUpPage = () => {
           if (digitValue.length <= maxDigits) {
             setFormData((prev) => ({ ...prev, [field]: digitValue }));
           }
+        } else if (field === "firstName" || field === "lastName") {
+          // Capitalize first letter for names
+          const stringValue = safeString(value);
+          const capitalizedValue =
+            stringValue.charAt(0).toUpperCase() + stringValue.slice(1);
+          setFormData((prev) => ({ ...prev, [field]: capitalizedValue }));
         } else {
           // Ensure we always have a valid value
           const safeValue =
@@ -357,9 +434,58 @@ const SignUpPage = () => {
               // No error message for valid age - let it pass
             }
           }
+
           break;
 
-        case 1: // Account Details
+        case 1: // Address Information
+          // Street validation
+          const street = safeString(formData.street);
+          if (isEmptyString(street)) {
+            errors.street = "Street address is required";
+          } else if (street.length < 5) {
+            errors.street = "Please enter a complete street address";
+          } else if (street.length > 100) {
+            errors.street = "Street address cannot exceed 100 characters";
+          }
+
+          // City validation
+          const city = safeString(formData.city);
+          if (isEmptyString(city)) {
+            errors.city = "City is required";
+          } else if (city.length < 2) {
+            errors.city = "Please enter a valid city name";
+          } else if (city.length > 50) {
+            errors.city = "City name cannot exceed 50 characters";
+          }
+
+          // State validation
+          const state = safeString(formData.state);
+          if (isEmptyString(state)) {
+            errors.state = "State/Province is required";
+          } else if (state.length < 2) {
+            errors.state = "Please enter a valid state/province";
+          } else if (state.length > 50) {
+            errors.state = "State/Province cannot exceed 50 characters";
+          }
+
+          // Postal code validation
+          const postalCode = safeString(formData.postalCode);
+          if (isEmptyString(postalCode)) {
+            errors.postalCode = "Postal code is required";
+          } else if (postalCode.length < 3) {
+            errors.postalCode = "Please enter a valid postal code";
+          } else if (postalCode.length > 20) {
+            errors.postalCode = "Postal code cannot exceed 20 characters";
+          }
+
+          // Country validation
+          const country = safeString(formData.country);
+          if (isEmptyString(country)) {
+            errors.country = "Country is required";
+          }
+          break;
+
+        case 2: // Account Details
           // Email validation
           const email = safeString(formData.email);
           if (isEmptyString(email)) {
@@ -391,7 +517,7 @@ const SignUpPage = () => {
           }
           break;
 
-        case 2: // Security & Terms
+        case 3: // Security & Terms
           // Password validation
           const password = safeString(formData.password);
           if (isEmptyString(password)) {
@@ -451,15 +577,41 @@ const SignUpPage = () => {
     if (isLastStep) {
       handleSubmit();
     } else {
-      setCurrentStepIndex((prev) => prev + 1);
+      if (isMobile) {
+        setSlideDirection("left");
+        setIsAnimating(true);
+        setTimeout(() => {
+          setCurrentStepIndex((prev) => prev + 1);
+          setSlideDirection("none");
+          setIsAnimating(false);
+        }, 150);
+      } else {
+        setCurrentStepIndex((prev) => prev + 1);
+      }
     }
-  }, [validateCurrentStep, completedSteps, currentStep.id, isLastStep]);
+  }, [
+    validateCurrentStep,
+    completedSteps,
+    currentStep.id,
+    isLastStep,
+    isMobile,
+  ]);
 
   const handlePrevious = useCallback(() => {
     if (!isFirstStep) {
-      setCurrentStepIndex((prev) => prev - 1);
+      if (isMobile) {
+        setSlideDirection("right");
+        setIsAnimating(true);
+        setTimeout(() => {
+          setCurrentStepIndex((prev) => prev - 1);
+          setSlideDirection("none");
+          setIsAnimating(false);
+        }, 150);
+      } else {
+        setCurrentStepIndex((prev) => prev - 1);
+      }
     }
-  }, [isFirstStep]);
+  }, [isFirstStep, isMobile]);
 
   const handleStepClick = useCallback((index: number) => {
     if (isClickable(index)) {
@@ -516,6 +668,11 @@ const SignUpPage = () => {
       formDataToSend.append("lastName", formData.lastName.trim());
       formDataToSend.append("suffix", formData.suffix.trim());
       formDataToSend.append("birthdate", formData.birthdate);
+      formDataToSend.append("street", formData.street.trim());
+      formDataToSend.append("city", formData.city.trim());
+      formDataToSend.append("state", formData.state.trim());
+      formDataToSend.append("postalCode", formData.postalCode.trim());
+      formDataToSend.append("country", formData.country.trim());
       formDataToSend.append(
         "contactNumber",
         `${formData.countryCode}${formData.contactNumber}`
@@ -528,7 +685,15 @@ const SignUpPage = () => {
 
       console.log("Signup request data:", {
         operation: "register",
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        street: formData.street.trim(),
+        city: formData.city.trim(),
+        state: formData.state.trim(),
+        postalCode: formData.postalCode.trim(),
+        country: formData.country.trim(),
         email: formData.email.trim().toLowerCase(),
+        contactNumber: `${formData.countryCode}${formData.contactNumber}`,
         mathAnswer: formData.mathAnswer,
       });
 
@@ -561,6 +726,15 @@ const SignUpPage = () => {
         // Show success modal
         setShowSuccessModal(true);
 
+        // Save form data for potential editing (don't clear it yet)
+        // The data will be cleared only after successful OTP verification
+        try {
+          localStorage.setItem("signup_form_data", JSON.stringify(formData));
+          console.log("Saved form data for potential editing:", formData);
+        } catch (error) {
+          console.error("Error saving form data:", error);
+        }
+
         // Redirect to OTP verification (like login)
         setTimeout(() => {
           router.push("/auth/verify-signup-otp");
@@ -589,12 +763,12 @@ const SignUpPage = () => {
       case 0:
         return (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* First Name */}
-              <div>
+              <div className="space-y-2">
                 <label
                   htmlFor="firstName"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-semibold text-gray-700"
                 >
                   First Name <span className="text-red-500">*</span>
                 </label>
@@ -606,23 +780,21 @@ const SignUpPage = () => {
                     handleInputChange("firstName", e.target.value)
                   }
                   placeholder="Enter your first name"
-                  className={cn(
-                    "w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent",
-                    fieldErrors.firstName ? "border-red-500" : "border-gray-300"
-                  )}
+                  className={getInputClassName(!!fieldErrors.firstName)}
                 />
                 {fieldErrors.firstName && (
-                  <p className="mt-1 text-sm text-red-500">
+                  <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                    <XIcon className="h-4 w-4 mr-1" />
                     {fieldErrors.firstName}
                   </p>
                 )}
               </div>
 
               {/* Last Name */}
-              <div>
+              <div className="space-y-2">
                 <label
                   htmlFor="lastName"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-semibold text-gray-700"
                 >
                   Last Name <span className="text-red-500">*</span>
                 </label>
@@ -634,13 +806,11 @@ const SignUpPage = () => {
                     handleInputChange("lastName", e.target.value)
                   }
                   placeholder="Enter your last name"
-                  className={cn(
-                    "w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent",
-                    fieldErrors.lastName ? "border-red-500" : "border-gray-300"
-                  )}
+                  className={getInputClassName(!!fieldErrors.lastName)}
                 />
                 {fieldErrors.lastName && (
-                  <p className="mt-1 text-sm text-red-500">
+                  <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                    <XIcon className="h-4 w-4 mr-1" />
                     {fieldErrors.lastName}
                   </p>
                 )}
@@ -648,18 +818,24 @@ const SignUpPage = () => {
             </div>
 
             {/* Suffix */}
-            <div>
+            <div className="space-y-2">
               <label
                 htmlFor="suffix"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="block text-sm font-semibold text-gray-700"
               >
-                Suffix <span className="text-gray-400">(Optional)</span>
+                Suffix{" "}
+                <span className="text-gray-400 font-normal text-xs">
+                  (Optional)
+                </span>
               </label>
               <select
                 id="suffix"
                 value={formData.suffix}
                 onChange={(e) => handleInputChange("suffix", e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                className={cn(
+                  "w-full border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent bg-white hover:border-gray-400 transition-all duration-200",
+                  isMobile ? "px-4 py-4 text-base" : "px-4 py-3.5"
+                )}
               >
                 <option value="">Select suffix (optional)</option>
                 <option value="Jr.">Jr.</option>
@@ -671,26 +847,24 @@ const SignUpPage = () => {
             </div>
 
             {/* Birthdate */}
-            <div>
+            <div className="space-y-2">
               <label
                 htmlFor="birthdate"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="flex items-center text-sm font-semibold text-gray-700"
               >
-                <Calendar className="inline h-4 w-4 mr-1" />
-                Birthdate <span className="text-red-500">*</span>
+                <Calendar className="h-4 w-4 mr-1.5 text-[#028A75]" />
+                Birthdate <span className="text-red-500 ml-1">*</span>
               </label>
               <input
                 id="birthdate"
                 type="date"
                 value={formData.birthdate}
                 onChange={(e) => handleInputChange("birthdate", e.target.value)}
-                className={cn(
-                  "w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent",
-                  fieldErrors.birthdate ? "border-red-500" : "border-gray-300"
-                )}
+                className={getInputClassName(!!fieldErrors.birthdate)}
               />
               {fieldErrors.birthdate && (
-                <p className="mt-1 text-sm text-red-500">
+                <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                  <XIcon className="h-4 w-4 mr-1" />
                   {fieldErrors.birthdate}
                 </p>
               )}
@@ -701,41 +875,193 @@ const SignUpPage = () => {
       case 1:
         return (
           <div className="space-y-6">
+            {/* Street Address */}
+            <div className="space-y-2">
+              <label
+                htmlFor="street"
+                className="flex items-center text-sm font-semibold text-gray-700"
+              >
+                <MapPin className="h-4 w-4 mr-1.5 text-[#028A75]" />
+                Street Address <span className="text-red-500 ml-1">*</span>
+              </label>
+              <input
+                id="street"
+                type="text"
+                value={formData.street}
+                onChange={(e) => handleInputChange("street", e.target.value)}
+                placeholder="123 Main Street, Building/Apt #"
+                className={getInputClassName(!!fieldErrors.street)}
+              />
+              {fieldErrors.street && (
+                <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                  <XIcon className="h-4 w-4 mr-1" />
+                  {fieldErrors.street}
+                </p>
+              )}
+            </div>
+
+            {/* City and State Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* City */}
+              <div className="space-y-2">
+                <label
+                  htmlFor="city"
+                  className="block text-sm font-semibold text-gray-700"
+                >
+                  City <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="city"
+                  type="text"
+                  value={formData.city}
+                  onChange={(e) => handleInputChange("city", e.target.value)}
+                  placeholder="Enter your city"
+                  className={getInputClassName(!!fieldErrors.city)}
+                />
+                {fieldErrors.city && (
+                  <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                    <XIcon className="h-4 w-4 mr-1" />
+                    {fieldErrors.city}
+                  </p>
+                )}
+              </div>
+
+              {/* State/Province */}
+              <div className="space-y-2">
+                <label
+                  htmlFor="state"
+                  className="block text-sm font-semibold text-gray-700"
+                >
+                  State/Province <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="state"
+                  type="text"
+                  value={formData.state}
+                  onChange={(e) => handleInputChange("state", e.target.value)}
+                  placeholder="Enter your state/province"
+                  className={getInputClassName(!!fieldErrors.state)}
+                />
+                {fieldErrors.state && (
+                  <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                    <XIcon className="h-4 w-4 mr-1" />
+                    {fieldErrors.state}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Postal Code and Country Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Postal Code */}
+              <div className="space-y-2">
+                <label
+                  htmlFor="postalCode"
+                  className="block text-sm font-semibold text-gray-700"
+                >
+                  Postal Code <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="postalCode"
+                  type="text"
+                  value={formData.postalCode}
+                  onChange={(e) =>
+                    handleInputChange("postalCode", e.target.value)
+                  }
+                  placeholder="Enter postal code"
+                  className={getInputClassName(!!fieldErrors.postalCode)}
+                />
+                {fieldErrors.postalCode && (
+                  <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                    <XIcon className="h-4 w-4 mr-1" />
+                    {fieldErrors.postalCode}
+                  </p>
+                )}
+              </div>
+
+              {/* Country */}
+              <div className="space-y-2">
+                <label
+                  htmlFor="country"
+                  className="block text-sm font-semibold text-gray-700"
+                >
+                  Country <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="country"
+                  value={formData.country}
+                  onChange={(e) => handleInputChange("country", e.target.value)}
+                  className={cn(
+                    "w-full border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent bg-white hover:border-gray-400 transition-all duration-200",
+                    isMobile ? "px-4 py-4 text-base" : "px-4 py-3.5",
+                    fieldErrors.country
+                      ? "border-red-500 bg-red-50/50"
+                      : "border-gray-300"
+                  )}
+                >
+                  <option value="Philippines">🇵🇭 Philippines</option>
+                  <option value="United States">🇺🇸 United States</option>
+                  <option value="United Kingdom">🇬🇧 United Kingdom</option>
+                  <option value="Japan">🇯🇵 Japan</option>
+                  <option value="South Korea">🇰🇷 South Korea</option>
+                  <option value="Canada">🇨🇦 Canada</option>
+                  <option value="Australia">🇦🇺 Australia</option>
+                  <option value="Singapore">🇸🇬 Singapore</option>
+                  <option value="Malaysia">🇲🇾 Malaysia</option>
+                  <option value="Thailand">🇹🇭 Thailand</option>
+                  <option value="Indonesia">🇮🇩 Indonesia</option>
+                  <option value="Vietnam">🇻🇳 Vietnam</option>
+                  <option value="Other">Other</option>
+                </select>
+                {fieldErrors.country && (
+                  <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                    <XIcon className="h-4 w-4 mr-1" />
+                    {fieldErrors.country}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+
+      case 2:
+        return (
+          <div className="space-y-6">
             {/* Email */}
-            <div>
+            <div className="space-y-2">
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="flex items-center text-sm font-semibold text-gray-700"
               >
-                <Mail className="inline h-4 w-4 mr-1" />
-                Email Address <span className="text-red-500">*</span>
+                <Mail className="h-4 w-4 mr-1.5 text-[#028A75]" />
+                Email Address <span className="text-red-500 ml-1">*</span>
               </label>
               <input
                 id="email"
                 type="email"
                 value={formData.email}
                 onChange={(e) => handleInputChange("email", e.target.value)}
-                placeholder="Enter your email address"
-                className={cn(
-                  "w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent",
-                  fieldErrors.email ? "border-red-500" : "border-gray-300"
-                )}
+                placeholder="your.email@example.com"
+                className={getInputClassName(!!fieldErrors.email)}
               />
               {fieldErrors.email && (
-                <p className="mt-1 text-sm text-red-500">{fieldErrors.email}</p>
+                <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                  <XIcon className="h-4 w-4 mr-1" />
+                  {fieldErrors.email}
+                </p>
               )}
             </div>
 
             {/* Contact Number with Country Code */}
-            <div>
+            <div className="space-y-2">
               <label
                 htmlFor="contactNumber"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="flex items-center text-sm font-semibold text-gray-700"
               >
-                <Phone className="inline h-4 w-4 mr-1" />
-                Contact Number <span className="text-red-500">*</span>
+                <Phone className="h-4 w-4 mr-1.5 text-[#028A75]" />
+                Contact Number <span className="text-red-500 ml-1">*</span>
               </label>
-              <div className="flex">
+              <div className="flex gap-0">
                 {/* Country Code Selector */}
                 <div className="relative">
                   <select
@@ -743,7 +1069,12 @@ const SignUpPage = () => {
                     onChange={(e) =>
                       handleInputChange("countryCode", e.target.value)
                     }
-                    className="h-[52px] px-3 pr-8 border border-r-0 border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent bg-gray-50 appearance-none"
+                    className={cn(
+                      "border border-r-0 border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent focus:z-10 bg-gray-50 hover:bg-gray-100 appearance-none transition-all duration-200",
+                      isMobile
+                        ? "h-[56px] px-3 pr-8 text-base"
+                        : "h-[54px] px-3 pr-8"
+                    )}
                   >
                     {countryCodes.map((country) => (
                       <option key={country.code} value={country.code}>
@@ -768,19 +1099,22 @@ const SignUpPage = () => {
                       : "Enter number"
                   }
                   className={cn(
-                    "flex-1 px-4 py-3 border border-l-0 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent",
+                    "flex-1 border rounded-r-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent transition-all duration-200 bg-white hover:border-gray-400",
+                    isMobile ? "px-4 py-4 text-base" : "px-4 py-3.5",
                     fieldErrors.contactNumber
-                      ? "border-red-500"
+                      ? "border-red-500 bg-red-50/50 focus:ring-red-500"
                       : "border-gray-300"
                   )}
                 />
               </div>
               {fieldErrors.contactNumber && (
-                <p className="mt-1 text-sm text-red-500">
+                <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                  <XIcon className="h-4 w-4 mr-1" />
                   {fieldErrors.contactNumber}
                 </p>
               )}
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1.5 text-xs text-gray-500 flex items-center">
+                <span className="inline-block w-1 h-1 rounded-full bg-gray-400 mr-2"></span>
                 {formData.countryCode === "+63"
                   ? "Enter 10 digits (e.g., 9123456789 for +63 912 345 6789)"
                   : `Enter ${countryCodes.find((c) => c.code === formData.countryCode)?.maxDigits || 10} digits max`}
@@ -789,16 +1123,17 @@ const SignUpPage = () => {
           </div>
         );
 
-      case 2:
+      case 3:
         return (
           <div className="space-y-6">
             {/* Password */}
-            <div>
+            <div className="space-y-2">
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="flex items-center text-sm font-semibold text-gray-700"
               >
-                Password <span className="text-red-500">*</span>
+                <Shield className="h-4 w-4 mr-1.5 text-[#028A75]" />
+                Password <span className="text-red-500 ml-1">*</span>
               </label>
               <div className="relative">
                 <input
@@ -810,91 +1145,100 @@ const SignUpPage = () => {
                   }
                   placeholder="Create a strong password"
                   className={cn(
-                    "w-full px-4 py-3 pr-12 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent",
-                    fieldErrors.password ? "border-red-500" : "border-gray-300"
+                    "w-full pr-12 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent transition-all duration-200",
+                    isMobile ? "px-4 py-4 text-base" : "px-4 py-3.5",
+                    fieldErrors.password
+                      ? "border-red-500 bg-red-50/50 focus:ring-red-500"
+                      : "border-gray-300 bg-white hover:border-gray-400"
                   )}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center hover:bg-gray-50 rounded-r-lg transition-colors"
                 >
                   {showPassword ? (
-                    <EyeOff className="h-5 w-5 text-gray-400" />
+                    <EyeOff className="h-5 w-5 text-gray-400 hover:text-gray-600" />
                   ) : (
-                    <Eye className="h-5 w-5 text-gray-400" />
+                    <Eye className="h-5 w-5 text-gray-400 hover:text-gray-600" />
                   )}
                 </button>
               </div>
 
               {/* Password Requirements */}
               {formData.password && (
-                <div className="mt-2 space-y-1">
-                  <div
-                    className={`flex items-center text-xs ${passwordChecks.length ? "text-green-600" : "text-red-500"}`}
-                  >
-                    {passwordChecks.length ? (
-                      <CheckIcon className="w-3 h-3 mr-1" />
-                    ) : (
-                      <XIcon className="w-3 h-3 mr-1" />
-                    )}
-                    At least 8 characters
-                  </div>
-                  <div
-                    className={`flex items-center text-xs ${passwordChecks.uppercase ? "text-green-600" : "text-red-500"}`}
-                  >
-                    {passwordChecks.uppercase ? (
-                      <CheckIcon className="w-3 h-3 mr-1" />
-                    ) : (
-                      <XIcon className="w-3 h-3 mr-1" />
-                    )}
-                    One uppercase letter
-                  </div>
-                  <div
-                    className={`flex items-center text-xs ${passwordChecks.lowercase ? "text-green-600" : "text-red-500"}`}
-                  >
-                    {passwordChecks.lowercase ? (
-                      <CheckIcon className="w-3 h-3 mr-1" />
-                    ) : (
-                      <XIcon className="w-3 h-3 mr-1" />
-                    )}
-                    One lowercase letter
-                  </div>
-                  <div
-                    className={`flex items-center text-xs ${passwordChecks.number ? "text-green-600" : "text-red-500"}`}
-                  >
-                    {passwordChecks.number ? (
-                      <CheckIcon className="w-3 h-3 mr-1" />
-                    ) : (
-                      <XIcon className="w-3 h-3 mr-1" />
-                    )}
-                    One number
-                  </div>
-                  <div
-                    className={`flex items-center text-xs ${passwordChecks.special ? "text-green-600" : "text-red-500"}`}
-                  >
-                    {passwordChecks.special ? (
-                      <CheckIcon className="w-3 h-3 mr-1" />
-                    ) : (
-                      <XIcon className="w-3 h-3 mr-1" />
-                    )}
-                    One special character
+                <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-xs font-semibold text-gray-700 mb-2">
+                    Password requirements:
+                  </p>
+                  <div className="space-y-1.5">
+                    <div
+                      className={`flex items-center text-xs font-medium transition-colors ${passwordChecks.length ? "text-green-600" : "text-gray-500"}`}
+                    >
+                      {passwordChecks.length ? (
+                        <CheckIcon className="w-3.5 h-3.5 mr-2" />
+                      ) : (
+                        <XIcon className="w-3.5 h-3.5 mr-2" />
+                      )}
+                      At least 8 characters
+                    </div>
+                    <div
+                      className={`flex items-center text-xs font-medium transition-colors ${passwordChecks.uppercase ? "text-green-600" : "text-gray-500"}`}
+                    >
+                      {passwordChecks.uppercase ? (
+                        <CheckIcon className="w-3.5 h-3.5 mr-2" />
+                      ) : (
+                        <XIcon className="w-3.5 h-3.5 mr-2" />
+                      )}
+                      One uppercase letter
+                    </div>
+                    <div
+                      className={`flex items-center text-xs font-medium transition-colors ${passwordChecks.lowercase ? "text-green-600" : "text-gray-500"}`}
+                    >
+                      {passwordChecks.lowercase ? (
+                        <CheckIcon className="w-3.5 h-3.5 mr-2" />
+                      ) : (
+                        <XIcon className="w-3.5 h-3.5 mr-2" />
+                      )}
+                      One lowercase letter
+                    </div>
+                    <div
+                      className={`flex items-center text-xs font-medium transition-colors ${passwordChecks.number ? "text-green-600" : "text-gray-500"}`}
+                    >
+                      {passwordChecks.number ? (
+                        <CheckIcon className="w-3.5 h-3.5 mr-2" />
+                      ) : (
+                        <XIcon className="w-3.5 h-3.5 mr-2" />
+                      )}
+                      One number
+                    </div>
+                    <div
+                      className={`flex items-center text-xs font-medium transition-colors ${passwordChecks.special ? "text-green-600" : "text-gray-500"}`}
+                    >
+                      {passwordChecks.special ? (
+                        <CheckIcon className="w-3.5 h-3.5 mr-2" />
+                      ) : (
+                        <XIcon className="w-3.5 h-3.5 mr-2" />
+                      )}
+                      One special character (!@#$%^&*...)
+                    </div>
                   </div>
                 </div>
               )}
 
               {fieldErrors.password && (
-                <p className="mt-1 text-sm text-red-500">
+                <p className="mt-1.5 text-sm text-red-600 flex items-center">
+                  <XIcon className="h-4 w-4 mr-1" />
                   {fieldErrors.password}
                 </p>
               )}
             </div>
 
             {/* Confirm Password */}
-            <div>
+            <div className="space-y-2">
               <label
                 htmlFor="confirmPassword"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="block text-sm font-semibold text-gray-700"
               >
                 Confirm Password <span className="text-red-500">*</span>
               </label>
@@ -907,38 +1251,53 @@ const SignUpPage = () => {
                     handleInputChange("confirmPassword", e.target.value)
                   }
                   placeholder="Confirm your password"
-                  className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                  className={cn(
+                    "w-full pr-12 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent bg-white hover:border-gray-400 transition-all duration-200",
+                    isMobile ? "px-4 py-4 text-base" : "px-4 py-3.5",
+                    fieldErrors.confirmPassword
+                      ? "border-red-500 bg-red-50/50"
+                      : "border-gray-300"
+                  )}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center hover:bg-gray-50 rounded-r-lg transition-colors"
                 >
                   {showConfirmPassword ? (
-                    <EyeOff className="h-5 w-5 text-gray-400" />
+                    <EyeOff className="h-5 w-5 text-gray-400 hover:text-gray-600" />
                   ) : (
-                    <Eye className="h-5 w-5 text-gray-400" />
+                    <Eye className="h-5 w-5 text-gray-400 hover:text-gray-600" />
                   )}
                 </button>
               </div>
 
               {formData.confirmPassword && (
                 <div
-                  className={`mt-1 flex items-center text-xs ${passwordChecks.match ? "text-green-600" : "text-red-500"}`}
+                  className={`mt-2 flex items-center text-xs font-medium transition-colors ${passwordChecks.match ? "text-green-600" : "text-red-600"}`}
                 >
                   {passwordChecks.match ? (
-                    <CheckIcon className="w-3 h-3 mr-1" />
+                    <CheckIcon className="w-3.5 h-3.5 mr-1.5" />
                   ) : (
-                    <XIcon className="w-3 h-3 mr-1" />
+                    <XIcon className="w-3.5 h-3.5 mr-1.5" />
                   )}
-                  Passwords match
+                  {passwordChecks.match
+                    ? "Passwords match"
+                    : "Passwords do not match"}
                 </div>
               )}
             </div>
 
             {/* Terms and Conditions */}
-            <div>
-              <div className="flex items-start space-x-3">
+            <div className="space-y-2">
+              <div
+                className={cn(
+                  "flex items-start space-x-3 p-4 rounded-lg border transition-all duration-200",
+                  fieldErrors.agreeToTerms
+                    ? "border-red-200 bg-red-50/50"
+                    : "border-gray-200 bg-gray-50/50 hover:bg-gray-50"
+                )}
+              >
                 <input
                   id="agreeToTerms"
                   type="checkbox"
@@ -946,60 +1305,91 @@ const SignUpPage = () => {
                   onChange={(e) =>
                     handleInputChange("agreeToTerms", e.target.checked)
                   }
-                  className="mt-1 h-4 w-4 text-[#028A75] focus:ring-[#028A75] border-gray-300 rounded"
+                  className="mt-0.5 h-5 w-5 text-[#028A75] focus:ring-[#028A75] border-gray-300 rounded cursor-pointer"
                 />
-                <label htmlFor="agreeToTerms" className="text-sm text-gray-700">
+                <label
+                  htmlFor="agreeToTerms"
+                  className="text-sm text-gray-700 cursor-pointer select-none"
+                >
                   I agree to the{" "}
-                  <Link href="#" className="text-[#028A75] hover:underline">
+                  <Link
+                    href="#"
+                    className="text-[#028A75] hover:underline font-medium"
+                  >
                     Terms and Conditions
                   </Link>{" "}
                   and{" "}
-                  <Link href="#" className="text-[#028A75] hover:underline">
+                  <Link
+                    href="#"
+                    className="text-[#028A75] hover:underline font-medium"
+                  >
                     Privacy Policy
                   </Link>
                   <span className="text-red-500 ml-1">*</span>
                 </label>
               </div>
               {fieldErrors.agreeToTerms && (
-                <p className="mt-1 text-sm text-red-500">
+                <p className="mt-1.5 text-sm text-red-600 flex items-center px-1">
+                  <XIcon className="h-4 w-4 mr-1" />
                   {fieldErrors.agreeToTerms}
                 </p>
               )}
             </div>
 
             {/* Math Challenge */}
-            <div className="flex flex-col items-center p-4 border rounded-lg bg-gray-50">
-              <label className="mb-2 text-sm font-medium text-gray-700">
-                Please solve this simple math problem:
-              </label>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="p-2 bg-white border rounded-md text-lg font-medium w-12 h-12 flex items-center justify-center">
-                  {mathChallenge.num1}
+            <div className="space-y-2">
+              <div className="flex flex-col items-center p-4 sm:p-5 border-2 border-dashed rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50">
+                <label className="mb-3 text-xs sm:text-sm font-semibold text-gray-700 flex items-center text-center">
+                  <Shield className="h-4 w-4 mr-1.5 text-[#028A75] flex-shrink-0" />
+                  <span className="break-words">
+                    Verify you're human - solve this math problem:
+                  </span>
+                </label>
+                <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-2">
+                  <div className="p-2 sm:p-3 bg-white border-2 border-gray-300 rounded-lg text-lg sm:text-xl font-bold w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center shadow-sm">
+                    {mathChallenge.num1}
+                  </div>
+                  <div className="text-lg sm:text-xl font-bold text-[#028A75]">
+                    +
+                  </div>
+                  <div className="p-2 sm:p-3 bg-white border-2 border-gray-300 rounded-lg text-lg sm:text-xl font-bold w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center shadow-sm">
+                    {mathChallenge.num2}
+                  </div>
+                  <div className="text-lg sm:text-xl font-bold text-[#028A75]">
+                    =
+                  </div>
+                  <input
+                    type="number"
+                    className={cn(
+                      "border-2 rounded-lg text-center font-bold focus:ring-2 focus:border-transparent transition-all duration-200 shadow-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                      "p-2 sm:p-3 w-16 sm:w-18 h-12 sm:h-14 text-lg sm:text-xl",
+                      mathValidation === "correct"
+                        ? "border-green-500 bg-green-50 ring-2 ring-green-300 text-green-700"
+                        : mathValidation === "incorrect"
+                          ? "border-red-500 bg-red-50 ring-2 ring-red-300 text-red-700"
+                          : "border-gray-300 bg-white focus:ring-[#028A75]"
+                    )}
+                    value={formData.mathAnswer}
+                    onChange={handleMathAnswerChange}
+                    placeholder="?"
+                    required
+                  />
+                  {mathValidation === "correct" && (
+                    <CheckIcon className="h-5 w-5 sm:h-6 sm:w-6 text-green-600 animate-in zoom-in flex-shrink-0" />
+                  )}
+                  {mathValidation === "incorrect" && (
+                    <XIcon className="h-5 w-5 sm:h-6 sm:w-6 text-red-600 animate-in zoom-in flex-shrink-0" />
+                  )}
                 </div>
-                <div className="text-lg font-medium">+</div>
-                <div className="p-2 bg-white border rounded-md text-lg font-medium w-12 h-12 flex items-center justify-center">
-                  {mathChallenge.num2}
-                </div>
-                <div className="text-lg font-medium">=</div>
-                <input
-                  type="number"
-                  className={`p-2 border rounded-md w-16 h-12 text-center text-lg font-medium focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                    mathValidation === "correct"
-                      ? "border-green-500 bg-green-50 ring-2 ring-green-200"
-                      : mathValidation === "incorrect"
-                        ? "border-red-500 bg-red-50 ring-2 ring-red-200"
-                        : "border-gray-300"
-                  }`}
-                  value={formData.mathAnswer}
-                  onChange={handleMathAnswerChange}
-                  required
-                />
+                {fieldErrors.mathAnswer && (
+                  <p className="mt-2 text-xs sm:text-sm text-red-600 text-center flex items-center justify-center">
+                    <XIcon className="h-4 w-4 mr-1 flex-shrink-0" />
+                    <span className="break-words">
+                      {fieldErrors.mathAnswer}
+                    </span>
+                  </p>
+                )}
               </div>
-              {fieldErrors.mathAnswer && (
-                <p className="mt-1 text-sm text-red-500 text-center">
-                  {fieldErrors.mathAnswer}
-                </p>
-              )}
             </div>
           </div>
         );
@@ -1009,11 +1399,70 @@ const SignUpPage = () => {
     }
   };
 
-  // Stepper Component
-  const renderStepper = () => {
+  // Mobile Stepper Component
+  const renderMobileStepper = () => {
+    return (
+      <div className="mb-4">
+        {/* Mobile Progress Header */}
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={handlePrevious}
+            disabled={isFirstStep || isAnimating}
+            className={cn(
+              "flex items-center justify-center w-8 h-8 rounded-full transition-all duration-200 border",
+              isFirstStep || isAnimating
+                ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
+                : "bg-white border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white"
+            )}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div className="text-center flex-1 mx-3">
+            <div className="text-sm font-semibold text-[#028A75]">
+              Step {currentStepIndex + 1} of {steps.length}
+            </div>
+            <div className="text-xs text-gray-600 mt-0.5">
+              {currentStep.title}
+            </div>
+          </div>
+          <div className="w-8 h-8" /> {/* Spacer for balance */}
+        </div>
+
+        {/* Mobile Progress Bar */}
+        <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
+          <div
+            className="bg-[#028A75] h-2 rounded-full transition-all duration-500 ease-out"
+            style={{
+              width: `${((currentStepIndex + 1) / steps.length) * 100}%`,
+            }}
+          />
+        </div>
+
+        {/* Mobile Step Indicators */}
+        <div className="flex justify-center space-x-1.5">
+          {steps.map((_, index) => {
+            const status = getStepStatus(index);
+            return (
+              <div
+                key={index}
+                className={cn("rounded-full transition-all duration-300", {
+                  "w-6 h-2 bg-[#028A75]": status === "current",
+                  "w-2 h-2 bg-[#028A75]": status === "completed",
+                  "w-2 h-2 bg-gray-300": status === "upcoming",
+                })}
+              />
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // Desktop Stepper Component
+  const renderDesktopStepper = () => {
     return (
       <div className="mb-8">
-        <div className="flex items-center justify-center space-x-8">
+        <div className="flex items-center justify-center space-x-6">
           {steps.map((step, index) => {
             const status = getStepStatus(index);
             const clickable = isClickable(index);
@@ -1031,8 +1480,8 @@ const SignUpPage = () => {
                         className="relative cursor-pointer transition-all duration-300 hover:scale-105"
                         onClick={() => clickable && handleStepClick(index)}
                       >
-                        <div className="w-11 h-11 rounded-full border-4 border-[#028A75] bg-transparent" />
-                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#028A75] flex items-center justify-center">
+                        <div className="w-12 h-12 rounded-full border-4 border-[#028A75] bg-white shadow-lg" />
+                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#028A75] flex items-center justify-center shadow-md">
                           <IconComponent className="h-3 w-3 text-white" />
                         </div>
                       </div>
@@ -1040,12 +1489,14 @@ const SignUpPage = () => {
                       // Completed and pending: solid circles
                       <div
                         className={cn(
-                          "w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer",
+                          "w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer shadow-md",
                           {
-                            "bg-[#028A75] text-white": status === "completed",
-                            "bg-[#DADADA] text-gray-600": status === "upcoming",
-                            "hover:scale-105": clickable,
-                            "cursor-not-allowed": !clickable,
+                            "bg-[#028A75] text-white hover:bg-[#026B5C]":
+                              status === "completed",
+                            "bg-gray-200 text-gray-500 hover:bg-gray-300":
+                              status === "upcoming",
+                            "hover:scale-105 hover:shadow-lg": clickable,
+                            "cursor-not-allowed opacity-60": !clickable,
                           }
                         )}
                         onClick={() => clickable && handleStepClick(index)}
@@ -1053,7 +1504,7 @@ const SignUpPage = () => {
                         {status === "completed" ? (
                           <Check
                             className="h-6 w-6 text-white"
-                            strokeWidth={2}
+                            strokeWidth={3}
                           />
                         ) : (
                           <IconComponent className="h-5 w-5" />
@@ -1065,13 +1516,13 @@ const SignUpPage = () => {
                   {/* Connecting Line */}
                   {index < steps.length - 1 && (
                     <div className="flex items-center ml-4">
-                      <div className="relative h-1 w-[72px]">
+                      <div className="relative h-1 w-[60px]">
                         {/* Background Line */}
-                        <div className="absolute inset-0 bg-[#DADADA] rounded-sm" />
+                        <div className="absolute inset-0 bg-gray-200 rounded-full" />
                         {/* Progress Line */}
                         <div
                           className={cn(
-                            "absolute inset-0 bg-[#028A75] rounded-sm transition-all duration-500",
+                            "absolute inset-0 bg-[#028A75] rounded-full transition-all duration-500",
                             {
                               "w-full": index < currentStepIndex,
                               "w-0": index >= currentStepIndex,
@@ -1084,15 +1535,17 @@ const SignUpPage = () => {
                 </div>
 
                 {/* Step Labels */}
-                <div className="mt-3 text-center">
-                  <div className="text-xs font-medium text-[#C7C7C7] uppercase tracking-wide">
+                <div className="mt-4 text-center max-w-[100px]">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">
                     STEP {index + 1}
                   </div>
                   <div
                     className={cn(
-                      "text-sm font-medium mt-1 transition-colors",
+                      "text-sm font-semibold mt-1 transition-colors",
                       {
-                        "text-[#87878A]": true,
+                        "text-gray-800": status === "current",
+                        "text-gray-600": status === "completed",
+                        "text-gray-400": status === "upcoming",
                       }
                     )}
                   >
@@ -1100,11 +1553,11 @@ const SignUpPage = () => {
                   </div>
                   <div
                     className={cn(
-                      "text-sm mt-1 font-medium transition-colors",
+                      "text-xs mt-1.5 font-medium transition-colors px-3 py-1 rounded-full inline-block",
                       {
-                        "text-[#028A75]":
-                          status === "completed" || status === "current",
-                        "text-[#DADADA]": status === "upcoming",
+                        "text-green-700 bg-green-100": status === "completed",
+                        "text-[#028A75] bg-[#028A75]/10": status === "current",
+                        "text-gray-400 bg-gray-100": status === "upcoming",
                       }
                     )}
                   >
@@ -1125,81 +1578,151 @@ const SignUpPage = () => {
 
   return (
     <>
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="w-full max-w-4xl">
-          {/* Logo */}
-          <div className="text-center mb-8">
-            <Image
-              src={Logo}
-              alt="Logo"
-              width={120}
-              height={120}
-              className="mx-auto mb-4"
-              priority
-            />
-            <h1 className="text-3xl font-bold text-gray-900">Create Account</h1>
-            <p className="text-gray-600 mt-2">
-              Join us to start planning amazing events
-            </p>
-          </div>
-
-          {/* Multi-Step Form */}
-          <div className="bg-white rounded-lg shadow-xl overflow-hidden">
-            {/* Stepper */}
-            <div className="px-8 py-6 bg-gray-50 border-b">
-              {renderStepper()}
+      <div
+        className={cn(
+          "bg-white",
+          isMobile
+            ? "min-h-screen flex flex-col"
+            : "min-h-screen flex items-center justify-center p-4"
+        )}
+      >
+        {isMobile ? (
+          /* Mobile Layout - Clean & Simple */
+          <div className="flex flex-col min-h-screen">
+            {/* Mobile Header */}
+            <div className="flex-shrink-0 px-6 py-6 border-b border-gray-100">
+              {/* Back Button */}
+              <div className="mb-4">
+                <Link
+                  href="/"
+                  className="inline-flex items-center text-gray-600 hover:text-[#028A75] transition-colors"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Home
+                </Link>
+              </div>
+              <div className="text-center">
+                <div className="mb-4">
+                  <Image
+                    src={Logo}
+                    alt="Logo"
+                    width={60}
+                    height={60}
+                    className="mx-auto"
+                    priority
+                  />
+                </div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-1">
+                  Create Account
+                </h1>
+                <p className="text-gray-600 text-sm">
+                  Join us to start planning amazing events
+                </p>
+              </div>
             </div>
 
-            {/* Step Content */}
-            <div className="p-8">
+            {/* Mobile Stepper */}
+            <div className="flex-shrink-0 px-6 py-4 bg-gray-50 border-b border-gray-100">
+              {renderMobileStepper()}
+            </div>
+
+            {/* Mobile Content */}
+            <div className="flex-1 px-6 py-6">
+              {/* Step Header */}
               <div className="mb-6">
-                <h2 className="text-xl font-semibold text-gray-900">
+                <h2 className="text-xl font-bold text-gray-900 mb-1">
                   {currentStep.title}
                 </h2>
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="text-sm text-gray-600">
                   {currentStep.description}
                 </p>
-                {dataRestored && (
-                  <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <div className="flex items-center">
-                      <CheckIcon className="h-4 w-4 text-green-600 mr-2" />
+              </div>
+
+              {/* Data Restored Message */}
+              {dataRestored && (
+                <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-start">
+                    <CheckIcon className="h-5 w-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-green-900 mb-1">
+                        Form Data Restored
+                      </p>
                       <p className="text-sm text-green-800">
-                        Your previous form data has been restored. You can
-                        continue where you left off.
+                        {document.cookie.includes("pending_signup_user_id")
+                          ? "Your form data has been restored. You can edit your details and register again."
+                          : "Your previous form data has been restored. You can continue where you left off."}
                       </p>
                     </div>
                   </div>
-                )}
-              </div>
-
-              {renderStepContent()}
-
-              {/* Navigation Buttons */}
-              <div className="flex justify-between mt-8 pt-6 border-t">
-                <button
-                  type="button"
-                  onClick={handlePrevious}
-                  disabled={isFirstStep}
-                  className="flex items-center px-6 py-3 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Previous
-                </button>
-
-                <div className="text-sm text-gray-500 flex items-center">
-                  Step {currentStepIndex + 1} of {steps.length}
                 </div>
+              )}
 
+              {/* Step Content */}
+              <div
+                className={cn(
+                  "transition-all duration-300 ease-in-out",
+                  isAnimating &&
+                    slideDirection === "left" &&
+                    "transform -translate-x-full opacity-0",
+                  isAnimating &&
+                    slideDirection === "right" &&
+                    "transform translate-x-full opacity-0",
+                  !isAnimating && "transform translate-x-0 opacity-100"
+                )}
+              >
+                {renderStepContent()}
+              </div>
+            </div>
+
+            {/* Mobile Navigation */}
+            <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 bg-white">
+              <div className="flex gap-3">
+                {!isFirstStep && (
+                  <button
+                    type="button"
+                    onClick={handlePrevious}
+                    disabled={isAnimating}
+                    className="flex-1 flex items-center justify-center px-4 py-3 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleNext}
-                  disabled={isLoading}
-                  className="flex items-center px-6 py-3 bg-[#028A75] text-white rounded-lg hover:bg-[#026B5C] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  disabled={isLoading || isAnimating}
+                  className="flex-1 flex items-center justify-center px-4 py-3 bg-[#028A75] text-white rounded-lg hover:bg-[#026B5C] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold"
                 >
                   {isLoading ? (
-                    "Creating Account..."
+                    <span className="flex items-center">
+                      <svg
+                        className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        ></circle>
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        ></path>
+                      </svg>
+                      Creating...
+                    </span>
                   ) : isLastStep ? (
-                    "Create Account"
+                    <span className="flex items-center">
+                      <UserCheck className="h-4 w-4 mr-2" />
+                      Create Account
+                    </span>
                   ) : (
                     <>
                       Next
@@ -1211,39 +1734,207 @@ const SignUpPage = () => {
             </div>
 
             {/* Login Link */}
-            <div className="px-8 pb-6 text-center">
+            <div className="flex-shrink-0 px-6 py-3 text-center bg-gray-50 border-t border-gray-100">
               <p className="text-sm text-gray-600">
                 Already have an account?{" "}
                 <Link
                   href="/auth/login"
-                  className="text-[#028A75] hover:underline font-medium"
+                  className="text-[#028A75] hover:text-[#026B5C] hover:underline font-semibold transition-colors"
                 >
                   Sign in
                 </Link>
               </p>
             </div>
           </div>
-        </div>
+        ) : (
+          /* Desktop Layout - Clean & Simple */
+          <div className="w-full max-w-4xl">
+            {/* Back Button */}
+            <div className="mb-6">
+              <Link
+                href="/"
+                className="inline-flex items-center text-gray-600 hover:text-[#028A75] transition-colors"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Home
+              </Link>
+            </div>
+
+            {/* Logo and Header */}
+            <div className="text-center mb-8">
+              <div className="mb-6">
+                <Image
+                  src={Logo}
+                  alt="Logo"
+                  width={80}
+                  height={80}
+                  className="mx-auto"
+                  priority
+                />
+              </div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                Create Account
+              </h1>
+              <p className="text-gray-600">
+                Join us to start planning amazing events
+              </p>
+            </div>
+
+            {/* Multi-Step Form */}
+            <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
+              {/* Stepper */}
+              <div className="px-8 py-6 bg-gray-50 border-b border-gray-200">
+                {renderDesktopStepper()}
+              </div>
+
+              {/* Step Content */}
+              <div className="p-8">
+                {/* Step Header */}
+                <div className="mb-6 pb-4 border-b border-gray-200">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                    {currentStep.title}
+                  </h2>
+                  <p className="text-gray-600">{currentStep.description}</p>
+                </div>
+
+                {/* Data Restored Message */}
+                {dataRestored && (
+                  <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-start">
+                      <CheckIcon className="h-5 w-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-green-900 mb-1">
+                          Form Data Restored
+                        </p>
+                        <p className="text-sm text-green-800">
+                          {document.cookie.includes("pending_signup_user_id")
+                            ? "Your form data has been restored. You can edit your details and register again."
+                            : "Your previous form data has been restored. You can continue where you left off."}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step Content */}
+                <div>{renderStepContent()}</div>
+
+                {/* Navigation */}
+                <div className="flex justify-between items-center mt-8 pt-6 border-t">
+                  <button
+                    type="button"
+                    onClick={handlePrevious}
+                    disabled={isFirstStep}
+                    className="flex items-center px-6 py-3 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Previous
+                  </button>
+
+                  <div className="text-sm font-semibold text-gray-600 bg-gray-100 px-4 py-2 rounded-full">
+                    Step {currentStepIndex + 1} of {steps.length}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    disabled={isLoading}
+                    className="flex items-center px-6 py-3 bg-[#028A75] text-white rounded-lg hover:bg-[#026B5C] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold"
+                  >
+                    {isLoading ? (
+                      <span className="flex items-center">
+                        <svg
+                          className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                        Creating Account...
+                      </span>
+                    ) : isLastStep ? (
+                      <>
+                        <UserCheck className="h-4 w-4 mr-2" />
+                        Create Account
+                      </>
+                    ) : (
+                      <>
+                        Next Step
+                        <ArrowRight className="h-4 w-4 ml-2" />
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Login Link */}
+              <div className="px-8 pb-6 text-center bg-gray-50 border-t">
+                <p className="text-sm text-gray-600 py-3">
+                  Already have an account?{" "}
+                  <Link
+                    href="/auth/login"
+                    className="text-[#028A75] hover:text-[#026B5C] hover:underline font-semibold transition-colors"
+                  >
+                    Sign in
+                  </Link>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Success Modal */}
         {showSuccessModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full mx-4">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full">
               <div className="text-center">
-                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
-                  <CheckIcon className="h-6 w-6 text-green-600" />
+                <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-4">
+                  <CheckIcon className="h-8 w-8 text-green-600" />
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                <h3 className="text-2xl font-bold text-gray-900 mb-3">
                   Account Created Successfully!
                 </h3>
-                <p className="text-sm text-gray-600 mb-4">
+                <p className="text-gray-600 mb-6">
                   We've sent a verification code to your email address. Please
                   check your inbox and enter the code to complete your
                   registration.
                 </p>
-                <p className="text-xs text-gray-500">
-                  Redirecting to verification page...
-                </p>
+                <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
+                  <svg
+                    className="animate-spin h-4 w-4 text-[#028A75]"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  <span>Redirecting to verification page...</span>
+                </div>
               </div>
             </div>
           </div>

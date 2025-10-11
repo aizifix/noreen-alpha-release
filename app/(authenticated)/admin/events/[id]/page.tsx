@@ -4247,9 +4247,9 @@ export default function EventDetailsPage() {
         event_id: parseInt(eventId),
       });
 
-      console.log("📡 API Response:", response.data);
+      console.log("📡 Admin API Response:", response.data);
 
-      if (response.data.status === "success") {
+      if (response.data?.status === "success") {
         let eventData = response.data.event;
 
         // Fetch admin profile picture if admin_id exists
@@ -4277,19 +4277,31 @@ export default function EventDetailsPage() {
           attachments_length: eventData.attachments?.length || 0,
         });
       } else {
-        console.error("❌ API Error:", response.data.message);
+        const errorMessage =
+          response.data?.message || "Failed to fetch event details";
+        console.error("❌ Admin API Error:", errorMessage);
         toast({
           title: "Error",
-          description: response.data.message || "Failed to fetch event details",
+          description: errorMessage,
           variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("❌ Network Error:", error);
+
+      // Extract meaningful error message
+      let errorMessage = "Failed to fetch event details";
+      if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === "string") {
+        errorMessage = error;
+      }
+
       toast({
         title: "Error",
-        description:
-          "Failed to connect to server. Please check if the backend is running.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

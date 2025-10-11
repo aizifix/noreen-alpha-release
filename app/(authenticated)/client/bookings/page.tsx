@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Calendar,
@@ -10,7 +11,7 @@ import {
   MapPin,
   Package,
 } from "lucide-react";
-import { apiClient } from "@/utils/apiClient";
+// import { apiClient } from "@/utils/apiClient";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
 
@@ -47,6 +48,17 @@ interface DbBooking {
 }
 
 export default function BookingsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // If a package is specified in query, redirect to create-booking with that package
+  useEffect(() => {
+    const pkg = searchParams.get("package");
+    if (pkg) {
+      router.replace(`/client/bookings/create-booking?package=${pkg}`);
+    }
+  }, [router, searchParams]);
+
   const [activeTab, setActiveTab] = useState("All Bookings");
   const [search, setSearch] = useState("");
   const [bookings, setBookings] = useState<DbBooking[]>([]);

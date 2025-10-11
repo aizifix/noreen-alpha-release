@@ -1491,6 +1491,7 @@ class Admin {
 
     public function getBookingByReference($reference) {
         try {
+            // First try to find confirmed bookings
             $sql = "SELECT b.*,
                         u.user_id, u.user_firstName, u.user_lastName, u.user_email, u.user_contact,
                         et.event_name as event_type_name,
@@ -1513,9 +1514,41 @@ class Admin {
             $booking = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($booking) {
+                error_log("getBookingByReference: Found confirmed booking for reference: " . $reference);
                 return json_encode(["status" => "success", "booking" => $booking]);
             } else {
-                return json_encode(["status" => "error", "message" => "Booking not found"]);
+                // If no confirmed booking found, try to find any booking with this reference
+                $sqlAny = "SELECT b.*,
+                            u.user_id, u.user_firstName, u.user_lastName, u.user_email, u.user_contact,
+                            et.event_name as event_type_name,
+                            v.venue_title as venue_name,
+                            p.package_title as package_name,
+                            CASE WHEN e.event_id IS NOT NULL THEN 1 ELSE 0 END as is_converted,
+                            e.event_id as converted_event_id
+                        FROM tbl_bookings b
+                        JOIN tbl_users u ON b.user_id = u.user_id
+                        JOIN tbl_event_type et ON b.event_type_id = et.event_type_id
+                        LEFT JOIN tbl_venue v ON b.venue_id = v.venue_id
+                        LEFT JOIN tbl_packages p ON b.package_id = p.package_id
+                        LEFT JOIN tbl_events e ON b.booking_reference = e.original_booking_reference
+                        WHERE b.booking_reference = :reference";
+
+                $stmtAny = $this->conn->prepare($sqlAny);
+                $stmtAny->execute([':reference' => $reference]);
+
+                $bookingAny = $stmtAny->fetch(PDO::FETCH_ASSOC);
+
+                if ($bookingAny) {
+                    error_log("getBookingByReference: Found booking with status '" . $bookingAny['booking_status'] . "' for reference: " . $reference);
+                    return json_encode([
+                        "status" => "error",
+                        "message" => "Booking found but status is '" . $bookingAny['booking_status'] . "'. Only confirmed bookings can be converted to events.",
+                        "booking_status" => $bookingAny['booking_status']
+                    ]);
+                } else {
+                    error_log("getBookingByReference: No booking found for reference: " . $reference);
+                    return json_encode(["status" => "error", "message" => "Booking not found"]);
+                }
             }
         } catch (Exception $e) {
             error_log("getBookingByReference error: " . $e->getMessage());
@@ -5219,14 +5252,16 @@ This is an automated message. Please do not reply.
         }
     }
 
-    public function getAllVenues() {
+    public function getAllVenues($includeInactive = false) {
         try {
+            $whereClause = $includeInactive ? "" : "WHERE v.is_active = 1";
             $sql = "SELECT v.*,
                     GROUP_CONCAT(DISTINCT vc.component_name COLLATE utf8mb4_general_ci) as components,
                     GROUP_CONCAT(DISTINCT vi.inclusion_name COLLATE utf8mb4_general_ci) as inclusions
                     FROM tbl_venue v
                     LEFT JOIN tbl_venue_inclusions vi ON v.venue_id = vi.venue_id
                     LEFT JOIN tbl_venue_components vc ON vi.inclusion_id = vc.inclusion_id
+                    $whereClause
                     GROUP BY v.venue_id
                     ORDER BY v.created_at DESC";
 
@@ -5346,6 +5381,68 @@ This is an automated message. Please do not reply.
             ]);
         }
     }
+
+    public function deleteVenueImage($data) {
+        try {
+            $venueId = $data['venue_id'] ?? 0;
+            $imageType = $data['image_type'] ?? '';
+
+            if (!$venueId || !$imageType) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Venue ID and image type are required"
+                ]);
+            }
+
+            // Get current image path before deletion
+            $stmt = $this->conn->prepare("SELECT venue_profile_picture, venue_cover_photo FROM tbl_venue WHERE venue_id = ?");
+            $stmt->execute([$venueId]);
+            $venue = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$venue) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Venue not found"
+                ]);
+            }
+
+            $imagePath = null;
+            $updateField = '';
+
+            if ($imageType === 'profile') {
+                $imagePath = $venue['venue_profile_picture'];
+                $updateField = 'venue_profile_picture';
+            } elseif ($imageType === 'cover') {
+                $imagePath = $venue['venue_cover_photo'];
+                $updateField = 'venue_cover_photo';
+            } else {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Invalid image type"
+                ]);
+            }
+
+            // Update database to remove image reference
+            $stmt = $this->conn->prepare("UPDATE tbl_venue SET {$updateField} = NULL, updated_at = CURRENT_TIMESTAMP WHERE venue_id = ?");
+            $stmt->execute([$venueId]);
+
+            // Delete physical file if it exists
+            if ($imagePath && file_exists($imagePath)) {
+                unlink($imagePath);
+            }
+
+            return json_encode([
+                "status" => "success",
+                "message" => ucfirst($imageType) . " image deleted successfully"
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to delete image: " . $e->getMessage()
+            ]);
+        }
+    }
+
     public function getVenuesForPackage() {
         try {
             $sql = "SELECT v.*,
@@ -8087,6 +8184,25 @@ This is an automated message. Please do not reply.
         }
     }
 
+    public function deleteVenue($venueId) {
+        try {
+            $stmt = $this->conn->prepare("UPDATE tbl_venue SET is_active = 0, updated_at = NOW() WHERE venue_id = ?");
+            $stmt->execute([$venueId]);
+
+            if ($stmt->rowCount() === 0) {
+                return json_encode(["status" => "error", "message" => "Venue not found"]);
+            }
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Venue deleted successfully"
+            ]);
+
+        } catch (Exception $e) {
+            return json_encode(["status" => "error", "message" => $e->getMessage()]);
+        }
+    }
+
     public function duplicatePackage($packageId) {
         try {
             // Start transaction
@@ -8279,11 +8395,21 @@ This is an automated message. Please do not reply.
             $coverPhoto = null;
 
             if (isset($_FILES['venue_profile_picture']) && $_FILES['venue_profile_picture']['error'] === 0) {
-                $profilePicture = $this->uploadFile($_FILES['venue_profile_picture'], 'venue_profile_pictures');
+                $uploadResult = json_decode($this->uploadFile($_FILES['venue_profile_picture'], 'venue_profile_pictures'), true);
+                if ($uploadResult['status'] === 'success') {
+                    $profilePicture = $uploadResult['filePath'];
+                } else {
+                    throw new Exception("Failed to upload profile picture: " . $uploadResult['message']);
+                }
             }
 
             if (isset($_FILES['venue_cover_photo']) && $_FILES['venue_cover_photo']['error'] === 0) {
-                $coverPhoto = $this->uploadFile($_FILES['venue_cover_photo'], 'venue_cover_photos');
+                $uploadResult = json_decode($this->uploadFile($_FILES['venue_cover_photo'], 'venue_cover_photos'), true);
+                if ($uploadResult['status'] === 'success') {
+                    $coverPhoto = $uploadResult['filePath'];
+                } else {
+                    throw new Exception("Failed to upload cover photo: " . $uploadResult['message']);
+                }
             }
 
             // Update venue basic info
@@ -8293,7 +8419,8 @@ This is an automated message. Please do not reply.
                 venue_location = :venue_location,
                 venue_contact = :venue_contact,
                 venue_capacity = :venue_capacity,
-                venue_price = :venue_price";
+                venue_price = :venue_price,
+                venue_type = :venue_type";
 
             // Only include files in update if they were uploaded
             if ($profilePicture) {
@@ -8314,6 +8441,7 @@ This is an automated message. Please do not reply.
                 ':venue_contact' => $_POST['venue_contact'],
                 ':venue_capacity' => $_POST['venue_capacity'],
                 ':venue_price' => $_POST['venue_price'],
+                ':venue_type' => $_POST['venue_type'],
                 ':venue_id' => $_POST['venue_id']
             ];
 
@@ -11803,18 +11931,26 @@ try {
         echo $admin->testVenueData();
         break;
     case "getAllVenues":
-        echo $admin->getAllVenues();
+        $includeInactive = $_GET['include_inactive'] ?? ($data['include_inactive'] ?? false);
+        echo $admin->getAllVenues($includeInactive);
         break;
     case "getVenueById":
         $venueId = $_GET['venue_id'] ?? ($data['venue_id'] ?? 0);
         echo $admin->getVenueById($venueId);
         break;
     case "updateVenue":
-        echo $admin->updateVenue($data);
+        echo $admin->updateVenueWithPriceHistory();
+        break;
+    case "deleteVenueImage":
+        echo $admin->deleteVenueImage($data);
         break;
     case "duplicateVenue":
         $venueId = $_GET['venue_id'] ?? ($data['venue_id'] ?? 0);
         echo $admin->duplicateVenue($venueId);
+        break;
+    case "deleteVenue":
+        $venueId = $_GET['venue_id'] ?? ($data['venue_id'] ?? 0);
+        echo $admin->deleteVenue($venueId);
         break;
     case "duplicatePackage":
         $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);

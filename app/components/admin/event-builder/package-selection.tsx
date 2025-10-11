@@ -276,6 +276,10 @@ export function PackageSelection({
     useState(false);
   const [currentVenueIndex, setCurrentVenueIndex] = useState(0);
   const [isModalLoading, setIsModalLoading] = useState(false);
+  const [showAllPackages, setShowAllPackages] = useState(false);
+
+  // Limit to show only 4 packages initially
+  const PACKAGES_TO_SHOW = 4;
 
   // Helper function to get image URL
   const getImageUrl = (path: string | null) => {
@@ -575,11 +579,17 @@ export function PackageSelection({
     );
   }
 
+  // Get packages to display based on showAllPackages state
+  const packagesToShow = showAllPackages
+    ? packages
+    : packages.slice(0, PACKAGES_TO_SHOW);
+  const hasMorePackages = packages.length > PACKAGES_TO_SHOW;
+
   // Render packages
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {packages.map((pkg, index) => {
+        {packagesToShow.map((pkg, index) => {
           const isSelected = selectedPackage === getPackageId(pkg);
           return (
             <Card
@@ -646,6 +656,21 @@ export function PackageSelection({
           );
         })}
       </div>
+
+      {/* See More / See Less Button */}
+      {hasMorePackages && (
+        <div className="flex justify-center pt-4">
+          <Button
+            variant="outline"
+            onClick={() => setShowAllPackages(!showAllPackages)}
+            className="px-6 py-2"
+          >
+            {showAllPackages
+              ? "See Less"
+              : `See More (${packages.length - PACKAGES_TO_SHOW} more)`}
+          </Button>
+        </div>
+      )}
 
       {selectedPackage && (
         <div className="mt-6 p-4 bg-[#028A75]/5 rounded-lg border border-[#028A75]/20">

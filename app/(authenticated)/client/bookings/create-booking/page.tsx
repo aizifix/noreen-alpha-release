@@ -204,6 +204,8 @@ export default function EnhancedCreateBookingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedPackageId = searchParams.get("package");
+  const preselectedEventType = searchParams.get("eventType");
+  const isPrefilledPackage = Boolean(preselectedPackageId);
 
   // Multi-step wizard state
   const [currentStep, setCurrentStep] = useState(1);
@@ -271,6 +273,32 @@ export default function EnhancedCreateBookingPage() {
   const [conflictingEvents, setConflictingEvents] = useState<
     ConflictingEvent[]
   >([]);
+
+  // Helper function to get proper image URL
+  const getImageUrl = (imagePath: string | null) => {
+    if (!imagePath) return "/default_pfp.png";
+
+    // If the image path already contains a full URL, use it as is
+    if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
+      return imagePath;
+    }
+
+    // Handle case where imagePath might be a JSON object instead of just a file path
+    let actualPath = imagePath;
+    try {
+      // Try to parse as JSON - if it's a JSON object, extract the filePath
+      const parsed = JSON.parse(imagePath);
+      if (parsed && typeof parsed === "object" && parsed.filePath) {
+        actualPath = parsed.filePath;
+      }
+    } catch (e) {
+      // If parsing fails, it's not JSON, so use the original path
+      actualPath = imagePath;
+    }
+
+    // Use the serve-image.php script for proper image serving
+    return `serve-image.php?path=${encodeURIComponent(actualPath)}`;
+  };
 
   // Client info state
   const [clientInfo, setClientInfo] = useState<any>(null);
@@ -403,24 +431,66 @@ export default function EnhancedCreateBookingPage() {
   // Load package details if preselected
   useEffect(() => {
     if (preselectedPackageId && packages.length > 0) {
-      const packageData = packages.find(
-        (p) => p.package_id === parseInt(preselectedPackageId)
-      );
+      const preId = Number(preselectedPackageId);
+      const packageData = packages.find((p) => Number(p.package_id) === preId);
       if (packageData) {
         setSelectedPackage(packageData);
-        // Auto-populate both packageId and eventType
+        // Auto-populate packageId and eventType (fallback to details if missing)
+        const firstEventType =
+          Array.isArray(packageData.event_type_names) &&
+          packageData.event_type_names.length > 0
+            ? packageData.event_type_names[0]
+            : "";
         setFormData((prev) => ({
           ...prev,
-          packageId: packageData.package_id,
-          eventType: packageData.event_type_names[0] || "", // Auto-populate event type
+          packageId: Number(packageData.package_id),
+          eventType: preselectedEventType || firstEventType,
         }));
-        console.log("Auto-populated from package:", {
-          packageId: packageData.package_id,
-          eventType: packageData.event_type_names[0],
-        });
+        // Also set the Step 1 event type filter to match the selected package
+        if (preselectedEventType || firstEventType) {
+          setPackageEventTypeFilter(preselectedEventType || firstEventType);
+        }
+        // If event types are missing on the list payload, fetch details to fill them
+        if (!firstEventType) {
+          axios
+            .get(`${endpoints.client}`, {
+              params: {
+                operation: "getPackageDetails",
+                package_id: Number(packageData.package_id),
+              },
+            })
+            .then((res) => {
+              const detailPkg = res?.data?.package;
+              const eventNames = Array.isArray(detailPkg?.event_type_names)
+                ? detailPkg.event_type_names
+                : [];
+              if (eventNames.length > 0) {
+                setSelectedPackage((prevSel) =>
+                  prevSel
+                    ? { ...prevSel, event_type_names: eventNames }
+                    : prevSel
+                );
+                setFormData((prev) => ({
+                  ...prev,
+                  eventType: preselectedEventType || eventNames[0],
+                }));
+                setPackageEventTypeFilter(
+                  preselectedEventType || eventNames[0]
+                );
+              }
+            })
+            .catch(() => {});
+        }
+        // Load dependent data (venues, inclusions) without auto-advancing the step
+        try {
+          fetchVenues(Number(packageData.package_id));
+          fetchPackageInclusions(Number(packageData.package_id));
+        } catch (e) {
+          console.warn("Preselect: failed to prefetch venues/inclusions", e);
+        }
       }
     }
-  }, [preselectedPackageId, packages]);
+  }, [preselectedPackageId, preselectedEventType, packages]);
 
   // No longer needed - we're focusing on inclusions
 
@@ -632,6 +702,16 @@ export default function EnhancedCreateBookingPage() {
         }
 
         setVenues(enrichedVenues);
+        // Auto-select the only venue when a package is preselected and exactly one venue is available
+        if (
+          isPrefilledPackage &&
+          enrichedVenues.length === 1 &&
+          !formData.venueId
+        ) {
+          const onlyVenue = enrichedVenues[0];
+          setFormData((prev) => ({ ...prev, venueId: onlyVenue.venue_id }));
+          setSelectedVenue(onlyVenue);
+        }
       }
     } catch (err) {
       console.error("Error fetching venues:", err);
@@ -987,6 +1067,10 @@ export default function EnhancedCreateBookingPage() {
       supplierServices: [],
       externalCustomizations: [],
     }));
+    // Sync Step 1 filter with the selected package's event type
+    if (pkg.event_type_names && pkg.event_type_names[0]) {
+      setPackageEventTypeFilter(pkg.event_type_names[0]);
+    }
     // Also fetch venues for this package
     fetchVenues(pkg.package_id);
     // Fetch package inclusions
@@ -1573,7 +1657,10 @@ export default function EnhancedCreateBookingPage() {
                                 eventType: value,
                               }))
                             }
-                            disabled={selectedPackage !== null && !decideLater}
+                            disabled={
+                              (selectedPackage !== null && !decideLater) ||
+                              isPrefilledPackage
+                            }
                           >
                             <SelectTrigger
                               className={cn(
@@ -1607,11 +1694,12 @@ export default function EnhancedCreateBookingPage() {
                               )}
                             </SelectContent>
                           </Select>
-                          {selectedPackage && !decideLater && (
+                          {(selectedPackage && !decideLater) ||
+                          isPrefilledPackage ? (
                             <p className="text-xs text-[#028A75] mt-1">
                               Auto-populated from selected package
                             </p>
-                          )}
+                          ) : null}
                           {!loadingEventTypes && eventTypes.length === 0 && (
                             <p className="text-xs text-red-600 mt-1">
                               Unable to load event types. Please refresh the
@@ -2965,7 +3053,9 @@ export default function EnhancedCreateBookingPage() {
                                       <div className="h-48 sm:h-56 bg-gray-100 relative overflow-hidden">
                                         {venue.venue_cover_photo ? (
                                           <img
-                                            src={`serve-image.php?path=${encodeURIComponent(venue.venue_cover_photo)}`}
+                                            src={getImageUrl(
+                                              venue.venue_cover_photo
+                                            )}
                                             alt={venue.venue_title}
                                             className="w-full h-full object-cover transform transition-transform duration-500 hover:scale-110"
                                           />

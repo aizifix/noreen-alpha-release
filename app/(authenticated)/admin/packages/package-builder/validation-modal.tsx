@@ -49,29 +49,41 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Package Price:</span>
-            <span className="font-medium">₱{data.packagePrice?.toLocaleString()}</span>
+            <span className="font-medium">
+              ₱{data.packagePrice?.toLocaleString()}
+            </span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Inclusions Total:</span>
-            <span className="font-medium text-red-600">₱{data.inclusionsTotal?.toLocaleString()}</span>
+            <span className="font-medium text-red-600">
+              ₱{data.inclusionsTotal?.toLocaleString()}
+            </span>
           </div>
           <div className="flex justify-between text-sm border-t pt-2">
             <span className="font-medium text-red-700">Overage Amount:</span>
-            <span className="font-bold text-red-700">₱{data.overageAmount?.toLocaleString()}</span>
+            <span className="font-bold text-red-700">
+              ₱{data.overageAmount?.toLocaleString()}
+            </span>
           </div>
         </div>
       </div>
 
       <div className="text-sm text-gray-700 mb-6">
         <p className="mb-3">
-          <strong>What this means:</strong> Your internal costs exceed the package price.
-          This overage will come out of your coordinator margin/profit.
+          <strong>What this means:</strong> Your internal costs exceed the
+          package price. This overage will come out of your coordinator
+          margin/profit.
         </p>
 
-        <p className="mb-3"><strong>Your options:</strong></p>
+        <p className="mb-3">
+          <strong>Your options:</strong>
+        </p>
         <ul className="list-disc list-inside space-y-1 ml-2">
           <li>Remove or reduce some inclusions to stay within budget</li>
-          <li>Increase the package price to ₱{data.inclusionsTotal?.toLocaleString()} or more</li>
+          <li>
+            Increase the package price to ₱
+            {data.inclusionsTotal?.toLocaleString()} or more
+          </li>
           <li>Accept the overage and absorb the extra cost</li>
         </ul>
       </div>
@@ -113,27 +125,37 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Current Locked Price:</span>
-            <span className="font-medium">₱{data.currentPrice?.toLocaleString()}</span>
+            <span className="font-medium">
+              ₱{data.currentPrice?.toLocaleString()}
+            </span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Attempted Price:</span>
-            <span className="font-medium text-red-600">₱{data.attemptedPrice?.toLocaleString()}</span>
+            <span className="font-medium text-red-600">
+              ₱{data.attemptedPrice?.toLocaleString()}
+            </span>
           </div>
         </div>
       </div>
 
       <div className="text-sm text-gray-700 mb-6">
         <p className="mb-3">
-          <strong>Why this is blocked:</strong> Package prices are locked once created to ensure
-          consistent pricing for clients and prevent accidental profit loss.
+          <strong>Why this is blocked:</strong> Package prices are locked once
+          created to ensure consistent pricing for clients and prevent
+          accidental profit loss.
         </p>
 
         <p className="mb-3">
           <strong>What you can do:</strong>
         </p>
         <ul className="list-disc list-inside space-y-1 ml-2">
-          <li>Keep the current price of ₱{data.currentPrice?.toLocaleString()}</li>
-          <li>Increase the price to ₱{data.attemptedPrice?.toLocaleString()} or higher</li>
+          <li>
+            Keep the current price of ₱{data.currentPrice?.toLocaleString()}
+          </li>
+          <li>
+            Increase the price to ₱{data.attemptedPrice?.toLocaleString()} or
+            higher
+          </li>
           <li>Adjust inclusions to manage your budget instead</li>
         </ul>
       </div>
@@ -169,15 +191,23 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Package Price:</span>
-            <span className="font-medium">₱{data.packagePrice?.toLocaleString()}</span>
+            <span className="font-medium">
+              ₱{data.packagePrice?.toLocaleString()}
+            </span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Inclusions Total:</span>
-            <span className="font-medium">₱{data.inclusionsTotal?.toLocaleString()}</span>
+            <span className="font-medium">
+              ₱{data.inclusionsTotal?.toLocaleString()}
+            </span>
           </div>
           <div className="flex justify-between text-sm border-t pt-2">
-            <span className="font-medium text-green-700">Buffer Available:</span>
-            <span className="font-bold text-green-700">₱{data.bufferAmount?.toLocaleString()}</span>
+            <span className="font-medium text-green-700">
+              Buffer Available:
+            </span>
+            <span className="font-bold text-green-700">
+              ₱{data.bufferAmount?.toLocaleString()}
+            </span>
           </div>
           {data.marginPercentage && (
             <div className="flex justify-between text-xs text-green-600">
@@ -190,8 +220,8 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
 
       <div className="text-sm text-gray-700 mb-6">
         <p className="mb-3">
-          <strong>Good news!</strong> Your inclusions are within budget. The remaining amount
-          becomes your coordinator margin/profit.
+          <strong>Good news!</strong> Your inclusions are within budget. The
+          remaining amount becomes your coordinator margin/profit.
         </p>
       </div>
 

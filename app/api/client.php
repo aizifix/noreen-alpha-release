@@ -1027,6 +1027,47 @@ function getClientPaymentDashboard($userId) {
     }
 }
 
+// Function to get event payments for a specific event (client access)
+function getEventPayments($userId, $eventId) {
+    global $pdo;
+
+    try {
+        // First verify the event belongs to the client
+        $verifySql = "SELECT COUNT(*) FROM tbl_events WHERE event_id = :event_id AND user_id = :user_id";
+        $verifyStmt = $pdo->prepare($verifySql);
+        $verifyStmt->bindParam(':event_id', $eventId, PDO::PARAM_INT);
+        $verifyStmt->bindParam(':user_id', $userId, PDO::PARAM_INT);
+        $verifyStmt->execute();
+
+        if ($verifyStmt->fetchColumn() == 0) {
+            return ["status" => "error", "message" => "Event not found or access denied"];
+        }
+
+        // Get payments for the event
+        $sql = "SELECT
+                    p.*,
+                    u.user_firstName,
+                    u.user_lastName,
+                    eps.installment_number,
+                    eps.due_date,
+                    eps.amount_due as schedule_amount_due
+                FROM tbl_payments p
+                LEFT JOIN tbl_users u ON p.client_id = u.user_id
+                LEFT JOIN tbl_event_payment_schedules eps ON p.schedule_id = eps.schedule_id
+                WHERE p.event_id = :event_id
+                ORDER BY p.payment_date DESC";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindParam(':event_id', $eventId, PDO::PARAM_INT);
+        $stmt->execute();
+        $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return ["status" => "success", "payments" => $payments];
+    } catch (PDOException $e) {
+        return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
+    }
+}
+
 // Function to get next payment due for client
 function getClientNextPayments($userId) {
     global $pdo;
@@ -1865,6 +1906,20 @@ switch ($method) {
                     echo json_encode([
                         "status" => "error",
                         "message" => "User ID is required"
+                    ]);
+                }
+                break;
+
+            case 'getEventPayments':
+                $userId = isset($_GET['user_id']) ? intval($_GET['user_id']) : 0;
+                $eventId = isset($_GET['event_id']) ? intval($_GET['event_id']) : 0;
+
+                if ($userId > 0 && $eventId > 0) {
+                    echo json_encode(getEventPayments($userId, $eventId));
+                } else {
+                    echo json_encode([
+                        "status" => "error",
+                        "message" => "User ID and Event ID are required"
                     ]);
                 }
                 break;

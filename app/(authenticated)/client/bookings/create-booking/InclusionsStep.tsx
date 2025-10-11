@@ -418,6 +418,13 @@ export default function InclusionsStep({
 
   // Toggle inclusion status (included/excluded)
   const toggleInclusionStatus = (inclusionId: number | string) => {
+    // Lock package inclusions as read-only when a package is selected; allow toggling only for custom/supplier
+    if (packageId) {
+      const isPackageInclusion = eventInclusionsOnly.some(
+        (inc) => inc.inclusion_id === inclusionId
+      );
+      if (isPackageInclusion) return; // prevent changes to base package inclusions
+    }
     const isRemoved = removedInclusions.some(
       (inc) => inc.inclusion_id === inclusionId
     );
@@ -744,6 +751,14 @@ export default function InclusionsStep({
                                       );
                                     }}
                                     className="mt-1"
+                                    disabled={
+                                      Boolean(packageId) &&
+                                      eventInclusionsOnly.some(
+                                        (inc) =>
+                                          inc.inclusion_id ===
+                                          inclusion.inclusion_id
+                                      )
+                                    }
                                   />
                                   <div>
                                     <div

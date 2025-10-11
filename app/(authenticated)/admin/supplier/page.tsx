@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
+import { toast } from "sonner";
 import {
   Plus,
   Search,
@@ -37,7 +38,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
 
 interface Supplier {
   supplier_id: number;
@@ -919,7 +919,7 @@ function EnhancedSupplierModal({
   // Copy to clipboard
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert("Copied to clipboard!");
+    toast.success("Copied to clipboard!");
   };
 
   useEffect(() => {
@@ -1089,7 +1089,7 @@ function EnhancedSupplierModal({
           setShowCredentials(true);
         }
 
-        alert(
+        toast.success(
           mode === "edit"
             ? "Supplier updated successfully!"
             : "Supplier created successfully!"
@@ -1099,11 +1099,11 @@ function EnhancedSupplierModal({
           onSuccess();
         }
       } else {
-        alert(data.message || "Operation failed");
+        toast.error(data.message || "Operation failed");
       }
     } catch (error) {
       console.error("Error:", error);
-      alert("Operation failed");
+      toast.error("Operation failed");
     } finally {
       setLoading(false);
     }

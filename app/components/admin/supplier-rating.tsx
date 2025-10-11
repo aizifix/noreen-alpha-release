@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Star, Upload, X } from "lucide-react";
+import { toast } from "sonner";
 
 interface SupplierRatingProps {
   supplierId: number;
@@ -78,12 +79,12 @@ export default function SupplierRating({
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
-          alert(`${file.name} is not a supported image type`);
+          toast.error(`${file.name} is not a supported image type`);
           return false;
         }
 
         if (file.size > maxSize) {
-          alert(`${file.name} is too large. Maximum size is 5MB`);
+          toast.error(`${file.name} is too large. Maximum size is 5MB`);
           return false;
         }
 
@@ -102,7 +103,7 @@ export default function SupplierRating({
     e.preventDefault();
 
     if (formData.rating === 0) {
-      alert("Please provide an overall rating");
+      toast.error("Please provide an overall rating");
       return;
     }
 
@@ -150,14 +151,14 @@ export default function SupplierRating({
       const data = await response.json();
 
       if (data.status === "success") {
-        alert("Rating submitted successfully!");
+        toast.success("Rating submitted successfully!");
         onSubmitSuccess();
       } else {
-        alert(data.message || "Failed to submit rating");
+        toast.error(data.message || "Failed to submit rating");
       }
     } catch (error) {
       console.error("Error submitting rating:", error);
-      alert("Failed to submit rating");
+      toast.error("Failed to submit rating");
     } finally {
       setLoading(false);
     }

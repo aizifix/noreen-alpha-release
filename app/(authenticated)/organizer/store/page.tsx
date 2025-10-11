@@ -6,6 +6,7 @@ import axios from "axios";
 import { endpoints } from "@/app/config/api";
 import { StoreCard } from "../../../components/card/store-card";
 import { secureStorage } from "@/app/utils/encryption";
+import { toast } from "sonner";
 
 const steps = [
   { id: 1, name: "Store Details" },
@@ -459,12 +460,12 @@ export default function VendorStoreCreation() {
       const userId = userData?.user_id;
 
       if (!userId) {
-        alert("User is not logged in. Please log in first.");
+        toast.error("User is not logged in. Please log in first.");
         return;
       }
 
       if (!storeCategoryId) {
-        alert("Please select a valid store category.");
+        toast.error("Please select a valid store category.");
         return;
       }
 
@@ -494,15 +495,15 @@ export default function VendorStoreCreation() {
       console.log("Response:", response.data);
 
       if (response.data.status === "success") {
-        alert("Vendor store created successfully!");
+        toast.success("Vendor store created successfully!");
         closeModal();
         fetchStores();
       } else {
-        alert("Error: " + response.data.message);
+        toast.error("Error: " + response.data.message);
       }
     } catch (error) {
       //   console.error("Error submitting form:", error)
-      alert("An error occurred while submitting the form.");
+      toast.error("An error occurred while submitting the form.");
     }
   };
 

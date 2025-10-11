@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
+import { toast } from "sonner";
 import {
   Calendar,
   Clock,
@@ -210,11 +211,11 @@ export default function SupplierBookings() {
         setStatusNotes("");
       } else {
         console.error("Failed to update booking status:", data.message);
-        alert("Failed to update booking status: " + data.message);
+        toast.error("Failed to update booking status: " + data.message);
       }
     } catch (error) {
       console.error("Error updating booking status:", error);
-      alert("Error updating booking status");
+      toast.error("Error updating booking status");
     } finally {
       setUpdating(false);
     }

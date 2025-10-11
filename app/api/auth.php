@@ -1087,7 +1087,7 @@ class Auth {
             error_log("Raw POST data: " . print_r($_POST, true));
 
             // Required fields for client registration
-            $required = ['firstName', 'lastName', 'email', 'contactNumber', 'password'];
+            $required = ['firstName', 'lastName', 'email', 'contactNumber', 'password', 'street', 'city', 'state', 'postalCode', 'country'];
 
             foreach ($required as $field) {
                 if (!isset($data[$field]) || empty(trim($data[$field]))) {
@@ -1145,11 +1145,13 @@ class Auth {
             $sql = "INSERT INTO tbl_users (
                 user_firstName, user_lastName, user_suffix, user_birthdate,
                 user_email, user_contact, user_username, user_pwd,
-                user_role, is_verified, created_at, account_status
+                user_role, is_verified, created_at, account_status,
+                user_address, user_city, user_state, user_zipcode, user_country
             ) VALUES (
                 :firstName, :lastName, :suffix, :birthdate,
                 :email, :contactNumber, :username, :password,
-                :userRole, 0, NOW(), 'active'
+                :userRole, 0, NOW(), 'active',
+                :street, :city, :state, :postalCode, :country
             )";
 
             $stmt = $this->conn->prepare($sql);
@@ -1162,7 +1164,12 @@ class Auth {
                 ':contactNumber' => $contactNumber,
                 ':username' => $username, // Use auto-generated username
                 ':password' => $hashedPassword,
-                ':userRole' => $data['userRole'] ?? 'client'
+                ':userRole' => $data['userRole'] ?? 'client',
+                ':street' => trim($data['street']),
+                ':city' => trim($data['city']),
+                ':state' => trim($data['state']),
+                ':postalCode' => trim($data['postalCode']),
+                ':country' => trim($data['country'])
             ]);
 
             error_log("SQL Insert result: " . ($result ? 'SUCCESS' : 'FAILED'));
@@ -1261,6 +1268,97 @@ class Auth {
             return json_encode(["status" => "error", "message" => $errorMessage, "debug" => $e->getMessage()]);
         }
     }
+
+    // Cancel signup and cleanup unverified user
+    public function cancelSignup($userId, $email) {
+        try {
+            $this->conn->beginTransaction();
+
+            // Delete the unverified user
+            $stmt = $this->conn->prepare("DELETE FROM tbl_users WHERE user_id = ? AND user_email = ? AND is_verified = 0");
+            $result = $stmt->execute([$userId, $email]);
+
+            if ($stmt->rowCount() > 0) {
+                // Also cleanup any associated OTP records
+                $stmt = $this->conn->prepare("DELETE FROM tbl_signup_otp WHERE user_id = ?");
+                $stmt->execute([$userId]);
+
+                $this->conn->commit();
+                error_log("Successfully canceled signup for user ID: $userId, email: $email");
+
+                return json_encode([
+                    "status" => "success",
+                    "message" => "Signup canceled successfully"
+                ]);
+            } else {
+                $this->conn->rollback();
+                error_log("No unverified user found to cancel for user ID: $userId, email: $email");
+
+                return json_encode([
+                    "status" => "error",
+                    "message" => "No pending signup found to cancel"
+                ]);
+            }
+
+        } catch (Exception $e) {
+            $this->conn->rollback();
+            error_log("Error canceling signup: " . $e->getMessage());
+
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to cancel signup"
+            ]);
+        }
+    }
+
+    // Cleanup expired unverified signups (call this periodically)
+    public function cleanupExpiredSignups() {
+        try {
+            $this->conn->beginTransaction();
+
+            // Find expired OTPs and their associated unverified users
+            $stmt = $this->conn->prepare("
+                SELECT DISTINCT u.user_id, u.user_email
+                FROM tbl_users u
+                INNER JOIN tbl_signup_otp s ON u.user_id = s.user_id
+                WHERE u.is_verified = 0
+                AND s.expires_at < NOW()
+            ");
+            $stmt->execute();
+            $expiredUsers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $cleanedCount = 0;
+            foreach ($expiredUsers as $user) {
+                // Delete the unverified user
+                $deleteUser = $this->conn->prepare("DELETE FROM tbl_users WHERE user_id = ? AND is_verified = 0");
+                $deleteUser->execute([$user['user_id']]);
+
+                if ($deleteUser->rowCount() > 0) {
+                    // Delete associated OTP records
+                    $deleteOTP = $this->conn->prepare("DELETE FROM tbl_signup_otp WHERE user_id = ?");
+                    $deleteOTP->execute([$user['user_id']]);
+                    $cleanedCount++;
+                }
+            }
+
+            $this->conn->commit();
+            error_log("Cleaned up $cleanedCount expired unverified signups");
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Cleaned up $cleanedCount expired signups"
+            ]);
+
+        } catch (Exception $e) {
+            $this->conn->rollback();
+            error_log("Error cleaning up expired signups: " . $e->getMessage());
+
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to cleanup expired signups"
+            ]);
+        }
+    }
 }
 
 // Debugging: Log received data
@@ -1349,6 +1447,12 @@ switch ($operation) {
         break;
     case "resend_signup_otp":
         echo $auth->resendSignupOTP($_POST['user_id'] ?? ($jsonData['user_id'] ?? ''), $_POST['email'] ?? ($jsonData['email'] ?? ''));
+        break;
+    case "cancel_signup":
+        echo $auth->cancelSignup($_POST['user_id'] ?? ($jsonData['user_id'] ?? ''), $_POST['email'] ?? ($jsonData['email'] ?? ''));
+        break;
+    case "cleanup_expired_signups":
+        echo $auth->cleanupExpiredSignups();
         break;
     case "request_otp":
         // Allow clients to explicitly request an OTP (e.g., per-user 2FA preference)

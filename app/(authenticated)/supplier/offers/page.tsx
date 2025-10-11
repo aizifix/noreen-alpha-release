@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
+import { toast } from "sonner";
 import {
   Plus,
   Edit,
@@ -134,13 +135,13 @@ export default function SupplierOffers() {
         await fetchOffers();
         setShowCreateModal(false);
         resetNewOffer();
-        alert("Offer created successfully!");
+        toast.success("Offer created successfully!");
       } else {
-        alert("Failed to create offer: " + data.message);
+        toast.error("Failed to create offer: " + data.message);
       }
     } catch (error) {
       console.error("Error creating offer:", error);
-      alert("Error creating offer");
+      toast.error("Error creating offer");
     }
   };
 
@@ -166,13 +167,13 @@ export default function SupplierOffers() {
       if (data.status === "success") {
         await fetchOffers();
         setEditingOffer(null);
-        alert("Offer updated successfully!");
+        toast.success("Offer updated successfully!");
       } else {
-        alert("Failed to update offer: " + data.message);
+        toast.error("Failed to update offer: " + data.message);
       }
     } catch (error) {
       console.error("Error updating offer:", error);
-      alert("Error updating offer");
+      toast.error("Error updating offer");
     }
   };
 
@@ -192,13 +193,13 @@ export default function SupplierOffers() {
 
       if (data.status === "success") {
         await fetchOffers();
-        alert("Offer deleted successfully!");
+        toast.success("Offer deleted successfully!");
       } else {
-        alert("Failed to delete offer: " + data.message);
+        toast.error("Failed to delete offer: " + data.message);
       }
     } catch (error) {
       console.error("Error deleting offer:", error);
-      alert("Error deleting offer");
+      toast.error("Error deleting offer");
     }
   };
 

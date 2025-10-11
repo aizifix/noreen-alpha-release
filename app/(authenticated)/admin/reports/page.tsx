@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { endpoints } from "@/app/config/api";
+import { toast } from "sonner";
 import {
   Calendar,
   Clock,
@@ -309,13 +310,13 @@ export default function ReportsPage() {
       if (data.status === "success") {
         // Refresh session analytics to update active sessions
         fetchSessionAnalytics();
-        alert("Session terminated successfully");
+        toast.success("Session terminated successfully");
       } else {
-        alert("Failed to terminate session: " + data.message);
+        toast.error("Failed to terminate session: " + data.message);
       }
     } catch (err) {
       console.error("Session termination error:", err);
-      alert(
+      toast.error(
         "Error terminating session: " +
           (err instanceof Error ? err.message : "Unknown error")
       );

@@ -91,6 +91,9 @@ export default function AdminLayout({
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement | null>(null);
+  const [uiSettings, setUiSettings] = useState({
+    hideStaffButton: false,
+  });
 
   interface NotificationItem {
     notification_id: number;
@@ -107,53 +110,91 @@ export default function AdminLayout({
     created_at: string;
   }
 
-  const menuSections: MenuSection[] = [
-    {
-      label: "Overview",
-      items: [
-        { icon: LayoutDashboard, label: "Dashboard", href: "/admin/dashboard" },
-        { icon: BarChart3, label: "Reports", href: "/admin/reports" },
-      ],
-    },
-    {
-      label: "Event Management",
-      items: [
-        { icon: Calendar, label: "Events", href: "/admin/events" },
-        { icon: Wrench, label: "Event Builder", href: "/admin/event-builder" },
-        { icon: CalendarCheck, label: "Bookings", href: "/admin/bookings" },
-      ],
-    },
-    {
-      label: "Resources",
-      items: [
-        { icon: Package, label: "Packages", href: "/admin/packages" },
-        { icon: MapPin, label: "Venues", href: "/admin/venues" },
-      ],
-    },
-    {
-      label: "People",
-      items: [
-        { icon: Users, label: "Clients", href: "/admin/clients" },
-        { icon: UserCheck, label: "Organizers", href: "/admin/organizers" },
-        { icon: Truck, label: "Suppliers", href: "/admin/supplier" },
-        { icon: Users, label: "Staff", href: "/admin/staff" },
-      ],
-    },
-    {
-      label: "Finance",
-      items: [{ icon: CreditCard, label: "Payments", href: "/admin/payments" }],
-    },
-  ];
+  // Create menu sections with conditional Staff button
+  const getMenuSections = (): MenuSection[] => {
+    const peopleItems = [
+      { icon: Users, label: "Clients", href: "/admin/clients" },
+      { icon: UserCheck, label: "Organizers", href: "/admin/organizers" },
+      { icon: Truck, label: "Suppliers", href: "/admin/supplier" },
+    ];
+
+    // Add Staff button only if not hidden
+    if (!uiSettings.hideStaffButton) {
+      peopleItems.push({ icon: Users, label: "Staff", href: "/admin/staff" });
+    }
+
+    return [
+      {
+        label: "Overview",
+        items: [
+          {
+            icon: LayoutDashboard,
+            label: "Dashboard",
+            href: "/admin/dashboard",
+          },
+          { icon: BarChart3, label: "Reports", href: "/admin/reports" },
+        ],
+      },
+      {
+        label: "Event Management",
+        items: [
+          { icon: Calendar, label: "Events", href: "/admin/events" },
+          {
+            icon: Wrench,
+            label: "Event Builder",
+            href: "/admin/event-builder",
+          },
+          { icon: CalendarCheck, label: "Bookings", href: "/admin/bookings" },
+        ],
+      },
+      {
+        label: "Resources",
+        items: [
+          { icon: Package, label: "Packages", href: "/admin/packages" },
+          { icon: MapPin, label: "Venues", href: "/admin/venues" },
+        ],
+      },
+      {
+        label: "People",
+        items: peopleItems,
+      },
+      {
+        label: "Finance",
+        items: [
+          { icon: CreditCard, label: "Payments", href: "/admin/payments" },
+        ],
+      },
+    ];
+  };
+
+  const menuSections = getMenuSections();
 
   // Initialize expandedSections with all section labels
-  const [expandedSections, setExpandedSections] = useState<string[]>(
-    menuSections.map((section) => section.label)
-  );
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
 
   // After mounting, we can safely show the UI
   useEffect(() => {
     setMounted(true);
+    loadUISettings();
   }, []);
+
+  // Initialize expanded sections when menu sections change
+  useEffect(() => {
+    if (expandedSections.length === 0) {
+      setExpandedSections(menuSections.map((section) => section.label));
+    }
+  }, [menuSections, expandedSections.length]);
+
+  const loadUISettings = () => {
+    try {
+      const savedUISettings = localStorage.getItem("adminUISettings");
+      if (savedUISettings) {
+        setUiSettings(JSON.parse(savedUISettings));
+      }
+    } catch (error) {
+      console.error("Error loading UI settings:", error);
+    }
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -256,11 +297,31 @@ export default function AdminLayout({
       }
     };
 
+    const handleUISettingsChange = (event: CustomEvent) => {
+      try {
+        console.log("Admin layout: UI settings updated", event.detail);
+        setUiSettings(event.detail);
+      } catch (error) {
+        console.error(
+          "Admin layout: Error handling UI settings change:",
+          error
+        );
+      }
+    };
+
     // Listen for storage changes
     window.addEventListener("userDataChanged", handleUserDataChange);
+    window.addEventListener(
+      "adminUISettingsChanged",
+      handleUISettingsChange as EventListener
+    );
 
     return () => {
       window.removeEventListener("userDataChanged", handleUserDataChange);
+      window.removeEventListener(
+        "adminUISettingsChanged",
+        handleUISettingsChange as EventListener
+      );
     };
   }, []);
 
@@ -429,7 +490,7 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-gray-100 overflow-hidden">
       {/* Mobile Overlay */}
       {isMobileMenuOpen && (
         <div
@@ -438,21 +499,21 @@ export default function AdminLayout({
         />
       )}
 
-      {/* Sidebar (Responsive) */}
+      {/* Sidebar (Responsive) - Hidden on mobile unless menu is open */}
       <div
         className={`
-        fixed inset-y-0 left-0 z-40 w-64 transform transition-transform duration-300 ease-in-out
-        ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}
-        lg:translate-x-0 lg:static lg:inset-0
+        fixed inset-y-0 left-0 z-40 w-56 transform transition-transform duration-300 ease-in-out
+        ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
+        lg:static lg:inset-0
       `}
       >
-        <Sidebar className="h-full w-64 bg-white border-r">
-          <SidebarHeader className="border-b px-3 py-4 h-16 flex items-center justify-between">
+        <Sidebar className="h-full w-56 bg-white border-r">
+          <SidebarHeader className="border-b px-3 py-3 h-14 flex items-center justify-between">
             <Image
               src={Logo || "/placeholder.svg"}
               alt="Noreen Logo"
-              width={100}
-              height={40}
+              width={80}
+              height={32}
               className="object-contain"
             />
             {/* Mobile close button */}
@@ -463,8 +524,8 @@ export default function AdminLayout({
               <X className="h-5 w-5" />
             </button>
           </SidebarHeader>
-          <SidebarContent className="flex flex-col h-[calc(100%-64px)]">
-            <SidebarMenu className="flex-1 mt-4 space-y-1 px-1">
+          <SidebarContent className="flex flex-col h-[calc(100%-56px)] overflow-y-auto">
+            <SidebarMenu className="flex-1 mt-3 space-y-1 px-1 pb-4">
               {menuSections.map((section) => {
                 const isSectionExpanded = expandedSections.includes(
                   section.label
@@ -481,13 +542,13 @@ export default function AdminLayout({
                     <button
                       onClick={() => toggleSection(section.label)}
                       className={`
-                        flex items-center justify-between w-full px-3 py-2 text-sm
+                        flex items-center justify-between w-full px-2 py-2 text-xs
                         ${hasActiveItem ? "text-brand-500 font-medium" : "text-gray-600"}
                         hover:bg-gray-100 rounded-md transition-colors
                       `}
                     >
-                      <span className="flex items-center gap-2">
-                        <span className="text-xs uppercase tracking-wider">
+                      <span className="flex items-center gap-1">
+                        <span className="text-xs uppercase tracking-wider font-medium">
                           {section.label}
                         </span>
                       </span>
@@ -520,8 +581,8 @@ export default function AdminLayout({
                                 href={item.href || "#"}
                                 onClick={() => setIsMobileMenuOpen(false)}
                                 className={`
-                                  flex items-center gap-3 px-3 py-2 rounded-md transition
-                                  ml-2 text-sm
+                                  flex items-center gap-2 px-2 py-2 rounded-md transition
+                                  ml-1 text-sm
                                   ${
                                     isActive
                                       ? "bg-brand-500 text-white"
@@ -546,13 +607,13 @@ export default function AdminLayout({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 lg:ml-64">
+      <div className="flex-1 flex flex-col w-full lg:w-auto overflow-hidden">
         {/* Navbar */}
-        <header className="fixed top-0 right-0 left-0 lg:left-64 z-10 bg-white border-b px-4 lg:px-6 py-4 h-16 flex justify-between lg:justify-end items-center">
+        <header className="sticky top-0 z-20 bg-white border-b px-3 lg:px-6 py-3 h-14 flex justify-between lg:justify-end items-center shrink-0">
           {/* Mobile menu button */}
           <button
             onClick={() => setIsMobileMenuOpen(true)}
-            className="lg:hidden p-2 rounded-md hover:bg-gray-100"
+            className="lg:hidden p-1.5 rounded-md hover:bg-gray-100"
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -561,20 +622,20 @@ export default function AdminLayout({
             {/* Theme Toggle - Hidden on mobile */}
             <button
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="hidden sm:block p-2 rounded-full hover:bg-gray-100"
+              className="hidden sm:block p-1.5 rounded-full hover:bg-gray-100"
               aria-label="Toggle theme"
             >
               {mounted && theme === "dark" ? (
-                <Sun className="h-5 w-5 text-gray-600" />
+                <Sun className="h-4 w-4 text-gray-600" />
               ) : (
-                <Moon className="h-5 w-5 text-gray-600" />
+                <Moon className="h-4 w-4 text-gray-600" />
               )}
             </button>
 
             {/* Calendar - Hidden on mobile */}
             <div className="hidden sm:block relative cursor-pointer">
-              <Calendar className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
-              <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
+              <Calendar className="h-5 w-5 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
+              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-brand-500 text-white text-[10px] flex items-center justify-center">
                 29
               </span>
             </div>
@@ -590,16 +651,16 @@ export default function AdminLayout({
                 }
               }}
             >
-              <Bell className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
+              <Bell className="h-5 w-5 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
               {unreadNotifCount > 0 && (
-                <span className="absolute -top-2 -right-2 min-w-[1.25rem] h-5 px-1 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 min-w-[1rem] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
                   {unreadNotifCount > 99 ? "99+" : unreadNotifCount}
                 </span>
               )}
 
               {isNotifDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 max-h-96 overflow-auto bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-                  <div className="px-4 py-2 border-b flex items-center justify-between">
+                <div className="absolute right-0 mt-2 w-72 sm:w-80 md:w-96 max-h-[70vh] sm:max-h-96 overflow-auto bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                  <div className="sticky top-0 bg-white px-3 sm:px-4 py-2 border-b flex items-center justify-between">
                     <span className="text-sm font-semibold text-gray-700">
                       Notifications
                     </span>
@@ -612,7 +673,7 @@ export default function AdminLayout({
                             await clearReadNotifications(user);
                           }
                         }}
-                        className="text-xs text-gray-500 hover:text-gray-700"
+                        className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
                       >
                         Clear all
                       </button>
@@ -623,7 +684,7 @@ export default function AdminLayout({
                             await clearReadNotifications(user);
                           }
                         }}
-                        className="text-xs text-gray-500 hover:text-gray-700"
+                        className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
                       >
                         Clear read
                       </button>
@@ -649,6 +710,7 @@ export default function AdminLayout({
                               <Link
                                 href={n.notification_url}
                                 className="block px-3 py-2"
+                                onClick={() => setIsNotifDropdownOpen(false)}
                               >
                                 <div className="text-sm font-medium text-gray-800 line-clamp-1">
                                   {n.notification_title ||
@@ -690,10 +752,10 @@ export default function AdminLayout({
             <div className="relative">
               <button
                 onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
-                className="flex items-center gap-2 lg:gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex items-center gap-1.5 lg:gap-2 p-1.5 lg:p-2 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 {/* Profile Picture */}
-                <div className="h-8 w-8 lg:h-10 lg:w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
+                <div className="h-7 w-7 lg:h-8 lg:w-8 border border-[#D2D2D2] rounded-full overflow-hidden shrink-0">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <img
                       src={api.getServeImageUrl(user.user_pfp)}
@@ -704,13 +766,13 @@ export default function AdminLayout({
                     <Image
                       src={user.profilePicture || "/placeholder.svg"}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
-                      width={40}
-                      height={40}
+                      width={32}
+                      height={32}
                       className="h-full w-full object-cover"
                     />
                   ) : (
                     <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-                      <span className="text-xs lg:text-sm font-medium text-gray-600">
+                      <span className="text-xs font-medium text-gray-600">
                         {user?.user_firstName.charAt(0)}
                       </span>
                     </div>
@@ -718,12 +780,12 @@ export default function AdminLayout({
                 </div>
 
                 {/* User Name and Role - Hidden on mobile */}
-                <div className="hidden lg:block text-sm text-gray-600 text-left">
-                  <div className="font-semibold text-left">
+                <div className="hidden lg:block text-xs text-gray-600 text-left min-w-0">
+                  <div className="font-medium text-left truncate">
                     {user?.user_firstName} {user?.user_lastName}
                   </div>
                   <div className="text-left">
-                    <span className="text-[#8b8b8b] font-semibold text-xs">
+                    <span className="text-[#8b8b8b] font-medium text-xs">
                       {user?.user_role}
                     </span>
                   </div>
@@ -731,23 +793,13 @@ export default function AdminLayout({
 
                 {/* Dropdown Arrow */}
                 <ChevronDown
-                  className={`h-4 w-4 text-gray-500 transition-transform ${isUserDropdownOpen ? "rotate-180" : ""}`}
+                  className={`h-3 w-3 text-gray-500 transition-transform shrink-0 ${isUserDropdownOpen ? "rotate-180" : ""}`}
                 />
               </button>
 
               {/* Dropdown Menu */}
               {isUserDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                  <button
-                    onClick={() => {
-                      setIsUserDropdownOpen(false);
-                      router.push("/admin/profile");
-                    }}
-                    className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    <User className="h-4 w-4" />
-                    Profile
-                  </button>
                   <button
                     onClick={() => {
                       setIsUserDropdownOpen(false);
@@ -776,9 +828,7 @@ export default function AdminLayout({
         </header>
 
         {/* Page Content - Adjusted for Navbar */}
-        <main className="pt-16 lg:pt-24 p-4 lg:p-6 h-screen overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 p-3 lg:p-6 overflow-auto">{children}</main>
         {/* Global Toaster moved to root layout */}
       </div>
     </div>

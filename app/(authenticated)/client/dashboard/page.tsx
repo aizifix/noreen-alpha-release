@@ -667,7 +667,7 @@ export default function ClientDashboard() {
                         <Button
                           onClick={() =>
                             router.push(
-                              `/client/bookings/create-booking?package=${pkg.package_id}`
+                              `/client/bookings/create-booking?package=${pkg.package_id}&eventType=${encodeURIComponent((pkg.event_type_names && pkg.event_type_names[0]) || "")}`
                             )
                           }
                           className="flex-1 bg-[#028A75] hover:bg-[#028A75]/90 min-h-[44px] text-sm font-medium px-4 py-2 !text-white flex items-center justify-center"

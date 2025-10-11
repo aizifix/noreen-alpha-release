@@ -42,15 +42,30 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { endpoints } from "@/app/config/api";
+import { ConfirmationModal } from "@/components/ui/confirmation-modal";
+import { endpoints, api } from "@/app/config/api";
 
 // Image URL helper function
 const getImageUrl = (imagePath: string | null) => {
-  if (!imagePath) return null;
-  const cleanPath = imagePath.startsWith("uploads/")
-    ? imagePath
-    : `uploads/${imagePath}`;
-  return `${endpoints.serveImage}?path=${encodeURIComponent(cleanPath)}`;
+  if (!imagePath || imagePath.trim() === "") return null;
+
+  // If already a full URL, return as is
+  if (imagePath.startsWith("http")) return imagePath;
+
+  // Handle case where imagePath might be a JSON string (from upload response)
+  let actualPath = imagePath;
+  try {
+    const parsed = JSON.parse(imagePath);
+    if (parsed && typeof parsed === "object" && parsed.filePath) {
+      actualPath = parsed.filePath;
+    }
+  } catch (e) {
+    // If it's not JSON, use the original path
+    actualPath = imagePath;
+  }
+
+  // Use the proper API configuration for image serving
+  return api.getServeImageUrl(actualPath);
 };
 
 // Define venue interface
@@ -123,10 +138,25 @@ export default function VenuesPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<FilterState>({
     search: "",
-    status: "",
+    status: "active", // Default to showing only active venues
     priceRange: "",
     capacity: "",
     type: "",
+  });
+
+  // Modal states
+  const [confirmationModal, setConfirmationModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    variant: "destructive" | "warning" | "default";
+  }>({
+    isOpen: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+    variant: "default",
   });
 
   useEffect(() => {
@@ -206,7 +236,10 @@ export default function VenuesPage() {
     try {
       setIsLoading(true);
       const response = await axios.get(endpoints.admin, {
-        params: { operation: "getAllVenues" },
+        params: {
+          operation: "getAllVenues",
+          include_inactive: true,
+        },
       });
 
       if (response.data.status === "success") {
@@ -224,55 +257,69 @@ export default function VenuesPage() {
   };
 
   const handleDeleteVenue = async (venueId: number) => {
-    if (confirm("Are you sure you want to delete this venue?")) {
-      try {
-        const response = await axios.post(endpoints.admin, {
-          operation: "deleteVenue",
-          venue_id: venueId,
-        });
+    setConfirmationModal({
+      isOpen: true,
+      title: "Delete Venue",
+      description:
+        "Are you sure you want to delete this venue? This action cannot be undone.",
+      onConfirm: async () => {
+        try {
+          const response = await axios.post(endpoints.admin, {
+            operation: "deleteVenue",
+            venue_id: venueId,
+          });
 
-        if (response.data.status === "success") {
-          toast.success(response.data.message || "Venue deleted successfully");
-          // Refresh the list
-          fetchVenues();
-        } else {
-          console.error("Delete error:", response.data.message);
-          toast.error("Failed to delete venue: " + response.data.message);
+          if (response.data.status === "success") {
+            toast.success(
+              response.data.message || "Venue deleted successfully"
+            );
+            // Refresh the list
+            fetchVenues();
+          } else {
+            console.error("Delete error:", response.data.message);
+            toast.error("Failed to delete venue: " + response.data.message);
+          }
+        } catch (error) {
+          console.error("API error:", error);
+          toast.error("Failed to connect to server");
         }
-      } catch (error) {
-        console.error("API error:", error);
-        toast.error("Failed to connect to server");
-      }
-    }
+        setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
+      },
+      variant: "destructive",
+    });
   };
 
   const handleDuplicateVenue = async (venueId: number) => {
-    if (
-      confirm(
-        "Are you sure you want to duplicate this venue? This will create a copy with all the same details."
-      )
-    ) {
-      try {
-        const response = await axios.post(endpoints.admin, {
-          operation: "duplicateVenue",
-          venue_id: venueId,
-        });
+    setConfirmationModal({
+      isOpen: true,
+      title: "Duplicate Venue",
+      description:
+        "Are you sure you want to duplicate this venue? This will create a copy with all the same details.",
+      onConfirm: async () => {
+        try {
+          const response = await axios.post(endpoints.admin, {
+            operation: "duplicateVenue",
+            venue_id: venueId,
+          });
 
-        if (response.data.status === "success") {
-          toast.success(
-            response.data.message || "Venue duplicated successfully"
-          );
-          // Refresh the list
-          fetchVenues();
-        } else {
-          console.error("Duplicate error:", response.data.message);
-          toast.error("Failed to duplicate venue: " + response.data.message);
+          if (response.data.status === "success") {
+            toast.success(
+              response.data.message || "Venue duplicated successfully"
+            );
+            // Refresh the list
+            fetchVenues();
+          } else {
+            console.error("Duplicate error:", response.data.message);
+            toast.error("Failed to duplicate venue: " + response.data.message);
+          }
+        } catch (error) {
+          console.error("API error:", error);
+          toast.error("Failed to connect to server");
         }
-      } catch (error) {
-        console.error("API error:", error);
-        toast.error("Failed to connect to server");
-      }
-    }
+        setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
+      },
+      variant: "warning",
+    });
   };
 
   const handleEditClick = (venue: Venue) => {
@@ -334,7 +381,7 @@ export default function VenuesPage() {
   const clearFilters = () => {
     setFilters({
       search: "",
-      status: "",
+      status: "active", // Reset to showing only active venues
       priceRange: "",
       capacity: "",
       type: "",
@@ -534,8 +581,8 @@ export default function VenuesPage() {
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
                       >
                         <option value="">All Status</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
+                        <option value="active">Active Only</option>
+                        <option value="inactive">Inactive Only</option>
                       </select>
                     </div>
 
@@ -984,6 +1031,18 @@ export default function VenuesPage() {
             )}
           </div>
         )}
+
+        {/* Confirmation Modal */}
+        <ConfirmationModal
+          isOpen={confirmationModal.isOpen}
+          onClose={() =>
+            setConfirmationModal((prev) => ({ ...prev, isOpen: false }))
+          }
+          onConfirm={confirmationModal.onConfirm}
+          title={confirmationModal.title}
+          description={confirmationModal.description}
+          variant={confirmationModal.variant}
+        />
 
         {/* Custom CSS for animations */}
         <style jsx>{`

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
+import { toast } from "sonner";
 import {
   User,
   Mail,
@@ -195,11 +196,11 @@ export default function SupplierProfile() {
         setEditing(false);
       } else {
         console.error("Failed to update profile:", data.message);
-        alert("Failed to update profile: " + data.message);
+        toast.error("Failed to update profile: " + data.message);
       }
     } catch (error) {
       console.error("Error updating profile:", error);
-      alert("Error updating profile");
+      toast.error("Error updating profile");
     } finally {
       setSaving(false);
     }

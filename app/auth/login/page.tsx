@@ -228,11 +228,11 @@ const LoginPage = () => {
 
   return (
     <ClientRouteProtection authRequired={false}>
-      <div className="relative flex min-h-screen bg-white">
+      <div className="relative flex min-h-screen bg-white overflow-hidden">
         {/* Top Left Back Button */}
         <Link
           href="/"
-          className="absolute top-6 left-6 z-20 flex items-center space-x-2 bg-transparent hover:bg-transparent group"
+          className="absolute top-4 left-4 sm:top-6 sm:left-6 z-20 flex items-center space-x-1 sm:space-x-2 bg-transparent hover:bg-transparent group"
           aria-label="Back to Home"
         >
           <svg
@@ -241,7 +241,7 @@ const LoginPage = () => {
             viewBox="0 0 48 24"
             strokeWidth={2.5}
             stroke="white"
-            className="w-10 h-6 mr-2 group-hover:-translate-x-1 transition-transform duration-150"
+            className="w-8 h-5 sm:w-10 sm:h-6 mr-1 sm:mr-2 group-hover:-translate-x-1 transition-transform duration-150"
           >
             <path
               strokeLinecap="round"
@@ -249,7 +249,7 @@ const LoginPage = () => {
               d="M36 21L12 12l24-9"
             />
           </svg>
-          <span className="font-semibold text-white text-lg tracking-wide">
+          <span className="font-semibold text-white text-base sm:text-lg tracking-wide">
             Back
           </span>
         </Link>
@@ -379,40 +379,40 @@ const LoginPage = () => {
 
         {/* Right Frame - Login Form */}
         <motion.div
-          className="flex-1 flex items-center justify-center p-8 bg-gray-50"
+          className="flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-gray-50 min-h-screen"
           initial={{ x: 100, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
         >
           <motion.div
-            className="w-full max-w-md"
+            className="w-full max-w-md mx-auto"
             initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.8, delay: 0.3 }}
           >
             {/* Mobile Logo */}
-            <div className="lg:hidden flex justify-center mb-8">
+            <div className="lg:hidden flex justify-center mb-6 sm:mb-8">
               <Image
                 src="/logo.png"
                 alt="Noreen Logo"
                 width={80}
                 height={80}
-                className="w-20 h-20 object-contain filter invert brightness-0"
+                className="w-16 h-16 sm:w-20 sm:h-20 object-contain filter invert brightness-0"
                 priority
               />
             </div>
 
-            <div className="bg-white rounded-2xl shadow-xl p-8">
-              <div className="text-center mb-8">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8">
+              <div className="text-center mb-6 sm:mb-8">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
                   Welcome Back
                 </h1>
-                <p className="text-gray-600">
+                <p className="text-sm sm:text-base text-gray-600">
                   Sign in to your account to continue
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
                 <div>
                   <label
                     htmlFor="email"
@@ -427,7 +427,7 @@ const LoginPage = () => {
                     value={formData.email}
                     onChange={handleChange}
                     required
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200"
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                     placeholder="Enter your email"
                   />
                 </div>
@@ -447,7 +447,7 @@ const LoginPage = () => {
                       value={formData.password}
                       onChange={handleChange}
                       required
-                      className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 pr-10 sm:pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                       placeholder="Enter your password"
                     />
                     <button
@@ -456,42 +456,42 @@ const LoginPage = () => {
                       className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
                     >
                       {showPassword ? (
-                        <EyeOff className="h-5 w-5" />
+                        <EyeOff className="h-4 w-4 sm:h-5 sm:w-5" />
                       ) : (
-                        <Eye className="h-5 w-5" />
+                        <Eye className="h-4 w-4 sm:h-5 sm:w-5" />
                       )}
                     </button>
                   </div>
                 </div>
 
                 {/* Simple Math Challenge */}
-                <div className="flex flex-col items-center p-4 border rounded-lg bg-gray-50">
-                  <div className="flex items-center justify-between w-full mb-2">
-                    <label className="text-sm font-medium text-gray-700">
+                <div className="flex flex-col items-center p-3 sm:p-4 border rounded-lg bg-gray-50 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-2">
+                    <label className="text-xs sm:text-sm font-medium text-gray-700 text-center sm:text-left">
                       Please solve this simple math problem:
                     </label>
                     <button
                       type="button"
                       onClick={generateMathChallenge}
-                      className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors"
+                      className="flex items-center justify-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors self-center sm:self-auto"
                       title="Generate new math problem"
                     >
                       <RefreshCw className="h-3 w-3" />
                       Reset
                     </button>
                   </div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="p-2 bg-white border rounded-md text-lg font-medium w-12 h-12 flex items-center justify-center">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="p-2 bg-white border rounded-md text-base sm:text-lg font-medium w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center">
                       {mathChallenge.num1}
                     </div>
-                    <div className="text-lg font-medium">+</div>
-                    <div className="p-2 bg-white border rounded-md text-lg font-medium w-12 h-12 flex items-center justify-center">
+                    <div className="text-base sm:text-lg font-medium">+</div>
+                    <div className="p-2 bg-white border rounded-md text-base sm:text-lg font-medium w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center">
                       {mathChallenge.num2}
                     </div>
-                    <div className="text-lg font-medium">=</div>
+                    <div className="text-base sm:text-lg font-medium">=</div>
                     <input
                       type="number"
-                      className={`p-2 border rounded-md w-16 h-12 text-center text-lg font-medium focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                      className={`p-2 border rounded-md w-14 sm:w-16 h-10 sm:h-12 text-center text-base sm:text-lg font-medium focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                         mathValidation === "correct"
                           ? "border-green-500 bg-green-50 ring-2 ring-green-200"
                           : mathValidation === "incorrect"
@@ -505,16 +505,16 @@ const LoginPage = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-0 text-xs sm:text-sm">
                   <Link
                     href="/auth/signup"
-                    className="text-[#334746] hover:underline"
+                    className="text-[#334746] hover:underline text-center sm:text-left"
                   >
                     Don't have an account?
                   </Link>
                   <Link
                     href="/auth/forgot-password"
-                    className="text-[#334746] hover:underline"
+                    className="text-[#334746] hover:underline text-center sm:text-right"
                   >
                     Forgot password?
                   </Link>
@@ -522,14 +522,14 @@ const LoginPage = () => {
 
                 <motion.button
                   type="submit"
-                  className="w-full bg-[#334746] text-white py-3 rounded-lg font-medium hover:bg-[#2a3a3a] focus:ring-2 focus:ring-[#334746] focus:ring-offset-2 transition-all duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  className="w-full bg-[#334746] text-white py-2.5 sm:py-3 rounded-lg font-medium hover:bg-[#2a3a3a] focus:ring-2 focus:ring-[#334746] focus:ring-offset-2 transition-all duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm sm:text-base"
                   disabled={isLoading}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
                   {isLoading ? (
                     <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                      <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-white mr-2"></div>
                       Signing in...
                     </div>
                   ) : (
@@ -538,9 +538,9 @@ const LoginPage = () => {
                 </motion.button>
 
                 {/* Separator */}
-                <div className="flex items-center my-6">
+                <div className="flex items-center my-4 sm:my-6">
                   <div className="flex-1 h-px bg-gray-200" />
-                  <span className="mx-4 text-gray-400 font-medium text-sm select-none">
+                  <span className="mx-3 sm:mx-4 text-gray-400 font-medium text-xs sm:text-sm select-none">
                     or login
                   </span>
                   <div className="flex-1 h-px bg-gray-200" />
@@ -549,14 +549,14 @@ const LoginPage = () => {
                 {/* Google Login Button (OAuth placeholder) */}
                 <button
                   type="button"
-                  className="w-full flex items-center justify-center gap-3 border border-gray-300 rounded-lg py-3 bg-white hover:bg-gray-50 transition-colors font-medium text-gray-700 shadow-sm"
+                  className="w-full flex items-center justify-center gap-2 sm:gap-3 border border-gray-300 rounded-lg py-2.5 sm:py-3 bg-white hover:bg-gray-50 transition-colors font-medium text-gray-700 shadow-sm text-sm sm:text-base"
                   onClick={() => {
                     /* TODO: Add Google OAuth logic here */
                   }}
                   disabled={isLoading}
                 >
                   <svg
-                    className="w-5 h-5"
+                    className="w-4 h-4 sm:w-5 sm:h-5"
                     viewBox="0 0 48 48"
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"

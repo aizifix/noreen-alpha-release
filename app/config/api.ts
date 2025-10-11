@@ -130,6 +130,20 @@ export const api = {
   getServeImageUrl: (imagePath: string) => {
     if (!imagePath) return null;
     if (imagePath.startsWith("http")) return imagePath;
-    return `${endpoints.serveImage}?path=${encodeURIComponent(imagePath)}`;
+
+    // Handle case where imagePath might be a JSON object instead of just a file path
+    let actualPath = imagePath;
+    try {
+      // Try to parse as JSON - if it's a JSON object, extract the filePath
+      const parsed = JSON.parse(imagePath);
+      if (parsed && typeof parsed === 'object' && parsed.filePath) {
+        actualPath = parsed.filePath;
+      }
+    } catch (e) {
+      // If parsing fails, it's not JSON, so use the original path
+      actualPath = imagePath;
+    }
+
+    return `${endpoints.serveImage}?path=${encodeURIComponent(actualPath)}`;
   },
 };

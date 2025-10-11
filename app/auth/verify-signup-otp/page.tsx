@@ -48,40 +48,54 @@ const VerifySignupOTP = () => {
     checkPendingSignup();
   }, [router]);
 
-  // Industry standard session protection - prevent leaving the page
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue =
-        "Are you sure you want to leave? Your verification session will be lost.";
-      return "Are you sure you want to leave? Your verification session will be lost.";
-    };
+  // Handle cleanup when user goes back to signup
+  const handleGoBackToSignup = async () => {
+    try {
+      // Call backend to cancel/cleanup the pending signup
+      const user_id = getCookie("pending_signup_user_id");
+      const email = getCookie("pending_signup_email");
 
-    const handlePopState = (e: PopStateEvent) => {
-      // Prevent back navigation
-      e.preventDefault();
-      window.history.pushState(null, "", window.location.href);
+      if (user_id && email) {
+        // Call backend to cleanup the unverified user
+        const formData = new FormData();
+        formData.append("operation", "cancel_signup");
+        formData.append("user_id", user_id);
+        formData.append("email", email);
 
+        try {
+          await axios.post(`${API_URL}/auth.php`, formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        } catch (error) {
+          console.error("Error canceling signup:", error);
+          // Continue with cleanup even if backend call fails
+        }
+      }
+
+      // Clear session cookies
+      document.cookie =
+        "pending_signup_user_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+      document.cookie =
+        "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+
+      // Show confirmation toast
       toast({
-        title: "Cannot go back",
-        description: "Please complete the verification process or start over.",
+        title: "Returning to signup",
+        description:
+          "Your form data has been restored. You can now edit your details and try again.",
+      });
+
+      // Redirect to signup (form data will be automatically restored by the signup page)
+      router.replace("/auth/signup");
+    } catch (error) {
+      console.error("Error going back to signup:", error);
+      toast({
+        title: "Error",
+        description: "Failed to return to signup. Please refresh the page.",
         variant: "destructive",
       });
-    };
-
-    // Add event listeners
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    window.addEventListener("popstate", handlePopState);
-
-    // Push current state to prevent back navigation
-    window.history.pushState(null, "", window.location.href);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, []);
+    }
+  };
 
   // Timer countdown effect
   useEffect(() => {
@@ -91,6 +105,8 @@ const VerifySignupOTP = () => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
+          // Auto-cleanup expired signup when timer reaches 0
+          handleExpiredOTP();
           return 0;
         }
         return prev - 1;
@@ -99,6 +115,50 @@ const VerifySignupOTP = () => {
 
     return () => clearInterval(timer);
   }, [timeLeft]);
+
+  // Handle expired OTP
+  const handleExpiredOTP = async () => {
+    try {
+      const user_id = getCookie("pending_signup_user_id");
+      const email = getCookie("pending_signup_email");
+
+      if (user_id && email) {
+        // Call backend to cleanup the expired signup
+        const formData = new FormData();
+        formData.append("operation", "cancel_signup");
+        formData.append("user_id", user_id);
+        formData.append("email", email);
+
+        try {
+          await axios.post(`${API_URL}/auth.php`, formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        } catch (error) {
+          console.error("Error cleaning up expired signup:", error);
+        }
+      }
+
+      // Clear session cookies
+      document.cookie =
+        "pending_signup_user_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+      document.cookie =
+        "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+
+      toast({
+        title: "Verification expired",
+        description:
+          "The verification code has expired. Your form data has been restored so you can try again.",
+        variant: "destructive",
+      });
+
+      // Redirect to signup after a delay (form data will be automatically restored)
+      setTimeout(() => {
+        router.replace("/auth/signup");
+      }, 3000);
+    } catch (error) {
+      console.error("Error handling expired OTP:", error);
+    }
+  };
 
   // Focus first input on mount
   useEffect(() => {
@@ -320,15 +380,8 @@ const VerifySignupOTP = () => {
         {/* Back to Signup Link */}
         <div className="mb-4">
           <button
-            onClick={() => {
-              // Clear session cookies before redirecting
-              document.cookie =
-                "pending_signup_user_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-              document.cookie =
-                "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-              router.replace("/auth/signup");
-            }}
-            className="text-sm text-gray-600 hover:text-gray-800 flex items-center"
+            onClick={handleGoBackToSignup}
+            className="text-sm text-gray-600 hover:text-gray-800 flex items-center transition-colors"
           >
             <X className="h-4 w-4 mr-1" />
             Go Back to Edit Details
@@ -460,15 +513,8 @@ const VerifySignupOTP = () => {
           <p className="text-sm text-gray-600">
             Need help?{" "}
             <button
-              onClick={() => {
-                // Clear session cookies before redirecting
-                document.cookie =
-                  "pending_signup_user_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                document.cookie =
-                  "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                router.replace("/auth/signup");
-              }}
-              className="text-[#028A75] hover:underline font-medium"
+              onClick={handleGoBackToSignup}
+              className="text-[#028A75] hover:underline font-medium transition-colors"
             >
               Go back to edit details
             </button>

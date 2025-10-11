@@ -4,23 +4,18 @@ import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Package,
-  Plus,
-  Minus,
   ChevronDown,
   ChevronUp,
   Search,
   RefreshCw,
   DollarSign,
-  Check,
-  X,
 } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
-import { apiClient } from "@/utils/apiClient";
+import axios from "axios";
+import { endpoints } from "@/app/config/api";
 
 // Types
 interface Component {
@@ -76,14 +71,11 @@ export default function ComponentsStep({
   const fetchAvailableComponents = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(
-        "/client.php",
-        {
-          params: { operation: "getAllPackageComponents" },
-        }
-      );
+      const response = await axios.get(`${endpoints.client}`, {
+        params: { operation: "getAllPackageComponents" },
+      });
 
-      if (response.status === "success") {
+      if (response?.data?.status === "success") {
         setAvailableComponents(response.data.components || []);
       }
     } catch (err) {

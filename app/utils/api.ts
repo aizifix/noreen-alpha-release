@@ -25,17 +25,30 @@ export async function apiGet<T = any>(
   config?: AxiosRequestConfig
 ): Promise<ApiResponse<T>> {
   try {
+    console.log("🌐 Making GET request to:", endpoint, "with params:", params);
     const response = await axios.get<ApiResponse<T>>(endpoint, {
       params,
       validateStatus: () => true,
       ...config,
     });
-    return response.data;
-  } catch (error) {
+
+    console.log("📡 Raw API Response:", response.data);
+
+    // Handle different response structures
+    if (response.data && typeof response.data === 'object') {
+      return response.data;
+    } else {
+      return {
+        status: "error",
+        error: "Invalid response format from server",
+      };
+    }
+  } catch (error: any) {
+    console.error("❌ API GET Error:", error);
     // Network error or request setup error
     return {
       status: "error",
-      error: error instanceof Error ? error.message : "Unknown error occurred",
+      error: error?.response?.data?.message || error?.message || "Unknown error occurred",
     };
   }
 }
@@ -119,8 +132,19 @@ export const adminApi = {
 
 // Client API helpers
 export const clientApi = {
-  get: <T = any>(params?: Record<string, any>, config?: AxiosRequestConfig) =>
-    apiGet<T>(endpoints.client, params, config),
+  get: async <T = any>(params?: Record<string, any>, config?: AxiosRequestConfig) => {
+    try {
+      const response = await apiGet<T>(endpoints.client, params, config);
+      console.log("🔍 Client API GET Response:", response);
+      return response;
+    } catch (error) {
+      console.error("❌ Client API GET Error:", error);
+      return {
+        status: "error",
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  },
   post: <T = any, D = any>(data: D, config?: AxiosRequestConfig) =>
     apiPost<T, D>(endpoints.client, data, config),
 };

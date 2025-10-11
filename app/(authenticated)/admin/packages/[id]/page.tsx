@@ -19,6 +19,7 @@ import {
   GripVertical,
   Plus,
   Gift,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BudgetBreakdown } from "../package-builder/budget-breakdown";
@@ -324,6 +325,40 @@ export default function PackageDetailsPage() {
         setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
       },
       variant: "destructive",
+    });
+  };
+
+  const handleDuplicatePackage = async () => {
+    if (!packageDetails) return;
+
+    setConfirmationModal({
+      isOpen: true,
+      title: "Duplicate Package",
+      description: `Are you sure you want to create a copy of "${packageDetails.package_title}"? This will create a new package with the same details.`,
+      onConfirm: async () => {
+        try {
+          const response = await axios.post(
+            endpoints.admin,
+            {
+              operation: "duplicatePackage",
+              package_id: params.id,
+            },
+            { headers: { "Content-Type": "application/json" } }
+          );
+
+          if (response.data.status === "success") {
+            toast.success("Package duplicated successfully");
+            router.push("/admin/packages");
+          } else {
+            toast.error("Failed to duplicate package");
+          }
+        } catch (error) {
+          console.error("Error duplicating package:", error);
+          toast.error("Failed to duplicate package");
+        }
+        setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
+      },
+      variant: "default",
     });
   };
 
@@ -828,6 +863,13 @@ export default function PackageDetailsPage() {
                   </button>
                 </div>
               )}
+              <button
+                onClick={handleDuplicatePackage}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                Duplicate Package
+              </button>
               <button
                 onClick={handleDeletePackage}
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"

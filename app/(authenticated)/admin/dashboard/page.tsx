@@ -104,6 +104,20 @@ interface CalendarEvent {
   event_type_name?: string;
 }
 
+// Minimal booking shape for Available Bookings list
+interface AvailableBooking {
+  booking_id: number;
+  booking_reference: string;
+  client_name: string;
+  event_name: string;
+  event_type_name: string;
+  event_date: string;
+  guest_count: number;
+  venue_name?: string;
+  package_name?: string;
+  booking_status: string;
+}
+
 interface CalendarConflictData {
   [date: string]: {
     hasWedding: boolean;
@@ -339,14 +353,15 @@ function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
           </div>
         </div>
 
-        {/* Calendar Grid */}
+        {/* Calendar Grid - Enhanced Responsive */}
         <div className="grid grid-cols-7 gap-1 text-xs">
           {dayNames.map((day) => (
             <div
               key={day}
               className="p-2 text-center font-medium text-gray-500 text-xs"
             >
-              {day}
+              <span className="hidden sm:inline">{day}</span>
+              <span className="sm:hidden">{day.charAt(0)}</span>
             </div>
           ))}
 
@@ -374,7 +389,7 @@ function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
             return (
               <div
                 key={day}
-                className={`p-2 text-center border border-gray-100 min-h-[60px] relative transition-all duration-200 ${
+                className={`p-1 sm:p-2 text-center border border-gray-100 min-h-[50px] sm:min-h-[60px] relative transition-all duration-200 ${
                   isToday ? "ring-2 ring-[#028A75] ring-offset-1" : ""
                 }`}
               >
@@ -392,7 +407,7 @@ function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
                     {dayEvents.slice(0, 2).map((event, index) => (
                       <div
                         key={index}
-                        className={`w-full h-1.5 rounded-full mx-auto ${
+                        className={`w-full h-1 sm:h-1.5 rounded-full mx-auto ${
                           event.status === "confirmed"
                             ? "bg-green-500"
                             : event.status === "planning"
@@ -419,7 +434,7 @@ function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
                 {/* Event count badge for multiple events */}
                 {eventCount > 1 && (
                   <div className="absolute -top-1 -right-1 z-10">
-                    <div className="text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold shadow-sm border border-white bg-[#028A75] text-white">
+                    <div className="text-xs rounded-full w-3 h-3 sm:w-4 sm:h-4 flex items-center justify-center font-bold shadow-sm border border-white bg-[#028A75] text-white">
                       {eventCount}
                     </div>
                   </div>
@@ -464,8 +479,8 @@ function AnalyticsContent() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="flex items-center justify-center h-48">
+        <Loader2 className="h-6 w-6 animate-spin" />
       </div>
     );
   }
@@ -481,7 +496,7 @@ function AnalyticsContent() {
           <p className="text-sm text-gray-500">Monthly revenue overview</p>
         </CardHeader>
         <CardContent>
-          <div className="h-80">
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={revenueData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -522,7 +537,7 @@ function AnalyticsContent() {
           <h3 className="text-lg font-semibold mb-4">
             Event Types Distribution
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {analyticsData?.eventTypes?.map((type: any, index: number) => (
               <div
                 key={index}
@@ -547,7 +562,7 @@ function AnalyticsContent() {
           <h3 className="text-lg font-semibold mb-4">
             Payment Status Overview
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {analyticsData?.paymentStatus?.map((status: any, index: number) => (
               <div
                 key={index}
@@ -569,7 +584,7 @@ function AnalyticsContent() {
       </Card>
 
       {/* Top Venues and Packages */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Card className="border-0 bg-white shadow-sm">
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold mb-4">Top Venues</h3>
@@ -794,31 +809,31 @@ function ReportsContent() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse border border-gray-200">
+          <table className="w-full border-collapse border border-gray-200 min-w-[800px]">
             <thead>
               <tr className="bg-gray-50">
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Event
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Client
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Date
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-right">
+                <th className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                   Total Budget
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-right">
+                <th className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                   Down Payment
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-right">
+                <th className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                   Total Paid
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-right">
+                <th className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                   Remaining
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-center">
+                <th className="border border-gray-200 px-3 py-2 text-center text-sm font-medium">
                   Status
                 </th>
               </tr>
@@ -826,38 +841,48 @@ function ReportsContent() {
             <tbody>
               {data.financial.map((event: any, index: number) => (
                 <tr key={index} className="hover:bg-gray-50">
-                  <td className="border border-gray-200 px-4 py-2">
-                    {event.event_title}
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
+                    <div
+                      className="max-w-[200px] truncate"
+                      title={event.event_title}
+                    >
+                      {event.event_title}
+                    </div>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
-                    {event.client_name}
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
+                    <div
+                      className="max-w-[150px] truncate"
+                      title={event.client_name}
+                    >
+                      {event.client_name}
+                    </div>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
                     {new Date(event.event_date).toLocaleDateString()}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-right">
+                  <td className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                     {formatCurrency(parseFloat(event.total_budget || 0))}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-right">
+                  <td className="border border-gray-200 px-3 py-2 text-right text-sm">
                     {formatCurrency(parseFloat(event.down_payment || 0))}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-right">
+                  <td className="border border-gray-200 px-3 py-2 text-right text-sm">
                     {formatCurrency(parseFloat(event.total_paid || 0))}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-right">
+                  <td className="border border-gray-200 px-3 py-2 text-right text-sm">
                     <span
-                      className={
+                      className={`font-medium ${
                         parseFloat(event.remaining_balance || 0) > 0
                           ? "text-red-600"
                           : "text-green-600"
-                      }
+                      }`}
                     >
                       {formatCurrency(parseFloat(event.remaining_balance || 0))}
                     </span>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-center">
+                  <td className="border border-gray-200 px-3 py-2 text-center text-sm">
                     <span
-                      className={`px-2 py-1 rounded text-xs ${
+                      className={`px-2 py-1 rounded text-xs font-medium ${
                         event.payment_status === "completed"
                           ? "bg-green-100 text-green-800"
                           : event.payment_status === "pending"
@@ -896,34 +921,34 @@ function ReportsContent() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse border border-gray-200">
+          <table className="w-full border-collapse border border-gray-200 min-w-[900px]">
             <thead>
               <tr className="bg-gray-50">
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Event
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Type
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Client
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Venue
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Package
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-center">
+                <th className="border border-gray-200 px-3 py-2 text-center text-sm font-medium">
                   Guests
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-right">
+                <th className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                   Budget
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-center">
+                <th className="border border-gray-200 px-3 py-2 text-center text-sm font-medium">
                   Status
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Created
                 </th>
               </tr>
@@ -931,30 +956,50 @@ function ReportsContent() {
             <tbody>
               {data.events.map((event: any, index: number) => (
                 <tr key={index} className="hover:bg-gray-50">
-                  <td className="border border-gray-200 px-4 py-2">
-                    {event.event_title}
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
+                    <div
+                      className="max-w-[180px] truncate"
+                      title={event.event_title}
+                    >
+                      {event.event_title}
+                    </div>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
                     {event.event_type}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
-                    {event.client_name}
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
+                    <div
+                      className="max-w-[120px] truncate"
+                      title={event.client_name}
+                    >
+                      {event.client_name}
+                    </div>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
-                    {event.venue_title || "N/A"}
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
+                    <div
+                      className="max-w-[120px] truncate"
+                      title={event.venue_title || "N/A"}
+                    >
+                      {event.venue_title || "N/A"}
+                    </div>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
-                    {event.package_title || "N/A"}
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
+                    <div
+                      className="max-w-[120px] truncate"
+                      title={event.package_title || "N/A"}
+                    >
+                      {event.package_title || "N/A"}
+                    </div>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-center">
+                  <td className="border border-gray-200 px-3 py-2 text-center text-sm">
                     {event.guest_count}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-right">
+                  <td className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                     {formatCurrency(parseFloat(event.total_budget || 0))}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-center">
+                  <td className="border border-gray-200 px-3 py-2 text-center text-sm">
                     <span
-                      className={`px-2 py-1 rounded text-xs ${
+                      className={`px-2 py-1 rounded text-xs font-medium ${
                         event.event_status === "completed"
                           ? "bg-green-100 text-green-800"
                           : event.event_status === "confirmed"
@@ -967,7 +1012,7 @@ function ReportsContent() {
                       {event.event_status}
                     </span>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
                     {new Date(event.created_at).toLocaleDateString()}
                   </td>
                 </tr>
@@ -998,31 +1043,31 @@ function ReportsContent() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse border border-gray-200">
+          <table className="w-full border-collapse border border-gray-200 min-w-[1000px]">
             <thead>
               <tr className="bg-gray-50">
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Client Name
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Email
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Contact
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-center">
+                <th className="border border-gray-200 px-3 py-2 text-center text-sm font-medium">
                   Total Events
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-right">
+                <th className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                   Contract Value
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-right">
+                <th className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                   Total Payments
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   First Event
                 </th>
-                <th className="border border-gray-200 px-4 py-2 text-left">
+                <th className="border border-gray-200 px-3 py-2 text-left text-sm font-medium">
                   Last Event
                 </th>
               </tr>
@@ -1030,30 +1075,40 @@ function ReportsContent() {
             <tbody>
               {data.clients.map((client: any, index: number) => (
                 <tr key={index} className="hover:bg-gray-50">
-                  <td className="border border-gray-200 px-4 py-2 font-medium">
-                    {client.client_name}
+                  <td className="border border-gray-200 px-3 py-2 font-medium text-sm">
+                    <div
+                      className="max-w-[150px] truncate"
+                      title={client.client_name}
+                    >
+                      {client.client_name}
+                    </div>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
-                    {client.user_email}
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
+                    <div
+                      className="max-w-[180px] truncate"
+                      title={client.user_email}
+                    >
+                      {client.user_email}
+                    </div>
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
                     {client.user_contact || "N/A"}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-center">
+                  <td className="border border-gray-200 px-3 py-2 text-center text-sm">
                     {client.total_events}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-right">
+                  <td className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                     {formatCurrency(
                       parseFloat(client.total_contract_value || 0)
                     )}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2 text-right">
+                  <td className="border border-gray-200 px-3 py-2 text-right text-sm font-medium">
                     {formatCurrency(parseFloat(client.total_payments || 0))}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
                     {new Date(client.first_event_date).toLocaleDateString()}
                   </td>
-                  <td className="border border-gray-200 px-4 py-2">
+                  <td className="border border-gray-200 px-3 py-2 text-sm">
                     {new Date(client.last_event_date).toLocaleDateString()}
                   </td>
                 </tr>
@@ -1100,7 +1155,7 @@ function ReportsContent() {
       </Card>
 
       {/* Report Type Buttons */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <button
           onClick={() => fetchReports("summary")}
           className={`p-4 rounded-lg border-2 transition-all ${
@@ -1109,9 +1164,11 @@ function ReportsContent() {
               : "border-gray-200 bg-white hover:shadow-md"
           }`}
         >
-          <BarChart3 className="h-8 w-8 text-[#028A75] mb-2" />
-          <h3 className="font-semibold text-gray-900">Summary Report</h3>
-          <p className="text-sm text-gray-500">Overall performance metrics</p>
+          <BarChart3 className="h-6 w-6 text-[#028A75] mb-2" />
+          <h3 className="font-semibold text-gray-900 text-sm">
+            Summary Report
+          </h3>
+          <p className="text-xs text-gray-500">Overall performance metrics</p>
         </button>
 
         <button
@@ -1122,9 +1179,11 @@ function ReportsContent() {
               : "border-gray-200 bg-white hover:shadow-md"
           }`}
         >
-          <DollarSign className="h-8 w-8 text-[#028A75] mb-2" />
-          <h3 className="font-semibold text-gray-900">Financial Report</h3>
-          <p className="text-sm text-gray-500">Payment and revenue details</p>
+          <DollarSign className="h-6 w-6 text-[#028A75] mb-2" />
+          <h3 className="font-semibold text-gray-900 text-sm">
+            Financial Report
+          </h3>
+          <p className="text-xs text-gray-500">Payment and revenue details</p>
         </button>
 
         <button
@@ -1135,9 +1194,9 @@ function ReportsContent() {
               : "border-gray-200 bg-white hover:shadow-md"
           }`}
         >
-          <Calendar className="h-8 w-8 text-[#028A75] mb-2" />
-          <h3 className="font-semibold text-gray-900">Events Report</h3>
-          <p className="text-sm text-gray-500">Detailed event analysis</p>
+          <Calendar className="h-6 w-6 text-[#028A75] mb-2" />
+          <h3 className="font-semibold text-gray-900 text-sm">Events Report</h3>
+          <p className="text-xs text-gray-500">Detailed event analysis</p>
         </button>
 
         <button
@@ -1148,16 +1207,18 @@ function ReportsContent() {
               : "border-gray-200 bg-white hover:shadow-md"
           }`}
         >
-          <Users className="h-8 w-8 text-[#028A75] mb-2" />
-          <h3 className="font-semibold text-gray-900">Clients Report</h3>
-          <p className="text-sm text-gray-500">Client engagement metrics</p>
+          <Users className="h-6 w-6 text-[#028A75] mb-2" />
+          <h3 className="font-semibold text-gray-900 text-sm">
+            Clients Report
+          </h3>
+          <p className="text-xs text-gray-500">Client engagement metrics</p>
         </button>
       </div>
 
       {isLoading && (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          <span className="ml-2">Loading report data...</span>
+        <div className="flex items-center justify-center h-48">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span className="ml-2 text-sm">Loading report data...</span>
         </div>
       )}
 
@@ -1211,6 +1272,11 @@ export default function AdminDashboard() {
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [availableBookings, setAvailableBookings] = useState<
+    AvailableBooking[]
+  >([]);
+  const [loadingAvailableBookings, setLoadingAvailableBookings] =
+    useState(false);
 
   // Update current date and time
   useEffect(() => {
@@ -1298,6 +1364,36 @@ export default function AdminDashboard() {
         }));
         setCalendarEvents(calendarData);
       }
+
+      // Fetch confirmed, not-converted bookings for quick create
+      try {
+        setLoadingAvailableBookings(true);
+        const bookingsRes = await axios.get("/admin.php", {
+          params: { operation: "getAvailableBookings" },
+        });
+        if (bookingsRes.data && bookingsRes.data.status === "success") {
+          const list: AvailableBooking[] = (
+            bookingsRes.data.bookings || []
+          ).filter((b: any) => {
+            const status = (b.booking_status || b.status || "")
+              .toString()
+              .toLowerCase();
+            const isConfirmed = status === "confirmed";
+            const isConverted =
+              Boolean(b.is_converted) ||
+              status === "converted" ||
+              Boolean(b.converted_event_id);
+            return isConfirmed && !isConverted;
+          });
+          setAvailableBookings(list);
+        } else {
+          setAvailableBookings([]);
+        }
+      } catch (e) {
+        setAvailableBookings([]);
+      } finally {
+        setLoadingAvailableBookings(false);
+      }
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
       toast({
@@ -1334,7 +1430,7 @@ export default function AdminDashboard() {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-[#028A75] mx-auto mb-4" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#028A75] mx-auto mb-3" />
           <p className="text-gray-600">Loading dashboard...</p>
         </div>
       </div>
@@ -1342,9 +1438,9 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-8">
-        {/* Header Section */}
+        {/* Header Section - Enhanced Responsive */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 lg:mb-8">
           <div className="space-y-2">
             <h1 className="text-xl lg:text-2xl font-bold text-gray-900">
@@ -1375,64 +1471,65 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 border border-gray-200 shadow-sm"
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 border border-gray-200 shadow-sm text-sm"
             >
               <RefreshCw
                 className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
               />
-              Refresh
+              <span className="hidden sm:inline">Refresh</span>
             </button>
             <button
               onClick={() => router.push("/admin/event-builder")}
-              className="flex items-center gap-2 px-6 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors shadow-sm"
+              className="flex items-center justify-center gap-2 px-6 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors shadow-sm text-sm font-medium"
             >
               <Plus className="h-4 w-4" />
-              Create Event
+              <span className="hidden sm:inline">Create Event</span>
+              <span className="sm:hidden">New Event</span>
             </button>
           </div>
         </div>
 
-        {/* Enhanced Tabs */}
+        {/* Enhanced Tabs - Mobile Responsive */}
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm">
+          <TabsList className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm w-full">
             <TabsTrigger
               value="overview"
-              className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200"
+              className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200 flex-1"
             >
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4" />
-                Overview
+                <span className="text-sm">Overview</span>
               </div>
             </TabsTrigger>
             <TabsTrigger
               value="analytics"
-              className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200"
+              className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200 flex-1"
             >
               <div className="flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" />
-                Analytics
+                <span className="text-sm">Analytics</span>
               </div>
             </TabsTrigger>
             <TabsTrigger
               value="reports"
-              className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200"
+              className="data-[state=active]:bg-[#028A75] data-[state=active]:text-white data-[state=active]:shadow-none rounded-md transition-all duration-200 flex-1"
             >
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                Reports
+                <span className="text-sm">Reports</span>
               </div>
             </TabsTrigger>
           </TabsList>
 
           <TabsContent
             value="overview"
-            className="mt-8 space-y-8 animate-in slide-in-from-bottom-4 duration-500"
+            className="mt-6 space-y-6 animate-in slide-in-from-bottom-4 duration-500"
           >
-            {/* Metrics Cards */}
+            {/* Metrics Cards - Enhanced Responsive */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
               <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
                 <CardContent className="p-4 lg:p-6">
@@ -1523,7 +1620,7 @@ export default function AdminDashboard() {
               </Card>
             </div>
 
-            {/* Quick Actions Section */}
+            {/* Quick Actions Section - Enhanced Responsive */}
             <Card className="border-0 bg-white shadow-sm">
               <CardHeader>
                 <CardTitle className="text-lg font-semibold text-gray-900">
@@ -1611,7 +1708,7 @@ export default function AdminDashboard() {
                 </p>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-200">
                     <div className="flex items-center gap-3">
                       <div className="w-3 h-3 bg-green-500 rounded-full"></div>
@@ -1645,7 +1742,7 @@ export default function AdminDashboard() {
               </CardContent>
             </Card>
 
-            {/* Calendar and Events Section */}
+            {/* Calendar and Events Section - Enhanced Responsive */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Enhanced Calendar */}
               <div className="lg:col-span-2">
@@ -1679,15 +1776,15 @@ export default function AdminDashboard() {
                           key={event.id}
                           className="border-b border-gray-100 pb-4 last:border-0 last:pb-0"
                         >
-                          <div className="flex justify-between items-start mb-2">
-                            <h4 className="font-medium text-gray-900 line-clamp-2">
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-2">
+                            <h4 className="font-medium text-gray-900 line-clamp-2 flex-1">
                               {event.title}
                             </h4>
                             <Badge
                               className={
                                 event.status.toLowerCase() === "confirmed"
-                                  ? "bg-green-100 text-green-800 border-green-200"
-                                  : "bg-blue-100 text-blue-800 border-blue-200"
+                                  ? "bg-green-100 text-green-800 border-green-200 self-start"
+                                  : "bg-blue-100 text-blue-800 border-blue-200 self-start"
                               }
                             >
                               {event.status}
@@ -1717,7 +1814,89 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Recent Payments */}
+            {/* Available Bookings for Quick Event Creation */}
+            <Card className="border-0 bg-white shadow-sm">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg font-semibold text-gray-900">
+                    Available Bookings
+                  </CardTitle>
+                  <button
+                    className="flex items-center text-sm text-[#028A75] hover:text-[#027a65] font-medium"
+                    onClick={() => router.push("/admin/bookings")}
+                  >
+                    Manage Bookings
+                    <ArrowRight className="ml-1 h-4 w-4" />
+                  </button>
+                </div>
+                <p className="text-sm text-gray-500">
+                  Confirmed bookings not yet converted to events
+                </p>
+              </CardHeader>
+              <CardContent className="p-4">
+                {loadingAvailableBookings ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    <span className="text-sm text-gray-600">
+                      Loading available bookings…
+                    </span>
+                  </div>
+                ) : availableBookings.length === 0 ? (
+                  <div className="text-sm text-gray-500 py-2">
+                    No confirmed bookings ready for conversion.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {availableBookings.slice(0, 5).map((b) => (
+                      <div
+                        key={b.booking_id}
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-lg border border-gray-100 hover:bg-gray-50"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-gray-900 truncate">
+                              {b.event_name}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              • {new Date(b.event_date).toLocaleDateString()} •{" "}
+                              {b.guest_count} guests
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500 truncate">
+                            Ref: {b.booking_reference}{" "}
+                            {b.venue_name ? `• ${b.venue_name}` : ""}
+                          </div>
+                        </div>
+                        <button
+                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#028A75] text-white rounded-md hover:bg-[#027a65] text-xs sm:text-sm"
+                          onClick={() =>
+                            router.push(
+                              `/admin/event-builder?booking_ref=${encodeURIComponent(
+                                b.booking_reference
+                              )}&skip_recovery=1`
+                            )
+                          }
+                        >
+                          <ArrowRight className="h-4 w-4" /> Create Event
+                        </button>
+                      </div>
+                    ))}
+                    {availableBookings.length > 5 && (
+                      <div className="text-center pt-2">
+                        <button
+                          className="text-sm text-[#028A75] hover:text-[#027a65] font-medium"
+                          onClick={() => router.push("/admin/bookings")}
+                        >
+                          View all available bookings
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Recent Payments - Enhanced Responsive */}
             <Card className="border-0 bg-white shadow-sm">
               <CardHeader>
                 <div className="flex justify-between items-center">
@@ -1741,9 +1920,9 @@ export default function AdminDashboard() {
                   {recentPayments.map((payment) => (
                     <div
                       key={payment.id}
-                      className="flex justify-between items-center border-b border-gray-100 pb-4 last:border-0 last:pb-0 hover:bg-gray-50 p-3 rounded-lg transition-colors"
+                      className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b border-gray-100 pb-4 last:border-0 last:pb-0 hover:bg-gray-50 p-3 rounded-lg transition-colors"
                     >
-                      <div>
+                      <div className="flex-1">
                         <h4 className="font-medium text-gray-900">
                           {payment.event}
                         </h4>
@@ -1752,13 +1931,13 @@ export default function AdminDashboard() {
                           {payment.type}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className="font-medium text-gray-900">
+                      <div className="flex flex-col sm:items-end gap-2">
+                        <p className="font-medium text-gray-900 text-lg">
                           {formatCurrency(payment.amount)}
                         </p>
                         <Badge
                           variant="outline"
-                          className="bg-green-50 text-green-700 border-green-200"
+                          className="bg-green-50 text-green-700 border-green-200 self-start sm:self-end"
                         >
                           {payment.status}
                         </Badge>

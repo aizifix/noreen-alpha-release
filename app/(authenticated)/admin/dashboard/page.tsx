@@ -74,6 +74,11 @@ interface DashboardMetrics {
     clients: number;
     completed: number;
   };
+  monthlyRevenue?: Array<{
+    month: string;
+    revenue: number;
+    events_with_payments: number;
+  }>;
 }
 
 interface UpcomingEvent {
@@ -131,21 +136,54 @@ interface CalendarConflictData {
   };
 }
 
-// Mock data for the revenue chart (will be moved to analytics)
-const revenueData = [
-  { month: "Jan", revenue: 45000 },
-  { month: "Feb", revenue: 52000 },
-  { month: "Mar", revenue: 48000 },
-  { month: "Apr", revenue: 61000 },
-  { month: "May", revenue: 55000 },
-  { month: "Jun", revenue: 67000 },
-  { month: "Jul", revenue: 72000 },
-  { month: "Aug", revenue: 68000 },
-  { month: "Sep", revenue: 75000 },
-  { month: "Oct", revenue: 82000 },
-  { month: "Nov", revenue: 78000 },
-  { month: "Dec", revenue: 85000 },
-];
+// Revenue data is now fetched from the API in AnalyticsContent component
+
+// Helper function to process monthly revenue data for charts
+const processRevenueData = (
+  monthlyRevenue: any[]
+): Array<{
+  month: string;
+  monthKey: string;
+  revenue: number;
+}> => {
+  if (!monthlyRevenue || monthlyRevenue.length === 0) {
+    return [];
+  }
+
+  // Create a map of all months in the last 12 months
+  const last12Months: Array<{
+    month: string;
+    monthKey: string;
+    revenue: number;
+  }> = [];
+  const currentDate = new Date();
+
+  for (let i = 11; i >= 0; i--) {
+    const date = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth() - i,
+      1
+    );
+    const monthKey = date.toISOString().slice(0, 7); // YYYY-MM format
+    const monthName = date.toLocaleDateString("en-US", { month: "short" });
+
+    last12Months.push({
+      month: monthName,
+      monthKey: monthKey,
+      revenue: 0,
+    });
+  }
+
+  // Fill in actual revenue data
+  monthlyRevenue.forEach((item: any) => {
+    const monthIndex = last12Months.findIndex((m) => m.monthKey === item.month);
+    if (monthIndex !== -1) {
+      last12Months[monthIndex].revenue = parseFloat(item.revenue) || 0;
+    }
+  });
+
+  return last12Months;
+};
 
 // Helper function to format large numbers
 const formatNumber = (num: number): string => {
@@ -406,7 +444,7 @@ function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
                   <div className="mt-1 space-y-1">
                     {dayEvents.slice(0, 2).map((event, index) => (
                       <div
-                        key={index}
+                        key={`day-event-${index}`}
                         className={`w-full h-1 sm:h-1.5 rounded-full mx-auto ${
                           event.status === "confirmed"
                             ? "bg-green-500"
@@ -485,48 +523,65 @@ function AnalyticsContent() {
     );
   }
 
+  const chartData = processRevenueData(analyticsData?.monthlyRevenue || []);
+
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-      {/* Revenue Trend Chart - Moved from Overview */}
+      {/* Revenue Trend Chart - Using Real Data */}
       <Card className="border-0 bg-white shadow-sm">
         <CardHeader>
           <CardTitle className="text-lg font-semibold text-gray-900">
             Revenue Trend
           </CardTitle>
-          <p className="text-sm text-gray-500">Monthly revenue overview</p>
+          <p className="text-sm text-gray-500">
+            Monthly revenue overview (Last 12 months)
+          </p>
         </CardHeader>
         <CardContent>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={revenueData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" stroke="#6b7280" />
-                <YAxis
-                  stroke="#6b7280"
-                  tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`}
-                />
-                <Tooltip
-                  formatter={(value: any) => [
-                    `₱${value.toLocaleString()}`,
-                    "Revenue",
-                  ]}
-                  labelStyle={{ color: "#374151" }}
-                  contentStyle={{
-                    backgroundColor: "white",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "8px",
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke="#028A75"
-                  strokeWidth={3}
-                  dot={{ fill: "#028A75", strokeWidth: 2, r: 4 }}
-                  activeDot={{ r: 6, stroke: "#028A75", strokeWidth: 2 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" stroke="#6b7280" fontSize={12} />
+                  <YAxis
+                    stroke="#6b7280"
+                    fontSize={12}
+                    tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`}
+                  />
+                  <Tooltip
+                    formatter={(value: any) => [
+                      `₱${parseFloat(value).toLocaleString()}`,
+                      "Revenue",
+                    ]}
+                    labelStyle={{ color: "#374151" }}
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#028A75"
+                    strokeWidth={3}
+                    dot={{ fill: "#028A75", strokeWidth: 2, r: 4 }}
+                    activeDot={{ r: 6, stroke: "#028A75", strokeWidth: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                <div className="text-center">
+                  <BarChart3 className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">No revenue data available</p>
+                  <p className="text-xs text-gray-400">
+                    Revenue will appear here once payments are recorded
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -540,7 +595,7 @@ function AnalyticsContent() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {analyticsData?.eventTypes?.map((type: any, index: number) => (
               <div
-                key={index}
+                key={`event-type-${index}`}
                 className="bg-gray-50 p-4 rounded-lg border border-gray-100 hover:shadow-md transition-shadow"
               >
                 <h4 className="font-medium">{type.event_name}</h4>
@@ -565,7 +620,7 @@ function AnalyticsContent() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {analyticsData?.paymentStatus?.map((status: any, index: number) => (
               <div
-                key={index}
+                key={`payment-status-${index}`}
                 className="bg-gray-50 p-4 rounded-lg border border-gray-100 hover:shadow-md transition-shadow"
               >
                 <h4 className="font-medium capitalize">
@@ -593,7 +648,7 @@ function AnalyticsContent() {
                 ?.slice(0, 5)
                 .map((venue: any, index: number) => (
                   <div
-                    key={index}
+                    key={`top-venue-${index}`}
                     className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <div>
@@ -619,7 +674,7 @@ function AnalyticsContent() {
                 ?.slice(0, 5)
                 .map((pkg: any, index: number) => (
                   <div
-                    key={index}
+                    key={`top-package-${index}`}
                     className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <div>
@@ -840,7 +895,7 @@ function ReportsContent() {
             </thead>
             <tbody>
               {data.financial.map((event: any, index: number) => (
-                <tr key={index} className="hover:bg-gray-50">
+                <tr key={`financial-${index}`} className="hover:bg-gray-50">
                   <td className="border border-gray-200 px-3 py-2 text-sm">
                     <div
                       className="max-w-[200px] truncate"
@@ -955,7 +1010,7 @@ function ReportsContent() {
             </thead>
             <tbody>
               {data.events.map((event: any, index: number) => (
-                <tr key={index} className="hover:bg-gray-50">
+                <tr key={`events-${index}`} className="hover:bg-gray-50">
                   <td className="border border-gray-200 px-3 py-2 text-sm">
                     <div
                       className="max-w-[180px] truncate"
@@ -1074,7 +1129,7 @@ function ReportsContent() {
             </thead>
             <tbody>
               {data.clients.map((client: any, index: number) => (
-                <tr key={index} className="hover:bg-gray-50">
+                <tr key={`clients-${index}`} className="hover:bg-gray-50">
                   <td className="border border-gray-200 px-3 py-2 font-medium text-sm">
                     <div
                       className="max-w-[150px] truncate"
@@ -1316,6 +1371,22 @@ export default function AdminDashboard() {
 
       if (metricsResponse.data.status === "success") {
         setMetrics(metricsResponse.data.metrics);
+      }
+
+      // Fetch analytics data (including monthly revenue)
+      const analyticsResponse = await axios.get("/admin.php", {
+        params: {
+          operation: "getAnalyticsData",
+          admin_id: userData?.user_id,
+        },
+      });
+
+      if (analyticsResponse.data.status === "success") {
+        // Update metrics with monthly revenue data
+        setMetrics((prevMetrics) => ({
+          ...prevMetrics,
+          monthlyRevenue: analyticsResponse.data.analytics.monthlyRevenue || [],
+        }));
       }
 
       // Fetch upcoming events
@@ -1953,6 +2024,90 @@ export default function AdminDashboard() {
                   >
                     View All Payments <ArrowRight className="ml-1 h-4 w-4" />
                   </button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Revenue Trend Chart - Overview */}
+            <Card className="border-0 bg-white shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold text-gray-900">
+                  Revenue Trend
+                </CardTitle>
+                <p className="text-sm text-gray-500">
+                  Monthly revenue overview (Last 12 months)
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  {(() => {
+                    // Get revenue data from the main dashboard data
+                    const revenueData = processRevenueData(
+                      metrics.monthlyRevenue || []
+                    );
+
+                    if (revenueData.length > 0) {
+                      return (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={revenueData}>
+                            <CartesianGrid
+                              strokeDasharray="3 3"
+                              stroke="#f0f0f0"
+                            />
+                            <XAxis
+                              dataKey="month"
+                              stroke="#6b7280"
+                              fontSize={12}
+                            />
+                            <YAxis
+                              stroke="#6b7280"
+                              fontSize={12}
+                              tickFormatter={(value) =>
+                                `₱${(value / 1000).toFixed(0)}k`
+                              }
+                            />
+                            <Tooltip
+                              formatter={(value: any) => [
+                                `₱${parseFloat(value).toLocaleString()}`,
+                                "Revenue",
+                              ]}
+                              labelStyle={{ color: "#374151" }}
+                              contentStyle={{
+                                backgroundColor: "white",
+                                border: "1px solid #e5e7eb",
+                                borderRadius: "8px",
+                              }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="revenue"
+                              stroke="#028A75"
+                              strokeWidth={3}
+                              dot={{ fill: "#028A75", strokeWidth: 2, r: 4 }}
+                              activeDot={{
+                                r: 6,
+                                stroke: "#028A75",
+                                strokeWidth: 2,
+                              }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      );
+                    } else {
+                      return (
+                        <div className="flex items-center justify-center h-full text-gray-500">
+                          <div className="text-center">
+                            <BarChart3 className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                            <p className="text-sm">No revenue data available</p>
+                            <p className="text-xs text-gray-400">
+                              Revenue will appear here once payments are
+                              recorded
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+                  })()}
                 </div>
               </CardContent>
             </Card>

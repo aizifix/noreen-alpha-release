@@ -632,7 +632,7 @@ export default function LandingPage() {
               <div className="flex justify-center mt-8 space-x-2">
                 {packages.map((_: PackageData, index: number) => (
                   <button
-                    key={index}
+                    key={`landing-package-dot-${index}`}
                     onClick={() => goToPackage(index)}
                     className={`w-3 h-3 rounded-full transition-colors ${
                       index === currentPackageIndex
@@ -1000,7 +1000,7 @@ export default function LandingPage() {
                         selectedPackage.components.map(
                           (component: any, idx: number) => (
                             <div
-                              key={idx}
+                              key={`landing-component-${idx}`}
                               className="flex items-center p-4 bg-white border rounded-lg hover:bg-gray-50 transition-colors"
                             >
                               <CheckCircle className="h-4 w-4 mr-3 text-green-500" />
@@ -1030,7 +1030,7 @@ export default function LandingPage() {
                           {selectedPackage.freebies.map(
                             (freebie: any, idx: number) => (
                               <div
-                                key={idx}
+                                key={`landing-freebie-${idx}`}
                                 className="flex items-start p-4 bg-orange-50 rounded-lg"
                               >
                                 <Gift className="h-5 w-5 mr-3 text-orange-600 flex-shrink-0 mt-0.5" />
@@ -1061,7 +1061,7 @@ export default function LandingPage() {
                           {selectedPackage.event_type_names.map(
                             (eventType: string, idx: number) => (
                               <Badge
-                                key={idx}
+                                key={`landing-event-type-${idx}`}
                                 style={{
                                   backgroundColor: "#334746",
                                   opacity: 0.1,

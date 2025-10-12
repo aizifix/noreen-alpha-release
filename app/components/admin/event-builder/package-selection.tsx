@@ -775,7 +775,7 @@ export function PackageSelection({
                       selectedPackageForDetails.inclusions.map(
                         (inclusion, idx) => (
                           <div
-                            key={idx}
+                            key={`package-selection-inclusion-${idx}`}
                             className="flex items-center p-4 bg-white border rounded-lg hover:bg-gray-50 transition-colors"
                           >
                             <CheckCircle className="h-4 w-4 mr-3 text-green-500" />
@@ -805,7 +805,7 @@ export function PackageSelection({
                         {selectedPackageForDetails.freebies.map(
                           (freebie, idx) => (
                             <div
-                              key={idx}
+                              key={`package-selection-freebie-${idx}`}
                               className="flex items-start p-4 bg-orange-50 rounded-lg"
                             >
                               <Gift className="h-5 w-5 mr-3 text-orange-600 flex-shrink-0 mt-0.5" />
@@ -968,7 +968,7 @@ export function PackageSelection({
                               {selectedPackageForDetails.venue_previews.map(
                                 (_, idx) => (
                                   <button
-                                    key={idx}
+                                    key={`package-selection-venue-dot-${idx}`}
                                     onClick={() => setCurrentVenueIndex(idx)}
                                     className={`h-2 rounded-full transition-all duration-300 ${
                                       idx === currentVenueIndex

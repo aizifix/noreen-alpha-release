@@ -13,3 +13,22 @@ export function formatCurrency(amount: number): string {
     maximumFractionDigits: 0,
   }).format(amount);
 }
+
+export function parsePrice(price: string | number): number {
+  if (typeof price === 'number') {
+    return price;
+  }
+
+  if (typeof price === 'string') {
+    // Remove commas, spaces, and currency symbols, then parse
+    const cleanPrice = price.replace(/[,\s₱$]/g, '');
+    const parsed = parseFloat(cleanPrice);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+
+  return 0;
+}
+
+export function formatPrice(price: number): string {
+  return `₱${price.toLocaleString()}`;
+}

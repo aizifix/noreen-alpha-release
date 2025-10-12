@@ -801,6 +801,22 @@ export default function EventBuilderPage() {
     }
   }, [eventTypes, selectedEventType]);
 
+  // Debug wedding form step condition
+  useEffect(() => {
+    const showWeddingForm =
+      selectedEventType === "wedding" ||
+      eventDetails.type === "wedding" ||
+      getEventTypeIdFromName(selectedEventType || eventDetails.type) === 1;
+    console.log("🎭 Wedding Form Step Condition Check:");
+    console.log("  selectedEventType:", selectedEventType);
+    console.log("  eventDetails.type:", eventDetails.type);
+    console.log(
+      "  getEventTypeIdFromName result:",
+      getEventTypeIdFromName(selectedEventType || eventDetails.type)
+    );
+    console.log("  showWeddingForm:", showWeddingForm);
+  }, [selectedEventType, eventDetails.type]);
+
   // Auto-load booking data when booking reference is present/changes in URL
   useEffect(() => {
     console.log("🔍 URL Parameter Effect:", {
@@ -2179,8 +2195,35 @@ export default function EventBuilderPage() {
         console.log("✅ Initial payment created successfully with event");
 
         // Save wedding details if this is a wedding event and we have wedding form data
-        if (eventDetails.type === "wedding" && weddingFormData && newEventId) {
+        console.log("🔍 Wedding Details Save Check:");
+        console.log("Event type:", eventDetails.type);
+        console.log(
+          "Event type ID:",
+          getEventTypeIdFromName(eventDetails.type)
+        );
+        console.log("Wedding form data:", weddingFormData);
+        console.log("New event ID:", newEventId);
+        console.log(
+          "Has meaningful wedding data:",
+          weddingFormData?.bride_name ||
+            weddingFormData?.groom_name ||
+            weddingFormData?.nuptial ||
+            weddingFormData?.motif
+        );
+
+        // Check if this is a wedding event (either by type name or type ID)
+        const isWeddingEvent =
+          eventDetails.type === "wedding" ||
+          eventDetails.type === "Wedding" ||
+          getEventTypeIdFromName(eventDetails.type) === 1;
+
+        console.log("🎯 Is wedding event:", isWeddingEvent);
+        console.log("🎯 Has wedding form data:", !!weddingFormData);
+        console.log("🎯 Has new event ID:", !!newEventId);
+
+        if (isWeddingEvent && weddingFormData && newEventId) {
           try {
+            console.log("📤 Saving wedding details for event:", newEventId);
             const weddingResponse = await axios.post(endpoints.admin, {
               operation: "saveWeddingDetails",
               event_id: newEventId,
@@ -2188,16 +2231,18 @@ export default function EventBuilderPage() {
             });
 
             if (weddingResponse.data.status === "success") {
-              console.log("Wedding details saved successfully");
+              console.log("✅ Wedding details saved successfully");
             } else {
               console.warn(
-                "Failed to save wedding details:",
+                "❌ Failed to save wedding details:",
                 weddingResponse.data.message
               );
             }
           } catch (weddingError) {
-            console.error("Error saving wedding details:", weddingError);
+            console.error("❌ Error saving wedding details:", weddingError);
           }
+        } else {
+          console.log("⏭️ Skipping wedding details save - conditions not met");
         }
 
         // Note: Organizer is now assigned directly during event creation
@@ -2934,9 +2979,16 @@ export default function EventBuilderPage() {
               <WeddingFormStep
                 eventId={currentEventId || undefined}
                 initialData={weddingFormData}
-                onUpdate={(data) =>
-                  setWeddingFormData((prev) => ({ ...prev, ...data }))
-                }
+                onUpdate={(data) => {
+                  console.log(
+                    "📥 Event Builder received wedding form data:",
+                    data
+                  );
+                  console.log("📥 Wedding form data keys:", Object.keys(data));
+                  console.log("📥 Has bride name:", !!data.bride_name);
+                  console.log("📥 Has groom name:", !!data.groom_name);
+                  setWeddingFormData(data);
+                }}
                 onNext={() => {
                   // Validate wedding form data before proceeding
                   if (

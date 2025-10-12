@@ -2958,7 +2958,7 @@ export default function EnhancedCreateBookingPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full">
                         {modalPackage.components.map((component, index) => (
                           <div
-                            key={index}
+                            key={`component-${index}`}
                             className="flex items-start gap-3 bg-[#028A75]/5 p-4 rounded-xl border border-[#028A75]/10 shadow-sm transform transition-all duration-300 hover:shadow hover:-translate-y-0.5 hover:bg-[#028A75]/10"
                             style={{ animationDelay: `${index * 50}ms` }}
                           >
@@ -2984,7 +2984,7 @@ export default function EnhancedCreateBookingPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full">
                       {modalPackage.freebies.map((freebie, index) => (
                         <div
-                          key={index}
+                          key={`freebie-${index}`}
                           className="flex items-start gap-3 bg-purple-50 p-4 rounded-xl border border-purple-100 shadow-sm transform transition-all duration-300 hover:shadow hover:-translate-y-0.5 hover:bg-purple-100/50"
                           style={{ animationDelay: `${(index + 5) * 50}ms` }}
                         >
@@ -3046,7 +3046,7 @@ export default function EnhancedCreateBookingPage() {
                               {modalPackage.venue_previews.map(
                                 (venue, index) => (
                                   <div
-                                    key={index}
+                                    key={`venue-${index}`}
                                     className="snap-start shrink-0 w-[85%] sm:w-[48%] md:w-[45%] px-2 transition-transform duration-300 hover:scale-[1.02] venue-card-width"
                                   >
                                     <div className="border rounded-xl overflow-hidden bg-white shadow-md hover:shadow-lg transition-all duration-300 h-full flex flex-col">
@@ -3115,7 +3115,7 @@ export default function EnhancedCreateBookingPage() {
                           <div className="flex justify-center mt-4 space-x-2">
                             {modalPackage.venue_previews.map((_, index) => (
                               <div
-                                key={index}
+                                key={`venue-dot-${index}`}
                                 className={`w-2 h-2 rounded-full ${
                                   index === 0 ? "bg-[#028A75]" : "bg-gray-300"
                                 }`}

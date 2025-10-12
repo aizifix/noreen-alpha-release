@@ -375,7 +375,10 @@ export default function SupplierDashboard() {
                   {dashboardData.recent_ratings
                     .slice(0, 5)
                     .map((rating, index) => (
-                      <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                      <div
+                        key={`supplier-dashboard-rating-${index}`}
+                        className="p-3 bg-gray-50 rounded-lg"
+                      >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
                             <div className="flex">
@@ -478,7 +481,10 @@ export default function SupplierDashboard() {
                       <p className="text-sm text-gray-600 mb-2">Includes:</p>
                       <ul className="text-xs text-gray-600 space-y-1">
                         {offer.subcomponents.slice(0, 3).map((sub, index) => (
-                          <li key={index} className="flex items-center gap-1">
+                          <li
+                            key={`supplier-dashboard-subcomponent-${index}`}
+                            className="flex items-center gap-1"
+                          >
                             <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
                             {sub.component_title}
                           </li>
@@ -596,7 +602,7 @@ export default function SupplierDashboard() {
                 <div className="space-y-4">
                   {dashboardData.monthly_performance.map((month, index) => (
                     <div
-                      key={index}
+                      key={`supplier-dashboard-monthly-${index}`}
                       className="flex justify-between items-center"
                     >
                       <span className="text-sm">{month.month}</span>

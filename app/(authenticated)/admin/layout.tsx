@@ -49,6 +49,7 @@ axios.defaults.baseURL =
   "https://noreen-events.online/noreen-events";
 import { startSessionWatcher } from "@/app/utils/session";
 import { useRealtimeNotifications } from "@/app/hooks/useRealtimeNotifications";
+import { makeNetworkRequest } from "@/app/utils/networkUtils";
 
 interface User {
   user_id?: number;
@@ -354,45 +355,84 @@ export default function AdminLayout({
   });
 
   async function fetchNotificationCounts(currentUser: any) {
-    try {
-      const userId = currentUser?.user_id;
-      if (!userId) return;
-      const res = await axios.get("notifications.php", {
-        params: {
-          operation: "get_counts",
-          user_id: userId,
+    const userId = currentUser?.user_id;
+    if (!userId) return;
+
+    const result = await makeNetworkRequest(
+      async () => {
+        const res = await axios.get("notifications.php", {
+          params: {
+            operation: "get_counts",
+            user_id: userId,
+          },
+          timeout: 5000,
+        });
+        return res.data;
+      },
+      {
+        maxRetries: 2,
+        retryDelay: 1000,
+        onRetry: (attempt) => {
+          console.warn(
+            `Retrying notification count fetch (attempt ${attempt})`
+          );
         },
-      });
-      if (res.data?.status === "success") {
-        setUnreadNotifCount(Number(res.data.counts?.unread || 0));
+        onOffline: () => {
+          console.warn("Network offline - notification count fetch skipped");
+        },
       }
-    } catch (err) {
-      console.error("Admin notif count fetch failed:", err);
+    );
+
+    if (result?.status === "success") {
+      setUnreadNotifCount(Number(result.counts?.unread || 0));
     }
   }
 
   async function fetchNotificationsList(currentUser: any) {
+    const userId = currentUser?.user_id;
+    if (!userId) return;
+
+    setIsNotifLoading(true);
+
     try {
-      const userId = currentUser?.user_id;
-      if (!userId) return;
-      setIsNotifLoading(true);
-      const res = await axios.get("notifications.php", {
-        params: {
-          operation: "get_notifications",
-          user_id: userId,
-          limit: 10,
-          offset: 0,
+      const result = await makeNetworkRequest(
+        async () => {
+          const res = await axios.get("notifications.php", {
+            params: {
+              operation: "get_notifications",
+              user_id: userId,
+              limit: 10,
+              offset: 0,
+            },
+            timeout: 5000,
+          });
+          return res.data;
         },
-      });
-      if (res.data?.status === "success") {
+        {
+          maxRetries: 2,
+          retryDelay: 1000,
+          onRetry: (attempt) => {
+            console.warn(
+              `Retrying notification list fetch (attempt ${attempt})`
+            );
+          },
+          onOffline: () => {
+            console.warn("Network offline - notification list fetch skipped");
+            // Keep existing notifications when offline
+          },
+        }
+      );
+
+      if (result?.status === "success") {
         setNotifications(
-          Array.isArray(res.data.notifications) ? res.data.notifications : []
+          Array.isArray(result.notifications) ? result.notifications : []
         );
       } else {
         setNotifications([]);
       }
-    } catch (err) {
-      console.error("Admin notif list fetch failed:", err);
+    } catch (err: any) {
+      // For non-network errors, still clear notifications
+      console.warn("Notification list fetch failed:", err.message);
       setNotifications([]);
     } finally {
       setIsNotifLoading(false);

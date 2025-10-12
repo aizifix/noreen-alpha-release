@@ -823,7 +823,10 @@ export default function InclusionsStep({
 
                       <div className="divide-y">
                         {externalCustomizations.map((customization, index) => (
-                          <div key={`external-${index}`} className="p-4">
+                          <div
+                            key={`external-customization-${index}`}
+                            className="p-4"
+                          >
                             <div className="flex items-center justify-between">
                               <div className="flex items-start gap-3">
                                 <div className="w-5 flex justify-center">

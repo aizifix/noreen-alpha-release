@@ -2421,6 +2421,137 @@ This is an automated message. Please do not reply.
         }
     }
 
+    // Get suppliers for package editing with offers and pricing tiers
+    public function getSuppliersForPackage($page = 1, $limit = 100, $filters = []) {
+        try {
+            $offset = ($page - 1) * $limit;
+
+            $whereClauses = ["s.is_active = 1"];
+            $params = [];
+
+            // Apply filters
+            if (!empty($filters['specialty_category'])) {
+                $whereClauses[] = "s.specialty_category = ?";
+                $params[] = $filters['specialty_category'];
+            }
+
+            if (!empty($filters['search'])) {
+                $whereClauses[] = "(s.business_name LIKE ? OR s.specialty_category LIKE ?)";
+                $searchTerm = "%" . $filters['search'] . "%";
+                $params[] = $searchTerm;
+                $params[] = $searchTerm;
+            }
+
+            $whereSQL = !empty($whereClauses) ? "WHERE " . implode(" AND ", $whereClauses) : "";
+
+            // Get total count
+            $countSql = "SELECT COUNT(*) as total FROM tbl_suppliers s $whereSQL";
+            $countStmt = $this->conn->prepare($countSql);
+            $countStmt->execute($params);
+            $total = $countStmt->fetch()['total'];
+
+            // Get suppliers with offers for pricing tiers
+            $sql = "SELECT DISTINCT
+                        s.supplier_id,
+                        s.business_name,
+                        s.specialty_category,
+                        s.contact_email,
+                        s.contact_number,
+                        s.is_active,
+                        s.is_verified,
+                        s.created_at,
+                        s.registration_docs
+                    FROM tbl_suppliers s
+                    LEFT JOIN tbl_supplier_offers so ON s.supplier_id = so.supplier_id AND so.is_active = 1
+                    $whereSQL
+                    ORDER BY s.business_name ASC
+                    LIMIT ? OFFSET ?";
+
+            $params[] = $limit;
+            $params[] = $offset;
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute($params);
+
+            $suppliers = [];
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $offers = [];
+
+                // First, try to get offers from tbl_supplier_offers table
+                $offersSql = "SELECT
+                                offer_id,
+                                offer_title,
+                                offer_description,
+                                price_min,
+                                price_max,
+                                tier_level,
+                                offer_attachments
+                              FROM tbl_supplier_offers
+                              WHERE supplier_id = ? AND is_active = 1
+                              ORDER BY tier_level ASC, price_min ASC";
+
+                $offersStmt = $this->conn->prepare($offersSql);
+                $offersStmt->execute([$row['supplier_id']]);
+                $dbOffers = $offersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // If no offers in database, check registration_docs for tier information
+                if (empty($dbOffers) && $row['registration_docs']) {
+                    $registrationDocs = json_decode($row['registration_docs'], true);
+                    if (isset($registrationDocs['tiers']) && is_array($registrationDocs['tiers'])) {
+                        foreach ($registrationDocs['tiers'] as $index => $tier) {
+                            $offers[] = [
+                                'offer_id' => 'json_' . $row['supplier_id'] . '_' . $index,
+                                'offer_title' => $tier['name'] ?? 'Tier ' . ($index + 1),
+                                'offer_description' => $tier['description'] ?? '',
+                                'price_min' => floatval($tier['price'] ?? 0),
+                                'price_max' => floatval($tier['price'] ?? 0),
+                                'tier_level' => $index + 1,
+                                'offer_attachments' => []
+                            ];
+                        }
+                    }
+                } else {
+                    $offers = $dbOffers;
+                }
+
+                // Format offers
+                foreach ($offers as &$offer) {
+                    $offer['offer_attachments'] = $offer['offer_attachments'] ? json_decode($offer['offer_attachments'], true) : [];
+                }
+
+                // Format supplier data for frontend
+                $formattedSupplier = [
+                    'supplier_id' => $row['supplier_id'],
+                    'supplier_name' => $row['business_name'],
+                    'supplier_category' => $row['specialty_category'],
+                    'supplier_email' => $row['contact_email'],
+                    'supplier_phone' => $row['contact_number'],
+                    'supplier_status' => $row['is_active'] ? 'active' : 'inactive',
+                    'is_verified' => (bool)$row['is_verified'],
+                    'created_at' => $row['created_at'],
+                    'offers' => $offers
+                ];
+
+                $suppliers[] = $formattedSupplier;
+            }
+
+            return json_encode([
+                "status" => "success",
+                "suppliers" => $suppliers,
+                "pagination" => [
+                    "current_page" => $page,
+                    "per_page" => $limit,
+                    "total" => $total,
+                    "total_pages" => ceil($total / $limit)
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            error_log("Error in getSuppliersForPackage: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Error fetching suppliers: " . $e->getMessage()]);
+        }
+    }
+
     // Get supplier by ID with complete details (Admin view)
     public function getSupplierById($supplierId) {
         try {
@@ -2442,7 +2573,7 @@ This is an automated message. Please do not reply.
 
             // Get supplier offers with subcomponents
             $offersSql = "SELECT so.*,
-                        GROUP_CONCAT(CONCAT(sc.component_title COLLATE utf8mb4_unicode_ci, '|', sc.component_description COLLATE utf8mb4_unicode_ci, '|', sc.is_customizable) SEPARATOR ';;') as subcomponents
+                        GROUP_CONCAT(CONCAT(sc.component_title COLLATE utf8mb4_unicode_ci, '|', sc.component_description COLLATE utf8mb4_unicode_ci) SEPARATOR ';;') as subcomponents
                           FROM tbl_supplier_offers so
                           LEFT JOIN tbl_offer_subcomponents sc ON so.offer_id = sc.offer_id AND sc.is_active = 1
                           WHERE so.supplier_id = ? AND so.is_active = 1
@@ -2461,11 +2592,11 @@ This is an automated message. Please do not reply.
                     $components = explode(';;', $offer['subcomponents']);
                     foreach ($components as $comp) {
                         $parts = explode('|', $comp);
-                        if (count($parts) >= 3) {
+                        if (count($parts) >= 2) {
                             $subcomponents[] = [
                                 'title' => $parts[0],
                                 'description' => $parts[1],
-                                'is_customizable' => (bool)$parts[2]
+                                'is_customizable' => false // Default value since column doesn't exist
                             ];
                         }
                     }
@@ -3207,26 +3338,52 @@ This is an automated message. Please do not reply.
 
     public function getPackageDetails($packageId) {
         try {
+            error_log("getPackageDetails called with packageId: " . $packageId);
+
+            // Check database connection
+            if (!$this->conn) {
+                error_log("getPackageDetails: Database connection is null");
+                return json_encode(["status" => "error", "message" => "Database connection error"]);
+            }
+
+            // Validate package ID
+            if (empty($packageId) || !is_numeric($packageId)) {
+                error_log("getPackageDetails: Invalid package ID provided");
+                return json_encode(["status" => "error", "message" => "Invalid package ID"]);
+            }
+
             // Get package basic info with creator information
             $sql = "SELECT p.*,
                            u.user_firstName, u.user_lastName,
-                           CONCAT(u.user_firstName COLLATE utf8mb4_unicode_ci, ' ', u.user_lastName COLLATE utf8mb4_unicode_ci) as created_by_name
+                           CONCAT(COALESCE(u.user_firstName, ''), ' ', COALESCE(u.user_lastName, '')) as created_by_name
                     FROM tbl_packages p
                     LEFT JOIN tbl_users u ON p.created_by = u.user_id
                     WHERE p.package_id = :package_id AND p.is_active = 1";
+
+            error_log("getPackageDetails: Executing SQL: " . $sql);
             $stmt = $this->conn->prepare($sql);
             $stmt->execute([':package_id' => $packageId]);
             $package = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$package) {
+                error_log("getPackageDetails: Package not found for ID: " . $packageId);
                 return json_encode(["status" => "error", "message" => "Package not found"]);
             }
 
-            // Get package components/inclusions
-            $componentsSql = "SELECT * FROM tbl_package_components WHERE package_id = :package_id ORDER BY display_order";
+            error_log("getPackageDetails: Package found: " . $package['package_title']);
+
+            // Get package components/inclusions with supplier information
+            $componentsSql = "SELECT DISTINCT pc.*, s.business_name as supplier_name, so.tier_level
+                              FROM tbl_package_components pc
+                              LEFT JOIN tbl_suppliers s ON pc.supplier_id = s.supplier_id
+                              LEFT JOIN tbl_supplier_offers so ON pc.offer_id = so.offer_id
+                              WHERE pc.package_id = :package_id
+                              ORDER BY pc.display_order";
+            error_log("getPackageDetails: Getting components with SQL: " . $componentsSql);
             $componentsStmt = $this->conn->prepare($componentsSql);
             $componentsStmt->execute([':package_id' => $packageId]);
             $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+            error_log("getPackageDetails: Found " . count($components) . " components");
 
             // Transform components into the expected structure for detailed view
             // Parse component_description into child components so UI can show dropdown per inclusion
@@ -3251,11 +3408,23 @@ This is an automated message. Please do not reply.
                     }
                 }
 
-                $inclusions[] = [
+                $inclusion = [
                     'name' => $component['component_name'],
                     'price' => (float)$component['component_price'],
                     'components' => $childComponents,
                 ];
+
+                // Add supplier information if available
+                if (!empty($component['supplier_id'])) {
+                    $inclusion['supplier_id'] = (int)$component['supplier_id'];
+                    $inclusion['supplier_name'] = $component['supplier_name'];
+                    $inclusion['offer_id'] = !empty($component['offer_id']) ? (int)$component['offer_id'] : null;
+                    $inclusion['tier_level'] = !empty($component['tier_level']) ? (int)$component['tier_level'] : null;
+                    // is_customizable is not available in tbl_supplier_offers, set default to false
+                    $inclusion['is_customizable'] = false;
+                }
+
+                $inclusions[] = $inclusion;
             }
 
             // Get package freebies
@@ -3505,15 +3674,17 @@ This is an automated message. Please do not reply.
                 if (is_array($data['components'])) {
                     foreach ($data['components'] as $index => $component) {
                         if (!empty($component['component_name'])) {
-                            $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
-                                            VALUES (:package_id, :name, :description, :price, :order)";
+                            $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order, supplier_id, offer_id)
+                                            VALUES (:package_id, :name, :description, :price, :order, :supplier_id, :offer_id)";
                             $componentStmt = $this->conn->prepare($componentSql);
                             $componentResult = $componentStmt->execute([
                                 ':package_id' => $data['package_id'],
                                 ':name' => $component['component_name'],
                                 ':description' => $component['component_description'] ?? '',
                                 ':price' => $component['component_price'] ?? 0,
-                                ':order' => $index
+                                ':order' => $index,
+                                ':supplier_id' => $component['supplier_id'] ?? null,
+                                ':offer_id' => $component['offer_id'] ?? null
                             ]);
                             error_log("Insert component $index result: " . ($componentResult ? "success" : "failed"));
                         }
@@ -6965,18 +7136,21 @@ This is an automated message. Please do not reply.
                 'event_id' => $data['event_id'],
                 'nuptial' => $data['nuptial'] ?? null,
                 'motif' => $data['motif'] ?? null,
+                'wedding_time' => $data['wedding_time'] ?? null,
+                'church' => $data['church'] ?? null,
+                'address' => $data['address'] ?? null,
 
-                // Bride & Groom (map form field names to DB column names)
+                // Bride & Groom (form now uses correct field names)
                 'bride_name' => $data['bride_name'] ?? null,
-                'bride_size' => $data['bride_gown_size'] ?? $data['bride_size'] ?? null, // Map bride_gown_size to bride_size
+                'bride_size' => $data['bride_size'] ?? null,
                 'groom_name' => $data['groom_name'] ?? null,
-                'groom_size' => $data['groom_attire_size'] ?? $data['groom_size'] ?? null, // Map groom_attire_size to groom_size
+                'groom_size' => $data['groom_size'] ?? null,
 
-                // Parents (map form field names to DB column names)
-                'mother_bride_name' => $data['mothers_attire_name'] ?? $data['mother_bride_name'] ?? null,
-                'mother_bride_size' => $data['mothers_attire_size'] ?? $data['mother_bride_size'] ?? null,
-                'father_bride_name' => $data['fathers_attire_name'] ?? $data['father_bride_name'] ?? null,
-                'father_bride_size' => $data['fathers_attire_size'] ?? $data['father_bride_size'] ?? null,
+                // Parents (form now uses correct field names)
+                'mother_bride_name' => $data['mother_bride_name'] ?? null,
+                'mother_bride_size' => $data['mother_bride_size'] ?? null,
+                'father_bride_name' => $data['father_bride_name'] ?? null,
+                'father_bride_size' => $data['father_bride_size'] ?? null,
                 'mother_groom_name' => $data['mother_groom_name'] ?? null,
                 'mother_groom_size' => $data['mother_groom_size'] ?? null,
                 'father_groom_name' => $data['father_groom_name'] ?? null,
@@ -6997,53 +7171,46 @@ This is an automated message. Please do not reply.
                 // Processing Info
                 'prepared_by' => $data['prepared_by'] ?? null,
                 'received_by' => $data['received_by'] ?? null,
-                'pickup_date' => $data['pick_up_date'] ?? $data['pickup_date'] ?? null, // Map pick_up_date to pickup_date
+                'pickup_date' => $data['pickup_date'] ?? null,
                 'return_date' => $data['return_date'] ?? null,
                 'customer_signature' => $data['customer_signature'] ?? null
             ];
 
-            // Process wedding party arrays and convert to quantities + JSON
-            $weddingParties = ['bridesmaids', 'groomsmen', 'junior_groomsmen', 'flower_girls', 'bearers'];
-            foreach ($weddingParties as $party) {
-                if (isset($data[$party]) && is_array($data[$party])) {
-                    // Extract quantities
-                    $mappedData[$party . '_qty'] = count($data[$party]);
-
-                    // Extract names as JSON
-                    $names = array_map(function($member) {
-                        return $member['name'] ?? '';
-                    }, $data[$party]);
-                    $mappedData[$party . '_names'] = json_encode($names);
-                } else {
-                    $mappedData[$party . '_qty'] = 0;
-                    $mappedData[$party . '_names'] = json_encode([]);
-                }
-            }
-
-            // Handle bearer-specific fields (since form uses 'bearers' but DB has specific types)
-            $mappedData['ring_bearer_qty'] = 0;
-            $mappedData['bible_bearer_qty'] = 0;
-            $mappedData['coin_bearer_qty'] = 0;
-            $mappedData['ring_bearer_names'] = json_encode([]);
-            $mappedData['bible_bearer_names'] = json_encode([]);
-            $mappedData['coin_bearer_names'] = json_encode([]);
-
-            // Process wedding items quantities (map form field names to DB column names)
-            $itemMappings = [
-                'cushions_quantity' => 'cushions_qty',
-                'headdress_for_bride_quantity' => 'headdress_qty',
-                'shawls_quantity' => 'shawls_qty',
-                'veil_cord_quantity' => 'veil_cord_qty',
-                'basket_quantity' => 'basket_qty',
-                'petticoat_quantity' => 'petticoat_qty',
-                'neck_bowtie_quantity' => 'neck_bowtie_qty',
-                'garter_leg_quantity' => 'garter_leg_qty',
-                'fitting_form_quantity' => 'fitting_form_qty',
-                'robe_quantity' => 'robe_qty'
+            // Process wedding party arrays (form now sends quantities and names directly)
+            $weddingParties = [
+                'bridesmaids' => ['bridesmaids_qty', 'bridesmaids_names'],
+                'groomsmen' => ['groomsmen_qty', 'groomsmen_names'],
+                'junior_groomsmen' => ['junior_groomsmen_qty', 'junior_groomsmen_names'],
+                'flower_girls' => ['flower_girls_qty', 'flower_girls_names'],
+                'ring_bearer' => ['ring_bearer_qty', 'ring_bearer_names'],
+                'bible_bearer' => ['bible_bearer_qty', 'bible_bearer_names'],
+                'coin_bearer' => ['coin_bearer_qty', 'coin_bearer_names']
             ];
 
-            foreach ($itemMappings as $formField => $dbField) {
-                $mappedData[$dbField] = $data[$formField] ?? $data[$dbField] ?? 0;
+            foreach ($weddingParties as $party => $fields) {
+                $qtyField = $fields[0];
+                $namesField = $fields[1];
+
+                // Get quantity and names from form data
+                $mappedData[$qtyField] = $data[$qtyField] ?? 0;
+                $names = $data[$namesField] ?? [];
+
+                // Ensure names is an array and encode as JSON
+                if (!is_array($names)) {
+                    $names = [];
+                }
+                $mappedData[$namesField] = json_encode($names);
+            }
+
+            // Process wedding items quantities (form now uses correct field names)
+            $itemFields = [
+                'cushions_qty', 'headdress_qty', 'shawls_qty', 'veil_cord_qty',
+                'basket_qty', 'petticoat_qty', 'neck_bowtie_qty', 'garter_leg_qty',
+                'fitting_form_qty', 'robe_qty'
+            ];
+
+            foreach ($itemFields as $field) {
+                $mappedData[$field] = $data[$field] ?? 0;
             }
 
             // Check if wedding details already exist for this event
@@ -7067,118 +7234,35 @@ This is an automated message. Please do not reply.
                 error_log("Error describing table: " . $e->getMessage());
             }
 
-            // Use UPDATE approach for both new and existing records
+            // Use a more robust approach with dynamic SQL generation
             if ($existingRecord) {
                 // Update existing record
-                $sql = "UPDATE tbl_wedding_details SET
-                            nuptial = ?, motif = ?, bride_name = ?, bride_size = ?,
-                            groom_name = ?, groom_size = ?, mother_bride_name = ?, mother_bride_size = ?,
-                            father_bride_name = ?, father_bride_size = ?, mother_groom_name = ?, mother_groom_size = ?,
-                            father_groom_name = ?, father_groom_size = ?, maid_of_honor_name = ?, maid_of_honor_size = ?,
-                            best_man_name = ?, best_man_size = ?, little_bride_name = ?, little_bride_size = ?,
-                            little_groom_name = ?, little_groom_size = ?,
-                            bridesmaids_qty = ?, groomsmen_qty = ?, junior_groomsmen_qty = ?, flower_girls_qty = ?,
-                            ring_bearer_qty = ?, bible_bearer_qty = ?, coin_bearer_qty = ?,
-                            bridesmaids_names = ?, groomsmen_names = ?, junior_groomsmen_names = ?, flower_girls_names = ?,
-                            ring_bearer_names = ?, bible_bearer_names = ?, coin_bearer_names = ?,
-                            cushions_qty = ?, headdress_qty = ?, shawls_qty = ?, veil_cord_qty = ?,
-                            basket_qty = ?, petticoat_qty = ?, neck_bowtie_qty = ?,
-                            garter_leg_qty = ?, fitting_form_qty = ?, robe_qty = ?,
-                            prepared_by = ?, received_by = ?, pickup_date = ?, return_date = ?,
-                            customer_signature = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE event_id = ?";
+                $updateFields = [];
+                $updateValues = [];
+
+                // Build dynamic UPDATE statement
+                foreach ($mappedData as $field => $value) {
+                    if ($field !== 'event_id') { // Skip event_id for UPDATE
+                        $updateFields[] = "$field = ?";
+                        $updateValues[] = $value;
+                    }
+                }
+
+                $updateValues[] = $mappedData['event_id']; // Add event_id for WHERE clause
+
+                $sql = "UPDATE tbl_wedding_details SET " . implode(', ', $updateFields) . ", updated_at = CURRENT_TIMESTAMP WHERE event_id = ?";
 
                 $stmt = $this->conn->prepare($sql);
-                $stmt->execute([
-                    $mappedData['nuptial'], $mappedData['motif'],
-                    $mappedData['bride_name'], $mappedData['bride_size'],
-                    $mappedData['groom_name'], $mappedData['groom_size'],
-                    $mappedData['mother_bride_name'], $mappedData['mother_bride_size'],
-                    $mappedData['father_bride_name'], $mappedData['father_bride_size'],
-                    $mappedData['mother_groom_name'], $mappedData['mother_groom_size'],
-                    $mappedData['father_groom_name'], $mappedData['father_groom_size'],
-                    $mappedData['maid_of_honor_name'], $mappedData['maid_of_honor_size'],
-                    $mappedData['best_man_name'], $mappedData['best_man_size'],
-                    $mappedData['little_bride_name'], $mappedData['little_bride_size'],
-                    $mappedData['little_groom_name'], $mappedData['little_groom_size'],
-                    $mappedData['bridesmaids_qty'], $mappedData['groomsmen_qty'],
-                    $mappedData['junior_groomsmen_qty'], $mappedData['flower_girls_qty'],
-                    $mappedData['ring_bearer_qty'], $mappedData['bible_bearer_qty'], $mappedData['coin_bearer_qty'],
-                    $mappedData['bridesmaids_names'], $mappedData['groomsmen_names'],
-                    $mappedData['junior_groomsmen_names'], $mappedData['flower_girls_names'],
-                    $mappedData['ring_bearer_names'], $mappedData['bible_bearer_names'], $mappedData['coin_bearer_names'],
-                    $mappedData['cushions_qty'], $mappedData['headdress_qty'], $mappedData['shawls_qty'],
-                    $mappedData['veil_cord_qty'], $mappedData['basket_qty'], $mappedData['petticoat_qty'],
-                    $mappedData['neck_bowtie_qty'], $mappedData['garter_leg_qty'],
-                    $mappedData['fitting_form_qty'], $mappedData['robe_qty'],
-                    $mappedData['prepared_by'], $mappedData['received_by'],
-                    $mappedData['pickup_date'], $mappedData['return_date'],
-                    $mappedData['customer_signature'], $mappedData['event_id']
-                ]);
+                $stmt->execute($updateValues);
             } else {
-                // Insert new record using INSERT ... ON DUPLICATE KEY UPDATE
-                $sql = "INSERT INTO tbl_wedding_details (
-                            event_id, nuptial, motif, bride_name, bride_size,
-                            groom_name, groom_size, mother_bride_name, mother_bride_size,
-                            father_bride_name, father_bride_size, mother_groom_name, mother_groom_size,
-                            father_groom_name, father_groom_size, maid_of_honor_name, maid_of_honor_size,
-                            best_man_name, best_man_size, little_bride_name, little_bride_size,
-                            little_groom_name, little_groom_size,
-                            bridesmaids_qty, groomsmen_qty, junior_groomsmen_qty, flower_girls_qty,
-                            ring_bearer_qty, bible_bearer_qty, coin_bearer_qty,
-                            bridesmaids_names, groomsmen_names, junior_groomsmen_names, flower_girls_names,
-                            ring_bearer_names, bible_bearer_names, coin_bearer_names,
-                            cushions_qty, headdress_qty, shawls_qty, veil_cord_qty,
-                            basket_qty, petticoat_qty, neck_bowtie_qty,
-                            garter_leg_qty, fitting_form_qty, robe_qty,
-                            prepared_by, received_by, pickup_date, return_date, customer_signature
-                        ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                        ) ON DUPLICATE KEY UPDATE
-                            nuptial = VALUES(nuptial), motif = VALUES(motif), bride_name = VALUES(bride_name), bride_size = VALUES(bride_size),
-                            groom_name = VALUES(groom_name), groom_size = VALUES(groom_size), mother_bride_name = VALUES(mother_bride_name), mother_bride_size = VALUES(mother_bride_size),
-                            father_bride_name = VALUES(father_bride_name), father_bride_size = VALUES(father_bride_size), mother_groom_name = VALUES(mother_groom_name), mother_groom_size = VALUES(mother_groom_size),
-                            father_groom_name = VALUES(father_groom_name), father_groom_size = VALUES(father_groom_size), maid_of_honor_name = VALUES(maid_of_honor_name), maid_of_honor_size = VALUES(maid_of_honor_size),
-                            best_man_name = VALUES(best_man_name), best_man_size = VALUES(best_man_size), little_bride_name = VALUES(little_bride_name), little_bride_size = VALUES(little_bride_size),
-                            little_groom_name = VALUES(little_groom_name), little_groom_size = VALUES(little_groom_size),
-                            bridesmaids_qty = VALUES(bridesmaids_qty), groomsmen_qty = VALUES(groomsmen_qty), junior_groomsmen_qty = VALUES(junior_groomsmen_qty), flower_girls_qty = VALUES(flower_girls_qty),
-                            ring_bearer_qty = VALUES(ring_bearer_qty), bible_bearer_qty = VALUES(bible_bearer_qty), coin_bearer_qty = VALUES(coin_bearer_qty),
-                            bridesmaids_names = VALUES(bridesmaids_names), groomsmen_names = VALUES(groomsmen_names), junior_groomsmen_names = VALUES(junior_groomsmen_names), flower_girls_names = VALUES(flower_girls_names),
-                            ring_bearer_names = VALUES(ring_bearer_names), bible_bearer_names = VALUES(bible_bearer_names), coin_bearer_names = VALUES(coin_bearer_names),
-                            cushions_qty = VALUES(cushions_qty), headdress_qty = VALUES(headdress_qty), shawls_qty = VALUES(shawls_qty), veil_cord_qty = VALUES(veil_cord_qty),
-                            basket_qty = VALUES(basket_qty), petticoat_qty = VALUES(petticoat_qty), neck_bowtie_qty = VALUES(neck_bowtie_qty),
-                            garter_leg_qty = VALUES(garter_leg_qty), fitting_form_qty = VALUES(fitting_form_qty), robe_qty = VALUES(robe_qty),
-                            prepared_by = VALUES(prepared_by), received_by = VALUES(received_by), pickup_date = VALUES(pickup_date), return_date = VALUES(return_date), customer_signature = VALUES(customer_signature),
-                            updated_at = CURRENT_TIMESTAMP";
+                // Insert new record using dynamic INSERT
+                $insertFields = array_keys($mappedData);
+                $placeholders = str_repeat('?,', count($insertFields) - 1) . '?';
+
+                $sql = "INSERT INTO tbl_wedding_details (" . implode(', ', $insertFields) . ") VALUES ($placeholders)";
 
                 $stmt = $this->conn->prepare($sql);
-                $stmt->execute([
-                    $mappedData['event_id'], $mappedData['nuptial'], $mappedData['motif'],
-                    $mappedData['bride_name'], $mappedData['bride_size'],
-                    $mappedData['groom_name'], $mappedData['groom_size'],
-                    $mappedData['mother_bride_name'], $mappedData['mother_bride_size'],
-                    $mappedData['father_bride_name'], $mappedData['father_bride_size'],
-                    $mappedData['mother_groom_name'], $mappedData['mother_groom_size'],
-                    $mappedData['father_groom_name'], $mappedData['father_groom_size'],
-                    $mappedData['maid_of_honor_name'], $mappedData['maid_of_honor_size'],
-                    $mappedData['best_man_name'], $mappedData['best_man_size'],
-                    $mappedData['little_bride_name'], $mappedData['little_bride_size'],
-                    $mappedData['little_groom_name'], $mappedData['little_groom_size'],
-                    $mappedData['bridesmaids_qty'], $mappedData['groomsmen_qty'],
-                    $mappedData['junior_groomsmen_qty'], $mappedData['flower_girls_qty'],
-                    $mappedData['ring_bearer_qty'], $mappedData['bible_bearer_qty'], $mappedData['coin_bearer_qty'],
-                    $mappedData['bridesmaids_names'], $mappedData['groomsmen_names'],
-                    $mappedData['junior_groomsmen_names'], $mappedData['flower_girls_names'],
-                    $mappedData['ring_bearer_names'], $mappedData['bible_bearer_names'], $mappedData['coin_bearer_names'],
-                    $mappedData['cushions_qty'], $mappedData['headdress_qty'], $mappedData['shawls_qty'],
-                    $mappedData['veil_cord_qty'], $mappedData['basket_qty'], $mappedData['petticoat_qty'],
-                    $mappedData['neck_bowtie_qty'], $mappedData['garter_leg_qty'],
-                    $mappedData['fitting_form_qty'], $mappedData['robe_qty'],
-                    $mappedData['prepared_by'], $mappedData['received_by'],
-                    $mappedData['pickup_date'], $mappedData['return_date'],
-                    $mappedData['customer_signature']
-                ]);
+                $stmt->execute(array_values($mappedData));
             }
 
             $this->conn->commit();
@@ -7209,22 +7293,25 @@ This is an automated message. Please do not reply.
             $weddingDetails = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($weddingDetails) {
-                // Map database column names back to form field names
+                // Map database column names to form field names (form now uses correct field names)
                 $formData = [
                     'nuptial' => $weddingDetails['nuptial'],
                     'motif' => $weddingDetails['motif'],
+                    'wedding_time' => $weddingDetails['wedding_time'],
+                    'church' => $weddingDetails['church'],
+                    'address' => $weddingDetails['address'],
 
-                    // Map DB field names back to form field names
+                    // Bride & Groom
                     'bride_name' => $weddingDetails['bride_name'],
-                    'bride_gown_size' => $weddingDetails['bride_size'], // Map bride_size back to bride_gown_size
+                    'bride_size' => $weddingDetails['bride_size'],
                     'groom_name' => $weddingDetails['groom_name'],
-                    'groom_attire_size' => $weddingDetails['groom_size'], // Map groom_size back to groom_attire_size
+                    'groom_size' => $weddingDetails['groom_size'],
 
                     // Parents
-                    'mothers_attire_name' => $weddingDetails['mother_bride_name'],
-                    'mothers_attire_size' => $weddingDetails['mother_bride_size'],
-                    'fathers_attire_name' => $weddingDetails['father_bride_name'],
-                    'fathers_attire_size' => $weddingDetails['father_bride_size'],
+                    'mother_bride_name' => $weddingDetails['mother_bride_name'],
+                    'mother_bride_size' => $weddingDetails['mother_bride_size'],
+                    'father_bride_name' => $weddingDetails['father_bride_name'],
+                    'father_bride_size' => $weddingDetails['father_bride_size'],
                     'mother_groom_name' => $weddingDetails['mother_groom_name'],
                     'mother_groom_size' => $weddingDetails['mother_groom_size'],
                     'father_groom_name' => $weddingDetails['father_groom_name'],
@@ -7245,46 +7332,38 @@ This is an automated message. Please do not reply.
                     // Processing Info
                     'prepared_by' => $weddingDetails['prepared_by'],
                     'received_by' => $weddingDetails['received_by'],
-                    'pick_up_date' => $weddingDetails['pickup_date'], // Map pickup_date back to pick_up_date
+                    'pickup_date' => $weddingDetails['pickup_date'],
                     'return_date' => $weddingDetails['return_date'],
                     'customer_signature' => $weddingDetails['customer_signature'],
 
-                    // Wedding Items (map DB field names back to form field names)
-                    'cushions_quantity' => $weddingDetails['cushions_qty'] ?? 0,
-                    'headdress_for_bride_quantity' => $weddingDetails['headdress_qty'] ?? 0,
-                    'shawls_quantity' => $weddingDetails['shawls_qty'] ?? 0,
-                    'veil_cord_quantity' => $weddingDetails['veil_cord_qty'] ?? 0,
-                    'basket_quantity' => $weddingDetails['basket_qty'] ?? 0,
-                    'petticoat_quantity' => $weddingDetails['petticoat_qty'] ?? 0,
-                    'neck_bowtie_quantity' => $weddingDetails['neck_bowtie_qty'] ?? 0,
-                    'garter_leg_quantity' => $weddingDetails['garter_leg_qty'] ?? 0,
-                    'fitting_form_quantity' => $weddingDetails['fitting_form_qty'] ?? 0,
-                    'robe_quantity' => $weddingDetails['robe_qty'] ?? 0
+                    // Wedding Items
+                    'cushions_qty' => $weddingDetails['cushions_qty'] ?? 0,
+                    'headdress_qty' => $weddingDetails['headdress_qty'] ?? 0,
+                    'shawls_qty' => $weddingDetails['shawls_qty'] ?? 0,
+                    'veil_cord_qty' => $weddingDetails['veil_cord_qty'] ?? 0,
+                    'basket_qty' => $weddingDetails['basket_qty'] ?? 0,
+                    'petticoat_qty' => $weddingDetails['petticoat_qty'] ?? 0,
+                    'neck_bowtie_qty' => $weddingDetails['neck_bowtie_qty'] ?? 0,
+                    'garter_leg_qty' => $weddingDetails['garter_leg_qty'] ?? 0,
+                    'fitting_form_qty' => $weddingDetails['fitting_form_qty'] ?? 0,
+                    'robe_qty' => $weddingDetails['robe_qty'] ?? 0,
+
+                    // Wedding Party Quantities and Names
+                    'bridesmaids_qty' => $weddingDetails['bridesmaids_qty'] ?? 0,
+                    'bridesmaids_names' => json_decode($weddingDetails['bridesmaids_names'] ?? '[]', true),
+                    'groomsmen_qty' => $weddingDetails['groomsmen_qty'] ?? 0,
+                    'groomsmen_names' => json_decode($weddingDetails['groomsmen_names'] ?? '[]', true),
+                    'junior_groomsmen_qty' => $weddingDetails['junior_groomsmen_qty'] ?? 0,
+                    'junior_groomsmen_names' => json_decode($weddingDetails['junior_groomsmen_names'] ?? '[]', true),
+                    'flower_girls_qty' => $weddingDetails['flower_girls_qty'] ?? 0,
+                    'flower_girls_names' => json_decode($weddingDetails['flower_girls_names'] ?? '[]', true),
+                    'ring_bearer_qty' => $weddingDetails['ring_bearer_qty'] ?? 0,
+                    'ring_bearer_names' => json_decode($weddingDetails['ring_bearer_names'] ?? '[]', true),
+                    'bible_bearer_qty' => $weddingDetails['bible_bearer_qty'] ?? 0,
+                    'bible_bearer_names' => json_decode($weddingDetails['bible_bearer_names'] ?? '[]', true),
+                    'coin_bearer_qty' => $weddingDetails['coin_bearer_qty'] ?? 0,
+                    'coin_bearer_names' => json_decode($weddingDetails['coin_bearer_names'] ?? '[]', true)
                 ];
-
-                // Convert wedding party data back to arrays
-                $weddingParties = ['bridesmaids', 'groomsmen', 'junior_groomsmen', 'flower_girls'];
-                foreach ($weddingParties as $party) {
-                    $names = json_decode($weddingDetails[$party . '_names'] ?? '[]', true);
-                    $formData[$party] = [];
-
-                    foreach ($names as $name) {
-                        $formData[$party][] = [
-                            'name' => $name,
-                            'size' => '' // Size information is not stored separately for party members
-                        ];
-                    }
-                }
-
-                // Handle bearers separately
-                $bearerNames = json_decode($weddingDetails['ring_bearer_names'] ?? '[]', true);
-                $formData['bearers'] = [];
-                foreach ($bearerNames as $name) {
-                    $formData['bearers'][] = [
-                        'name' => $name,
-                        'size' => ''
-                    ];
-                }
 
                 return json_encode([
                     "status" => "success",
@@ -11812,6 +11891,9 @@ try {
         break;
     case "getPackageDetails":
         $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
+        error_log("Admin.php - getPackageDetails case called with packageId: " . $packageId);
+        error_log("Admin.php - GET data: " . json_encode($_GET));
+        error_log("Admin.php - POST data: " . json_encode($data));
         echo $admin->getPackageDetails($packageId);
         break;
     case "updatePackage":
@@ -12314,10 +12396,6 @@ try {
         $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
         echo $admin->getPackageById($packageId);
         break;
-    case "getPackageDetails":
-        $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
-        echo $admin->getPackageDetails($packageId);
-        break;
     case "deletePackage":
         $packageId = $_GET['package_id'] ?? ($data['package_id'] ?? 0);
         echo $admin->deletePackage($packageId);
@@ -12408,6 +12486,15 @@ try {
             'search' => $_GET['search'] ?? ($data['search'] ?? '')
         ];
         echo $admin->getSuppliersForEventBuilder($page, $limit, $filters);
+        break;
+    case "getSuppliersForPackage":
+        $page = (int)($_GET['page'] ?? ($data['page'] ?? 1));
+        $limit = (int)($_GET['limit'] ?? ($data['limit'] ?? 100));
+        $filters = [
+            'specialty_category' => $_GET['specialty_category'] ?? ($data['specialty_category'] ?? ''),
+            'search' => $_GET['search'] ?? ($data['search'] ?? '')
+        ];
+        echo $admin->getSuppliersForPackage($page, $limit, $filters);
         break;
     case "getSupplierById":
         $supplierId = (int)($_GET['supplier_id'] ?? 0);

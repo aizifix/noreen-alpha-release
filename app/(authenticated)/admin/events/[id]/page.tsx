@@ -577,7 +577,10 @@ function CalendarModal({
                   );
 
                   return (
-                    <div key={index} className="flex items-center space-x-4">
+                    <div
+                      key={`timeline-segment-${index}`}
+                      className="flex items-center space-x-4"
+                    >
                       <div className="w-16 text-xs text-gray-500 text-right">
                         Week {index + 1}
                       </div>
@@ -1075,7 +1078,9 @@ function VenueSelection({
                       type="number"
                       min="0"
                       step="0.01"
-                      value={customVenuePrice as any}
+                      value={
+                        customVenuePrice === "" ? "" : String(customVenuePrice)
+                      }
                       onChange={(e) =>
                         setCustomVenuePrice(
                           e.target.value === "" ? "" : Number(e.target.value)
@@ -1994,7 +1999,11 @@ function PackageInclusionsManagement({
                     </span>
                     <input
                       type="number"
-                      value={newComponent.component_price}
+                      value={
+                        isNaN(newComponent.component_price)
+                          ? 0
+                          : newComponent.component_price
+                      }
                       onChange={(e) =>
                         setNewComponent({
                           ...newComponent,
@@ -2280,7 +2289,11 @@ function ComponentDisplay({
               <span className="absolute left-3 top-2 text-gray-500">₱</span>
               <input
                 type="number"
-                value={editedComponent.component_price}
+                value={
+                  isNaN(editedComponent.component_price)
+                    ? 0
+                    : editedComponent.component_price
+                }
                 onChange={(e) =>
                   setEditedComponent({
                     ...editedComponent,
@@ -2838,6 +2851,8 @@ function PaymentHistoryTab({ event }: { event: Event }) {
     payment_reference: "",
     payment_notes: "",
   });
+  const [paymentAmountDisplay, setPaymentAmountDisplay] = useState("");
+  const paymentInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchPaymentHistory();
@@ -2901,9 +2916,171 @@ function PaymentHistoryTab({ event }: { event: Event }) {
     }
   };
 
+  // Number formatting utilities
+  const formatNumberWithCommas = (value: string | number): string => {
+    if (!value || value === 0) return "";
+    const numValue = typeof value === "string" ? parseFloat(value) : value;
+    if (isNaN(numValue)) return "";
+
+    return numValue.toLocaleString("en-US", {
+      style: "decimal",
+      minimumFractionDigits: 0, // No forced decimals
+      maximumFractionDigits: 20, // Allow unlimited decimal places
+    });
+  };
+
+  const parseFormattedNumber = (formattedValue: string): number => {
+    if (!formattedValue) return 0;
+    // Remove commas and parse
+    const cleanValue = formattedValue.replace(/,/g, "");
+    const parsed = parseFloat(cleanValue);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const handlePaymentAmountChange = (value: string) => {
+    // Allow typing freely but format with commas as user types
+    const cleanValue = value.replace(/,/g, "");
+
+    // Handle special cases for incomplete decimal inputs
+    if (cleanValue === "" || cleanValue === "0") {
+      setNewPayment((p) => ({ ...p, payment_amount: 0 }));
+      setPaymentAmountDisplay("");
+      return;
+    }
+
+    // Allow incomplete decimal inputs (like ".", ".0", "100.", etc.)
+    if (
+      cleanValue === "." ||
+      cleanValue.endsWith(".") ||
+      /^\d+\.$/.test(cleanValue) ||
+      /^\d+\.\d*$/.test(cleanValue)
+    ) {
+      setPaymentAmountDisplay(value); // Keep the raw input as-is
+      // Try to parse the numeric part for validation
+      const numericPart = cleanValue.replace(/\.$/, ""); // Remove trailing dot
+      const numericValue = parseFloat(numericPart);
+      if (!isNaN(numericValue) && numericValue >= 0) {
+        setNewPayment((p) => ({ ...p, payment_amount: numericValue }));
+      }
+      return;
+    }
+
+    // Only allow numbers and decimal point
+    const numericValue = parseFloat(cleanValue);
+    if (!isNaN(numericValue) && numericValue >= 0) {
+      setNewPayment((p) => ({ ...p, payment_amount: numericValue }));
+      // Format with commas as user types
+      setPaymentAmountDisplay(formatNumberWithCommas(numericValue));
+    }
+  };
+
+  const handlePaymentAmountBlur = () => {
+    // Format the number when user finishes typing (on blur)
+    if (newPayment.payment_amount > 0) {
+      setPaymentAmountDisplay(
+        formatNumberWithCommas(newPayment.payment_amount)
+      );
+    } else {
+      setPaymentAmountDisplay("");
+    }
+  };
+
+  const handlePaymentAmountKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    // Allow: backspace, delete, tab, escape, enter, home, end, left, right, up, down
+    if (
+      [8, 9, 27, 13, 46, 35, 36, 37, 38, 39, 40].indexOf(e.keyCode) !== -1 ||
+      // Allow: Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
+      (e.keyCode === 65 && e.ctrlKey === true) ||
+      (e.keyCode === 67 && e.ctrlKey === true) ||
+      (e.keyCode === 86 && e.ctrlKey === true) ||
+      (e.keyCode === 88 && e.ctrlKey === true)
+    ) {
+      return;
+    }
+    // Allow decimal point (dot)
+    if (e.keyCode === 190 || e.keyCode === 110) {
+      return;
+    }
+    // Ensure that it is a number and stop the keypress
+    if (
+      (e.shiftKey || e.keyCode < 48 || e.keyCode > 57) &&
+      (e.keyCode < 96 || e.keyCode > 105)
+    ) {
+      e.preventDefault();
+    }
+  };
+
+  // Validation functions
+  const validatePaymentAmount = (
+    amount: number
+  ): { isValid: boolean; message?: string } => {
+    if (amount <= 0) {
+      return {
+        isValid: false,
+        message: "Payment amount must be greater than zero",
+      };
+    }
+
+    const paidAmount = calculatePaidAmount();
+    const remainingBalance = event.total_budget - paidAmount;
+
+    if (remainingBalance <= 0) {
+      return {
+        isValid: false,
+        message:
+          "This event is already fully paid. No additional payments needed.",
+      };
+    }
+
+    if (amount > remainingBalance) {
+      return {
+        isValid: false,
+        message: `Payment amount (₱${formatCurrency(amount)}) exceeds remaining balance (₱${formatCurrency(remainingBalance)}). Maximum allowed: ₱${formatCurrency(remainingBalance)}`,
+      };
+    }
+
+    return { isValid: true };
+  };
+
+  const isEventFullyPaid = (): boolean => {
+    const paidAmount = calculatePaidAmount();
+    return paidAmount >= event.total_budget;
+  };
+
+  const getRemainingBalance = (): number => {
+    const paidAmount = calculatePaidAmount();
+    return Math.max(0, event.total_budget - paidAmount);
+  };
+
   const handleCreatePayment = async () => {
     try {
       setIsCreating(true);
+
+      const paymentAmount = Number(newPayment.payment_amount) || 0;
+
+      // Validate payment amount
+      const validation = validatePaymentAmount(paymentAmount);
+      if (!validation.isValid) {
+        toast({
+          title: "Payment Validation Error",
+          description: validation.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Additional validation: Check if event is fully paid
+      if (isEventFullyPaid()) {
+        toast({
+          title: "Event Fully Paid",
+          description:
+            "This event is already fully paid. No additional payments can be recorded.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       // Create payment record - simple data only
       const paymentData = {
@@ -2911,7 +3088,7 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         event_id: event.event_id,
         client_id: event.user_id,
         payment_method: newPayment.payment_method,
-        payment_amount: Number(newPayment.payment_amount) || 0,
+        payment_amount: paymentAmount,
         payment_notes: newPayment.payment_notes || "",
         payment_status: newPayment.payment_status,
         payment_date: newPayment.payment_date,
@@ -2931,7 +3108,16 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         return;
       }
 
-      toast({ title: "Success", description: "Payment recorded successfully" });
+      // Check if this payment makes the event fully paid
+      const newPaidAmount = calculatePaidAmount() + paymentAmount;
+      const isNowFullyPaid = newPaidAmount >= event.total_budget;
+
+      toast({
+        title: "Success",
+        description: isNowFullyPaid
+          ? "Payment recorded successfully! Event is now fully paid."
+          : "Payment recorded successfully",
+      });
 
       // Reset form & close modal
       setNewPayment({
@@ -2945,6 +3131,7 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         payment_reference: "",
         payment_notes: "",
       });
+      setPaymentAmountDisplay("");
       setIsPaymentModalOpen(false);
 
       // Refresh payment history
@@ -3074,369 +3261,458 @@ function PaymentHistoryTab({ event }: { event: Event }) {
 
       {/* Make Payment Modal */}
       <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-        <DialogContent
-          className="max-w-2xl lg:max-w-xl max-h-[85vh] overflow-y-auto pr-3 md:pr-4"
-          style={{ scrollbarGutter: "stable both-edges" }}
-        >
-          <DialogHeader>
-            <DialogTitle className="text-xl">Record Payment</DialogTitle>
-            <DialogDescription className="text-sm">
-              Record a new payment for this event. You can make partial
-              payments, full payment, or any custom amount.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-1 gap-6">
-            <div>
-              {/* Enhanced Payment Summary */}
-              <div className="rounded-lg border p-6 bg-gradient-to-r from-blue-50 to-indigo-50 mb-6">
-                <h4 className="font-semibold text-blue-900 mb-4 flex items-center gap-2">
-                  <Wallet className="h-5 w-5" />
-                  Payment Summary
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                  <div className="bg-white rounded-lg p-3 border">
-                    <div className="text-blue-700 font-medium mb-1">
-                      Total Budget
+        <DialogContent className="max-w-2xl lg:max-w-xl h-[90vh] flex flex-col p-0">
+          {/* Header */}
+          <div className="flex-shrink-0 bg-white border-b border-gray-200 p-6 pb-4">
+            <DialogHeader>
+              <DialogTitle className="text-xl">Record Payment</DialogTitle>
+              <DialogDescription className="text-sm">
+                Record a new payment for this event. You can make partial
+                payments, full payment, or any custom amount.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          {/* Payment Summary - Fixed at top of content */}
+          <div
+            className={`flex-shrink-0 bg-white border-b border-gray-200 p-6 ${
+              isEventFullyPaid()
+                ? "bg-gradient-to-r from-green-50 to-emerald-50"
+                : "bg-gradient-to-r from-blue-50 to-indigo-50"
+            }`}
+          >
+            <h4
+              className={`font-semibold mb-4 flex items-center gap-2 ${
+                isEventFullyPaid() ? "text-green-900" : "text-blue-900"
+              }`}
+            >
+              <Wallet className="h-5 w-5" />
+              Payment Summary
+              {isEventFullyPaid() && (
+                <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full border border-green-200">
+                  ✓ Fully Paid
+                </span>
+              )}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+              <div className="bg-white rounded-lg p-3 border">
+                <div className="text-blue-700 font-medium mb-1">
+                  Total Budget
+                </div>
+                <div className="font-bold text-lg text-blue-900">
+                  ₱{formatCurrency(event.total_budget)}
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-3 border">
+                <div className="text-green-700 font-medium mb-1">
+                  Amount Paid
+                </div>
+                <div className="font-bold text-lg text-green-600">
+                  ₱
+                  {(() => {
+                    const paidAmount = calculatePaidAmount();
+                    console.log(
+                      "Payment modal - final paid amount:",
+                      paidAmount
+                    );
+                    return formatCurrency(paidAmount);
+                  })()}
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-3 border">
+                <div className="text-orange-700 font-medium mb-1">
+                  Balance Due
+                </div>
+                <div className="font-bold text-lg text-orange-600">
+                  ₱{formatCurrency(event.total_budget - calculatePaidAmount())}
+                </div>
+              </div>
+            </div>
+            {(() => {
+              const paid = calculatePaidAmount();
+              const pct =
+                event.total_budget > 0 ? (paid / event.total_budget) * 100 : 0;
+
+              console.log("Payment modal progress calculation:");
+              console.log("- Paid amount:", paid);
+              console.log("- Total budget:", event.total_budget);
+              console.log("- Percentage:", pct);
+              console.log("- Payment history:", paymentHistory);
+
+              return (
+                <div className="mt-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="text-blue-700 text-sm font-medium">
+                      Payment Progress
                     </div>
-                    <div className="font-bold text-lg text-blue-900">
-                      ₱{formatCurrency(event.total_budget)}
+                    <div className="text-sm font-bold text-blue-900">
+                      {pct.toFixed(1)}% Complete
                     </div>
                   </div>
-                  <div className="bg-white rounded-lg p-3 border">
-                    <div className="text-green-700 font-medium mb-1">
-                      Amount Paid
-                    </div>
-                    <div className="font-bold text-lg text-green-600">
-                      ₱
-                      {(() => {
-                        const paidAmount = calculatePaidAmount();
-                        console.log(
-                          "Payment modal - final paid amount:",
-                          paidAmount
-                        );
-                        return formatCurrency(paidAmount);
-                      })()}
-                    </div>
+                  <div className="w-full h-3 rounded-full bg-blue-100 overflow-hidden">
+                    <div
+                      className="h-3 bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-300"
+                      style={{
+                        width: `${Math.min(pct, 100).toFixed(1)}%`,
+                      }}
+                    />
                   </div>
-                  <div className="bg-white rounded-lg p-3 border">
-                    <div className="text-orange-700 font-medium mb-1">
-                      Balance Due
-                    </div>
-                    <div className="font-bold text-lg text-orange-600">
-                      ₱
-                      {formatCurrency(
-                        event.total_budget - calculatePaidAmount()
-                      )}
-                    </div>
+                  <div className="flex justify-between text-xs text-gray-600 mt-1">
+                    <span>₱{formatCurrency(paid)} paid</span>
+                    <span>
+                      ₱{formatCurrency(event.total_budget - paid)} remaining
+                    </span>
                   </div>
                 </div>
-                {(() => {
-                  const paid = calculatePaidAmount();
-                  const pct =
-                    event.total_budget > 0
-                      ? (paid / event.total_budget) * 100
-                      : 0;
+              );
+            })()}
+          </div>
 
-                  console.log("Payment modal progress calculation:");
-                  console.log("- Paid amount:", paid);
-                  console.log("- Total budget:", event.total_budget);
-                  console.log("- Percentage:", pct);
-                  console.log("- Payment history:", paymentHistory);
+          {/* Scrollable Content Area */}
+          <div
+            className="flex-1 overflow-y-auto px-6 py-4 min-h-0 flex-shrink"
+            style={{ scrollbarGutter: "stable both-edges" }}
+          >
+            <div className="grid grid-cols-1 gap-6">
+              <div>
+                {/* Fully Paid Warning */}
+                {isEventFullyPaid() && (
+                  <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-green-800">
+                      <CheckCircle className="h-5 w-5" />
+                      <span className="font-medium">Event Fully Paid</span>
+                    </div>
+                    <p className="text-sm text-green-700 mt-1">
+                      This event has been fully paid. No additional payments can
+                      be recorded.
+                    </p>
+                  </div>
+                )}
 
-                  return (
-                    <div className="mt-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <div className="text-blue-700 text-sm font-medium">
-                          Payment Progress
-                        </div>
-                        <div className="text-sm font-bold text-blue-900">
-                          {pct.toFixed(1)}% Complete
+                {/* Enhanced Payment Type Selection */}
+                <div className="mb-6">
+                  <div className="text-sm font-medium text-gray-700 mb-3">
+                    Quick Payment Options
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <Button
+                      type="button"
+                      variant={
+                        newPayment.payment_type === "custom"
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      onClick={() =>
+                        setNewPayment((p) => ({ ...p, payment_type: "custom" }))
+                      }
+                      className="h-12"
+                      disabled={isEventFullyPaid()}
+                    >
+                      <DollarSign className="h-4 w-4 mr-2" />
+                      <div className="text-left">
+                        <div className="font-medium">Custom Amount</div>
+                        <div className="text-xs opacity-75">
+                          Enter any amount
                         </div>
                       </div>
-                      <div className="w-full h-3 rounded-full bg-blue-100 overflow-hidden">
-                        <div
-                          className="h-3 bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-300"
-                          style={{ width: `${Math.min(pct, 100).toFixed(1)}%` }}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={
+                        newPayment.payment_type === "percentage"
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      onClick={() =>
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_type: "percentage",
+                        }))
+                      }
+                      className="h-12"
+                      disabled={isEventFullyPaid()}
+                    >
+                      <Percent className="h-4 w-4 mr-2" />
+                      <div className="text-left">
+                        <div className="font-medium">Percentage</div>
+                        <div className="text-xs opacity-75">Pay by %</div>
+                      </div>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={
+                        newPayment.payment_type === "full"
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      onClick={() => {
+                        const remainingBalance = Math.max(
+                          0,
+                          event.total_budget -
+                            (paymentHistory?.reduce(
+                              (s, pay) =>
+                                pay.payment_status === "completed"
+                                  ? s + pay.payment_amount
+                                  : s,
+                              0
+                            ) || 0)
+                        );
+                        setNewPayment((p) => ({
+                          ...p,
+                          payment_type: "full",
+                          percentage: 100,
+                          payment_amount: remainingBalance,
+                        }));
+                        setPaymentAmountDisplay(
+                          formatNumberWithCommas(remainingBalance)
+                        );
+                      }}
+                      className="h-12"
+                      disabled={isEventFullyPaid()}
+                    >
+                      <Wallet className="h-4 w-4 mr-2" />
+                      <div className="text-left">
+                        <div className="font-medium">Full Balance</div>
+                        <div className="text-xs opacity-75">Pay remaining</div>
+                      </div>
+                    </Button>
+                  </div>
+                </div>
+
+                {newPayment.payment_type === "percentage" && (
+                  <div className="mb-4">
+                    <label className="block text-sm text-gray-700 mb-1">
+                      Percentage
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      value={
+                        newPayment.percentage === 0 ? "" : newPayment.percentage
+                      }
+                      onChange={(e) => {
+                        const percentage = parseFloat(e.target.value) || 0;
+                        const calculatedAmount =
+                          ((event.total_budget || 0) * percentage) / 100;
+                        setNewPayment((p) => ({
+                          ...p,
+                          percentage: percentage,
+                          payment_amount: calculatedAmount,
+                        }));
+                        setPaymentAmountDisplay(
+                          formatNumberWithCommas(calculatedAmount)
+                        );
+                      }}
+                      placeholder="e.g., 25"
+                      className="w-28 px-3 py-2 border rounded-md"
+                    />
+                  </div>
+                )}
+                {/* Payment Details Form */}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Payment Amount *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+                          ₱
+                        </span>
+                        <input
+                          ref={paymentInputRef}
+                          type="text"
+                          value={paymentAmountDisplay}
+                          onChange={(e) =>
+                            handlePaymentAmountChange(e.target.value)
+                          }
+                          onBlur={handlePaymentAmountBlur}
+                          onKeyDown={handlePaymentAmountKeyDown}
+                          className={`w-full pl-8 pr-3 py-2 border rounded-md focus:ring-2 focus:border-blue-500 ${
+                            isEventFullyPaid()
+                              ? "border-gray-200 bg-gray-50 cursor-not-allowed"
+                              : newPayment.payment_amount >
+                                  getRemainingBalance()
+                                ? "border-red-300 bg-red-50 focus:ring-red-500"
+                                : "border-gray-300 focus:ring-blue-500"
+                          }`}
+                          placeholder={
+                            isEventFullyPaid() ? "Event fully paid" : "0.00"
+                          }
+                          disabled={
+                            newPayment.payment_type === "full" ||
+                            isEventFullyPaid()
+                          }
                         />
                       </div>
-                      <div className="flex justify-between text-xs text-gray-600 mt-1">
-                        <span>₱{formatCurrency(paid)} paid</span>
-                        <span>
-                          ₱{formatCurrency(event.total_budget - paid)} remaining
-                        </span>
-                      </div>
+                      {/* Validation Message */}
+                      {newPayment.payment_amount > 0 && (
+                        <div className="mt-2">
+                          {newPayment.payment_amount > getRemainingBalance() ? (
+                            <p className="text-sm text-red-600 flex items-center gap-1">
+                              <AlertCircle className="h-4 w-4" />
+                              Amount exceeds remaining balance (₱
+                              {formatCurrency(getRemainingBalance())})
+                            </p>
+                          ) : isEventFullyPaid() ? (
+                            <p className="text-sm text-green-600 flex items-center gap-1">
+                              <CheckCircle className="h-4 w-4" />
+                              Event is fully paid
+                            </p>
+                          ) : (
+                            <p className="text-sm text-gray-600">
+                              Remaining balance: ₱
+                              {formatCurrency(getRemainingBalance())}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  );
-                })()}
-              </div>
-
-              {/* Enhanced Payment Type Selection */}
-              <div className="mb-6">
-                <div className="text-sm font-medium text-gray-700 mb-3">
-                  Quick Payment Options
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <Button
-                    type="button"
-                    variant={
-                      newPayment.payment_type === "custom"
-                        ? "default"
-                        : "outline"
-                    }
-                    size="sm"
-                    onClick={() =>
-                      setNewPayment((p) => ({ ...p, payment_type: "custom" }))
-                    }
-                    className="h-12"
-                  >
-                    <DollarSign className="h-4 w-4 mr-2" />
-                    <div className="text-left">
-                      <div className="font-medium">Custom Amount</div>
-                      <div className="text-xs opacity-75">Enter any amount</div>
-                    </div>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={
-                      newPayment.payment_type === "percentage"
-                        ? "default"
-                        : "outline"
-                    }
-                    size="sm"
-                    onClick={() =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_type: "percentage",
-                      }))
-                    }
-                    className="h-12"
-                  >
-                    <Percent className="h-4 w-4 mr-2" />
-                    <div className="text-left">
-                      <div className="font-medium">Percentage</div>
-                      <div className="text-xs opacity-75">Pay by %</div>
-                    </div>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={
-                      newPayment.payment_type === "full" ? "default" : "outline"
-                    }
-                    size="sm"
-                    onClick={() => {
-                      const remainingBalance = Math.max(
-                        0,
-                        event.total_budget -
-                          (paymentHistory?.reduce(
-                            (s, pay) =>
-                              pay.payment_status === "completed"
-                                ? s + pay.payment_amount
-                                : s,
-                            0
-                          ) || 0)
-                      );
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_type: "full",
-                        percentage: 100,
-                        payment_amount: remainingBalance,
-                      }));
-                    }}
-                    className="h-12"
-                  >
-                    <Wallet className="h-4 w-4 mr-2" />
-                    <div className="text-left">
-                      <div className="font-medium">Full Balance</div>
-                      <div className="text-xs opacity-75">Pay remaining</div>
-                    </div>
-                  </Button>
-                </div>
-              </div>
-
-              {newPayment.payment_type === "percentage" && (
-                <div className="mb-4">
-                  <label className="block text-sm text-gray-700 mb-1">
-                    Percentage
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    value={newPayment.percentage}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        percentage: parseFloat(e.target.value) || 0,
-                        payment_amount:
-                          (event.total_budget *
-                            (parseFloat(e.target.value) || 0)) /
-                            100 || 0,
-                      }))
-                    }
-                    placeholder="e.g., 25"
-                    className="w-28 px-3 py-2 border rounded-md"
-                  />
-                </div>
-              )}
-              {/* Payment Details Form */}
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Payment Amount *
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
-                        ₱
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={newPayment.payment_amount}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Payment Method *
+                      </label>
+                      <select
+                        value={newPayment.payment_method}
                         onChange={(e) =>
                           setNewPayment((p) => ({
                             ...p,
-                            payment_amount: parseFloat(e.target.value) || 0,
+                            payment_method: e.target.value as any,
                           }))
                         }
-                        className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="0.00"
-                        disabled={newPayment.payment_type === "full"}
-                      />
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 capitalize"
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="gcash">GCash</option>
+                        <option value="bank-transfer">Bank Transfer</option>
+                      </select>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Payment Method *
-                    </label>
-                    <select
-                      value={newPayment.payment_method}
-                      onChange={(e) =>
-                        setNewPayment((p) => ({
-                          ...p,
-                          payment_method: e.target.value as any,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 capitalize"
-                    >
-                      <option value="cash">💵 Cash</option>
-                      <option value="gcash">📱 GCash</option>
-                      <option value="bank-transfer">🏦 Bank Transfer</option>
-                    </select>
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Payment Date *
+                      </label>
+                      <input
+                        type="date"
+                        value={newPayment.payment_date}
+                        onChange={(e) =>
+                          setNewPayment((p) => ({
+                            ...p,
+                            payment_date: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Status *
+                      </label>
+                      <select
+                        value={newPayment.payment_status}
+                        onChange={(e) =>
+                          setNewPayment((p) => ({
+                            ...p,
+                            payment_status: e.target.value as any,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 capitalize"
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Payment Date *
+                      Reference Number
+                      <span className="text-gray-500 font-normal">
+                        {" "}
+                        (for GCash/Bank Transfer)
+                      </span>
                     </label>
                     <input
-                      type="date"
-                      value={newPayment.payment_date}
+                      type="text"
+                      value={newPayment.payment_reference}
                       onChange={(e) =>
                         setNewPayment((p) => ({
                           ...p,
-                          payment_date: e.target.value,
+                          payment_reference: e.target.value,
                         }))
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter transaction reference number"
                     />
                   </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Status *
+                      Notes
+                      <span className="text-gray-500 font-normal">
+                        {" "}
+                        (Optional)
+                      </span>
                     </label>
-                    <select
-                      value={newPayment.payment_status}
+                    <textarea
+                      value={newPayment.payment_notes}
                       onChange={(e) =>
                         setNewPayment((p) => ({
                           ...p,
-                          payment_status: e.target.value as any,
+                          payment_notes: e.target.value,
                         }))
                       }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 capitalize"
-                    >
-                      <option value="pending">⏳ Pending</option>
-                      <option value="completed">✅ Completed</option>
-                    </select>
+                      className="w-full px-3 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-24 resize-vertical"
+                      rows={3}
+                      placeholder="Additional payment notes or comments..."
+                    />
                   </div>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Reference Number
-                    <span className="text-gray-500 font-normal">
-                      {" "}
-                      (for GCash/Bank Transfer)
-                    </span>
-                  </label>
-                  <input
-                    type="text"
-                    value={newPayment.payment_reference}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_reference: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter transaction reference number"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Notes
-                    <span className="text-gray-500 font-normal">
-                      {" "}
-                      (Optional)
-                    </span>
-                  </label>
-                  <textarea
-                    value={newPayment.payment_notes}
-                    onChange={(e) =>
-                      setNewPayment((p) => ({
-                        ...p,
-                        payment_notes: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-24 resize-vertical"
-                    rows={3}
-                    placeholder="Additional payment notes or comments..."
-                  />
-                </div>
+                {/* File attachments removed - simplified payment process */}
               </div>
-              {/* File attachments removed - simplified payment process */}
-              {/* Right column summary */}
-              <div className="mt-5 flex justify-end gap-3">
-                <Button
-                  onClick={() => setIsPaymentModalOpen(false)}
-                  variant="outline"
-                  disabled={isCreating}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreatePayment}
-                  disabled={isCreating || newPayment.payment_amount <= 0}
-                  className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
-                >
-                  {isCreating ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <Wallet className="h-4 w-4" />
-                      Record Payment
-                    </>
-                  )}
-                </Button>
-              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex-shrink-0 bg-white border-t border-gray-200 p-6 pt-4 shadow-lg">
+            <div className="flex justify-end gap-3">
+              <Button
+                onClick={() => setIsPaymentModalOpen(false)}
+                variant="outline"
+                disabled={isCreating}
+                className="min-w-[100px]"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreatePayment}
+                disabled={
+                  isCreating ||
+                  newPayment.payment_amount <= 0 ||
+                  isEventFullyPaid() ||
+                  newPayment.payment_amount > getRemainingBalance()
+                }
+                className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2 min-w-[140px] disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {isCreating ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Wallet className="h-4 w-4" />
+                    Record Payment
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         </DialogContent>
@@ -3551,14 +3827,25 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                     <h5 className="font-bold text-lg text-gray-900">
                       ₱{formatCurrency(Number(payment.payment_amount || 0))}
                     </h5>
-                    <p className="text-sm text-gray-600 capitalize font-medium">
-                      {payment.payment_method === "cash"
-                        ? "💵 Cash"
-                        : payment.payment_method === "gcash"
-                          ? "📱 GCash"
-                          : payment.payment_method === "bank-transfer"
-                            ? "🏦 Bank Transfer"
-                            : payment.payment_method || "N/A"}
+                    <p className="text-sm text-gray-600 capitalize font-medium flex items-center gap-1">
+                      {payment.payment_method === "cash" ? (
+                        <>
+                          <Banknote className="h-4 w-4" />
+                          Cash
+                        </>
+                      ) : payment.payment_method === "gcash" ? (
+                        <>
+                          <CreditCard className="h-4 w-4" />
+                          GCash
+                        </>
+                      ) : payment.payment_method === "bank-transfer" ? (
+                        <>
+                          <Building className="h-4 w-4" />
+                          Bank Transfer
+                        </>
+                      ) : (
+                        payment.payment_method || "N/A"
+                      )}
                       {payment.installment_number &&
                         ` • Installment ${payment.installment_number}`}
                     </p>
@@ -3576,15 +3863,26 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                 </div>
                 <div className="text-right">
                   <span
-                    className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentStatusColor(payment.payment_status)}`}
+                    className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentStatusColor(payment.payment_status)}`}
                   >
-                    {payment.payment_status === "completed"
-                      ? "✅ Completed"
-                      : payment.payment_status === "pending"
-                        ? "⏳ Pending"
-                        : payment.payment_status === "paid"
-                          ? "✅ Paid"
-                          : payment.payment_status}
+                    {payment.payment_status === "completed" ? (
+                      <>
+                        <CheckCircle className="h-3 w-3" />
+                        Completed
+                      </>
+                    ) : payment.payment_status === "pending" ? (
+                      <>
+                        <Clock className="h-3 w-3" />
+                        Pending
+                      </>
+                    ) : payment.payment_status === "paid" ? (
+                      <>
+                        <CheckCircle className="h-3 w-3" />
+                        Paid
+                      </>
+                    ) : (
+                      payment.payment_status
+                    )}
                   </span>
                 </div>
               </div>
@@ -3676,6 +3974,11 @@ export default function EventDetailsPage() {
   const [organizerDetails, setOrganizerDetails] = useState<any | null>(null);
   const [weddingDetails, setWeddingDetails] = useState<any | null>(null);
   const [weddingLoading, setWeddingLoading] = useState(false);
+  const [isEditingWedding, setIsEditingWedding] = useState(false);
+  const [editingWeddingData, setEditingWeddingData] = useState<any | null>(
+    null
+  );
+  const [weddingSaving, setWeddingSaving] = useState(false);
   const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const getTodayStringLocal = () => {
@@ -4520,7 +4823,10 @@ export default function EventDetailsPage() {
       "Event type ID:",
       event?.event_type_id
     );
-    if (event?.event_type_id === 1) {
+    if (
+      event?.event_type_id === 1 ||
+      event?.event_type_name?.toLowerCase() === "wedding"
+    ) {
       const fetchWedding = async () => {
         try {
           setWeddingLoading(true);
@@ -4553,11 +4859,177 @@ export default function EventDetailsPage() {
     }
   }, [event?.event_id, event?.event_type_id]);
 
+  // Wedding form edit functions
+  const handleEditWedding = () => {
+    setIsEditingWedding(true);
+    // Initialize with empty data if no wedding details exist
+    const initialData = weddingDetails || {
+      nuptial: "",
+      motif: "",
+      wedding_time: "",
+      church: "",
+      address: "",
+      bride_name: "",
+      bride_size: "",
+      groom_name: "",
+      groom_size: "",
+      mother_bride_name: "",
+      mother_bride_size: "",
+      father_bride_name: "",
+      father_bride_size: "",
+      mother_groom_name: "",
+      mother_groom_size: "",
+      father_groom_name: "",
+      father_groom_size: "",
+      maid_of_honor_name: "",
+      maid_of_honor_size: "",
+      best_man_name: "",
+      best_man_size: "",
+      little_bride_name: "",
+      little_bride_size: "",
+      little_groom_name: "",
+      little_groom_size: "",
+      bridesmaids_qty: 0,
+      bridesmaids_names: [],
+      groomsmen_qty: 0,
+      groomsmen_names: [],
+      junior_groomsmen_qty: 0,
+      junior_groomsmen_names: [],
+      flower_girls_qty: 0,
+      flower_girls_names: [],
+      ring_bearer_qty: 0,
+      ring_bearer_names: [],
+      bible_bearer_qty: 0,
+      bible_bearer_names: [],
+      coin_bearer_qty: 0,
+      coin_bearer_names: [],
+      cushions_qty: 0,
+      headdress_qty: 0,
+      shawls_qty: 0,
+      veil_cord_qty: 0,
+      basket_qty: 0,
+      petticoat_qty: 0,
+      neck_bowtie_qty: 0,
+      garter_leg_qty: 0,
+      fitting_form_qty: 0,
+      robe_qty: 0,
+      prepared_by: "",
+      received_by: "",
+      pickup_date: "",
+      return_date: "",
+      customer_signature: "",
+    };
+    setEditingWeddingData(initialData);
+  };
+
+  const handleCancelEditWedding = () => {
+    setIsEditingWedding(false);
+    setEditingWeddingData(null);
+  };
+
+  const handleSaveWedding = async () => {
+    if (!editingWeddingData || !event?.event_id) return;
+
+    setWeddingSaving(true);
+    try {
+      const response = await axios.post(endpoints.admin, {
+        operation: "saveWeddingDetails",
+        event_id: event.event_id,
+        ...editingWeddingData,
+      });
+
+      if (response.data.status === "success") {
+        setWeddingDetails(editingWeddingData);
+        setIsEditingWedding(false);
+        setEditingWeddingData(null);
+        toast({
+          title: "Success",
+          description: weddingDetails
+            ? "Wedding details updated successfully"
+            : "Wedding details created successfully",
+        });
+        // Refresh wedding details from server to ensure we have the latest data
+        if (event?.event_id) {
+          try {
+            const refreshResponse = await axios.get(
+              `${endpoints.admin}?operation=getWeddingDetails&event_id=${event.event_id}`
+            );
+            if (refreshResponse.data.status === "success") {
+              setWeddingDetails(refreshResponse.data.wedding_details || null);
+            }
+          } catch (refreshError) {
+            console.error("Error refreshing wedding details:", refreshError);
+          }
+        }
+      } else {
+        toast({
+          title: "Error",
+          description:
+            response.data.message || "Failed to update wedding details",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error saving wedding details:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update wedding details",
+        variant: "destructive",
+      });
+    } finally {
+      setWeddingSaving(false);
+    }
+  };
+
+  const updateWeddingField = (field: string, value: any) => {
+    setEditingWeddingData((prev: any) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const updateWeddingPartyMember = (
+    partyType: string,
+    index: number,
+    value: string
+  ) => {
+    setEditingWeddingData((prev: any) => {
+      const newData = { ...prev };
+      const names = [...(newData[partyType] || [])];
+      names[index] = value;
+      newData[partyType] = names;
+      return newData;
+    });
+  };
+
+  const addWeddingPartyMember = (partyType: string) => {
+    setEditingWeddingData((prev: any) => {
+      const newData = { ...prev };
+      const names = [...(newData[partyType] || [])];
+      names.push("");
+      newData[partyType] = names;
+      return newData;
+    });
+  };
+
+  const removeWeddingPartyMember = (partyType: string, index: number) => {
+    setEditingWeddingData((prev: any) => {
+      const newData = { ...prev };
+      const names = [...(newData[partyType] || [])];
+      names.splice(index, 1);
+      newData[partyType] = names;
+      return newData;
+    });
+  };
+
   const tabs = [
     { id: "overview", label: "Overview", icon: Eye },
     { id: "payments", label: "Payments", icon: CreditCard },
     { id: "attachments", label: "Files", icon: Paperclip },
-    { id: "nuptial", label: "Nupital Form", icon: FileText },
+    // Only show nuptial tab for wedding events
+    ...(event?.event_type_name?.toLowerCase() === "wedding"
+      ? [{ id: "nuptial", label: "Nupital Form", icon: FileText }]
+      : []),
   ];
 
   console.log("🔍 Tabs for event:", event?.event_type_name, "Tabs:", tabs);
@@ -5366,6 +5838,34 @@ export default function EventDetailsPage() {
                             </div>
                           </div>
                         )}
+                        {event.wedding_details.wedding_time && (
+                          <div>
+                            <div className="text-sm text-pink-700">
+                              Wedding Time
+                            </div>
+                            <div className="font-medium text-pink-900">
+                              {event.wedding_details.wedding_time}
+                            </div>
+                          </div>
+                        )}
+                        {event.wedding_details.church && (
+                          <div>
+                            <div className="text-sm text-pink-700">
+                              Church/Venue
+                            </div>
+                            <div className="font-medium text-pink-900">
+                              {event.wedding_details.church}
+                            </div>
+                          </div>
+                        )}
+                        {event.wedding_details.address && (
+                          <div>
+                            <div className="text-sm text-pink-700">Address</div>
+                            <div className="font-medium text-pink-900">
+                              {event.wedding_details.address}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -5666,7 +6166,9 @@ export default function EventDetailsPage() {
                                 type="number"
                                 min="0"
                                 step="0.01"
-                                value={agreedFee as any}
+                                value={
+                                  agreedFee === "" ? "" : String(agreedFee)
+                                }
                                 onChange={(e) =>
                                   setAgreedFee(
                                     e.target.value === ""
@@ -5922,204 +6424,942 @@ export default function EventDetailsPage() {
               )}
               {activeTab === "nuptial" && (
                 <div className="space-y-6">
-                  <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">
-                    Nupital Form
-                  </h3>
+                  <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Nupital Form
+                    </h3>
+                    {!isEditingWedding &&
+                      event?.event_type_name?.toLowerCase() === "wedding" && (
+                        <Button
+                          onClick={handleEditWedding}
+                          variant="outline"
+                          size="sm"
+                          className="flex items-center gap-2"
+                        >
+                          <Edit className="h-4 w-4" />
+                          {weddingDetails ? "Edit" : "Add Details"}
+                        </Button>
+                      )}
+                    {isEditingWedding && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          onClick={handleCancelEditWedding}
+                          variant="outline"
+                          size="sm"
+                          disabled={weddingSaving}
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleSaveWedding}
+                          size="sm"
+                          disabled={weddingSaving}
+                          className="flex items-center gap-2"
+                        >
+                          {weddingSaving ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          ) : (
+                            <Save className="h-4 w-4" />
+                          )}
+                          {weddingSaving ? "Saving..." : "Save Changes"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                   {weddingLoading ? (
                     <div className="text-gray-500">
                       Loading wedding details...
                     </div>
-                  ) : !weddingDetails ? (
-                    <div className="text-center py-12">
-                      <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                      <h4 className="text-lg font-medium text-gray-900 mb-2">
-                        No form available for this event
-                      </h4>
-                      <p className="text-gray-600">
-                        Nupital forms are typically used for wedding events.
+                  ) : !weddingDetails && !isEditingWedding ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <div className="mb-4">
+                        <FileText className="h-12 w-12 mx-auto text-gray-300" />
+                      </div>
+                      <p className="text-lg font-medium mb-2">
+                        No wedding details yet
+                      </p>
+                      <p className="text-sm">
+                        Click "Add Details" to start filling out the wedding
+                        form.
                       </p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Basic Information */}
                       <div className="space-y-3">
                         <div>
-                          <div className="text-sm text-gray-600">Nuptial</div>
-                          <div className="font-medium">
-                            {weddingDetails.nuptial || "-"}
-                          </div>
+                          <Label className="text-sm text-gray-600">
+                            Nuptial
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.nuptial || ""}
+                              onChange={(e) =>
+                                updateWeddingField("nuptial", e.target.value)
+                              }
+                              placeholder="Enter nuptial details"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.nuptial || "-"}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <div className="text-sm text-gray-600">Motif</div>
-                          <div className="font-medium">
-                            {weddingDetails.motif || "-"}
-                          </div>
+                          <Label className="text-sm text-gray-600">Motif</Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.motif || ""}
+                              onChange={(e) =>
+                                updateWeddingField("motif", e.target.value)
+                              }
+                              placeholder="Enter wedding motif"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.motif || "-"}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <div className="text-sm text-gray-600">Bride</div>
-                          <div className="font-medium">
-                            {weddingDetails.bride_name || "-"}{" "}
-                            {weddingDetails.bride_gown_size
-                              ? `(Size: ${weddingDetails.bride_gown_size})`
-                              : ""}
-                          </div>
+                          <Label className="text-sm text-gray-600">
+                            Wedding Time
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              type="time"
+                              value={editingWeddingData?.wedding_time || ""}
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "wedding_time",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Select wedding time"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.wedding_time || "-"}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <div className="text-sm text-gray-600">Groom</div>
-                          <div className="font-medium">
-                            {weddingDetails.groom_name || "-"}{" "}
-                            {weddingDetails.groom_attire_size
-                              ? `(Size: ${weddingDetails.groom_attire_size})`
-                              : ""}
-                          </div>
+                          <Label className="text-sm text-gray-600">
+                            Church/Venue
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.church || ""}
+                              onChange={(e) =>
+                                updateWeddingField("church", e.target.value)
+                              }
+                              placeholder="Enter church or venue name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.church || "-"}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <div className="text-sm text-gray-600">
+                          <Label className="text-sm text-gray-600">
+                            Address
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.address || ""}
+                              onChange={(e) =>
+                                updateWeddingField("address", e.target.value)
+                              }
+                              placeholder="Enter full address"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.address || "-"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Bride & Groom */}
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Bride Name
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.bride_name || ""}
+                              onChange={(e) =>
+                                updateWeddingField("bride_name", e.target.value)
+                              }
+                              placeholder="Enter bride's full name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.bride_name || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Bride Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.bride_size || ""}
+                              onChange={(e) =>
+                                updateWeddingField("bride_size", e.target.value)
+                              }
+                              placeholder="Enter gown size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.bride_size || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Groom Name
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.groom_name || ""}
+                              onChange={(e) =>
+                                updateWeddingField("groom_name", e.target.value)
+                              }
+                              placeholder="Enter groom's full name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.groom_name || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Groom Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.groom_size || ""}
+                              onChange={(e) =>
+                                updateWeddingField("groom_size", e.target.value)
+                              }
+                              placeholder="Enter attire size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.groom_size || "-"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Bride's Parents */}
+                      <div className="space-y-3">
+                        <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">
+                          Bride's Parents
+                        </h4>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Mother's Name
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.mother_bride_name || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "mother_bride_name",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter mother's name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.mother_bride_name || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Mother's Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.mother_bride_size || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "mother_bride_size",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter attire size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.mother_bride_size || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Father's Name
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.father_bride_name || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "father_bride_name",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter father's name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.father_bride_name || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Father's Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.father_bride_size || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "father_bride_size",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter attire size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.father_bride_size || "-"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Groom's Parents */}
+                      <div className="space-y-3">
+                        <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">
+                          Groom's Parents
+                        </h4>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Mother's Name
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.mother_groom_name || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "mother_groom_name",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter groom's mother name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.mother_groom_name || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Mother's Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.mother_groom_size || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "mother_groom_size",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter attire size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.mother_groom_size || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Father's Name
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.father_groom_name || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "father_groom_name",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter groom's father name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.father_groom_name || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Father's Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.father_groom_size || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "father_groom_size",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter attire size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.father_groom_size || "-"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Principal Sponsors */}
+                      <div className="space-y-3">
+                        <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">
+                          Principal Sponsors
+                        </h4>
+                        <div>
+                          <Label className="text-sm text-gray-600">
                             Maid of Honor
-                          </div>
-                          <div className="font-medium">
-                            {weddingDetails.maid_of_honor_name || "-"}{" "}
-                            {weddingDetails.maid_of_honor_size
-                              ? `(Size: ${weddingDetails.maid_of_honor_size})`
-                              : ""}
-                          </div>
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.maid_of_honor_name || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "maid_of_honor_name",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter maid of honor's name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.maid_of_honor_name || "-"}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <div className="text-sm text-gray-600">Best Man</div>
-                          <div className="font-medium">
-                            {weddingDetails.best_man_name || "-"}{" "}
-                            {weddingDetails.best_man_size
-                              ? `(Size: ${weddingDetails.best_man_size})`
-                              : ""}
-                          </div>
+                          <Label className="text-sm text-gray-600">
+                            Maid of Honor Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.maid_of_honor_size || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "maid_of_honor_size",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter dress size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.maid_of_honor_size || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Best Man
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.best_man_name || ""}
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "best_man_name",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter best man's name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.best_man_name || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Best Man Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.best_man_size || ""}
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "best_man_size",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter suit size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.best_man_size || "-"}
+                            </div>
+                          )}
                         </div>
                       </div>
 
+                      {/* Little Bride & Groom */}
                       <div className="space-y-3">
+                        <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">
+                          Little Bride & Groom
+                        </h4>
                         <div>
-                          <div className="text-sm text-gray-600">
-                            Little Bride
-                          </div>
-                          <div className="font-medium">
-                            {weddingDetails.little_bride_name || "-"}{" "}
-                            {weddingDetails.little_bride_size
-                              ? `(Size: ${weddingDetails.little_bride_size})`
-                              : ""}
-                          </div>
+                          <Label className="text-sm text-gray-600">
+                            Little Bride Name
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.little_bride_name || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "little_bride_name",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter little bride's name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.little_bride_name || "-"}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <div className="text-sm text-gray-600">
-                            Little Groom
-                          </div>
-                          <div className="font-medium">
-                            {weddingDetails.little_groom_name || "-"}{" "}
-                            {weddingDetails.little_groom_size
-                              ? `(Size: ${weddingDetails.little_groom_size})`
-                              : ""}
-                          </div>
+                          <Label className="text-sm text-gray-600">
+                            Little Bride Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.little_bride_size || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "little_bride_size",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter dress size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.little_bride_size || "-"}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <div className="text-sm text-gray-600">
-                            Prepared By
-                          </div>
-                          <div className="font-medium">
-                            {weddingDetails.prepared_by || "-"}
-                          </div>
+                          <Label className="text-sm text-gray-600">
+                            Little Groom Name
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.little_groom_name || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "little_groom_name",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter little groom's name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.little_groom_name || "-"}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <div className="text-sm text-gray-600">
-                            Received By
-                          </div>
-                          <div className="font-medium">
-                            {weddingDetails.received_by || "-"}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-sm text-gray-600">
-                            Pick Up Date
-                          </div>
-                          <div className="font-medium">
-                            {weddingDetails.pick_up_date || "-"}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-sm text-gray-600">
-                            Return Date
-                          </div>
-                          <div className="font-medium">
-                            {weddingDetails.return_date || "-"}
-                          </div>
+                          <Label className="text-sm text-gray-600">
+                            Little Groom Size
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.little_groom_size || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "little_groom_size",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter suit size"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.little_groom_size || "-"}
+                            </div>
+                          )}
                         </div>
                       </div>
 
+                      {/* Processing Information */}
+                      <div className="space-y-3">
+                        <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-1">
+                          Processing Information
+                        </h4>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Prepared By
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.prepared_by || ""}
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "prepared_by",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter preparer's name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.prepared_by || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Received By
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={editingWeddingData?.received_by || ""}
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "received_by",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter receiver's name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.received_by || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Pickup Date
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              type="date"
+                              value={editingWeddingData?.pickup_date || ""}
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "pickup_date",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.pickup_date || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Return Date
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              type="date"
+                              value={editingWeddingData?.return_date || ""}
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "return_date",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.return_date || "-"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Customer Signature
+                          </Label>
+                          {isEditingWedding ? (
+                            <Input
+                              value={
+                                editingWeddingData?.customer_signature || ""
+                              }
+                              onChange={(e) =>
+                                updateWeddingField(
+                                  "customer_signature",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Enter customer signature or name"
+                            />
+                          ) : (
+                            <div className="font-medium">
+                              {weddingDetails?.customer_signature || "-"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Wedding Party */}
                       <div className="md:col-span-2">
-                        <h4 className="font-semibold mb-2">Wedding Party</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
+                          Wedding Party
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                           {[
-                            { title: "Bridesmaids", key: "bridesmaids" },
-                            { title: "Groomsmen", key: "groomsmen" },
+                            {
+                              title: "Bridesmaids",
+                              qtyKey: "bridesmaids_qty",
+                              namesKey: "bridesmaids_names",
+                            },
+                            {
+                              title: "Groomsmen",
+                              qtyKey: "groomsmen_qty",
+                              namesKey: "groomsmen_names",
+                            },
                             {
                               title: "Junior Groomsmen",
-                              key: "junior_groomsmen",
+                              qtyKey: "junior_groomsmen_qty",
+                              namesKey: "junior_groomsmen_names",
                             },
-                            { title: "Flower Girls", key: "flower_girls" },
-                            { title: "Bearers", key: "bearers" },
-                          ].map((grp) => (
+                            {
+                              title: "Flower Girls",
+                              qtyKey: "flower_girls_qty",
+                              namesKey: "flower_girls_names",
+                            },
+                            {
+                              title: "Ring Bearers",
+                              qtyKey: "ring_bearer_qty",
+                              namesKey: "ring_bearer_names",
+                            },
+                            {
+                              title: "Bible Bearers",
+                              qtyKey: "bible_bearer_qty",
+                              namesKey: "bible_bearer_names",
+                            },
+                            {
+                              title: "Coin Bearers",
+                              qtyKey: "coin_bearer_qty",
+                              namesKey: "coin_bearer_names",
+                            },
+                          ].map((group) => (
                             <div
-                              key={grp.key}
+                              key={group.qtyKey}
                               className="border rounded-md p-3"
                             >
-                              <div className="text-sm text-gray-600 mb-1">
-                                {grp.title}
+                              <div className="text-sm text-gray-600 mb-2 font-medium">
+                                {group.title}
                               </div>
-                              <div className="space-y-1">
-                                {(weddingDetails[grp.key] || []).length ===
-                                  0 && (
-                                  <div className="text-gray-400 text-sm">
-                                    None
+                              {isEditingWedding ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <Label className="text-xs text-gray-500">
+                                      Quantity:
+                                    </Label>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      value={
+                                        editingWeddingData?.[group.qtyKey] || 0
+                                      }
+                                      onChange={(e) =>
+                                        updateWeddingField(
+                                          group.qtyKey,
+                                          parseInt(e.target.value) || 0
+                                        )
+                                      }
+                                      className="w-16 h-8 text-sm"
+                                    />
                                   </div>
-                                )}
-                                {(weddingDetails[grp.key] || []).map(
-                                  (m: any, idx: number) => (
-                                    <div key={idx} className="text-sm">
-                                      {m.name}
-                                      {m.size ? ` (Size: ${m.size})` : ""}
-                                    </div>
-                                  )
-                                )}
-                              </div>
+                                  <div className="space-y-1">
+                                    {(
+                                      editingWeddingData?.[group.namesKey] || []
+                                    ).map((name: string, idx: number) => (
+                                      <div
+                                        key={`${group.namesKey}-edit-${idx}`}
+                                        className="flex gap-1"
+                                      >
+                                        <Input
+                                          value={name || ""}
+                                          onChange={(e) =>
+                                            updateWeddingPartyMember(
+                                              group.namesKey,
+                                              idx,
+                                              e.target.value
+                                            )
+                                          }
+                                          placeholder="Enter name"
+                                          className="text-sm h-8"
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() =>
+                                            removeWeddingPartyMember(
+                                              group.namesKey,
+                                              idx
+                                            )
+                                          }
+                                          className="h-8 w-8 p-0"
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() =>
+                                        addWeddingPartyMember(group.namesKey)
+                                      }
+                                      className="w-full h-8 text-xs"
+                                    >
+                                      <Plus className="h-3 w-3 mr-1" />
+                                      Add {group.title.slice(0, -1)}
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="text-xs text-gray-500 mb-2">
+                                    Quantity:{" "}
+                                    {weddingDetails?.[group.qtyKey] || 0}
+                                  </div>
+                                  <div className="space-y-1">
+                                    {(weddingDetails?.[group.namesKey] || [])
+                                      .length === 0 ? (
+                                      <div className="text-gray-400 text-sm">
+                                        None
+                                      </div>
+                                    ) : (
+                                      (
+                                        weddingDetails?.[group.namesKey] || []
+                                      ).map((name: string, idx: number) => (
+                                        <div
+                                          key={`${group.namesKey}-${idx}`}
+                                          className="text-sm"
+                                        >
+                                          {name || "-"}
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                </>
+                              )}
                             </div>
                           ))}
                         </div>
                       </div>
 
+                      {/* Wedding Items */}
                       <div className="md:col-span-2">
-                        <h4 className="font-semibold mb-2">Items</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
+                          Wedding Items
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
                           {[
-                            ["cushions_quantity", "Cushions"],
-                            [
-                              "headdress_for_bride_quantity",
-                              "Headdress for Bride",
-                            ],
-                            ["shawls_quantity", "Shawls"],
-                            ["veil_cord_quantity", "Veil/Cord"],
-                            ["basket_quantity", "Basket"],
-                            ["petticoat_quantity", "Petticoat"],
-                            ["neck_bowtie_quantity", "Neck Bowtie"],
-                            ["garter_leg_quantity", "Garter/Leg"],
-                            ["fitting_form_quantity", "Fitting Form"],
-                            ["robe_quantity", "Robe"],
+                            ["cushions_qty", "Cushions"],
+                            ["headdress_qty", "Headdress for Bride"],
+                            ["shawls_qty", "Shawls"],
+                            ["veil_cord_qty", "Veil & Cord"],
+                            ["basket_qty", "Basket"],
+                            ["petticoat_qty", "Petticoat"],
+                            ["neck_bowtie_qty", "Neck/Bowtie"],
+                            ["garter_leg_qty", "Garter Leg"],
+                            ["fitting_form_qty", "Fitting Form"],
+                            ["robe_qty", "Robe"],
                           ].map(([key, label]) => (
                             <div
-                              key={key as string}
+                              key={key}
                               className="flex items-center justify-between border rounded-md p-3"
                             >
                               <div className="text-sm text-gray-600">
-                                {label as string}
+                                {label}
                               </div>
-                              <div className="font-medium">
-                                {Number(weddingDetails[key as any] || 0)}
-                              </div>
+                              {isEditingWedding ? (
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={editingWeddingData?.[key] || 0}
+                                  onChange={(e) =>
+                                    updateWeddingField(
+                                      key,
+                                      parseInt(e.target.value) || 0
+                                    )
+                                  }
+                                  className="w-16 h-8 text-sm"
+                                />
+                              ) : (
+                                <div className="font-medium">
+                                  {Number(weddingDetails?.[key] || 0)}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>

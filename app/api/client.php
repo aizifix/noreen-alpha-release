@@ -297,6 +297,53 @@ function createBooking($data) {
 
         $pdo->beginTransaction();
 
+        // Check for duplicate booking (same user, event name, and date)
+        // Also check for similar bookings within a short time window to prevent accidental double-clicks
+        $duplicateCheckSql = "SELECT booking_id, booking_reference, booking_status, created_at
+                             FROM tbl_bookings
+                             WHERE user_id = ?
+                             AND event_name = ?
+                             AND event_date = ?
+                             AND booking_status NOT IN ('cancelled', 'completed')
+                             AND (
+                                 -- Exact match
+                                 (venue_id = ? AND package_id = ?) OR
+                                 -- Similar booking within last 5 minutes (prevent double-clicks)
+                                 created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                             )
+                             ORDER BY created_at DESC
+                             LIMIT 1";
+
+        $venueId = isset($data['venue_id']) && $data['venue_id'] ? (int)$data['venue_id'] : null;
+        $packageId = isset($data['package_id']) && $data['package_id'] ? (int)$data['package_id'] : null;
+
+        $duplicateCheckStmt = $pdo->prepare($duplicateCheckSql);
+        $duplicateCheckStmt->execute([
+            $data['user_id'],
+            $data['event_name'],
+            $data['event_date'],
+            $venueId,
+            $packageId
+        ]);
+        $existingBooking = $duplicateCheckStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($existingBooking) {
+            $pdo->rollback();
+            $timeDiff = time() - strtotime($existingBooking['created_at']);
+
+            if ($timeDiff < 300) { // Less than 5 minutes
+                return [
+                    "status" => "error",
+                    "message" => "A booking for '{$data['event_name']}' on {$data['event_date']} was just created. Please wait a moment before creating another booking. Reference: {$existingBooking['booking_reference']}"
+                ];
+            } else {
+                return [
+                    "status" => "error",
+                    "message" => "You already have a booking for '{$data['event_name']}' on {$data['event_date']}. Booking reference: {$existingBooking['booking_reference']}. Please check your existing bookings or contact support if you need to make changes."
+                ];
+            }
+        }
+
         // Generate unique booking reference with timestamp
         do {
             $bookingReference = 'BK-' . date('Ymd') . '-' . rand(1000, 9999);
@@ -1259,6 +1306,87 @@ function checkEventConflicts($eventDate, $startTime, $endTime, $excludeEventId =
     }
 }
 
+// Function to identify duplicate bookings
+function getDuplicateBookings() {
+    global $pdo;
+
+    try {
+        $sql = "SELECT
+                    user_id,
+                    event_name,
+                    event_date,
+                    COUNT(*) as duplicate_count,
+                    GROUP_CONCAT(booking_id ORDER BY created_at ASC) as booking_ids,
+                    GROUP_CONCAT(booking_reference ORDER BY created_at ASC) as booking_references,
+                    GROUP_CONCAT(booking_status ORDER BY created_at ASC) as booking_statuses,
+                    MIN(created_at) as first_created,
+                    MAX(created_at) as last_created
+                FROM tbl_bookings
+                WHERE booking_status NOT IN ('cancelled', 'completed')
+                GROUP BY user_id, event_name, event_date
+                HAVING COUNT(*) > 1
+                ORDER BY duplicate_count DESC, last_created DESC";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute();
+        $duplicates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return ["status" => "success", "duplicates" => $duplicates];
+    } catch (PDOException $e) {
+        return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
+    }
+}
+
+// Function to clean up duplicate bookings (keep the first one, cancel the rest)
+function cleanupDuplicateBookings($bookingIds) {
+    global $pdo;
+
+    try {
+        if (empty($bookingIds) || !is_array($bookingIds)) {
+            return ["status" => "error", "message" => "Invalid booking IDs provided"];
+        }
+
+        $pdo->beginTransaction();
+
+        // Keep the first booking (lowest ID), cancel the rest
+        $keepBookingId = min($bookingIds);
+        $cancelBookingIds = array_filter($bookingIds, function($id) use ($keepBookingId) {
+            return $id != $keepBookingId;
+        });
+
+        if (!empty($cancelBookingIds)) {
+            $placeholders = str_repeat('?,', count($cancelBookingIds) - 1) . '?';
+            $cancelSql = "UPDATE tbl_bookings
+                         SET booking_status = 'cancelled',
+                             updated_at = NOW(),
+                             notes = CONCAT(COALESCE(notes, ''), '\n[CANCELLED: Duplicate booking cleanup on ', NOW(), ']')
+                         WHERE booking_id IN ($placeholders)";
+
+            $cancelStmt = $pdo->prepare($cancelSql);
+            $cancelStmt->execute($cancelBookingIds);
+
+            $cancelledCount = $cancelStmt->rowCount();
+        } else {
+            $cancelledCount = 0;
+        }
+
+        $pdo->commit();
+
+        return [
+            "status" => "success",
+            "message" => "Duplicate cleanup completed",
+            "kept_booking_id" => $keepBookingId,
+            "cancelled_count" => $cancelledCount,
+            "cancelled_booking_ids" => $cancelBookingIds
+        ];
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollback();
+        }
+        return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
+    }
+}
+
 // Function to get all available package components for client selection
 function getAllPackageComponents() {
     global $pdo;
@@ -2022,6 +2150,10 @@ switch ($method) {
                 echo json_encode(getWebsiteSettings());
                 break;
 
+            case 'getDuplicateBookings':
+                echo json_encode(getDuplicateBookings());
+                break;
+
             default:
                 echo json_encode([
                     "status" => "error",
@@ -2136,6 +2268,17 @@ switch ($method) {
                     ]);
                 } else {
                     echo json_encode(updateWebsiteSettings($data['settings']));
+                }
+                break;
+
+            case 'cleanupDuplicateBookings':
+                if (!isset($data['booking_ids']) || !is_array($data['booking_ids'])) {
+                    echo json_encode([
+                        "status" => "error",
+                        "message" => "Booking IDs array is required"
+                    ]);
+                } else {
+                    echo json_encode(cleanupDuplicateBookings($data['booking_ids']));
                 }
                 break;
 

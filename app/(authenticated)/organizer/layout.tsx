@@ -629,16 +629,31 @@ export default function OrganizerLayout({
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
+
       const res = await axios.get("notifications.php", {
         params: {
           operation: "get_counts",
           user_id: userId,
         },
+        timeout: 5000, // 5 second timeout
       });
+
       if (res.data?.status === "success") {
         setUnreadNotifCount(Number(res.data.counts?.unread || 0));
       }
-    } catch {}
+    } catch (err: any) {
+      // Handle network errors gracefully
+      if (
+        err.code === "NETWORK_ERROR" ||
+        err.message?.includes("ERR_INTERNET_DISCONNECTED") ||
+        err.message?.includes("Network Error") ||
+        err.code === "ECONNABORTED"
+      ) {
+        console.warn("Network offline - notification count fetch skipped");
+        return;
+      }
+      // For other errors, silently ignore to avoid console spam
+    }
   };
 
   const fetchNotificationsList = async (currentUser: any) => {
@@ -646,6 +661,7 @@ export default function OrganizerLayout({
       const userId = currentUser?.user_id;
       if (!userId) return;
       setIsNotifLoading(true);
+
       const res = await axios.get("notifications.php", {
         params: {
           operation: "get_notifications",
@@ -653,7 +669,9 @@ export default function OrganizerLayout({
           limit: 10,
           offset: 0,
         },
+        timeout: 5000, // 5 second timeout
       });
+
       if (res.data?.status === "success") {
         setNotifications(
           Array.isArray(res.data.notifications) ? res.data.notifications : []
@@ -661,7 +679,18 @@ export default function OrganizerLayout({
       } else {
         setNotifications([]);
       }
-    } catch {
+    } catch (err: any) {
+      // Handle network errors gracefully
+      if (
+        err.code === "NETWORK_ERROR" ||
+        err.message?.includes("ERR_INTERNET_DISCONNECTED") ||
+        err.message?.includes("Network Error") ||
+        err.code === "ECONNABORTED"
+      ) {
+        console.warn("Network offline - notification list fetch skipped");
+        // Keep existing notifications when offline
+        return;
+      }
       setNotifications([]);
     } finally {
       setIsNotifLoading(false);

@@ -657,28 +657,28 @@ export default function AdminBookingsPage() {
 
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div
-            key="client"
+            key={`${booking.booking_id}-client`}
             className="flex items-center gap-2 text-sm text-gray-600"
           >
             <Users className="h-4 w-4" />
             <span>{booking.client_name}</span>
           </div>
           <div
-            key="date"
+            key={`${booking.booking_id}-date`}
             className="flex items-center gap-2 text-sm text-gray-600"
           >
             <Calendar className="h-4 w-4" />
             <span>{new Date(booking.event_date).toLocaleDateString()}</span>
           </div>
           <div
-            key="time"
+            key={`${booking.booking_id}-time`}
             className="flex items-center gap-2 text-sm text-gray-600"
           >
             <Clock className="h-4 w-4" />
             <span>{booking.event_time}</span>
           </div>
           <div
-            key="guests"
+            key={`${booking.booking_id}-guests`}
             className="flex items-center gap-2 text-sm text-gray-600"
           >
             <Users className="h-4 w-4" />
@@ -686,7 +686,7 @@ export default function AdminBookingsPage() {
           </div>
           {booking.venue_name && (
             <div
-              key="venue"
+              key={`${booking.booking_id}-venue`}
               className="flex items-center gap-2 text-sm text-gray-600"
             >
               <MapPin className="h-4 w-4" />
@@ -695,7 +695,7 @@ export default function AdminBookingsPage() {
           )}
           {booking.package_name && (
             <div
-              key="package"
+              key={`${booking.booking_id}-package`}
               className="flex items-center gap-2 text-sm text-gray-600"
             >
               <Package className="h-4 w-4" />
@@ -710,7 +710,7 @@ export default function AdminBookingsPage() {
           </span>
           <div className="flex gap-2">
             <Button
-              key="view-button"
+              key={`${booking.booking_id}-view-button`}
               variant="outline"
               size="sm"
               onClick={() => {
@@ -726,7 +726,7 @@ export default function AdminBookingsPage() {
             {isPending && (
               <>
                 <Button
-                  key="accept-button"
+                  key={`${booking.booking_id}-accept-button`}
                   size="sm"
                   onClick={() => handleAcceptBooking(booking)}
                   className="bg-[#028A75] hover:bg-[#027563]"
@@ -735,7 +735,7 @@ export default function AdminBookingsPage() {
                   Accept
                 </Button>
                 <Button
-                  key="reject-button"
+                  key={`${booking.booking_id}-reject-button`}
                   variant="outline"
                   size="sm"
                   onClick={() => handleRejectBooking(booking)}
@@ -750,7 +750,7 @@ export default function AdminBookingsPage() {
             {/* Show Convert to Event button for confirmed bookings */}
             {isConfirmed && (
               <Button
-                key="create-event-button"
+                key={`${booking.booking_id}-create-event-button`}
                 size="sm"
                 onClick={() => handleConvertToEvent(booking)}
                 disabled={convertingBookingId === booking.booking_id}
@@ -768,7 +768,7 @@ export default function AdminBookingsPage() {
             {/* Show View Event button for converted bookings only */}
             {isConverted && (
               <Button
-                key="view-event-button"
+                key={`${booking.booking_id}-view-event-button`}
                 variant="outline"
                 size="sm"
                 onClick={() => {
@@ -1093,7 +1093,7 @@ export default function AdminBookingsPage() {
                               <TableCell>
                                 <div className="flex flex-wrap gap-2">
                                   <Button
-                                    key="view"
+                                    key={`table-${booking.booking_id}-view`}
                                     variant="outline"
                                     size="sm"
                                     onClick={() => {
@@ -1107,7 +1107,7 @@ export default function AdminBookingsPage() {
                                   {booking.booking_status === "pending" && (
                                     <>
                                       <Button
-                                        key="accept"
+                                        key={`table-${booking.booking_id}-accept`}
                                         size="sm"
                                         onClick={() =>
                                           handleAcceptBooking(booking)
@@ -1118,7 +1118,7 @@ export default function AdminBookingsPage() {
                                         Accept
                                       </Button>
                                       <Button
-                                        key="reject"
+                                        key={`table-${booking.booking_id}-reject`}
                                         variant="outline"
                                         size="sm"
                                         onClick={() =>
@@ -1133,7 +1133,7 @@ export default function AdminBookingsPage() {
                                   )}
                                   {booking.booking_status === "confirmed" && (
                                     <Button
-                                      key="convert"
+                                      key={`table-${booking.booking_id}-convert`}
                                       size="sm"
                                       onClick={() =>
                                         handleConvertToEvent(booking)
@@ -1155,7 +1155,7 @@ export default function AdminBookingsPage() {
                                   )}
                                   {booking.booking_status === "converted" && (
                                     <Button
-                                      key="view-event"
+                                      key={`table-${booking.booking_id}-view-event`}
                                       variant="outline"
                                       size="sm"
                                       onClick={() => {
@@ -1791,7 +1791,7 @@ export default function AdminBookingsPage() {
                         {selectedBooking.booking_status === "pending" && (
                           <>
                             <Button
-                              key="modal-confirm-btn"
+                              key={`modal-${selectedBooking.booking_id}-confirm-btn`}
                               size="sm"
                               onClick={() =>
                                 handleUpdateBookingStatus(
@@ -1803,7 +1803,7 @@ export default function AdminBookingsPage() {
                               Confirm
                             </Button>
                             <Button
-                              key="modal-cancel-btn"
+                              key={`modal-${selectedBooking.booking_id}-cancel-btn`}
                               size="sm"
                               variant="destructive"
                               onClick={() =>
@@ -1819,7 +1819,7 @@ export default function AdminBookingsPage() {
                         )}
                         {selectedBooking.booking_status === "confirmed" && (
                           <Button
-                            key="modal-create-event-btn"
+                            key={`modal-${selectedBooking.booking_id}-create-event-btn`}
                             size="sm"
                             className="bg-blue-600 hover:bg-blue-700"
                             onClick={() =>
@@ -1831,7 +1831,7 @@ export default function AdminBookingsPage() {
                         )}
                         {selectedBooking.booking_status === "converted" && (
                           <Button
-                            key="modal-view-event-btn"
+                            key={`modal-${selectedBooking.booking_id}-view-event-btn`}
                             size="sm"
                             variant="outline"
                             className="border-blue-200 text-blue-700 hover:bg-blue-50"

@@ -1400,7 +1400,10 @@ function EnhancedSupplierModal({
               <h3 className="text-lg font-semibold mb-4">Current Offers</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {supplierOffers.map((offer, index) => (
-                  <div key={index} className="bg-white p-4 rounded-lg border">
+                  <div
+                    key={`supplier-offer-${index}`}
+                    className="bg-white p-4 rounded-lg border"
+                  >
                     <div className="font-medium text-lg">
                       {offer.offer_title}
                     </div>
@@ -1455,7 +1458,7 @@ function EnhancedSupplierModal({
             <div className="space-y-3">
               {tiers.map((tier, index) => (
                 <div
-                  key={index}
+                  key={`supplier-tier-${index}`}
                   className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-white p-3 border rounded-lg"
                 >
                   <div className="md:col-span-4">

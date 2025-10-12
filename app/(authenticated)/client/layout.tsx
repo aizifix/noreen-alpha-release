@@ -271,17 +271,34 @@ export default function ClientLayout({
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
       const res = await fetch(
         `${endpoints.notifications}?operation=get_counts&user_id=${encodeURIComponent(
           userId
-        )}`
+        )}`,
+        { signal: controller.signal }
       );
+
+      clearTimeout(timeoutId);
       const data = await res.json();
+
       if (data?.status === "success") {
         setUnreadNotifCount(Number(data.counts?.unread || 0));
       }
-    } catch (err) {
-      // ignore
+    } catch (err: any) {
+      // Handle network errors gracefully
+      if (
+        err.name === "AbortError" ||
+        err.message?.includes("ERR_INTERNET_DISCONNECTED") ||
+        err.message?.includes("Network Error")
+      ) {
+        console.warn("Network offline - notification count fetch skipped");
+        return;
+      }
+      // For other errors, silently ignore to avoid console spam
     }
   }
 

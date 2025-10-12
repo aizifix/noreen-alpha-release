@@ -23,27 +23,25 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 
-interface WeddingPartyMember {
-  name: string;
-  size: string;
-}
-
 interface WeddingFormData {
   // Basic Info
   nuptial: string;
   motif: string;
+  wedding_time: string;
+  church: string;
+  address: string;
 
   // Main Couple
   bride_name: string;
-  bride_gown_size: string;
+  bride_size: string; // Changed from bride_gown_size to match DB
   groom_name: string;
-  groom_attire_size: string;
+  groom_size: string; // Changed from groom_attire_size to match DB
 
   // Parents - Bride's Side
-  mothers_attire_name: string;
-  mothers_attire_size: string;
-  fathers_attire_name: string;
-  fathers_attire_size: string;
+  mother_bride_name: string; // Changed from mothers_attire_name to match DB
+  mother_bride_size: string; // Changed from mothers_attire_size to match DB
+  father_bride_name: string; // Changed from fathers_attire_name to match DB
+  father_bride_size: string; // Changed from fathers_attire_size to match DB
 
   // Parents - Groom's Side
   mother_groom_name: string;
@@ -63,29 +61,38 @@ interface WeddingFormData {
   little_groom_name: string;
   little_groom_size: string;
 
-  // Wedding Party Arrays
-  bridesmaids: WeddingPartyMember[];
-  groomsmen: WeddingPartyMember[];
-  junior_groomsmen: WeddingPartyMember[];
-  flower_girls: WeddingPartyMember[];
-  bearers: WeddingPartyMember[];
+  // Wedding Party Quantities and Names (matching DB structure)
+  bridesmaids_qty: number;
+  bridesmaids_names: string[];
+  groomsmen_qty: number;
+  groomsmen_names: string[];
+  junior_groomsmen_qty: number;
+  junior_groomsmen_names: string[];
+  flower_girls_qty: number;
+  flower_girls_names: string[];
+  ring_bearer_qty: number;
+  ring_bearer_names: string[];
+  bible_bearer_qty: number;
+  bible_bearer_names: string[];
+  coin_bearer_qty: number;
+  coin_bearer_names: string[];
 
-  // Wedding Items Quantities
-  cushions_quantity: number;
-  headdress_for_bride_quantity: number;
-  shawls_quantity: number;
-  veil_cord_quantity: number;
-  basket_quantity: number;
-  petticoat_quantity: number;
-  neck_bowtie_quantity: number;
-  garter_leg_quantity: number;
-  fitting_form_quantity: number;
-  robe_quantity: number;
+  // Wedding Items Quantities (matching DB column names)
+  cushions_qty: number;
+  headdress_qty: number;
+  shawls_qty: number;
+  veil_cord_qty: number;
+  basket_qty: number;
+  petticoat_qty: number;
+  neck_bowtie_qty: number;
+  garter_leg_qty: number;
+  fitting_form_qty: number;
+  robe_qty: number;
 
   // Processing Info
   prepared_by: string;
   received_by: string;
-  pick_up_date: string;
+  pickup_date: string; // Changed from pick_up_date to match DB
   return_date: string;
   customer_signature: string;
 }
@@ -110,14 +117,17 @@ export function WeddingFormStep({
   const [formData, setFormData] = useState<WeddingFormData>({
     nuptial: "",
     motif: "",
+    wedding_time: "",
+    church: "",
+    address: "",
     bride_name: "",
-    bride_gown_size: "",
+    bride_size: "",
     groom_name: "",
-    groom_attire_size: "",
-    mothers_attire_name: "",
-    mothers_attire_size: "",
-    fathers_attire_name: "",
-    fathers_attire_size: "",
+    groom_size: "",
+    mother_bride_name: "",
+    mother_bride_size: "",
+    father_bride_name: "",
+    father_bride_size: "",
     mother_groom_name: "",
     mother_groom_size: "",
     father_groom_name: "",
@@ -130,24 +140,33 @@ export function WeddingFormStep({
     little_bride_size: "",
     little_groom_name: "",
     little_groom_size: "",
-    bridesmaids: [],
-    groomsmen: [],
-    junior_groomsmen: [],
-    flower_girls: [],
-    bearers: [],
-    cushions_quantity: 0,
-    headdress_for_bride_quantity: 0,
-    shawls_quantity: 0,
-    veil_cord_quantity: 0,
-    basket_quantity: 0,
-    petticoat_quantity: 0,
-    neck_bowtie_quantity: 0,
-    garter_leg_quantity: 0,
-    fitting_form_quantity: 0,
-    robe_quantity: 0,
+    bridesmaids_qty: 0,
+    bridesmaids_names: [],
+    groomsmen_qty: 0,
+    groomsmen_names: [],
+    junior_groomsmen_qty: 0,
+    junior_groomsmen_names: [],
+    flower_girls_qty: 0,
+    flower_girls_names: [],
+    ring_bearer_qty: 0,
+    ring_bearer_names: [],
+    bible_bearer_qty: 0,
+    bible_bearer_names: [],
+    coin_bearer_qty: 0,
+    coin_bearer_names: [],
+    cushions_qty: 0,
+    headdress_qty: 0,
+    shawls_qty: 0,
+    veil_cord_qty: 0,
+    basket_qty: 0,
+    petticoat_qty: 0,
+    neck_bowtie_qty: 0,
+    garter_leg_qty: 0,
+    fitting_form_qty: 0,
+    robe_qty: 0,
     prepared_by: "",
     received_by: "",
-    pick_up_date: "",
+    pickup_date: "",
     return_date: "",
     customer_signature: "",
     ...initialData,
@@ -161,6 +180,20 @@ export function WeddingFormStep({
       loadWeddingDetails();
     }
   }, [eventId]);
+
+  // Update form data when initialData changes
+  useEffect(() => {
+    if (initialData) {
+      setFormData((prev) => ({ ...prev, ...initialData }));
+    }
+  }, [initialData]);
+
+  // Initialize form data on mount and notify parent
+  useEffect(() => {
+    // Notify parent of initial form data
+    console.log("🚀 WeddingFormStep mounted, sending initial data:", formData);
+    onUpdate?.(formData);
+  }, []); // Only run on mount
 
   const loadWeddingDetails = async () => {
     try {
@@ -186,133 +219,108 @@ export function WeddingFormStep({
   const updateFormData = (field: keyof WeddingFormData, value: any) => {
     const newData = { ...formData, [field]: value };
     setFormData(newData);
+    // Always call onUpdate with the complete form data
+    console.log("🔄 WeddingFormStep updating field:", field, "value:", value);
+    console.log("📤 WeddingFormStep sending to parent:", newData);
     onUpdate?.(newData);
   };
 
   const addPartyMember = (
-    arrayName: keyof Pick<
+    partyType: keyof Pick<
       WeddingFormData,
-      | "bridesmaids"
-      | "groomsmen"
-      | "junior_groomsmen"
-      | "flower_girls"
-      | "bearers"
+      | "bridesmaids_names"
+      | "groomsmen_names"
+      | "junior_groomsmen_names"
+      | "flower_girls_names"
+      | "ring_bearer_names"
+      | "bible_bearer_names"
+      | "coin_bearer_names"
     >
   ) => {
-    const currentArray = formData[arrayName] as WeddingPartyMember[];
-    const newArray = [...currentArray, { name: "", size: "" }];
-    updateFormData(arrayName, newArray);
+    const currentNames = formData[partyType];
+    const newNames = [...currentNames, ""];
+    updateFormData(partyType, newNames);
+
+    // Also update the quantity
+    const qtyField = partyType.replace(
+      "_names",
+      "_qty"
+    ) as keyof WeddingFormData;
+    updateFormData(qtyField, newNames.length);
   };
 
   const removePartyMember = (
-    arrayName: keyof Pick<
+    partyType: keyof Pick<
       WeddingFormData,
-      | "bridesmaids"
-      | "groomsmen"
-      | "junior_groomsmen"
-      | "flower_girls"
-      | "bearers"
+      | "bridesmaids_names"
+      | "groomsmen_names"
+      | "junior_groomsmen_names"
+      | "flower_girls_names"
+      | "ring_bearer_names"
+      | "bible_bearer_names"
+      | "coin_bearer_names"
     >,
     index: number
   ) => {
-    const currentArray = formData[arrayName] as WeddingPartyMember[];
-    const newArray = currentArray.filter((_, i) => i !== index);
-    updateFormData(arrayName, newArray);
+    const currentNames = formData[partyType];
+    const newNames = currentNames.filter((_, i) => i !== index);
+    updateFormData(partyType, newNames);
+
+    // Also update the quantity
+    const qtyField = partyType.replace(
+      "_names",
+      "_qty"
+    ) as keyof WeddingFormData;
+    updateFormData(qtyField, newNames.length);
   };
 
   const updatePartyMember = (
-    arrayName: keyof Pick<
+    partyType: keyof Pick<
       WeddingFormData,
-      | "bridesmaids"
-      | "groomsmen"
-      | "junior_groomsmen"
-      | "flower_girls"
-      | "bearers"
+      | "bridesmaids_names"
+      | "groomsmen_names"
+      | "junior_groomsmen_names"
+      | "flower_girls_names"
+      | "ring_bearer_names"
+      | "bible_bearer_names"
+      | "coin_bearer_names"
     >,
     index: number,
-    field: keyof WeddingPartyMember,
     value: string
   ) => {
-    const currentArray = formData[arrayName] as WeddingPartyMember[];
-    const newArray = [...currentArray];
-    newArray[index] = { ...newArray[index], [field]: value };
-    updateFormData(arrayName, newArray);
+    const currentNames = formData[partyType];
+    const newNames = [...currentNames];
+    newNames[index] = value;
+    updateFormData(partyType, newNames);
   };
 
-  const saveWeddingDetails = async () => {
-    if (!eventId) {
+  const handleNext = () => {
+    // In Event Builder context, we don't save here - the parent handles saving
+    // Just validate and proceed to next step
+    if (!formData.bride_name || !formData.groom_name) {
       toast.error("Error", {
-        description: "Event ID is required to save wedding details",
+        description: "Bride and groom names are required",
       });
-      return false;
+      return;
     }
-
-    setLoading(true);
-    try {
-      console.log("🔍 Wedding Form Debug:");
-      console.log("Event ID:", eventId);
-      console.log("Form Data:", formData);
-
-      const payload = {
-        operation: "saveWeddingDetails",
-        event_id: eventId,
-        ...formData,
-      };
-
-      console.log("📤 Sending payload:", payload);
-
-      const response = await axios.post(endpoints.admin, payload, {
-        headers: { "Content-Type": "application/json" },
-        validateStatus: () => true,
-      });
-
-      console.log("📡 Response status:", response.status);
-      const data = response.data;
-      console.log("📥 Response data:", data);
-
-      if (data.status === "success") {
-        toast.success("Success", {
-          description: "Wedding details saved successfully",
-        });
-        return true;
-      } else {
-        console.error("❌ Server error:", data.message);
-        toast.error("Error", {
-          description: data.message || "Failed to save wedding details",
-        });
-        return false;
-      }
-    } catch (error) {
-      console.error("❌ Network/JS error:", error);
-      toast.error("Error", {
-        description: "Failed to save wedding details - Network Error",
-      });
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleNext = async () => {
-    const saved = await saveWeddingDetails();
-    if (saved) {
-      onNext?.();
-    }
+    onNext?.();
   };
 
   const renderPartySection = (
     title: string,
-    arrayName: keyof Pick<
+    namesField: keyof Pick<
       WeddingFormData,
-      | "bridesmaids"
-      | "groomsmen"
-      | "junior_groomsmen"
-      | "flower_girls"
-      | "bearers"
+      | "bridesmaids_names"
+      | "groomsmen_names"
+      | "junior_groomsmen_names"
+      | "flower_girls_names"
+      | "ring_bearer_names"
+      | "bible_bearer_names"
+      | "coin_bearer_names"
     >,
     icon: React.ReactNode
   ) => {
-    const members = formData[arrayName] as WeddingPartyMember[];
+    const names = formData[namesField];
 
     return (
       <Card>
@@ -323,33 +331,23 @@ export function WeddingFormStep({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {members.map((member, index) => (
+          {names.map((name, index) => (
             <div key={index} className="flex gap-2 items-end">
               <div className="flex-1">
                 <Label>Name</Label>
                 <Input
-                  value={member.name}
+                  value={name}
                   onChange={(e) =>
-                    updatePartyMember(arrayName, index, "name", e.target.value)
+                    updatePartyMember(namesField, index, e.target.value)
                   }
                   placeholder="Enter name"
-                />
-              </div>
-              <div className="w-24">
-                <Label>Size</Label>
-                <Input
-                  value={member.size}
-                  onChange={(e) =>
-                    updatePartyMember(arrayName, index, "size", e.target.value)
-                  }
-                  placeholder="Size"
                 />
               </div>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => removePartyMember(arrayName, index)}
+                onClick={() => removePartyMember(namesField, index)}
                 className="mb-0"
               >
                 <Minus className="h-4 w-4" />
@@ -360,7 +358,7 @@ export function WeddingFormStep({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => addPartyMember(arrayName)}
+            onClick={() => addPartyMember(namesField)}
             className="w-full"
           >
             <Plus className="h-4 w-4 mr-2" />
@@ -420,6 +418,35 @@ export function WeddingFormStep({
                 placeholder="Enter wedding motif"
               />
             </div>
+            <div>
+              <Label htmlFor="wedding_time">Wedding Time</Label>
+              <Input
+                id="wedding_time"
+                type="time"
+                value={formData.wedding_time}
+                onChange={(e) => updateFormData("wedding_time", e.target.value)}
+                placeholder="Select wedding time"
+              />
+            </div>
+            <div>
+              <Label htmlFor="church">Church/Venue</Label>
+              <Input
+                id="church"
+                value={formData.church}
+                onChange={(e) => updateFormData("church", e.target.value)}
+                placeholder="Enter church or venue name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="address">Address</Label>
+              <Textarea
+                id="address"
+                value={formData.address}
+                onChange={(e) => updateFormData("address", e.target.value)}
+                placeholder="Enter full address"
+                rows={3}
+              />
+            </div>
           </CardContent>
         </Card>
 
@@ -442,13 +469,11 @@ export function WeddingFormStep({
               />
             </div>
             <div>
-              <Label htmlFor="bride_gown_size">Bride Gown Size</Label>
+              <Label htmlFor="bride_size">Bride Gown Size</Label>
               <Input
-                id="bride_gown_size"
-                value={formData.bride_gown_size}
-                onChange={(e) =>
-                  updateFormData("bride_gown_size", e.target.value)
-                }
+                id="bride_size"
+                value={formData.bride_size}
+                onChange={(e) => updateFormData("bride_size", e.target.value)}
                 placeholder="Enter gown size"
               />
             </div>
@@ -462,13 +487,11 @@ export function WeddingFormStep({
               />
             </div>
             <div>
-              <Label htmlFor="groom_attire_size">Groom Attire Size</Label>
+              <Label htmlFor="groom_size">Groom Attire Size</Label>
               <Input
-                id="groom_attire_size"
-                value={formData.groom_attire_size}
-                onChange={(e) =>
-                  updateFormData("groom_attire_size", e.target.value)
-                }
+                id="groom_size"
+                value={formData.groom_size}
+                onChange={(e) => updateFormData("groom_size", e.target.value)}
                 placeholder="Enter attire size"
               />
             </div>
@@ -488,45 +511,45 @@ export function WeddingFormStep({
               Bride's Parents
             </div>
             <div>
-              <Label htmlFor="mothers_attire_name">Mother's Name</Label>
+              <Label htmlFor="mother_bride_name">Mother's Name</Label>
               <Input
-                id="mothers_attire_name"
-                value={formData.mothers_attire_name}
+                id="mother_bride_name"
+                value={formData.mother_bride_name}
                 onChange={(e) =>
-                  updateFormData("mothers_attire_name", e.target.value)
+                  updateFormData("mother_bride_name", e.target.value)
                 }
                 placeholder="Enter mother's name"
               />
             </div>
             <div>
-              <Label htmlFor="mothers_attire_size">Mother's Attire Size</Label>
+              <Label htmlFor="mother_bride_size">Mother's Attire Size</Label>
               <Input
-                id="mothers_attire_size"
-                value={formData.mothers_attire_size}
+                id="mother_bride_size"
+                value={formData.mother_bride_size}
                 onChange={(e) =>
-                  updateFormData("mothers_attire_size", e.target.value)
+                  updateFormData("mother_bride_size", e.target.value)
                 }
                 placeholder="Enter attire size"
               />
             </div>
             <div>
-              <Label htmlFor="fathers_attire_name">Father's Name</Label>
+              <Label htmlFor="father_bride_name">Father's Name</Label>
               <Input
-                id="fathers_attire_name"
-                value={formData.fathers_attire_name}
+                id="father_bride_name"
+                value={formData.father_bride_name}
                 onChange={(e) =>
-                  updateFormData("fathers_attire_name", e.target.value)
+                  updateFormData("father_bride_name", e.target.value)
                 }
                 placeholder="Enter father's name"
               />
             </div>
             <div>
-              <Label htmlFor="fathers_attire_size">Father's Attire Size</Label>
+              <Label htmlFor="father_bride_size">Father's Attire Size</Label>
               <Input
-                id="fathers_attire_size"
-                value={formData.fathers_attire_size}
+                id="father_bride_size"
+                value={formData.father_bride_size}
                 onChange={(e) =>
-                  updateFormData("fathers_attire_size", e.target.value)
+                  updateFormData("father_bride_size", e.target.value)
                 }
                 placeholder="Enter attire size"
               />
@@ -711,154 +734,143 @@ export function WeddingFormStep({
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="cushions_quantity">Cushions</Label>
+                <Label htmlFor="cushions_qty">Cushions</Label>
                 <Input
-                  id="cushions_quantity"
+                  id="cushions_qty"
                   type="number"
                   min="0"
-                  value={formData.cushions_quantity}
+                  value={formData.cushions_qty}
                   onChange={(e) =>
                     updateFormData(
-                      "cushions_quantity",
+                      "cushions_qty",
                       parseInt(e.target.value) || 0
                     )
                   }
                 />
               </div>
               <div>
-                <Label htmlFor="headdress_for_bride_quantity">
-                  Headdress for Bride
-                </Label>
+                <Label htmlFor="headdress_qty">Headdress for Bride</Label>
                 <Input
-                  id="headdress_for_bride_quantity"
+                  id="headdress_qty"
                   type="number"
                   min="0"
-                  value={formData.headdress_for_bride_quantity}
+                  value={formData.headdress_qty}
                   onChange={(e) =>
                     updateFormData(
-                      "headdress_for_bride_quantity",
+                      "headdress_qty",
                       parseInt(e.target.value) || 0
                     )
                   }
                 />
               </div>
               <div>
-                <Label htmlFor="shawls_quantity">Shawls</Label>
+                <Label htmlFor="shawls_qty">Shawls</Label>
                 <Input
-                  id="shawls_quantity"
+                  id="shawls_qty"
                   type="number"
                   min="0"
-                  value={formData.shawls_quantity}
+                  value={formData.shawls_qty}
+                  onChange={(e) =>
+                    updateFormData("shawls_qty", parseInt(e.target.value) || 0)
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="veil_cord_qty">Veil & Cord</Label>
+                <Input
+                  id="veil_cord_qty"
+                  type="number"
+                  min="0"
+                  value={formData.veil_cord_qty}
                   onChange={(e) =>
                     updateFormData(
-                      "shawls_quantity",
+                      "veil_cord_qty",
                       parseInt(e.target.value) || 0
                     )
                   }
                 />
               </div>
               <div>
-                <Label htmlFor="veil_cord_quantity">Veil & Cord</Label>
+                <Label htmlFor="basket_qty">Basket</Label>
                 <Input
-                  id="veil_cord_quantity"
+                  id="basket_qty"
                   type="number"
                   min="0"
-                  value={formData.veil_cord_quantity}
+                  value={formData.basket_qty}
+                  onChange={(e) =>
+                    updateFormData("basket_qty", parseInt(e.target.value) || 0)
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="petticoat_qty">Petticoat</Label>
+                <Input
+                  id="petticoat_qty"
+                  type="number"
+                  min="0"
+                  value={formData.petticoat_qty}
                   onChange={(e) =>
                     updateFormData(
-                      "veil_cord_quantity",
+                      "petticoat_qty",
                       parseInt(e.target.value) || 0
                     )
                   }
                 />
               </div>
               <div>
-                <Label htmlFor="basket_quantity">Basket</Label>
+                <Label htmlFor="neck_bowtie_qty">Neck/Bowtie</Label>
                 <Input
-                  id="basket_quantity"
+                  id="neck_bowtie_qty"
                   type="number"
                   min="0"
-                  value={formData.basket_quantity}
+                  value={formData.neck_bowtie_qty}
                   onChange={(e) =>
                     updateFormData(
-                      "basket_quantity",
+                      "neck_bowtie_qty",
                       parseInt(e.target.value) || 0
                     )
                   }
                 />
               </div>
               <div>
-                <Label htmlFor="petticoat_quantity">Petticoat</Label>
+                <Label htmlFor="garter_leg_qty">Garter Leg</Label>
                 <Input
-                  id="petticoat_quantity"
+                  id="garter_leg_qty"
                   type="number"
                   min="0"
-                  value={formData.petticoat_quantity}
+                  value={formData.garter_leg_qty}
                   onChange={(e) =>
                     updateFormData(
-                      "petticoat_quantity",
+                      "garter_leg_qty",
                       parseInt(e.target.value) || 0
                     )
                   }
                 />
               </div>
               <div>
-                <Label htmlFor="neck_bowtie_quantity">Neck/Bowtie</Label>
+                <Label htmlFor="fitting_form_qty">Fitting Form</Label>
                 <Input
-                  id="neck_bowtie_quantity"
+                  id="fitting_form_qty"
                   type="number"
                   min="0"
-                  value={formData.neck_bowtie_quantity}
+                  value={formData.fitting_form_qty}
                   onChange={(e) =>
                     updateFormData(
-                      "neck_bowtie_quantity",
+                      "fitting_form_qty",
                       parseInt(e.target.value) || 0
                     )
                   }
                 />
               </div>
               <div>
-                <Label htmlFor="garter_leg_quantity">Garter Leg</Label>
+                <Label htmlFor="robe_qty">Robe</Label>
                 <Input
-                  id="garter_leg_quantity"
+                  id="robe_qty"
                   type="number"
                   min="0"
-                  value={formData.garter_leg_quantity}
+                  value={formData.robe_qty}
                   onChange={(e) =>
-                    updateFormData(
-                      "garter_leg_quantity",
-                      parseInt(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-              <div>
-                <Label htmlFor="fitting_form_quantity">Fitting Form</Label>
-                <Input
-                  id="fitting_form_quantity"
-                  type="number"
-                  min="0"
-                  value={formData.fitting_form_quantity}
-                  onChange={(e) =>
-                    updateFormData(
-                      "fitting_form_quantity",
-                      parseInt(e.target.value) || 0
-                    )
-                  }
-                />
-              </div>
-              <div>
-                <Label htmlFor="robe_quantity">Robe</Label>
-                <Input
-                  id="robe_quantity"
-                  type="number"
-                  min="0"
-                  value={formData.robe_quantity}
-                  onChange={(e) =>
-                    updateFormData(
-                      "robe_quantity",
-                      parseInt(e.target.value) || 0
-                    )
+                    updateFormData("robe_qty", parseInt(e.target.value) || 0)
                   }
                 />
               </div>
@@ -871,26 +883,110 @@ export function WeddingFormStep({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {renderPartySection(
           "Bridesmaids",
-          "bridesmaids",
+          "bridesmaids_names",
           <Users className="h-5 w-5" />
         )}
         {renderPartySection(
           "Groomsmen",
-          "groomsmen",
+          "groomsmen_names",
           <Users className="h-5 w-5" />
         )}
         {renderPartySection(
           "Junior Groomsmen",
-          "junior_groomsmen",
+          "junior_groomsmen_names",
           <User className="h-5 w-5" />
         )}
         {renderPartySection(
           "Flower Girls",
-          "flower_girls",
+          "flower_girls_names",
           <User className="h-5 w-5" />
         )}
-        {renderPartySection("Bearers", "bearers", <User className="h-5 w-5" />)}
+        {renderPartySection(
+          "Ring Bearers",
+          "ring_bearer_names",
+          <User className="h-5 w-5" />
+        )}
+        {renderPartySection(
+          "Bible Bearers",
+          "bible_bearer_names",
+          <User className="h-5 w-5" />
+        )}
+        {renderPartySection(
+          "Coin Bearers",
+          "coin_bearer_names",
+          <User className="h-5 w-5" />
+        )}
       </div>
+
+      {/* Processing Information */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            Processing Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="prepared_by">Prepared By</Label>
+              <Input
+                id="prepared_by"
+                value={formData.prepared_by}
+                onChange={(e) => updateFormData("prepared_by", e.target.value)}
+                placeholder="Enter preparer's name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="received_by">Received By</Label>
+              <Input
+                id="received_by"
+                value={formData.received_by}
+                onChange={(e) => updateFormData("received_by", e.target.value)}
+                placeholder="Enter receiver's name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="pickup_date">Pickup Date</Label>
+              <Input
+                id="pickup_date"
+                type="date"
+                value={formData.pickup_date}
+                onChange={(e) => updateFormData("pickup_date", e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="return_date">Return Date</Label>
+              <Input
+                id="return_date"
+                type="date"
+                value={formData.return_date}
+                onChange={(e) => updateFormData("return_date", e.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="customer_signature">Customer Signature</Label>
+            <Input
+              id="customer_signature"
+              value={formData.customer_signature}
+              onChange={(e) =>
+                updateFormData("customer_signature", e.target.value)
+              }
+              placeholder="Enter customer signature or name"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Next Button for Event Builder Flow */}
+      {onNext && (
+        <div className="flex justify-end mt-6">
+          <Button onClick={handleNext} disabled={loading} className="px-8">
+            {loading ? "Processing..." : "Next"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

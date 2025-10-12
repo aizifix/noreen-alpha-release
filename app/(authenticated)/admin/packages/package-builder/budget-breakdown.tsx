@@ -60,7 +60,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
 
   // Calculate remaining budget or overage
   const venueCost = selectedVenue?.total_price || 0;
-  const totalInclusionsCost = totalComponentCost;
+  const totalInclusionsCost = totalComponentCost; // Remove venue cost from calculation
   const budgetDifference = packagePrice - totalInclusionsCost;
 
   // Determine budget status
@@ -76,13 +76,13 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
     }
   }, [isOverBudget, overageAmount, onOverageWarning]);
 
-  // Prepare data for pie chart - separate venue from package components
+  // Prepare data for pie chart - only include package components (no venues)
   const chartData = [
-    // Package components
+    // Package components only
     ...(components || []).map((component, index) => ({
       name: component?.name || "Unknown",
       value: component?.price || 0,
-      color: COLORS[(index + 1) % COLORS.length],
+      color: COLORS[index % COLORS.length],
       category: "inclusion",
     })),
     // Buffer or overage
@@ -231,7 +231,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
                 </Pie>
                 <Tooltip
                   formatter={(value: number, name: string, props: any) => [
-                    `₱${(value || 0).toLocaleString()}`,
+                    `₱${(value || 0).toLocaleString()}.00`,
                     props?.payload?.category === "overage"
                       ? "Overage Amount"
                       : props?.payload?.category === "buffer"

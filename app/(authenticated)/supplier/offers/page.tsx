@@ -529,7 +529,7 @@ export default function SupplierOffers() {
 
         {offer.subcomponents.map(
           (subcomponent: SubComponent, index: number) => (
-            <Card key={index}>
+            <Card key={`supplier-offer-subcomponent-${index}`}>
               <CardContent className="p-4">
                 <div className="space-y-3">
                   <div className="flex justify-between items-start">
@@ -737,7 +737,10 @@ export default function SupplierOffers() {
                   </p>
                   <ul className="text-xs text-gray-600 space-y-1">
                     {offer.subcomponents.slice(0, 3).map((sub, index) => (
-                      <li key={index} className="flex items-center gap-1">
+                      <li
+                        key={`supplier-offer-subcomponent-list-${index}`}
+                        className="flex items-center gap-1"
+                      >
                         <CheckCircle className="h-3 w-3 text-green-500" />
                         {sub.component_title}
                       </li>

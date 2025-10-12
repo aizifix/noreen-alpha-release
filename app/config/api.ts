@@ -134,14 +134,26 @@ export const api = {
     // Handle case where imagePath might be a JSON object instead of just a file path
     let actualPath = imagePath;
     try {
-      // Try to parse as JSON - if it's a JSON object, extract the filePath
+      // Try to parse as JSON - if it's a JSON object, extract the filename
       const parsed = JSON.parse(imagePath);
-      if (parsed && typeof parsed === 'object' && parsed.filePath) {
-        actualPath = parsed.filePath;
+      if (parsed && typeof parsed === 'object') {
+        // Handle different JSON structures
+        if (parsed.filename) {
+          actualPath = parsed.filename;
+        } else if (parsed.filePath) {
+          actualPath = parsed.filePath;
+        } else if (parsed.path) {
+          actualPath = parsed.path;
+        }
       }
     } catch (e) {
       // If parsing fails, it's not JSON, so use the original path
       actualPath = imagePath;
+    }
+
+    // Ensure the path starts with uploads/ if it doesn't already
+    if (!actualPath.startsWith("uploads/") && !actualPath.startsWith("http")) {
+      actualPath = `uploads/${actualPath}`;
     }
 
     return `${endpoints.serveImage}?path=${encodeURIComponent(actualPath)}`;

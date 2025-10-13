@@ -1023,10 +1023,13 @@ class Admin {
             // If this event was created from a booking, mark the booking as converted
             if (isset($data['original_booking_reference']) && !empty($data['original_booking_reference'])) {
                 $bookingConvertSql = "UPDATE tbl_bookings
-                                     SET booking_status = 'converted', updated_at = NOW()
+                                     SET booking_status = 'converted', converted_event_id = :event_id, updated_at = NOW()
                                      WHERE booking_reference = :booking_reference";
                 $bookingStmt = $this->conn->prepare($bookingConvertSql);
-                $bookingStmt->execute([':booking_reference' => $data['original_booking_reference']]);
+                $bookingStmt->execute([
+                    ':event_id' => $eventId,
+                    ':booking_reference' => $data['original_booking_reference']
+                ]);
             }
 
             $this->conn->commit();

@@ -14,6 +14,7 @@ export interface ApiResponse<T = any> {
   message?: string;
   data?: T;
   error?: string;
+  wedding_details?: any;
 }
 
 /**
@@ -35,7 +36,7 @@ export async function apiGet<T = any>(
     console.log("📡 Raw API Response:", response.data);
 
     // Handle different response structures
-    if (response.data && typeof response.data === 'object') {
+    if (response.data && typeof response.data === "object") {
       return response.data;
     } else {
       return {
@@ -48,7 +49,10 @@ export async function apiGet<T = any>(
     // Network error or request setup error
     return {
       status: "error",
-      error: error?.response?.data?.message || error?.message || "Unknown error occurred",
+      error:
+        error?.response?.data?.message ||
+        error?.message ||
+        "Unknown error occurred",
     };
   }
 }
@@ -71,7 +75,7 @@ export async function apiPost<T = any, D = any>(
     let responseData = response.data;
 
     // If the response is a string, try to parse it as JSON
-    if (typeof responseData === 'string') {
+    if (typeof responseData === "string") {
       try {
         responseData = JSON.parse(responseData);
         console.log("Successfully parsed JSON string response:", responseData);
@@ -82,18 +86,23 @@ export async function apiPost<T = any, D = any>(
         return {
           status: "success",
           data: responseData as T,
-          message: "Response received as string"
+          message: "Response received as string",
         };
       }
     }
 
     // Handle empty response objects (common with PHP APIs that return empty JSON)
-    if (responseData && typeof responseData === 'object' && (Object.keys(responseData).length === 0 || JSON.stringify(responseData) === '{}')) {
+    if (
+      responseData &&
+      typeof responseData === "object" &&
+      (Object.keys(responseData).length === 0 ||
+        JSON.stringify(responseData) === "{}")
+    ) {
       console.log("Empty response object detected - treating as success");
       return {
         status: "success",
         data: responseData as T,
-        message: "Assignment completed successfully"
+        message: "Assignment completed successfully",
       };
     }
 
@@ -107,13 +116,17 @@ export async function apiPost<T = any, D = any>(
     // Enhanced error logging for debugging
     console.error("API Post Error:", error);
     console.error("Error type:", typeof error);
-    console.error("Error details:", error instanceof Error ? error.message : error);
+    console.error(
+      "Error details:",
+      error instanceof Error ? error.message : error
+    );
 
     // Network error or request setup error
     return {
       status: "error",
       error: error instanceof Error ? error.message : "Unknown error occurred",
-      message: error instanceof Error ? error.message : "Network or request error",
+      message:
+        error instanceof Error ? error.message : "Network or request error",
     };
   }
 }
@@ -132,7 +145,10 @@ export const adminApi = {
 
 // Client API helpers
 export const clientApi = {
-  get: async <T = any>(params?: Record<string, any>, config?: AxiosRequestConfig) => {
+  get: async <T = any>(
+    params?: Record<string, any>,
+    config?: AxiosRequestConfig
+  ) => {
     try {
       const response = await apiGet<T>(endpoints.client, params, config);
       console.log("🔍 Client API GET Response:", response);
@@ -141,12 +157,25 @@ export const clientApi = {
       console.error("❌ Client API GET Error:", error);
       return {
         status: "error",
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   },
-  post: <T = any, D = any>(data: D, config?: AxiosRequestConfig) =>
-    apiPost<T, D>(endpoints.client, data, config),
+  post: async <T = any, D = any>(data: D, config?: AxiosRequestConfig) => {
+    try {
+      const response = await apiPost<T, D>(endpoints.client, data, config);
+      console.log("🔍 Client API POST Response:", response);
+      return response;
+    } catch (error) {
+      console.error("❌ Client API POST Error:", error);
+      return {
+        status: "error",
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  },
 };
 
 // Auth API helpers

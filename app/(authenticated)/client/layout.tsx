@@ -8,22 +8,13 @@ import Logo from "../../../public/logo.png";
 import {
   LayoutDashboard,
   Calendar,
-  Users,
   LogOut,
   Bell,
-  Wrench,
-  ShoppingBag,
   CreditCard,
-  BarChart3,
   Sun,
   Moon,
   ChevronDown,
-  User,
   CalendarCheck,
-  Package,
-  MapPin,
-  UserCheck,
-  Truck,
   Menu,
   X,
   FileText,
@@ -46,6 +37,7 @@ import { useRealtimeNotifications } from "@/app/hooks/useRealtimeNotifications";
 import { endpoints } from "@/app/config/api";
 
 interface User {
+  user_id?: number;
   user_firstName: string;
   user_lastName: string;
   user_role: string;
@@ -135,16 +127,17 @@ export default function ClientLayout({
       },
     });
     return () => {
-      stopWatcher && stopWatcher();
+      if (stopWatcher) stopWatcher();
     };
   }, [router]);
 
   useEffect(() => {
     try {
       let userData = secureStorage.getItem("user");
+      console.log("Client layout: Retrieved userData:", userData);
 
       if (!userData) {
-        console.log("Client layout: No user data found, redirecting to login");
+        console.warn("Client layout: No user data found, redirecting to login");
         router.replace("/auth/login");
         return;
       }
@@ -152,7 +145,7 @@ export default function ClientLayout({
         try {
           userData = JSON.parse(userData);
         } catch {
-          console.log(
+          console.warn(
             "Client layout: Failed to parse user data, redirecting to login"
           );
           secureStorage.removeItem("user");
@@ -161,7 +154,7 @@ export default function ClientLayout({
         }
       }
       if (!userData.user_role || userData.user_role !== "Client") {
-        console.log(
+        console.warn(
           "Client layout: Invalid user role:",
           userData.user_role,
           "- redirecting"
@@ -192,10 +185,15 @@ export default function ClientLayout({
   useEffect(() => {
     const handleUserDataChange = () => {
       try {
-        const userData = secureStorage.getItem("user");
-        if (userData && userData.user_role === "Client") {
-          console.log("Client layout: User data updated, refreshing navbar");
-          setUser(userData);
+        let userData = secureStorage.getItem("user");
+        if (userData) {
+          if (typeof userData === "string") {
+            userData = JSON.parse(userData);
+          }
+          if (userData.user_role === "Client") {
+            console.warn("Client layout: User data updated, refreshing navbar");
+            setUser(userData);
+          }
         }
       } catch (error) {
         console.error("Client layout: Error handling user data change:", error);
@@ -249,15 +247,15 @@ export default function ClientLayout({
     onCounts: ({ unread }) => {
       setUnreadNotifCount(unread);
     },
-    onNew: (items) => {
+    onNew: (items: NotificationItem[]) => {
       // If dropdown is open, merge into the current list for immediate visibility
       if (!isNotifDropdownOpen) return;
       setNotifications((prev) => {
         const map = new Map<number, NotificationItem>();
         for (const n of prev) map.set(n.notification_id, n);
-        for (const n of items) map.set(n.notification_id, n as any);
+        for (const n of items) map.set(n.notification_id, n);
         const merged = Array.from(map.values());
-        merged.sort((a: any, b: any) => {
+        merged.sort((a: NotificationItem, b: NotificationItem) => {
           const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
           const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
           return tb - ta;
@@ -267,7 +265,7 @@ export default function ClientLayout({
     },
   });
 
-  async function fetchNotificationCounts(currentUser: any) {
+  async function fetchNotificationCounts(currentUser: User) {
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
@@ -288,12 +286,13 @@ export default function ClientLayout({
       if (data?.status === "success") {
         setUnreadNotifCount(Number(data.counts?.unread || 0));
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Handle network errors gracefully
       if (
-        err.name === "AbortError" ||
+        err instanceof Error &&
+        (err.name === "AbortError" ||
         err.message?.includes("ERR_INTERNET_DISCONNECTED") ||
-        err.message?.includes("Network Error")
+        err.message?.includes("Network Error"))
       ) {
         console.warn("Network offline - notification count fetch skipped");
         return;
@@ -302,7 +301,7 @@ export default function ClientLayout({
     }
   }
 
-  async function fetchNotificationsList(currentUser: any) {
+  async function fetchNotificationsList(currentUser: User) {
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
@@ -320,14 +319,14 @@ export default function ClientLayout({
       } else {
         setNotifications([]);
       }
-    } catch (err) {
+    } catch {
       setNotifications([]);
     } finally {
       setIsNotifLoading(false);
     }
   }
 
-  async function markAllNotificationsRead(currentUser: any) {
+  async function markAllNotificationsRead(currentUser: User) {
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
@@ -343,12 +342,12 @@ export default function ClientLayout({
       if (data?.status === "success") {
         setUnreadNotifCount(0);
       }
-    } catch (err) {
+    } catch {
       // ignore errors silently
     }
   }
 
-  async function clearReadNotifications(currentUser: any) {
+  async function clearReadNotifications(currentUser: User) {
     try {
       const userId = currentUser?.user_id;
       if (!userId) return;
@@ -364,7 +363,7 @@ export default function ClientLayout({
       if (data?.status === "success") {
         await fetchNotificationsList(currentUser);
       }
-    } catch (err) {
+    } catch {
       // ignore
     }
   }
@@ -386,7 +385,14 @@ export default function ClientLayout({
   ];
 
   if (!user) {
-    return null;
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -569,11 +575,13 @@ export default function ClientLayout({
                 className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 {/* Profile Picture */}
-                <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
+                 <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
-                    <img
-                      src={api.getServeImageUrl(user.user_pfp)}
+                    <Image
+                      src={api.getServeImageUrl(user.user_pfp) || "/placeholder.svg"}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
+                      width={40}
+                      height={40}
                       className="h-full w-full object-cover"
                     />
                   ) : user.profilePicture ? (
@@ -614,16 +622,6 @@ export default function ClientLayout({
               {/* Dropdown Menu */}
               {isUserDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                  <button
-                    onClick={() => {
-                      setIsUserDropdownOpen(false);
-                      router.push("/client/profile");
-                    }}
-                    className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    <User className="h-4 w-4" />
-                    Profile
-                  </button>
                   <button
                     onClick={() => {
                       setIsUserDropdownOpen(false);
@@ -784,9 +782,11 @@ export default function ClientLayout({
               >
                 <div className="h-8 w-8 border border-gray-300 rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
-                    <img
-                      src={api.getServeImageUrl(user.user_pfp)}
+                    <Image
+                      src={api.getServeImageUrl(user.user_pfp) || "/placeholder.svg"}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
+                      width={32}
+                      height={32}
                       className="h-full w-full object-cover"
                     />
                   ) : user.profilePicture ? (
@@ -819,16 +819,6 @@ export default function ClientLayout({
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => {
-                      setIsUserDropdownOpen(false);
-                      router.push("/client/profile");
-                    }}
-                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    <User className="h-4 w-4" />
-                    Profile
-                  </button>
                   <button
                     onClick={() => {
                       setIsUserDropdownOpen(false);

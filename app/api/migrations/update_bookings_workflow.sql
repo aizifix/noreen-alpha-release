@@ -29,3 +29,9 @@ ADD COLUMN original_booking_reference VARCHAR(50) DEFAULT NULL AFTER event_id;
 
 -- Create index for booking reference lookups
 CREATE INDEX idx_event_booking_ref ON tbl_events(original_booking_reference);
+
+-- Update existing converted bookings to link them to their corresponding events
+UPDATE tbl_bookings b
+INNER JOIN tbl_events e ON b.booking_reference = e.original_booking_reference
+SET b.converted_event_id = e.event_id
+WHERE b.booking_status = 'converted' AND b.converted_event_id IS NULL;

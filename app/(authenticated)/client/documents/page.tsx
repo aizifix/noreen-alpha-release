@@ -12,24 +12,15 @@ import {
   File as FileIcon,
   Eye,
   Download,
+  Search,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
-import {
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
-} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface ClientEvent {
   event_id: number;
@@ -55,17 +46,29 @@ export default function ClientDocuments() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [expanded, setExpanded] = useState<string | undefined>(undefined);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const userData = secureStorage.getItem("user");
 
-  const filteredAttachments = useMemo(() => {
-    if (!query) return attachments;
-    return attachments.filter((a) =>
-      a.name.toLowerCase().includes(query.toLowerCase())
+  const filteredEvents = useMemo(() => {
+    if (!searchQuery) return events;
+    return events.filter((event) =>
+      event.event_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.venue_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.event_status.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [attachments, query]);
+  }, [events, searchQuery]);
+
+  const paginatedEvents = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredEvents.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredEvents, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredEvents.length / itemsPerPage);
+  const startItem = (currentPage - 1) * itemsPerPage + 1;
+  const endItem = Math.min(currentPage * itemsPerPage, filteredEvents.length);
 
   const buildFileUrl = (path?: string | null) => {
     if (!path) return null;
@@ -126,9 +129,7 @@ export default function ClientDocuments() {
         }));
         setEvents(list);
         if (!selectedEventId && list.length > 0) {
-          const firstId = list[0].event_id;
-          setSelectedEventId(firstId);
-          setExpanded(`event-${firstId}`);
+          setSelectedEventId(list[0].event_id);
         }
       }
     } catch (err) {
@@ -171,6 +172,10 @@ export default function ClientDocuments() {
       fetchAttachments(selectedEventId);
     }
   }, [selectedEventId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, itemsPerPage]);
 
   const selected = useMemo(
     () => events.find((e) => e.event_id === selectedEventId) || null,
@@ -224,178 +229,234 @@ export default function ClientDocuments() {
   }
 
   return (
-    <div>
-      <div className="animate-docs-fade-in">
-        <div className="flex items-center mb-0">
-          <h1 className="text-2xl font-bold">Documents</h1>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-gray-900">Documents</h1>
         </div>
 
-        <Card className="p-4 sm:p-6 bg-white">
-          <div className="flex items-center mb-4">
-            <h2 className="text-lg font-semibold">Events</h2>
+        {/* Search and Filters */}
+        <Card className="p-4 border border-gray-200">
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search events by title, venue, or status..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 border-gray-300"
+              />
+            </div>
           </div>
-
-          <Accordion
-            type="single"
-            collapsible
-            className="w-full"
-            value={expanded}
-            onValueChange={(v: string) => {
-              setExpanded(v || undefined);
-              if (v && v.startsWith("event-")) {
-                const idStr = v.replace("event-", "");
-                const idNum = Number(idStr);
-                if (!Number.isNaN(idNum)) setSelectedEventId(idNum);
-              }
-            }}
-          >
-            {events.map((ev) => (
-              <AccordionItem key={ev.event_id} value={`event-${ev.event_id}`}>
-                <AccordionTrigger>
-                  <div className="w-full pr-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold truncate">
-                        {ev.event_title}
-                      </span>
-                      <Badge
-                        className={`${getStatusBadgeClasses(ev.event_status)} capitalize`}
-                      >
-                        {ev.event_status || "planning"}
-                      </Badge>
-                    </div>
-                    <div className="mt-1 flex items-center gap-3 text-xs text-gray-600">
-                      <span className="flex items-center">
-                        <CalendarIcon className="h-3.5 w-3.5 mr-1" />
-                        {new Date(ev.event_date).toLocaleDateString()}
-                      </span>
-                      <span className="flex items-center">
-                        <MapPin className="h-3.5 w-3.5 mr-1" />
-                        <span className="truncate max-w-[220px]">
-                          {ev.venue_name || "Venue TBD"}
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="space-y-3">
-                    {isLoadingFiles && selectedEventId === ev.event_id ? (
-                      <div className="flex items-center justify-center py-6">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#028A75]"></div>
-                      </div>
-                    ) : selectedEventId === ev.event_id ? (
-                      <Card>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="w-1/2">File name</TableHead>
-                              <TableHead className="w-1/4">Type</TableHead>
-                              <TableHead className="w-1/4 text-right">
-                                Actions
-                              </TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {filteredAttachments.length > 0 ? (
-                              filteredAttachments.map((file, idx) => {
-                                const url = buildFileUrl(file.path);
-                                return (
-                                  <TableRow key={`${file.name}-${idx}`}>
-                                    <TableCell>
-                                      <div className="flex items-center gap-3 min-w-0">
-                                        <FileIcon className="h-4 w-4 text-[#028A75] flex-shrink-0" />
-                                        <span className="truncate">
-                                          {file.name}
-                                        </span>
-                                      </div>
-                                    </TableCell>
-                                    <TableCell>
-                                      <span className="text-xs text-gray-600 truncate">
-                                        {file.type || file.path}
-                                      </span>
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                      <div className="flex justify-end gap-2">
-                                        <Button
-                                          variant="outline"
-                                          onClick={() => openInNewTab(url)}
-                                          className="h-8 px-3 border-[#028A75] text-[#028A75] hover:bg-[#028A75]/10"
-                                        >
-                                          <Eye className="h-3.5 w-3.5 mr-1.5" />{" "}
-                                          View
-                                        </Button>
-                                        <Button
-                                          onClick={() =>
-                                            triggerDownload(url, file.name)
-                                          }
-                                          className="h-8 px-3 bg-[#028A75] hover:bg-[#028A75]/90 text-white"
-                                        >
-                                          <Download className="h-3.5 w-3.5 mr-1.5" />{" "}
-                                          Download
-                                        </Button>
-                                      </div>
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })
-                            ) : (
-                              <TableRow>
-                                <TableCell
-                                  colSpan={3}
-                                  className="text-center text-gray-500"
-                                >
-                                  No files found
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </TableBody>
-                        </Table>
-                      </Card>
-                    ) : null}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
         </Card>
 
-        {/* Files per event are shown inside the accordion items above */}
+        {filteredEvents.length === 0 ? (
+          <Card className="p-12 text-center border border-gray-200">
+            <FileIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-500">
+              {searchQuery ? "No events match your search" : "No events found"}
+            </p>
+          </Card>
+        ) : (
+          <>
+            <div className="space-y-4">
+              {paginatedEvents.map((ev) => {
+                const isExpanded = selectedEventId === ev.event_id;
+                
+                return (
+                  <Card key={ev.event_id} className="overflow-hidden border border-gray-200 transition-all duration-200">
+                    {/* Event Header */}
+                    <button
+                      onClick={() => {
+                        if (isExpanded) {
+                          setSelectedEventId(null);
+                        } else {
+                          setSelectedEventId(ev.event_id);
+                        }
+                      }}
+                      className="w-full p-6 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex items-start gap-6 flex-1">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2 text-left">
+                            {ev.event_title}
+                          </h3>
+                          <div className="flex flex-wrap gap-4 text-sm">
+                            <div className="flex items-center text-gray-600">
+                              <CalendarIcon className="h-4 w-4 mr-2" />
+                              {new Date(ev.event_date).toLocaleDateString("en-US", {
+                                year: "numeric",
+                                month: "long",
+                                day: "numeric",
+                              })}
+                            </div>
+                            <div className="flex items-center text-gray-600">
+                              <MapPin className="h-4 w-4 mr-2" />
+                              {ev.venue_name || "Venue TBD"}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Badge className={`${getStatusBadgeClasses(ev.event_status)} capitalize`}>
+                            {ev.event_status || "planning"}
+                          </Badge>
+                          {isExpanded ? (
+                            <ChevronUp className="h-5 w-5 text-gray-400" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-gray-400" />
+                          )}
+                        </div>
+                      </div>
+                    </button>
 
-        <style jsx>{`
-          .no-scrollbar::-webkit-scrollbar {
-            display: none;
-          }
-          .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-          }
-          @keyframes docs-fade-in {
-            from {
-              opacity: 0;
-              transform: translateY(12px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-          @keyframes docs-slide-up {
-            from {
-              opacity: 0;
-              transform: translateY(8px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-          .animate-docs-fade-in {
-            animation: docs-fade-in 0.5s ease-out both;
-          }
-          .animate-docs-slide-up {
-            animation: docs-slide-up 0.35s ease-out both;
-          }
-        `}</style>
+                    {/* Attachments Section */}
+                    {isExpanded && (
+                      <div className="border-t bg-gray-50 p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-md font-semibold text-gray-900">
+                            Attachments ({attachments.length})
+                          </h4>
+                        </div>
+
+                        {isLoadingFiles ? (
+                          <div className="space-y-3">
+                            {Array.from({ length: 3 }).map((_, i) => (
+                              <Skeleton key={i} className="h-20 w-full" />
+                            ))}
+                          </div>
+                        ) : (
+                          <>
+                            {attachments.length > 0 ? (
+                              <div className="space-y-3">
+                                {attachments.map((file, idx) => {
+                                  const url = buildFileUrl(file.path);
+                                  return (
+                                    <Card key={`${file.name}-${idx}`} className="p-4 bg-white border border-gray-200">
+                                      <div className="flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-4 flex-1 min-w-0">
+                                          <div className="flex-shrink-0 w-10 h-10 bg-[#028A75]/10 rounded-lg flex items-center justify-center">
+                                            <FileIcon className="h-5 w-5 text-[#028A75]" />
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <p className="font-medium text-gray-900 truncate">
+                                              {file.name}
+                                            </p>
+                                            <p className="text-sm text-gray-500 truncate">
+                                              {file.type || "Document"}
+                                            </p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => openInNewTab(url)}
+                                            className="border-[#028A75] text-[#028A75] hover:bg-[#028A75]/10"
+                                          >
+                                            <Eye className="h-4 w-4 mr-1.5" />
+                                            View
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            onClick={() => triggerDownload(url, file.name)}
+                                            className="bg-[#028A75] hover:bg-[#028A75]/90 text-white"
+                                          >
+                                            <Download className="h-4 w-4 mr-1.5" />
+                                            Download
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </Card>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <Card className="p-8 text-center bg-white border border-gray-200">
+                                <FileIcon className="h-10 w-10 text-gray-400 mx-auto mb-3" />
+                                <p className="text-gray-500">No attachments available</p>
+                              </Card>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <Card className="p-4 border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">Show</span>
+                    <select
+                      value={itemsPerPage}
+                      onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                      className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
+                    >
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={100}>100</option>
+                    </select>
+                    <span className="text-sm text-gray-600">
+                      entries (showing {startItem}-{endItem} of {filteredEvents.length})
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                      disabled={currentPage === 1}
+                      className="disabled:opacity-50"
+                    >
+                      <ChevronDown className="h-4 w-4 rotate-90" />
+                    </Button>
+                    
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                        let page;
+                        if (totalPages <= 5) {
+                          page = i + 1;
+                        } else if (currentPage <= 3) {
+                          page = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          page = totalPages - 4 + i;
+                        } else {
+                          page = currentPage - 2 + i;
+                        }
+                        return (
+                          <Button
+                            key={page}
+                            variant={page === currentPage ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setCurrentPage(page)}
+                            className={page === currentPage ? "bg-[#028A75] hover:bg-[#028A75]/90 text-white" : ""}
+                          >
+                            {page}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                      disabled={currentPage === totalPages}
+                      className="disabled:opacity-50"
+                    >
+                      <ChevronDown className="h-4 w-4 -rotate-90" />
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

@@ -385,7 +385,7 @@ const LoginPage = () => {
           transition={{ duration: 0.8, ease: "easeOut" }}
         >
           <motion.div
-            className="w-full max-w-md mx-auto"
+            className="w-full max-w-md mx-auto relative"
             initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.8, delay: 0.3 }}
@@ -427,7 +427,8 @@ const LoginPage = () => {
                     value={formData.email}
                     onChange={handleChange}
                     required
-                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 text-sm sm:text-base"
+                    disabled={isLoading}
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 text-sm sm:text-base disabled:bg-gray-100 disabled:cursor-not-allowed"
                     placeholder="Enter your email"
                   />
                 </div>
@@ -447,7 +448,8 @@ const LoginPage = () => {
                       value={formData.password}
                       onChange={handleChange}
                       required
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 pr-10 sm:pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 text-sm sm:text-base"
+                      disabled={isLoading}
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 pr-10 sm:pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 text-sm sm:text-base disabled:bg-gray-100 disabled:cursor-not-allowed"
                       placeholder="Enter your password"
                     />
                     <button
@@ -473,7 +475,8 @@ const LoginPage = () => {
                     <button
                       type="button"
                       onClick={generateMathChallenge}
-                      className="flex items-center justify-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors self-center sm:self-auto"
+                      disabled={isLoading}
+                      className="flex items-center justify-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors self-center sm:self-auto disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Generate new math problem"
                     >
                       <RefreshCw className="h-3 w-3" />
@@ -491,7 +494,7 @@ const LoginPage = () => {
                     <div className="text-base sm:text-lg font-medium">=</div>
                     <input
                       type="number"
-                      className={`p-2 border rounded-md w-14 sm:w-16 h-10 sm:h-12 text-center text-base sm:text-lg font-medium focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                      className={`p-2 border rounded-md w-14 sm:w-16 h-10 sm:h-12 text-center text-base sm:text-lg font-medium focus:ring-2 focus:ring-[#334746] focus:border-transparent transition-all duration-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:bg-gray-100 disabled:cursor-not-allowed ${
                         mathValidation === "correct"
                           ? "border-green-500 bg-green-50 ring-2 ring-green-200"
                           : mathValidation === "incorrect"
@@ -501,6 +504,7 @@ const LoginPage = () => {
                       value={mathAnswer}
                       onChange={handleMathAnswerChange}
                       required
+                      disabled={isLoading}
                     />
                   </div>
                 </div>
@@ -549,7 +553,7 @@ const LoginPage = () => {
                 {/* Google Login Button (OAuth placeholder) */}
                 <button
                   type="button"
-                  className="w-full flex items-center justify-center gap-2 sm:gap-3 border border-gray-300 rounded-lg py-2.5 sm:py-3 bg-white hover:bg-gray-50 transition-colors font-medium text-gray-700 shadow-sm text-sm sm:text-base"
+                  className="w-full flex items-center justify-center gap-2 sm:gap-3 border border-gray-300 rounded-lg py-2.5 sm:py-3 bg-white hover:bg-gray-50 transition-colors font-medium text-gray-700 shadow-sm text-sm sm:text-base disabled:bg-gray-100 disabled:cursor-not-allowed"
                   onClick={() => {
                     /* TODO: Add Google OAuth logic here */
                   }}

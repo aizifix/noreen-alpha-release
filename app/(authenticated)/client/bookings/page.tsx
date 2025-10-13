@@ -10,10 +10,13 @@ import {
   Users,
   MapPin,
   Package,
+  X,
 } from "lucide-react";
 // import { apiClient } from "@/utils/apiClient";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
+import { toast } from "@/hooks/use-toast";
+import { secureStorage } from "@/app/utils/encryption";
 
 const statusColors: { [key: string]: string } = {
   confirmed: "bg-green-100 text-green-700",
@@ -44,6 +47,7 @@ interface DbBooking {
     | "completed"
     | "converted"
     | "cancelled";
+  converted_event_id: number | null;
   created_at: string;
 }
 
@@ -65,6 +69,22 @@ export default function BookingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<DbBooking | null>(
+    null
+  );
+  const [showModal, setShowModal] = useState(false);
+  const [showEventSelector, setShowEventSelector] = useState(false);
+  interface EventData {
+    event_id: number;
+    event_title: string;
+    event_date: string;
+    guest_count: number;
+    venue_id?: string | number;
+    venue_name?: string;
+    original_booking_reference?: string;
+  }
+
+  const [availableEvents, setAvailableEvents] = useState<EventData[]>([]);
 
   // Get user data from localStorage
   useEffect(() => {
@@ -76,8 +96,6 @@ export default function BookingsPage() {
           if (userData.startsWith("U2FsdGVkX1")) {
             try {
               // Use the secureStorage utility to decrypt the data
-              const secureStorage =
-                require("@/app/utils/encryption").secureStorage;
               const decryptedUser = secureStorage.getItem("user");
 
               if (
@@ -327,7 +345,6 @@ export default function BookingsPage() {
           {error}
         </div>
       ) : (
-        /* Enhanced Bookings Grid */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filtered.map((b) => (
             <div
@@ -477,19 +494,167 @@ export default function BookingsPage() {
 
               {/* Action Buttons */}
               <div className="flex gap-2 mt-auto">
-                <button
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-1 justify-center ${
-                    b.booking_status === "converted"
-                      ? "text-gray-500 bg-gray-100 cursor-not-allowed"
-                      : "text-gray-700 bg-white border border-gray-300 hover:bg-gray-50"
-                  }`}
-                  disabled={b.booking_status === "converted"}
-                >
-                  <Eye className="h-4 w-4" />
-                  {b.booking_status === "converted"
-                    ? "Event Created"
-                    : "View Details"}
-                </button>
+                {b.booking_status === "converted" ? (
+                  <button
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 hover:bg-purple-100 transition-colors flex-1 justify-center"
+                    onClick={async () => {
+                      if (b.converted_event_id) {
+                        router.push(`/client/events/${b.converted_event_id}`);
+                        return;
+                      }
+
+                      if (!userId) {
+                        toast({
+                          title: "Error",
+                          description:
+                            "User session expired. Please refresh the page.",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+
+                      // Fallback: Try to find event by booking details
+                      try {
+                        console.log("Searching for event with userId:", userId);
+                        console.log("Booking details:", {
+                          date: b.event_date,
+                          venue: b.venue_id,
+                          guests: b.guest_count,
+                          reference: b.booking_reference,
+                        });
+
+                        const response = await axios.get(
+                          `${endpoints.client}?operation=getClientEvents&user_id=${userId}`
+                        );
+                        if (response.data.status === "success") {
+                          const events = response.data.events || [];
+                          console.log("Found events:", events.length);
+
+                          // Find event that matches booking details (more flexible matching)
+                          const matchingEvent = events.find(
+                            (event: EventData) => {
+                              // First priority: match by original booking reference
+                              if (
+                                event.original_booking_reference ===
+                                b.booking_reference
+                              ) {
+                                console.log(
+                                  `Event ${event.event_id} matches by booking reference: ${b.booking_reference}`
+                                );
+                                return true;
+                              }
+
+                              // Normalize data types for comparison
+                              const eventDate = event.event_date?.split(" ")[0]; // Remove time part if present
+                              const bookingDate = b.event_date?.split(" ")[0];
+                              const eventVenueId = event.venue_id
+                                ? parseInt(String(event.venue_id))
+                                : null;
+                              const bookingVenueId = b.venue_id
+                                ? parseInt(String(b.venue_id))
+                                : null;
+                              const eventGuestCount = parseInt(
+                                String(event.guest_count)
+                              );
+                              const bookingGuestCount = parseInt(
+                                String(b.guest_count)
+                              );
+
+                              // Primary match: exact date, venue, and guest count
+                              const exactMatch =
+                                eventDate === bookingDate &&
+                                eventVenueId === bookingVenueId &&
+                                eventGuestCount === bookingGuestCount;
+
+                              // Secondary match: date and guest count (ignore venue if null)
+                              const looseMatch =
+                                eventDate === bookingDate &&
+                                eventGuestCount === bookingGuestCount &&
+                                (!bookingVenueId ||
+                                  eventVenueId === bookingVenueId);
+
+                              // Tertiary match: just date and guest count (most lenient)
+                              const lenientMatch =
+                                eventDate === bookingDate &&
+                                eventGuestCount === bookingGuestCount;
+
+                              const matches =
+                                exactMatch || looseMatch || lenientMatch;
+                              console.log(
+                                `Event ${event.event_id} (${event.event_title}) matches:`,
+                                matches,
+                                {
+                                  booking_ref: b.booking_reference,
+                                  original_ref:
+                                    event.original_booking_reference,
+                                  exact: exactMatch,
+                                  loose: looseMatch,
+                                  lenient: lenientMatch,
+                                  event_date: eventDate,
+                                  booking_date: bookingDate,
+                                  event_venue: eventVenueId,
+                                  booking_venue: bookingVenueId,
+                                  event_guests: eventGuestCount,
+                                  booking_guests: bookingGuestCount,
+                                }
+                              );
+                              return matches;
+                            }
+                          );
+
+                          if (matchingEvent) {
+                            console.log(
+                              "Found matching event:",
+                              matchingEvent.event_id
+                            );
+                            router.push(
+                              `/client/events/${matchingEvent.event_id}`
+                            );
+                          } else {
+                            console.log(
+                              "No matching event found, showing event selector"
+                            );
+                            // Show event selector modal
+                            if (events.length > 0) {
+                              setSelectedBooking(b); // Set the booking for the modal
+                              setAvailableEvents(events as EventData[]);
+                              setShowEventSelector(true);
+                            } else {
+                              toast({
+                                title: "Event Not Found",
+                                description:
+                                  "No events found for your account. Please contact support.",
+                                variant: "destructive",
+                              });
+                            }
+                          }
+                        }
+                      } catch (error) {
+                        console.error("Error finding event:", error);
+                        toast({
+                          title: "Error",
+                          description:
+                            "Failed to find the event. Please try again.",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    <Eye className="h-4 w-4" />
+                    View Event
+                  </button>
+                ) : (
+                  <button
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 flex-1 justify-center"
+                    onClick={() => {
+                      setSelectedBooking(b);
+                      setShowModal(true);
+                    }}
+                  >
+                    <Eye className="h-4 w-4" />
+                    View Details
+                  </button>
+                )}
                 {b.booking_status === "pending" && (
                   <button className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors">
                     Edit
@@ -523,6 +688,215 @@ export default function BookingsPage() {
               </Link>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Booking Details Modal */}
+      {showModal && selectedBooking && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-900">
+                  Booking Details
+                </h2>
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Header Info */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-lg text-gray-900 capitalize">
+                      {selectedBooking.event_type_name}
+                    </h3>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[selectedBooking.booking_status]}`}
+                    >
+                      {selectedBooking.booking_status.charAt(0).toUpperCase() +
+                        selectedBooking.booking_status.slice(1)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Booking Reference: {selectedBooking.booking_reference}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Created:{" "}
+                    {new Date(selectedBooking.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+
+                {/* Event Name */}
+                {selectedBooking.event_name && (
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h4 className="font-medium text-gray-900 mb-2">
+                      Event Name
+                    </h4>
+                    <p className="text-gray-700">
+                      {selectedBooking.event_name}
+                    </p>
+                  </div>
+                )}
+
+                {/* Event Details */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white p-4 rounded-lg border">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Clock className="h-5 w-5 text-blue-600" />
+                      <span className="font-medium text-gray-900">
+                        Date & Time
+                      </span>
+                    </div>
+                    <div className="text-gray-700">
+                      <div>{formatDate(selectedBooking.event_date)}</div>
+                      {selectedBooking.event_time && (
+                        <div className="text-sm text-gray-600">
+                          at {selectedBooking.event_time}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-lg border">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Users className="h-5 w-5 text-green-600" />
+                      <span className="font-medium text-gray-900">Guests</span>
+                    </div>
+                    <div className="text-gray-700">
+                      {selectedBooking.guest_count} guests
+                    </div>
+                  </div>
+
+                  {selectedBooking.venue_name && (
+                    <div className="bg-white p-4 rounded-lg border">
+                      <div className="flex items-center gap-3 mb-2">
+                        <MapPin className="h-5 w-5 text-red-600" />
+                        <span className="font-medium text-gray-900">Venue</span>
+                      </div>
+                      <div className="text-gray-700">
+                        {selectedBooking.venue_name}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedBooking.package_name && (
+                    <div className="bg-white p-4 rounded-lg border">
+                      <div className="flex items-center gap-3 mb-2">
+                        <Package className="h-5 w-5 text-purple-600" />
+                        <span className="font-medium text-gray-900">
+                          Package
+                        </span>
+                      </div>
+                      <div className="text-gray-700">
+                        {selectedBooking.package_name}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Notes */}
+                {selectedBooking.notes && (
+                  <div className="bg-white p-4 rounded-lg border">
+                    <h4 className="font-medium text-gray-900 mb-2">Notes</h4>
+                    <p className="text-gray-700">{selectedBooking.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Event Selector Modal */}
+      {showEventSelector && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-900">
+                  Select Event for Booking {selectedBooking?.booking_reference}
+                </h2>
+                <button
+                  onClick={() => setShowEventSelector(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="mb-4 p-4 bg-blue-50 rounded-lg">
+                <h3 className="font-medium text-blue-900 mb-2">
+                  Booking Details:
+                </h3>
+                <p className="text-blue-800">
+                  {selectedBooking?.event_date?.split(" ")[0]},{" "}
+                  {selectedBooking?.guest_count} guests
+                  {selectedBooking?.venue_name
+                    ? `, ${selectedBooking.venue_name}`
+                    : ""}
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-medium text-gray-900">Available Events:</h3>
+                {availableEvents
+                  .sort(
+                    (a: EventData, b: EventData) =>
+                      new Date(b.event_date).getTime() -
+                      new Date(a.event_date).getTime()
+                  )
+                  .map((event: EventData) => (
+                    <div
+                      key={event.event_id}
+                      className="p-4 border rounded-lg hover:bg-gray-50 cursor-pointer"
+                      onClick={() => {
+                        router.push(`/client/events/${event.event_id}`);
+                        setShowEventSelector(false);
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-gray-900">
+                            {event.event_title}
+                          </h4>
+                          <p className="text-sm text-gray-600">
+                            {event.event_date?.split(" ")[0]},{" "}
+                            {event.guest_count} guests
+                            {event.venue_name ? `, ${event.venue_name}` : ""}
+                          </p>
+                        </div>
+                        <button className="px-4 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#028A75]/90">
+                          View Event
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={() => setShowEventSelector(false)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

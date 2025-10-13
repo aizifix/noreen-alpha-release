@@ -228,15 +228,15 @@ export default function ClientDashboard() {
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
-      if (width < 640) {
+      if (width < 768) {
         setScreenSize("mobile");
-        setPackageDisplayLimit(2); // Show 2 cards on mobile
-      } else if (width < 1024) {
+        setPackageDisplayLimit(1); // Show 1 card on mobile
+      } else if (width < 1280) {
         setScreenSize("tablet");
-        setPackageDisplayLimit(4); // Show 4 cards on tablet
+        setPackageDisplayLimit(2); // Show 2 cards on tablet
       } else {
         setScreenSize("desktop");
-        setPackageDisplayLimit(6); // Show 6 cards on desktop
+        setPackageDisplayLimit(3); // Show 3 cards on desktop
       }
     };
 
@@ -370,7 +370,7 @@ export default function ClientDashboard() {
     const today = new Date();
 
     return (
-      <div className="bg-white rounded-lg p-4 sm:p-6">
+      <div className="bg-white rounded-lg p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold">
             {format(currentDate, "MMMM yyyy")}
@@ -415,7 +415,7 @@ export default function ClientDashboard() {
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
             <div
               key={day}
-              className="text-center text-xs sm:text-sm font-medium text-gray-600 py-2"
+              className="text-center text-xs md:text-sm font-medium text-gray-600 py-2"
             >
               {day}
             </div>
@@ -424,7 +424,7 @@ export default function ClientDashboard() {
 
         <div className="grid grid-cols-7 gap-1">
           {Array.from({ length: startingDayOfWeek }, (_, i) => (
-            <div key={`empty-${i}`} className="h-8 sm:h-10" />
+            <div key={`empty-${i}`} className="h-8 md:h-10" />
           ))}
           {monthDays.map((day) => {
             const dayEvents = getEventsForDate(day);
@@ -434,7 +434,7 @@ export default function ClientDashboard() {
             return (
               <div
                 key={day.toISOString()}
-                className={`h-8 sm:h-10 flex items-center justify-center text-xs sm:text-sm cursor-pointer rounded-md transition-colors ${
+                className={`h-8 md:h-10 flex items-center justify-center text-xs md:text-sm cursor-pointer rounded-md transition-colors ${
                   isToday
                     ? "bg-[#028A75] text-white font-bold"
                     : isSelected
@@ -450,7 +450,7 @@ export default function ClientDashboard() {
         </div>
 
         {selectedDate && (
-          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+          <div className="mt-4 p-3 md:p-4 bg-gray-50 rounded-lg">
             <p className="text-sm font-medium mb-2">
               {format(selectedDate, "MMMM d, yyyy")}
             </p>
@@ -495,12 +495,12 @@ export default function ClientDashboard() {
 
   return (
     <div className="min-h-screen">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
         {/* Header */}
-        <div className="animate-slide-up mb-6 sm:mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="animate-slide-up mb-6 md:mb-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
                 Welcome, {userData?.user_firstName}!
               </h1>
               <p className="text-gray-600 mt-2">
@@ -517,7 +517,7 @@ export default function ClientDashboard() {
               </Button>
               <Button
                 onClick={() => router.push("/client/bookings/create-booking")}
-                className="bg-[#028A75] hover:bg-[#028A75]/90 text-white px-4 sm:px-6 py-3 rounded-lg transition-all duration-200 w-full sm:w-auto"
+                className="bg-[#028A75] hover:bg-[#028A75]/90 text-white px-4 md:px-6 py-3 rounded-lg transition-all duration-200 w-full md:w-auto"
               >
                 <Plus className="h-5 w-5 mr-2" />
                 Create Booking +
@@ -527,9 +527,9 @@ export default function ClientDashboard() {
         </div>
 
         {/* Featured Packages - Now at the top */}
-        <div className="animate-slide-up-delay-1 mb-6 sm:mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="animate-slide-up-delay-1 mb-6 md:mb-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+            <div className="flex flex-col md:flex-row md:items-center gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-gray-900">
                   Featured Packages
@@ -551,7 +551,7 @@ export default function ClientDashboard() {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  className="w-full sm:w-auto border-[#028A75] text-[#028A75] hover:bg-[#028A75]/10"
+                  className="w-full md:w-auto border-[#028A75] text-[#028A75] hover:bg-[#028A75]/10"
                 >
                   <Filter className="h-4 w-4 mr-2" />
                   {selectedEventType || "Filter by Event Type"}
@@ -579,7 +579,7 @@ export default function ClientDashboard() {
             </DropdownMenu>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 sm:gap-6 transition-all duration-500 ease-in-out">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 transition-all duration-500 ease-in-out">
             {(showAllPackages
               ? filteredPackages
               : filteredPackages.slice(0, packageDisplayLimit)
@@ -598,10 +598,10 @@ export default function ClientDashboard() {
                       : `${index * 100}ms`,
                   }}
                 >
-                  <Card className="group bg-white transition-all duration-300 hover:-translate-y-1 h-full flex flex-col">
+                  <Card className="group bg-white transition-all duration-300 hover:-translate-y-1 h-full flex flex-col min-h-[280px] md:min-h-[320px] xl:min-h-[350px]">
                     <div className="p-4 sm:p-6 flex flex-col h-full">
                       {/* Header Section - Fixed Height */}
-                      <div className="flex items-start justify-between mb-4 min-h-[80px]">
+                      <div className="flex items-start justify-between mb-4 min-h-[60px] md:min-h-[80px] xl:min-h-[90px]">
                         <div className="flex-1 min-w-0 pr-2">
                           <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2 leading-tight">
                             {pkg.package_title}
@@ -623,8 +623,8 @@ export default function ClientDashboard() {
                       </div>
 
                       {/* Info Section - Consistent Height */}
-                      <div className="flex flex-col gap-3 mb-4 min-h-[60px]">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex flex-col gap-3 mb-4 min-h-[50px] md:min-h-[60px] xl:min-h-[70px]">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                           <div className="flex items-center text-sm text-gray-600">
                             <Users className="h-4 w-4 mr-1 flex-shrink-0" />
                             <span className="truncate">
@@ -639,13 +639,17 @@ export default function ClientDashboard() {
                           </div>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                           <div className="text-xl sm:text-2xl font-bold text-gray-900">
-                            ₱{pkg.package_price.toLocaleString()}
+                            ₱
+                            {Number(pkg.package_price).toLocaleString("en-PH", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
                           </div>
                           <Badge
                             variant="secondary"
-                            className="bg-green-100 text-green-800 self-start sm:self-auto text-xs"
+                            className="bg-green-100 text-green-800 self-start md:self-auto text-xs"
                           >
                             {pkg.component_count} inclusions
                           </Badge>
@@ -653,16 +657,16 @@ export default function ClientDashboard() {
                       </div>
 
                       {/* Action Buttons - Always at Bottom */}
-                      <div className="flex flex-col sm:flex-row gap-3 mt-auto pt-4">
+                      <div className="flex flex-col md:flex-row gap-3 mt-auto pt-4 md:pt-6 xl:pt-8">
                         <Button
                           variant="outline"
                           onClick={() => fetchPackageDetails(pkg.package_id)}
-                          className="flex-1 border-[#028A75] hover:bg-[#028A75]/10 min-h-[44px] text-sm font-medium px-4 py-2 !text-[#028A75] flex items-center justify-center"
+                          className="flex-1 border-[#028A75] hover:bg-[#028A75]/10 min-h-[44px] text-sm font-medium px-4 py-2 text-[#028A75] flex items-center justify-center"
                           disabled={isPackageLoading}
                         >
                           <Eye className="h-4 w-4 mr-2" />
-                          <span className="hidden sm:inline">View Details</span>
-                          <span className="sm:hidden">Details</span>
+                          <span className="hidden md:inline">View Details</span>
+                          <span className="md:hidden">Details</span>
                         </Button>
                         <Button
                           onClick={() =>
@@ -670,11 +674,11 @@ export default function ClientDashboard() {
                               `/client/bookings/create-booking?package=${pkg.package_id}&eventType=${encodeURIComponent((pkg.event_type_names && pkg.event_type_names[0]) || "")}`
                             )
                           }
-                          className="flex-1 bg-[#028A75] hover:bg-[#028A75]/90 min-h-[44px] text-sm font-medium px-4 py-2 !text-white flex items-center justify-center"
+                          className="flex-1 bg-[#028A75] hover:bg-[#028A75]/90 min-h-[44px] text-sm font-medium px-4 py-2 text-white flex items-center justify-center"
                         >
                           <Heart className="h-4 w-4 mr-2" />
-                          <span className="hidden sm:inline">Book Now</span>
-                          <span className="sm:hidden">Book</span>
+                          <span className="hidden md:inline">Book Now</span>
+                          <span className="md:hidden">Book</span>
                         </Button>
                       </div>
                     </div>
@@ -690,23 +694,22 @@ export default function ClientDashboard() {
               <Button
                 onClick={() => setShowAllPackages(!showAllPackages)}
                 variant="outline"
-                className="border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white px-4 sm:px-6 py-3 rounded-lg transition-all duration-300 flex items-center gap-2 hover:scale-105 transform w-full sm:w-auto"
+                className="border-[#028A75] text-[#028A75] hover:bg-[#028A75] hover:text-white px-4 md:px-6 py-3 rounded-lg transition-all duration-300 flex items-center gap-2 hover:scale-105 transform w-full md:w-auto"
               >
                 {showAllPackages ? (
                   <>
                     <ChevronLeft className="h-4 w-4 transition-transform duration-200" />
-                    <span className="hidden sm:inline">Show Less</span>
-                    <span className="sm:hidden">Less</span>
+                    <span className="hidden md:inline">See less</span>
+                    <span className="md:hidden">See less</span>
                   </>
                 ) : (
                   <>
-                    <span className="hidden sm:inline">
-                      View More Packages (
-                      {filteredPackages.length - packageDisplayLimit} more)
+                    <span className="hidden md:inline">
+                      See more ({filteredPackages.length - packageDisplayLimit}{" "}
+                      more)
                     </span>
-                    <span className="sm:hidden">
-                      View More ({filteredPackages.length - packageDisplayLimit}
-                      )
+                    <span className="md:hidden">
+                      See more ({filteredPackages.length - packageDisplayLimit})
                     </span>
                     <ChevronRight className="h-4 w-4 transition-transform duration-200" />
                   </>
@@ -717,9 +720,9 @@ export default function ClientDashboard() {
         </div>
 
         {/* Upcoming Events - Now at the bottom */}
-        <div className="animate-slide-up-delay-2 mb-6 sm:mb-8">
+        <div className="animate-slide-up-delay-2 mb-6 md:mb-8">
           <Card className="bg-white">
-            <div className="p-4 sm:p-6">
+            <div className="p-4 md:p-6">
               <h3 className="text-lg font-semibold mb-4 flex items-center">
                 <Clock className="h-5 w-5 mr-2 text-[#028A75]" />
                 Your Upcoming Events
@@ -736,10 +739,10 @@ export default function ClientDashboard() {
                   .map((event) => (
                     <div
                       key={event.event_id}
-                      className="p-3 sm:p-4 bg-white rounded-lg border hover:bg-gray-50 transition-colors cursor-pointer"
+                      className="p-3 md:p-4 bg-white rounded-lg border hover:bg-gray-50 transition-colors cursor-pointer"
                       onClick={() => router.push(`/client/events`)}
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2 gap-2">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
                         <h4 className="font-medium text-gray-900">
                           {event.event_title}
                         </h4>
@@ -750,12 +753,12 @@ export default function ClientDashboard() {
                       <p className="text-sm text-gray-600 mb-2">
                         {format(new Date(event.event_date), "MMM d, yyyy")}
                       </p>
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                         <span className="text-sm text-gray-500">
                           {event.venue_name || "Venue TBD"}
                         </span>
                         <span
-                          className={`text-xs px-2 py-1 rounded-full self-start sm:self-auto ${getPaymentStatusColor(event.payment_status)}`}
+                          className={`text-xs px-2 py-1 rounded-full self-start md:self-auto ${getPaymentStatusColor(event.payment_status)}`}
                         >
                           {event.payment_percentage}% Paid
                         </span>
@@ -782,7 +785,7 @@ export default function ClientDashboard() {
         {upcomingPayments.length > 0 && (
           <div className="animate-slide-up-delay-3">
             <Card className="bg-white">
-              <div className="p-4 sm:p-6">
+              <div className="p-4 md:p-6">
                 <h3 className="text-lg font-semibold mb-4 flex items-center">
                   <DollarSign className="h-5 w-5 mr-2 text-orange-600" />
                   Upcoming Payments
@@ -791,9 +794,9 @@ export default function ClientDashboard() {
                   {upcomingPayments.slice(0, 5).map((payment) => (
                     <div
                       key={payment.schedule_id}
-                      className="p-3 sm:p-4 bg-white rounded-lg border hover:bg-gray-50 transition-colors"
+                      className="p-3 md:p-4 bg-white rounded-lg border hover:bg-gray-50 transition-colors"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2 gap-2">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
                         <h4 className="font-medium text-gray-900">
                           {payment.event_title}
                         </h4>
@@ -809,7 +812,7 @@ export default function ClientDashboard() {
                                 : "Upcoming"}
                         </Badge>
                       </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                         <span className="text-sm text-gray-600">
                           Due:{" "}
                           {format(new Date(payment.due_date), "MMM d, yyyy")}
@@ -856,7 +859,7 @@ export default function ClientDashboard() {
               {selectedPackage && (
                 <div className="space-y-8 pb-6">
                   {/* Package Overview */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="text-center p-6 bg-[#028A75]/10 rounded-xl">
                       <div className="text-2xl sm:text-3xl font-bold text-[#028A75]">
                         ₱
@@ -925,7 +928,7 @@ export default function ClientDashboard() {
                           <Gift className="h-5 w-5 mr-2 text-orange-600" />
                           Free Bonuses
                         </h4>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {selectedPackage.freebies.map((freebie, idx) => (
                             <div
                               key={`item-${idx}-${Date.now()}`}
@@ -1134,7 +1137,7 @@ export default function ClientDashboard() {
               <Button
                 variant="outline"
                 onClick={() => setIsPackageModalOpen(false)}
-                className="w-full sm:w-auto order-2 sm:order-1 border-[#028A75] text-[#028A75] hover:bg-[#028A75]/10"
+                className="w-full md:w-auto order-2 md:order-1 border-[#028A75] text-[#028A75] hover:bg-[#028A75]/10"
               >
                 Maybe Later
               </Button>
@@ -1145,7 +1148,7 @@ export default function ClientDashboard() {
                     `/client/bookings/create-booking?package=${selectedPackage?.package_id}`
                   );
                 }}
-                className="w-full sm:w-auto bg-[#028A75] hover:bg-[#028A75]/90 text-white order-1 sm:order-2"
+                className="w-full md:w-auto bg-[#028A75] hover:bg-[#028A75]/90 text-white order-1 md:order-2"
               >
                 <Heart className="h-4 w-4 mr-2" />
                 Book This Package Now

@@ -43,6 +43,12 @@ const VerifySignupOTP = () => {
       }
 
       setUserEmail(email);
+
+      // Store OTP start time in localStorage if not already stored
+      const otpStartTime = localStorage.getItem("otp_start_time");
+      if (!otpStartTime) {
+        localStorage.setItem("otp_start_time", Date.now().toString());
+      }
     };
 
     checkPendingSignup();
@@ -78,6 +84,9 @@ const VerifySignupOTP = () => {
       document.cookie =
         "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
 
+      // Clear OTP start time
+      localStorage.removeItem("otp_start_time");
+
       // Show confirmation toast
       toast({
         title: "Returning to signup",
@@ -96,6 +105,21 @@ const VerifySignupOTP = () => {
       });
     }
   };
+
+  // Initialize timer based on stored start time
+  useEffect(() => {
+    const otpStartTime = localStorage.getItem("otp_start_time");
+    if (otpStartTime) {
+      const elapsed = Math.floor((Date.now() - parseInt(otpStartTime)) / 1000);
+      const remaining = Math.max(0, 300 - elapsed);
+      setTimeLeft(remaining);
+
+      // If already expired, handle it
+      if (remaining === 0) {
+        handleExpiredOTP();
+      }
+    }
+  }, []);
 
   // Timer countdown effect
   useEffect(() => {
@@ -143,6 +167,9 @@ const VerifySignupOTP = () => {
         "pending_signup_user_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
       document.cookie =
         "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+
+      // Clear OTP start time
+      localStorage.removeItem("otp_start_time");
 
       toast({
         title: "Verification expired",
@@ -268,6 +295,9 @@ const VerifySignupOTP = () => {
         document.cookie =
           "pending_signup_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
 
+        // Clear OTP start time
+        localStorage.removeItem("otp_start_time");
+
         // Clear saved form data since verification was successful
         clearSavedData();
 
@@ -333,6 +363,7 @@ const VerifySignupOTP = () => {
           description: "New OTP sent to your email.",
         });
         setTimeLeft(300); // Reset timer
+        localStorage.setItem("otp_start_time", Date.now().toString()); // Update start time
         setOtpValues(["", "", "", "", "", ""]);
         inputRefs.current[0]?.focus();
       } else {

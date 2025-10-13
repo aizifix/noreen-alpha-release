@@ -701,21 +701,51 @@ function getClientBookings($userId) {
     global $pdo;
 
     try {
-        $sql = "SELECT b.*,
-                et.event_name as event_type_name,
-                v.venue_title as venue_name,
-                p.package_title as package_name
-                FROM tbl_bookings b
-                LEFT JOIN tbl_event_type et ON b.event_type_id = et.event_type_id
-                LEFT JOIN tbl_venue v ON b.venue_id = v.venue_id
-                LEFT JOIN tbl_packages p ON b.package_id = p.package_id
-                WHERE b.user_id = :user_id
-                ORDER BY b.created_at DESC";
+        // Check if converted_event_id column exists
+        $columnCheckSql = "SHOW COLUMNS FROM tbl_bookings LIKE 'converted_event_id'";
+        $columnCheckStmt = $pdo->prepare($columnCheckSql);
+        $columnCheckStmt->execute();
+        $hasConvertedEventId = $columnCheckStmt->rowCount() > 0;
+
+        if ($hasConvertedEventId) {
+            $sql = "SELECT b.*,
+                    et.event_name as event_type_name,
+                    v.venue_title as venue_name,
+                    p.package_title as package_name,
+                    COALESCE(b.converted_event_id, e.event_id) as converted_event_id
+                    FROM tbl_bookings b
+                    LEFT JOIN tbl_event_type et ON b.event_type_id = et.event_type_id
+                    LEFT JOIN tbl_venue v ON b.venue_id = v.venue_id
+                    LEFT JOIN tbl_packages p ON b.package_id = p.package_id
+                    LEFT JOIN tbl_events e ON b.booking_reference = e.original_booking_reference
+                    WHERE b.user_id = :user_id
+                    ORDER BY b.created_at DESC";
+        } else {
+            $sql = "SELECT b.*,
+                    et.event_name as event_type_name,
+                    v.venue_title as venue_name,
+                    p.package_title as package_name,
+                    e.event_id as converted_event_id
+                    FROM tbl_bookings b
+                    LEFT JOIN tbl_event_type et ON b.event_type_id = et.event_type_id
+                    LEFT JOIN tbl_venue v ON b.venue_id = v.venue_id
+                    LEFT JOIN tbl_packages p ON b.package_id = p.package_id
+                    LEFT JOIN tbl_events e ON b.booking_reference = e.original_booking_reference
+                    WHERE b.user_id = :user_id
+                    ORDER BY b.created_at DESC";
+        }
 
         $stmt = $pdo->prepare($sql);
         $stmt->bindParam(':user_id', $userId, PDO::PARAM_INT);
         $stmt->execute();
         $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Debug: Log converted bookings and their event linkage
+        foreach ($bookings as $booking) {
+            if ($booking['booking_status'] === 'converted') {
+                error_log("Converted booking: " . $booking['booking_reference'] . " -> event_id: " . ($booking['converted_event_id'] ?? 'NULL'));
+            }
+        }
 
         return ["status" => "success", "bookings" => $bookings];
     } catch (PDOException $e) {
@@ -1919,6 +1949,119 @@ if ($method === 'POST') {
     }
 }
 
+// Function to get wedding details for an event
+function getWeddingDetails($eventId, $userId) {
+    global $pdo;
+
+    try {
+        error_log("getWeddingDetails function called with eventId: $eventId, userId: $userId");
+
+        // First verify the user has access to this event
+        $verifyStmt = $pdo->prepare("SELECT event_id FROM tbl_events WHERE event_id = ? AND user_id = ?");
+        $verifyStmt->execute([$eventId, $userId]);
+        $verifyResult = $verifyStmt->fetch();
+        error_log("User access verification result: " . ($verifyResult ? "true" : "false"));
+
+        if (!$verifyResult) {
+            error_log("Access denied for user $userId to event $eventId");
+            return json_encode(["status" => "error", "message" => "Access denied: User not authorized for this event"]);
+        }
+
+        $sql = "SELECT * FROM tbl_wedding_details WHERE event_id = ?";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$eventId]);
+        $weddingDetails = $stmt->fetch(PDO::FETCH_ASSOC);
+        error_log("Wedding details query result: " . ($weddingDetails ? "found" : "not found"));
+
+        if ($weddingDetails) {
+            // Map database column names to form field names (form now uses correct field names)
+            $formData = [
+                'nuptial' => $weddingDetails['nuptial'],
+                'motif' => $weddingDetails['motif'],
+                'wedding_time' => $weddingDetails['wedding_time'],
+                'church' => $weddingDetails['church'],
+                'address' => $weddingDetails['address'],
+
+                // Bride & Groom
+                'bride_name' => $weddingDetails['bride_name'],
+                'bride_size' => $weddingDetails['bride_size'],
+                'groom_name' => $weddingDetails['groom_name'],
+                'groom_size' => $weddingDetails['groom_size'],
+
+                // Parents
+                'mother_bride_name' => $weddingDetails['mother_bride_name'],
+                'mother_bride_size' => $weddingDetails['mother_bride_size'],
+                'father_bride_name' => $weddingDetails['father_bride_name'],
+                'father_bride_size' => $weddingDetails['father_bride_size'],
+                'mother_groom_name' => $weddingDetails['mother_groom_name'],
+                'mother_groom_size' => $weddingDetails['mother_groom_size'],
+                'father_groom_name' => $weddingDetails['father_groom_name'],
+                'father_groom_size' => $weddingDetails['father_groom_size'],
+
+                // Principal Sponsors
+                'maid_of_honor_name' => $weddingDetails['maid_of_honor_name'],
+                'maid_of_honor_size' => $weddingDetails['maid_of_honor_size'],
+                'best_man_name' => $weddingDetails['best_man_name'],
+                'best_man_size' => $weddingDetails['best_man_size'],
+
+                // Little Bride & Groom
+                'little_bride_name' => $weddingDetails['little_bride_name'],
+                'little_bride_size' => $weddingDetails['little_bride_size'],
+                'little_groom_name' => $weddingDetails['little_groom_name'],
+                'little_groom_size' => $weddingDetails['little_groom_size'],
+
+                // Processing Info
+                'prepared_by' => $weddingDetails['prepared_by'],
+                'received_by' => $weddingDetails['received_by'],
+                'pickup_date' => $weddingDetails['pickup_date'],
+                'return_date' => $weddingDetails['return_date'],
+                'customer_signature' => $weddingDetails['customer_signature'],
+
+                // Wedding Items
+                'cushions_qty' => $weddingDetails['cushions_qty'] ?? 0,
+                'headdress_qty' => $weddingDetails['headdress_qty'] ?? 0,
+                'shawls_qty' => $weddingDetails['shawls_qty'] ?? 0,
+                'veil_cord_qty' => $weddingDetails['veil_cord_qty'] ?? 0,
+                'basket_qty' => $weddingDetails['basket_qty'] ?? 0,
+                'petticoat_qty' => $weddingDetails['petticoat_qty'] ?? 0,
+                'neck_bowtie_qty' => $weddingDetails['neck_bowtie_qty'] ?? 0,
+                'garter_leg_qty' => $weddingDetails['garter_leg_qty'] ?? 0,
+                'fitting_form_qty' => $weddingDetails['fitting_form_qty'] ?? 0,
+                'robe_qty' => $weddingDetails['robe_qty'] ?? 0,
+
+                // Wedding Party Quantities and Names
+                'bridesmaids_qty' => $weddingDetails['bridesmaids_qty'] ?? 0,
+                'bridesmaids_names' => json_decode($weddingDetails['bridesmaids_names'] ?? '[]', true),
+                'groomsmen_qty' => $weddingDetails['groomsmen_qty'] ?? 0,
+                'groomsmen_names' => json_decode($weddingDetails['groomsmen_names'] ?? '[]', true),
+                'junior_groomsmen_qty' => $weddingDetails['junior_groomsmen_qty'] ?? 0,
+                'junior_groomsmen_names' => json_decode($weddingDetails['junior_groomsmen_names'] ?? '[]', true),
+                'flower_girls_qty' => $weddingDetails['flower_girls_qty'] ?? 0,
+                'flower_girls_names' => json_decode($weddingDetails['flower_girls_names'] ?? '[]', true),
+                'ring_bearer_qty' => $weddingDetails['ring_bearer_qty'] ?? 0,
+                'ring_bearer_names' => json_decode($weddingDetails['ring_bearer_names'] ?? '[]', true),
+                'bible_bearer_qty' => $weddingDetails['bible_bearer_qty'] ?? 0,
+                'bible_bearer_names' => json_decode($weddingDetails['bible_bearer_names'] ?? '[]', true),
+                'coin_bearer_qty' => $weddingDetails['coin_bearer_qty'] ?? 0,
+                'coin_bearer_names' => json_decode($weddingDetails['coin_bearer_names'] ?? '[]', true)
+            ];
+
+            return json_encode([
+                "status" => "success",
+                "wedding_details" => $formData
+            ]);
+        } else {
+            return json_encode([
+                "status" => "success",
+                "wedding_details" => null
+            ]);
+        }
+    } catch (Exception $e) {
+        error_log("getWeddingDetails error: " . $e->getMessage());
+        return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+    }
+}
+
 switch ($method) {
     case 'GET':
         switch ($operation) {
@@ -2279,6 +2422,17 @@ switch ($method) {
                     ]);
                 } else {
                     echo json_encode(cleanupDuplicateBookings($data['booking_ids']));
+                }
+                break;
+
+            case 'getWeddingDetails':
+                $eventId = (int)($data['event_id'] ?? 0);
+                $userId = (int)($data['user_id'] ?? 0);
+
+                if ($eventId <= 0 || $userId <= 0) {
+                    echo json_encode(["status" => "error", "message" => "Valid event ID and user ID required"]);
+                } else {
+                    echo getWeddingDetails($eventId, $userId);
                 }
                 break;
 

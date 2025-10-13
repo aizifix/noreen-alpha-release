@@ -55,7 +55,6 @@ import {
   Unlock,
   Banknote,
 } from "lucide-react";
-import { apiClient } from "@/utils/apiClient";
 import { adminApi, clientApi } from "@/app/utils/api";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -269,10 +268,10 @@ function BudgetProgress({ event }: { event: Event }) {
 
   // Format currency properly
   const formatCurrency = (amount: number) => {
-    return amount.toLocaleString("en-US", {
+    return new Intl.NumberFormat("en-PH", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    });
+    }).format(amount);
   };
 
   return (
@@ -438,7 +437,7 @@ function EventFinalization({
         event_id: event.event_id,
       });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         setPaymentStats(response.data.stats);
       }
     } catch (error) {
@@ -477,7 +476,7 @@ function EventFinalization({
 
       const response = await adminApi.post(payload);
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         toast({
           title: "Success",
           description:
@@ -786,7 +785,7 @@ function VenueSelection({
         package_id: event.package_id,
       });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         setVenues(response.data.venues || []);
       }
     } catch (error) {
@@ -872,7 +871,7 @@ function VenueSelection({
         venue_id: venueId,
       });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         toast({
           title: "Success",
           description: "Venue updated successfully",
@@ -899,10 +898,10 @@ function VenueSelection({
   };
 
   const formatCurrency = (amount: number) => {
-    return amount.toLocaleString("en-US", {
+    return new Intl.NumberFormat("en-PH", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    });
+    }).format(amount);
   };
 
   if (!event.package_id) {
@@ -1137,10 +1136,10 @@ function PackageInclusionsManagement({
 
   // Format currency properly
   const formatCurrency = (amount: number) => {
-    return amount.toLocaleString("en-US", {
+    return new Intl.NumberFormat("en-PH", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    });
+    }).format(amount);
   };
 
   // Check if there are any changes
@@ -1480,7 +1479,7 @@ function PackageInclusionsManagement({
         payment_notes: `Status changed to ${newStatus} by admin`,
       });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         // Update local state
         setComponents(
           components.map((comp) =>
@@ -1695,7 +1694,7 @@ function PackageInclusionsManagement({
                           action: "finalize",
                         });
 
-                        if (response.status === "success") {
+                        if (response.data.status === "success") {
                           toast({
                             title: "Success",
                             description:
@@ -2137,16 +2136,6 @@ function ComponentDisplay({
               </p>
             )}
             <div className="flex items-center gap-4 mt-2">
-              <span className="text-lg font-semibold text-green-600">
-                ₱
-                {(Number(component.component_price) || 0).toLocaleString(
-                  "en-PH",
-                  {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }
-                )}
-              </span>
               {!component.is_custom && component.original_component_name && (
                 <span className="text-xs text-gray-500">
                   Original: {component.original_component_name}
@@ -2490,6 +2479,41 @@ function ComponentDisplay({
 
 // Event Timeline Component
 function EventTimeline({ event }: { event: Event }) {
+  const calculateDerivedPaymentStatus = () => {
+    // Calculate total paid amount
+    const paymentsTotal =
+      event.payments?.reduce((sum, payment: any) => {
+        if (["completed", "partial", "paid"].includes(payment.payment_status)) {
+          return sum + Number(payment.payment_amount || 0);
+        }
+        return sum;
+      }, 0) || 0;
+
+    const downPayment = Number(event.down_payment || 0);
+    const downPaymentIncluded =
+      event.payments?.some(
+        (payment: any) =>
+          payment.payment_type === "down_payment" ||
+          payment.payment_notes?.toLowerCase().includes("down payment")
+      ) || false;
+
+    const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+    const remaining = event.total_budget - totalPaid;
+
+    // If fully paid (no remaining balance), return "paid"
+    if (remaining <= 0 && event.total_budget > 0) {
+      return "paid";
+    }
+
+    // If partially paid, return "partial"
+    if (totalPaid > 0 && remaining > 0) {
+      return "partial";
+    }
+
+    // If no payments made, return "unpaid"
+    return "unpaid";
+  };
+
   const getTimelineSteps = () => {
     const includedComponents = (event.components || []).filter(
       (comp) => comp.is_included
@@ -2539,7 +2563,8 @@ function EventTimeline({ event }: { event: Event }) {
         id: "final-payment",
         title: "Final Payment",
         date: null,
-        status: event.payment_status === "paid" ? "completed" : "pending",
+        status:
+          calculateDerivedPaymentStatus() === "paid" ? "completed" : "pending",
         icon: DollarSign,
         description: "Complete payment settlement",
       },
@@ -2916,7 +2941,7 @@ function PaymentHistoryTab({
         // attachments added separately via upload endpoint
       });
 
-      if (response.status !== "success") {
+      if (response.data.status !== "success") {
         toast({
           title: "Error",
           description: response.data.message || "Failed to create payment",
@@ -3689,6 +3714,8 @@ export default function EventDetailsPage() {
     password: "",
   });
   const [organizerDetails, setOrganizerDetails] = useState<any | null>(null);
+  const [weddingDetails, setWeddingDetails] = useState<any | null>(null);
+  const [weddingLoading, setWeddingLoading] = useState(false);
 
   const getTodayStringLocal = () => {
     const now = new Date();
@@ -3739,6 +3766,44 @@ export default function EventDetailsPage() {
       fetchEventDetails();
     }
   }, [eventId, isClient, linkUserId]);
+
+  // Fetch wedding details when event is loaded and it's a wedding event
+  useEffect(() => {
+    if (
+      event?.event_id &&
+      (event.event_type_id === 1 ||
+        event.event_type_name?.toLowerCase() === "wedding")
+    ) {
+      const fetchWedding = async () => {
+        try {
+          setWeddingLoading(true);
+          const user = secureStorage.getItem("user");
+          const uid = isClient ? user?.user_id : linkUserId;
+          if (!uid) return;
+
+          const res = await clientApi.post({
+            operation: "getWeddingDetails",
+            event_id: event.event_id,
+            user_id: uid,
+          });
+
+          if (res?.status === "success") {
+            setWeddingDetails(res.wedding_details || null);
+          } else {
+            setWeddingDetails(null);
+          }
+        } catch (e) {
+          console.error("Error fetching wedding details:", e);
+          setWeddingDetails(null);
+        } finally {
+          setWeddingLoading(false);
+        }
+      };
+      fetchWedding();
+    } else {
+      setWeddingDetails(null);
+    }
+  }, [event?.event_id, event?.event_type_id, isClient, linkUserId]);
 
   useEffect(() => {
     const fetchNotifications = async () => {
@@ -4426,6 +4491,10 @@ export default function EventDetailsPage() {
     { id: "overview", label: "Overview", icon: Eye },
     { id: "payments", label: "Payments", icon: CreditCard },
     { id: "attachments", label: "Files", icon: Paperclip },
+    // Only show nuptial tab for wedding events
+    ...(event?.event_type_name?.toLowerCase() === "wedding"
+      ? [{ id: "nuptial", label: "Nupital Form", icon: FileText }]
+      : []),
   ];
 
   if (isLoading) {
@@ -4481,6 +4550,41 @@ export default function EventDetailsPage() {
     derivedIncludedCount > 0
       ? Math.round((derivedPaidComponents / derivedIncludedCount) * 100)
       : 0;
+
+  const calculateDerivedPaymentStatus = () => {
+    // Calculate total paid amount
+    const paymentsTotal =
+      event.payments?.reduce((sum, payment: any) => {
+        if (["completed", "partial", "paid"].includes(payment.payment_status)) {
+          return sum + Number(payment.payment_amount || 0);
+        }
+        return sum;
+      }, 0) || 0;
+
+    const downPayment = Number(event.down_payment || 0);
+    const downPaymentIncluded =
+      event.payments?.some(
+        (payment: any) =>
+          payment.payment_type === "down_payment" ||
+          payment.payment_notes?.toLowerCase().includes("down payment")
+      ) || false;
+
+    const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+    const remaining = event.total_budget - totalPaid;
+
+    // If fully paid (no remaining balance), return "paid"
+    if (remaining <= 0 && event.total_budget > 0) {
+      return "paid";
+    }
+
+    // If partially paid, return "partial"
+    if (totalPaid > 0 && remaining > 0) {
+      return "partial";
+    }
+
+    // If no payments made, return "unpaid"
+    return "unpaid";
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -4689,9 +4793,11 @@ export default function EventDetailsPage() {
                                 Payment Status
                               </div>
                               <div
-                                className={`inline-block px-2 py-1 rounded-full text-xs font-medium border ${getPaymentStatusColor(event.payment_status)}`}
+                                className={`inline-block px-2 py-1 rounded-full text-xs font-medium border ${getPaymentStatusColor(calculateDerivedPaymentStatus())}`}
                               >
-                                {formatPaymentStatusLabel(event.payment_status)}
+                                {formatPaymentStatusLabel(
+                                  calculateDerivedPaymentStatus()
+                                )}
                               </div>
                             </div>
                           </div>
@@ -5506,6 +5612,474 @@ export default function EventDetailsPage() {
                       <p className="text-gray-600">
                         Event attachments will appear here when uploaded.
                       </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === "nuptial" && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Nupital Form
+                    </h3>
+                  </div>
+                  {weddingLoading ? (
+                    <div className="text-gray-500">
+                      Loading wedding details...
+                    </div>
+                  ) : !weddingDetails ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <div className="mb-4">
+                        <FileText className="h-12 w-12 mx-auto text-gray-300" />
+                      </div>
+                      <p className="text-lg font-medium mb-2">
+                        No wedding details available
+                      </p>
+                      <p className="text-sm">
+                        Wedding details will be filled out by your organizer.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Basic Information */}
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Nuptial
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.nuptial || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">Motif</Label>
+                          <div className="font-medium">
+                            {weddingDetails?.motif || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Wedding Time
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.wedding_time || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Church
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.church || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Address
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.address || "-"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bride & Groom */}
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Bride Name
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.bride_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Bride Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.bride_size || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Groom Name
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.groom_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Groom Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.groom_size || "-"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Parents */}
+                      <div className="space-y-3">
+                        <h4 className="font-medium text-gray-900">
+                          Bride's Parents
+                        </h4>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Mother's Name
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.mother_bride_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Mother's Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.mother_bride_size || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Father's Name
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.father_bride_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Father's Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.father_bride_size || "-"}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <h4 className="font-medium text-gray-900">
+                          Groom's Parents
+                        </h4>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Mother's Name
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.mother_groom_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Mother's Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.mother_groom_size || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Father's Name
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.father_groom_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Father's Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.father_groom_size || "-"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Principal Sponsors */}
+                      <div className="space-y-3">
+                        <h4 className="font-medium text-gray-900">
+                          Principal Sponsors
+                        </h4>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Maid of Honor
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.maid_of_honor_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Maid of Honor Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.maid_of_honor_size || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Best Man
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.best_man_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Best Man Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.best_man_size || "-"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Little Bride & Groom */}
+                      <div className="space-y-3">
+                        <h4 className="font-medium text-gray-900">
+                          Little Bride & Groom
+                        </h4>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Little Bride Name
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.little_bride_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Little Bride Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.little_bride_size || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Little Groom Name
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.little_groom_name || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Little Groom Size
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.little_groom_size || "-"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Processing Info */}
+                      <div className="space-y-3">
+                        <h4 className="font-medium text-gray-900">
+                          Processing Information
+                        </h4>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Prepared By
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.prepared_by || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Received By
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.received_by || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Pickup Date
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.pickup_date || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Return Date
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.return_date || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm text-gray-600">
+                            Customer Signature
+                          </Label>
+                          <div className="font-medium">
+                            {weddingDetails?.customer_signature || "-"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Wedding Items Quantities */}
+                      <div className="space-y-3">
+                        <h4 className="font-medium text-gray-900">
+                          Wedding Items
+                        </h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Cushions
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.cushions_qty || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Headdress
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.headdress_qty || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Shawls
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.shawls_qty || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Veil/Cord
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.veil_cord_qty || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Basket
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.basket_qty || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Petticoat
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.petticoat_qty || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Neck Bowtie
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.neck_bowtie_qty || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Garter Leg
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.garter_leg_qty || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Fitting Form
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.fitting_form_qty || 0}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Robe
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.robe_qty || 0}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Wedding Party */}
+                      {[
+                        {
+                          title: "Bridesmaids",
+                          qtyKey: "bridesmaids_qty",
+                          namesKey: "bridesmaids_names",
+                        },
+                        {
+                          title: "Groomsmen",
+                          qtyKey: "groomsmen_qty",
+                          namesKey: "groomsmen_names",
+                        },
+                        {
+                          title: "Junior Groomsmen",
+                          qtyKey: "junior_groomsmen_qty",
+                          namesKey: "junior_groomsmen_names",
+                        },
+                        {
+                          title: "Flower Girls",
+                          qtyKey: "flower_girls_qty",
+                          namesKey: "flower_girls_names",
+                        },
+                        {
+                          title: "Ring Bearers",
+                          qtyKey: "ring_bearer_qty",
+                          namesKey: "ring_bearer_names",
+                        },
+                        {
+                          title: "Bible Bearers",
+                          qtyKey: "bible_bearer_qty",
+                          namesKey: "bible_bearer_names",
+                        },
+                        {
+                          title: "Coin Bearers",
+                          qtyKey: "coin_bearer_qty",
+                          namesKey: "coin_bearer_names",
+                        },
+                      ].map((group) => (
+                        <div key={group.qtyKey} className="space-y-3">
+                          <h4 className="font-medium text-gray-900">
+                            {group.title}
+                          </h4>
+                          <div>
+                            <Label className="text-sm text-gray-600">
+                              Quantity
+                            </Label>
+                            <div className="font-medium">
+                              {weddingDetails?.[group.qtyKey] || 0}
+                            </div>
+                          </div>
+                          {(weddingDetails?.[group.namesKey] || []).length >
+                            0 && (
+                            <div>
+                              <Label className="text-sm text-gray-600">
+                                Names
+                              </Label>
+                              <div className="space-y-1">
+                                {(weddingDetails?.[group.namesKey] || []).map(
+                                  (name: string, idx: number) => (
+                                    <div key={idx} className="font-medium">
+                                      {name}
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

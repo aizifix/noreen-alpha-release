@@ -91,7 +91,7 @@ function getPackagesByEventType($eventTypeId, $guestCount) {
 
             // Get venue previews for this package
             $venuesSql = "SELECT v.venue_id, v.venue_title, v.venue_location,
-                                v.venue_capacity, v.venue_price, v.venue_profile_picture
+                                v.venue_capacity, v.venue_price, v.venue_profile_picture, v.venue_cover_photo
                          FROM tbl_package_venues pv
                          JOIN tbl_venue v ON pv.venue_id = v.venue_id
                          WHERE pv.package_id = :package_id

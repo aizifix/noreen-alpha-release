@@ -26,7 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "@/hooks/use-toast";
 import axios from "axios";
-import { endpoints } from "@/app/config/api";
+import { endpoints, api } from "@/app/config/api";
 import {
   format,
   startOfMonth,
@@ -263,6 +263,16 @@ export default function EnhancedCreateBookingPage() {
   const [loadingInclusions, setLoadingInclusions] = useState(false);
   const [totalPrice, setTotalPrice] = useState<number>(0);
 
+  // Local state for guest count input to allow free typing
+  const [guestCountInput, setGuestCountInput] = useState<string>(
+    formData.guestCount.toString()
+  );
+
+  // Sync guestCountInput when formData.guestCount changes
+  useEffect(() => {
+    setGuestCountInput(formData.guestCount.toString());
+  }, [formData.guestCount]);
+
   // Calendar and conflict checking state
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -274,30 +284,38 @@ export default function EnhancedCreateBookingPage() {
     ConflictingEvent[]
   >([]);
 
-  // Helper function to get proper image URL
+  // Helper function to get proper image URL - matches admin implementation
   const getImageUrl = (imagePath: string | null) => {
-    if (!imagePath) return "/default_pfp.png";
+    if (!imagePath || imagePath.trim() === "") return "/default_pfp.png";
 
-    // If the image path already contains a full URL, use it as is
-    if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
-      return imagePath;
-    }
+    // If already a full URL, return as is
+    if (imagePath.startsWith("http")) return imagePath;
 
     // Handle case where imagePath might be a JSON object instead of just a file path
     let actualPath = imagePath;
     try {
-      // Try to parse as JSON - if it's a JSON object, extract the filePath
       const parsed = JSON.parse(imagePath);
-      if (parsed && typeof parsed === "object" && parsed.filePath) {
-        actualPath = parsed.filePath;
+      if (parsed && typeof parsed === "object") {
+        if (parsed.filename) {
+          actualPath = parsed.filename;
+        } else if (parsed.filePath) {
+          actualPath = parsed.filePath;
+        } else if (parsed.path) {
+          actualPath = parsed.path;
+        }
       }
     } catch (e) {
       // If parsing fails, it's not JSON, so use the original path
       actualPath = imagePath;
     }
 
-    // Use the serve-image.php script for proper image serving
-    return `serve-image.php?path=${encodeURIComponent(actualPath)}`;
+    // Ensure the path starts with uploads/ if it doesn't already
+    if (!actualPath.startsWith("uploads/") && !actualPath.startsWith("http")) {
+      actualPath = `uploads/${actualPath}`;
+    }
+
+    // Use the PHP serve-image endpoint
+    return `${endpoints.client.replace("/client.php", "/serve-image.php")}?path=${encodeURIComponent(actualPath)}`;
   };
 
   // Client info state
@@ -895,7 +913,7 @@ export default function EnhancedCreateBookingPage() {
           selectedVenue.venue_title ||
           selectedVenue.venue_name ||
           "Selected Venue",
-        inclusion_description: `Venue: ${selectedVenue.venue_title || selectedVenue.venue_name}${extraPaxRate > 0 && guestCount > 100 ? ` (includes overflow for ${guestCount - 100} extra guests)` : ""}`,
+        inclusion_description: `Venue: ${selectedVenue.venue_title || selectedVenue.venue_name}${extraPaxRate > 0 && guestCount > 100 ? " (includes overflow for " + (guestCount - 100) + " extra guests)" : ""}`,
         inclusion_price: calculatedVenuePrice,
         display_order: 0,
         category: "venue",
@@ -1190,28 +1208,30 @@ export default function EnhancedCreateBookingPage() {
     }
   };
 
-  // Venue details modal handler - fetch details and inclusions
+  // Venue details modal handler - fetch details and inclusions using Axios
   const showVenueDetails = async (venue: Venue) => {
     try {
       setVenueDetailsModalOpen(true);
       setVenueDetailsLoading(true);
-      // Fetch details and inclusions in parallel
+      // Fetch details and inclusions in parallel using Axios
       const [detailsRes, inclusionsRes] = await Promise.all([
-        fetch(
-          `${endpoints.admin}?operation=getVenueById&venue_id=${encodeURIComponent(
-            venue.venue_id
-          )}`
-        ).then((r) => r.json()),
-        fetch(
-          `${endpoints.client}?operation=getVenueInclusions&venue_id=${encodeURIComponent(
-            venue.venue_id
-          )}`
-        ).then((r) => r.json()),
+        axios.get(endpoints.admin, {
+          params: {
+            operation: "getVenueById",
+            venue_id: venue.venue_id,
+          },
+        }),
+        axios.get(endpoints.client, {
+          params: {
+            operation: "getVenueInclusions",
+            venue_id: venue.venue_id,
+          },
+        }),
       ]);
 
-      const fetchedVenue = detailsRes?.venue || {};
-      const inclusions = Array.isArray(inclusionsRes?.inclusions)
-        ? inclusionsRes.inclusions
+      const fetchedVenue = detailsRes.data?.venue || {};
+      const inclusions = Array.isArray(inclusionsRes.data?.inclusions)
+        ? inclusionsRes.data.inclusions
         : [];
 
       setModalVenue({
@@ -1528,6 +1548,28 @@ export default function EnhancedCreateBookingPage() {
                               )}
                               onClick={() => handlePackageSelect(pkg)}
                             >
+                              {/* Package Venue Preview Images */}
+                              {pkg.venue_previews &&
+                                pkg.venue_previews.length > 0 && (
+                                  <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
+                                    <img
+                                      src={getImageUrl(
+                                        pkg.venue_previews[0]
+                                          .venue_cover_photo ||
+                                          pkg.venue_previews[0]
+                                            .venue_profile_picture
+                                      )}
+                                      alt={
+                                        pkg.venue_previews[0].venue_title ||
+                                        "Venue preview"
+                                      }
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = "none";
+                                      }}
+                                    />
+                                  </div>
+                                )}
                               <CardHeader className="pb-2">
                                 <div className="flex justify-between items-start">
                                   <CardTitle className="text-lg">
@@ -1899,19 +1941,25 @@ export default function EnhancedCreateBookingPage() {
                               type="number"
                               min={1}
                               max={1000}
-                              value={formData.guestCount}
+                              value={guestCountInput}
                               onChange={(e) => {
-                                const val = Math.max(
-                                  1,
-                                  Math.min(
-                                    1000,
-                                    parseInt(e.target.value || "0", 10)
-                                  )
+                                const value = e.target.value.replace(
+                                  /[^0-9]/g,
+                                  ""
                                 );
+                                setGuestCountInput(value);
+                              }}
+                              onBlur={() => {
+                                const parsed = parseInt(guestCountInput, 10);
+                                const val =
+                                  isNaN(parsed) || parsed < 1
+                                    ? 1
+                                    : Math.min(1000, parsed);
                                 setFormData((prev) => ({
                                   ...prev,
                                   guestCount: val,
                                 }));
+                                setGuestCountInput(val.toString());
                               }}
                               className="w-28"
                             />
@@ -1976,19 +2024,59 @@ export default function EnhancedCreateBookingPage() {
                                 setSelectedVenue(venue);
                               }}
                             >
+                              {/* Venue Image */}
+                              {venue.venue_cover_photo && (
+                                <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
+                                  <img
+                                    src={getImageUrl(venue.venue_cover_photo)}
+                                    alt={venue.venue_title || "Venue"}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = "none";
+                                    }}
+                                  />
+                                </div>
+                              )}
                               <CardHeader className="pb-2">
                                 <div className="flex justify-between items-start">
-                                  <CardTitle className="text-lg">
-                                    {venue.venue_title}
-                                  </CardTitle>
+                                  <div className="flex items-center gap-3">
+                                    {/* Venue Profile Picture with Fallback */}
+                                    <div className="w-12 h-12 rounded-full border-2 border-gray-200 overflow-hidden bg-gradient-to-br from-[#028A75] to-[#027a68] flex items-center justify-center flex-shrink-0">
+                                      {venue.venue_profile_picture ? (
+                                        <img
+                                          src={getImageUrl(
+                                            venue.venue_profile_picture
+                                          )}
+                                          alt={`${venue.venue_title || "Venue"} profile`}
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none";
+                                            const parent = e.currentTarget.parentElement;
+                                            if (parent) {
+                                              parent.innerHTML = `<span class="text-white font-bold text-lg">${venue.venue_title?.[0] || "V"}</span>`;
+                                            }
+                                          }}
+                                        />
+                                      ) : (
+                                        <span className="text-white font-bold text-lg">
+                                          {venue.venue_title?.[0] || "V"}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <CardTitle className="text-lg">
+                                        {venue.venue_title}
+                                      </CardTitle>
+                                      <p className="text-sm text-gray-600 flex items-center">
+                                        <MapPin className="h-4 w-4 mr-1" />
+                                        {venue.venue_location}
+                                      </p>
+                                    </div>
+                                  </div>
                                   {formData.venueId === venue.venue_id && (
                                     <CheckCircle className="h-5 w-5 text-[#028A75]" />
                                   )}
                                 </div>
-                                <p className="text-sm text-gray-600 flex items-center">
-                                  <MapPin className="h-4 w-4 mr-1" />
-                                  {venue.venue_location}
-                                </p>
                               </CardHeader>
                               <CardContent className="flex-1 flex flex-col">
                                 <div className="mb-2">
@@ -2799,7 +2887,7 @@ export default function EnhancedCreateBookingPage() {
           }
         }}
       >
-        <DialogContent className="max-w-md mx-auto max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-md mx-auto max-h-screen overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Venue Details</DialogTitle>
           </DialogHeader>
@@ -2815,20 +2903,34 @@ export default function EnhancedCreateBookingPage() {
                 {modalVenue.venue_cover_photo && (
                   <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
                     <img
-                      src={`${modalVenue.venue_cover_photo}`}
-                      alt={modalVenue.venue_title}
+                      src={getImageUrl(modalVenue.venue_cover_photo)}
+                      alt={modalVenue.venue_title || "Venue"}
                       className="w-full h-full object-cover"
                     />
                   </div>
                 )}
                 <div className="flex items-center gap-3">
-                  {modalVenue.venue_profile_picture && (
-                    <img
-                      src={`${modalVenue.venue_profile_picture}`}
-                      alt={`${modalVenue.venue_title} profile`}
-                      className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
-                    />
-                  )}
+                  {/* Venue Profile Picture with Fallback */}
+                  <div className="w-16 h-16 rounded-full border-2 border-gray-200 overflow-hidden bg-gradient-to-br from-[#028A75] to-[#027a68] flex items-center justify-center flex-shrink-0">
+                    {modalVenue.venue_profile_picture ? (
+                      <img
+                        src={getImageUrl(modalVenue.venue_profile_picture)}
+                        alt={`${modalVenue.venue_title || "Venue"} profile`}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                          const parent = e.currentTarget.parentElement;
+                          if (parent) {
+                            parent.innerHTML = `<span class="text-white font-bold text-xl">${modalVenue.venue_title?.[0] || "V"}</span>`;
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span className="text-white font-bold text-xl">
+                        {modalVenue.venue_title?.[0] || "V"}
+                      </span>
+                    )}
+                  </div>
                   <div>
                     <h4 className="font-semibold text-gray-900">
                       {modalVenue.venue_title}
@@ -2894,7 +2996,7 @@ export default function EnhancedCreateBookingPage() {
         open={packageDetailsModalOpen}
         onOpenChange={setPackageDetailsModalOpen}
       >
-        <DialogContent className="max-w-[95vw] md:max-w-4xl max-h-[90vh] w-full overflow-hidden p-0 flex flex-col">
+        <DialogContent className="max-w-4xl max-h-screen w-full overflow-hidden p-0 flex flex-col">
           <DialogHeader className="p-4 sm:p-6 md:p-8 border-b">
             <DialogTitle className="text-2xl font-bold flex items-center">
               <Package className="h-6 w-6 mr-2 text-[#028A75]" />
@@ -3066,9 +3168,34 @@ export default function EnhancedCreateBookingPage() {
                                         )}
                                       </div>
                                       <div className="p-4 flex-1 flex flex-col">
-                                        <h4 className="font-medium text-gray-900 text-lg">
-                                          {venue.venue_title}
-                                        </h4>
+                                        {/* Venue Title with Profile Picture */}
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <div className="w-10 h-10 rounded-full border-2 border-gray-200 overflow-hidden bg-gradient-to-br from-[#028A75] to-[#027a68] flex items-center justify-center flex-shrink-0">
+                                            {venue.venue_profile_picture ? (
+                                              <img
+                                                src={getImageUrl(
+                                                  venue.venue_profile_picture
+                                                )}
+                                                alt={`${venue.venue_title} profile`}
+                                                className="w-full h-full object-cover"
+                                                onError={(e) => {
+                                                  e.currentTarget.style.display = "none";
+                                                  const parent = e.currentTarget.parentElement;
+                                                  if (parent) {
+                                                    parent.innerHTML = `<span class="text-white font-bold text-sm">${venue.venue_title?.[0] || "V"}</span>`;
+                                                  }
+                                                }}
+                                              />
+                                            ) : (
+                                              <span className="text-white font-bold text-sm">
+                                                {venue.venue_title?.[0] || "V"}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <h4 className="font-medium text-gray-900 text-lg">
+                                            {venue.venue_title}
+                                          </h4>
+                                        </div>
                                         <div className="mt-1">
                                           <span className="text-base font-semibold text-[#028A75]">
                                             {formatPrice(venue.venue_price)}

@@ -16,7 +16,7 @@ $path = str_replace('../', '', $path);
 $path = str_replace('..\\', '', $path);
 
 // Define the base directory for uploads
-$baseDir = dirname(__FILE__) . '/';
+$baseDir = dirname(__FILE__) . '/../../public/';
 
 // Construct the full file path
 $fullPath = $baseDir . $path;

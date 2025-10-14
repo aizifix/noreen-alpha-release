@@ -669,11 +669,16 @@ export default function ClientDashboard() {
                           <span className="md:hidden">Details</span>
                         </Button>
                         <Button
-                          onClick={() =>
-                            router.push(
-                              `/client/bookings/create-booking?package=${pkg.package_id}&eventType=${encodeURIComponent((pkg.event_type_names && pkg.event_type_names[0]) || "")}`
-                            )
-                          }
+                          onClick={() => {
+                            // Store package data in localStorage for seamless navigation
+                            if (typeof window !== "undefined") {
+                              localStorage.setItem(
+                                "selectedPackage",
+                                JSON.stringify(pkg)
+                              );
+                            }
+                            router.push("/client/bookings/create-booking");
+                          }}
                           className="flex-1 bg-[#028A75] hover:bg-[#028A75]/90 min-h-[44px] text-sm font-medium px-4 py-2 text-white flex items-center justify-center"
                         >
                           <Heart className="h-4 w-4 mr-2" />
@@ -1144,9 +1149,14 @@ export default function ClientDashboard() {
               <Button
                 onClick={() => {
                   setIsPackageModalOpen(false);
-                  router.push(
-                    `/client/bookings/create-booking?package=${selectedPackage?.package_id}`
-                  );
+                  // Store package data in localStorage for seamless navigation
+                  if (typeof window !== "undefined" && selectedPackage) {
+                    localStorage.setItem(
+                      "selectedPackage",
+                      JSON.stringify(selectedPackage)
+                    );
+                  }
+                  router.push("/client/bookings/create-booking");
                 }}
                 className="w-full md:w-auto bg-[#028A75] hover:bg-[#028A75]/90 text-white order-1 md:order-2"
               >

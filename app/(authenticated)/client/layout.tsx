@@ -223,6 +223,11 @@ export default function ClientLayout({
     } catch {}
     try {
       secureStorage.removeItem("user");
+      // Clear session localStorage keys
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("session_client_absolute_start");
+        localStorage.removeItem("session_client_last_activity");
+      }
       document.cookie =
         "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
       document.cookie =
@@ -291,8 +296,8 @@ export default function ClientLayout({
       if (
         err instanceof Error &&
         (err.name === "AbortError" ||
-        err.message?.includes("ERR_INTERNET_DISCONNECTED") ||
-        err.message?.includes("Network Error"))
+          err.message?.includes("ERR_INTERNET_DISCONNECTED") ||
+          err.message?.includes("Network Error"))
       ) {
         console.warn("Network offline - notification count fetch skipped");
         return;
@@ -575,10 +580,13 @@ export default function ClientLayout({
                 className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 {/* Profile Picture */}
-                 <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
+                <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <Image
-                      src={api.getServeImageUrl(user.user_pfp) || "/placeholder.svg"}
+                      src={
+                        api.getServeImageUrl(user.user_pfp) ||
+                        "/placeholder.svg"
+                      }
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       width={40}
                       height={40}
@@ -783,7 +791,10 @@ export default function ClientLayout({
                 <div className="h-8 w-8 border border-gray-300 rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <Image
-                      src={api.getServeImageUrl(user.user_pfp) || "/placeholder.svg"}
+                      src={
+                        api.getServeImageUrl(user.user_pfp) ||
+                        "/placeholder.svg"
+                      }
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       width={32}
                       height={32}

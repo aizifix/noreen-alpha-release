@@ -488,6 +488,11 @@ export default function AdminLayout({
     } catch {}
     try {
       secureStorage.removeItem("user");
+      // Clear session localStorage keys
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("session_admin_absolute_start");
+        localStorage.removeItem("session_admin_last_activity");
+      }
       document.cookie =
         "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
       document.cookie =
@@ -796,10 +801,14 @@ export default function AdminLayout({
               >
                 {/* Profile Picture */}
                 <div className="h-7 w-7 lg:h-8 lg:w-8 border border-[#D2D2D2] rounded-full overflow-hidden shrink-0">
-                  {user.user_pfp && user.user_pfp.trim() !== "" ? (
-                    <img
-                      src={api.getServeImageUrl(user.user_pfp)}
+                  {user.user_pfp &&
+                  user.user_pfp.trim() !== "" &&
+                  api.getServeImageUrl(user.user_pfp) ? (
+                    <Image
+                      src={api.getServeImageUrl(user.user_pfp)!}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
+                      width={32}
+                      height={32}
                       className="h-full w-full object-cover"
                     />
                   ) : user.profilePicture ? (

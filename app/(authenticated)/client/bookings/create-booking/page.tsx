@@ -446,7 +446,7 @@ export default function EnhancedCreateBookingPage() {
     fetchPackages();
   }, []);
 
-  // Load package details if preselected
+  // Load package details if preselected from URL
   useEffect(() => {
     if (preselectedPackageId && packages.length > 0) {
       const preId = Number(preselectedPackageId);
@@ -509,6 +509,52 @@ export default function EnhancedCreateBookingPage() {
       }
     }
   }, [preselectedPackageId, preselectedEventType, packages]);
+
+  // Load package details if selected from dashboard (localStorage)
+  useEffect(() => {
+    const storedPackage =
+      typeof window !== "undefined"
+        ? localStorage.getItem("selectedPackage")
+        : null;
+    if (storedPackage && packages.length > 0 && !preselectedPackageId) {
+      try {
+        const pkg = JSON.parse(storedPackage);
+        const packageData = packages.find(
+          (p) => Number(p.package_id) === Number(pkg.package_id)
+        );
+        if (packageData) {
+          setSelectedPackage(packageData);
+          // Auto-populate packageId and eventType
+          const firstEventType =
+            Array.isArray(packageData.event_type_names) &&
+            packageData.event_type_names.length > 0
+              ? packageData.event_type_names[0]
+              : "";
+          setFormData((prev) => ({
+            ...prev,
+            packageId: Number(packageData.package_id),
+            eventType: firstEventType,
+          }));
+          // Set the Step 1 event type filter
+          if (firstEventType) {
+            setPackageEventTypeFilter(firstEventType);
+          }
+          // Load dependent data
+          fetchVenues(Number(packageData.package_id));
+          fetchPackageInclusions(Number(packageData.package_id));
+        }
+        // Clear the localStorage after loading
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("selectedPackage");
+        }
+      } catch (e) {
+        console.error("Error parsing stored package", e);
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("selectedPackage");
+        }
+      }
+    }
+  }, [packages, preselectedPackageId]);
 
   // No longer needed - we're focusing on inclusions
 
@@ -2050,8 +2096,10 @@ export default function EnhancedCreateBookingPage() {
                                           alt={`${venue.venue_title || "Venue"} profile`}
                                           className="w-full h-full object-cover"
                                           onError={(e) => {
-                                            e.currentTarget.style.display = "none";
-                                            const parent = e.currentTarget.parentElement;
+                                            e.currentTarget.style.display =
+                                              "none";
+                                            const parent =
+                                              e.currentTarget.parentElement;
                                             if (parent) {
                                               parent.innerHTML = `<span class="text-white font-bold text-lg">${venue.venue_title?.[0] || "V"}</span>`;
                                             }
@@ -3179,8 +3227,11 @@ export default function EnhancedCreateBookingPage() {
                                                 alt={`${venue.venue_title} profile`}
                                                 className="w-full h-full object-cover"
                                                 onError={(e) => {
-                                                  e.currentTarget.style.display = "none";
-                                                  const parent = e.currentTarget.parentElement;
+                                                  e.currentTarget.style.display =
+                                                    "none";
+                                                  const parent =
+                                                    e.currentTarget
+                                                      .parentElement;
                                                   if (parent) {
                                                     parent.innerHTML = `<span class="text-white font-bold text-sm">${venue.venue_title?.[0] || "V"}</span>`;
                                                   }

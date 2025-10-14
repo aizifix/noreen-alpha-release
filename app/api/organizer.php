@@ -117,7 +117,8 @@ class Organizer {
                     v.venue_contact,
                     v.venue_capacity,
                     eoa.status as assignment_status,
-                    eoa.assigned_at
+                    eoa.assigned_at,
+                    eoa.organizer_id as assigned_organizer_id
                 FROM tbl_events e
                 LEFT JOIN tbl_users c ON e.user_id = c.user_id
                 LEFT JOIN tbl_event_type et ON e.event_type_id = et.event_type_id
@@ -171,6 +172,15 @@ class Organizer {
             ");
             $stmt->execute([$eventId]);
             $event['payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get wedding details if this is a wedding event
+            if ($event['event_type_id'] == 1) {
+                $weddingDetails = $this->getWeddingDetails($eventId, $event['organizer_id'] ?? null);
+                $weddingResponse = json_decode($weddingDetails, true);
+                if ($weddingResponse['status'] === 'success') {
+                    $event['wedding_details'] = $weddingResponse['wedding_details'];
+                }
+            }
 
             return json_encode([
                 "status" => "success",
@@ -783,71 +793,200 @@ class Organizer {
         }
     }
 
-    public function getEventDeliveryProgress($eventId, $organizerId) {
-        try {
-            // Verify organizer has access to this event
-            $verifySql = "SELECT e.event_id
-                         FROM tbl_events e
-                         INNER JOIN tbl_event_organizer_assignments eoa ON e.event_id = eoa.event_id
-                         WHERE e.event_id = ? AND eoa.organizer_id = ? AND LOWER(eoa.status) = 'accepted'";
+     public function getEventDeliveryProgress($eventId, $organizerId) {
+         try {
+             // Verify organizer has access to this event
+             $verifySql = "SELECT e.event_id
+                          FROM tbl_events e
+                          INNER JOIN tbl_event_organizer_assignments eoa ON e.event_id = eoa.event_id
+                          WHERE e.event_id = ? AND eoa.organizer_id = ? AND LOWER(eoa.status) = 'accepted'";
 
-            $verifyStmt = $this->conn->prepare($verifySql);
-            $verifyStmt->execute([$eventId, $organizerId]);
+             $verifyStmt = $this->conn->prepare($verifySql);
+             $verifyStmt->execute([$eventId, $organizerId]);
 
-            if (!$verifyStmt->fetch()) {
-                return json_encode([
-                    "status" => "error",
-                    "message" => "Access denied: Organizer not assigned to this event"
-                ]);
-            }
+             if (!$verifyStmt->fetch()) {
+                 return json_encode([
+                     "status" => "error",
+                     "message" => "Access denied: Organizer not assigned to this event"
+                 ]);
+             }
 
-            // Get delivery progress
-            $sql = "SELECT
-                        COUNT(*) as total_components,
-                        SUM(CASE WHEN is_included = 1 THEN 1 ELSE 0 END) as included_components,
-                        SUM(CASE WHEN supplier_status = 'delivered' AND is_included = 1 THEN 1 ELSE 0 END) as delivered_components,
-                        SUM(CASE WHEN supplier_status = 'confirmed' AND is_included = 1 THEN 1 ELSE 0 END) as confirmed_components,
-                        SUM(CASE WHEN supplier_status = 'pending' AND is_included = 1 THEN 1 ELSE 0 END) as pending_components,
-                        SUM(CASE WHEN supplier_status = 'cancelled' AND is_included = 1 THEN 1 ELSE 0 END) as cancelled_components
-                    FROM tbl_event_components
-                    WHERE event_id = ?";
+             // Get delivery progress
+             $sql = "SELECT
+                         COUNT(*) as total_components,
+                         SUM(CASE WHEN is_included = 1 THEN 1 ELSE 0 END) as included_components,
+                         SUM(CASE WHEN supplier_status = 'delivered' AND is_included = 1 THEN 1 ELSE 0 END) as delivered_components,
+                         SUM(CASE WHEN supplier_status = 'confirmed' AND is_included = 1 THEN 1 ELSE 0 END) as confirmed_components,
+                         SUM(CASE WHEN supplier_status = 'pending' AND is_included = 1 THEN 1 ELSE 0 END) as pending_components,
+                         SUM(CASE WHEN supplier_status = 'cancelled' AND is_included = 1 THEN 1 ELSE 0 END) as cancelled_components
+                     FROM tbl_event_components
+                     WHERE event_id = ?";
 
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute([$eventId]);
-            $progress = $stmt->fetch(PDO::FETCH_ASSOC);
+             $stmt = $this->conn->prepare($sql);
+             $stmt->execute([$eventId]);
+             $progress = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Get component details
-            $componentsSql = "SELECT
-                                component_id,
-                                component_name,
-                                component_price,
-                                supplier_status,
-                                delivery_date,
-                                supplier_notes,
-                                is_included
-                             FROM tbl_event_components
-                             WHERE event_id = ? AND is_included = 1
-                             ORDER BY display_order";
+             // Get component details
+             $componentsSql = "SELECT
+                                 component_id,
+                                 component_name,
+                                 component_price,
+                                 supplier_status,
+                                 delivery_date,
+                                 supplier_notes,
+                                 is_included
+                              FROM tbl_event_components
+                              WHERE event_id = ? AND is_included = 1
+                              ORDER BY display_order";
 
-            $componentsStmt = $this->conn->prepare($componentsSql);
-            $componentsStmt->execute([$eventId]);
-            $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+             $componentsStmt = $this->conn->prepare($componentsSql);
+             $componentsStmt->execute([$eventId]);
+             $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return json_encode([
-                "status" => "success",
-                "data" => [
-                    "progress" => $progress,
-                    "components" => $components
-                ]
-            ]);
-        } catch (Exception $e) {
-            error_log("getEventDeliveryProgress error: " . $e->getMessage());
-            return json_encode([
-                "status" => "error",
-                "message" => "Failed to fetch delivery progress"
-            ]);
-        }
-    }
+             return json_encode([
+                 "status" => "success",
+                 "data" => [
+                     "progress" => $progress,
+                     "components" => $components
+                 ]
+             ]);
+         } catch (Exception $e) {
+             error_log("getEventDeliveryProgress error: " . $e->getMessage());
+             return json_encode([
+                 "status" => "error",
+                 "message" => "Failed to fetch delivery progress"
+             ]);
+         }
+     }
+
+     // Get wedding details for an event (organizer access)
+     public function getWeddingDetails($eventId, $organizerId) {
+         try {
+             error_log("getWeddingDetails called with eventId: $eventId, organizerId: $organizerId");
+
+             // First verify the organizer has access to this event
+             $verifyStmt = $this->conn->prepare("SELECT event_id FROM tbl_events WHERE event_id = ?");
+             $verifyStmt->execute([$eventId]);
+             $verifyResult = $verifyStmt->fetch();
+             error_log("Event exists verification result: " . ($verifyResult ? "true" : "false"));
+
+             if (!$verifyResult) {
+                 error_log("Event $eventId does not exist");
+                 return json_encode(["status" => "error", "message" => "Event not found"]);
+             }
+
+             // Verify organizer has access to this event
+             $verifySql = "SELECT e.event_id
+                          FROM tbl_events e
+                          INNER JOIN tbl_event_organizer_assignments eoa ON e.event_id = eoa.event_id
+                          WHERE e.event_id = ? AND eoa.organizer_id = ? AND LOWER(eoa.status) = 'accepted'";
+
+             $verifyStmt = $this->conn->prepare($verifySql);
+             $verifyStmt->execute([$eventId, $organizerId]);
+
+             if (!$verifyStmt->fetch()) {
+                 error_log("Access denied for organizer $organizerId to event $eventId");
+                 return json_encode([
+                     "status" => "error",
+                     "message" => "Access denied: Organizer not assigned to this event"
+                 ]);
+             }
+
+             $sql = "SELECT * FROM tbl_wedding_details WHERE event_id = ?";
+             $stmt = $this->conn->prepare($sql);
+             $stmt->execute([$eventId]);
+             $weddingDetails = $stmt->fetch(PDO::FETCH_ASSOC);
+             error_log("Wedding details query result: " . ($weddingDetails ? "found" : "not found"));
+             error_log("Event ID: $eventId, Wedding details: " . json_encode($weddingDetails));
+
+             if ($weddingDetails) {
+                 // Map database column names to form field names (form now uses correct field names)
+                 $formData = [
+                     'nuptial' => $weddingDetails['nuptial'],
+                     'motif' => $weddingDetails['motif'],
+                     'wedding_time' => $weddingDetails['wedding_time'],
+                     'church' => $weddingDetails['church'],
+                     'address' => $weddingDetails['address'],
+
+                     // Bride & Groom
+                     'bride_name' => $weddingDetails['bride_name'],
+                     'bride_size' => $weddingDetails['bride_size'],
+                     'groom_name' => $weddingDetails['groom_name'],
+                     'groom_size' => $weddingDetails['groom_size'],
+
+                     // Parents
+                     'mother_bride_name' => $weddingDetails['mother_bride_name'],
+                     'mother_bride_size' => $weddingDetails['mother_bride_size'],
+                     'father_bride_name' => $weddingDetails['father_bride_name'],
+                     'father_bride_size' => $weddingDetails['father_bride_size'],
+                     'mother_groom_name' => $weddingDetails['mother_groom_name'],
+                     'mother_groom_size' => $weddingDetails['mother_groom_size'],
+                     'father_groom_name' => $weddingDetails['father_groom_name'],
+                     'father_groom_size' => $weddingDetails['father_groom_size'],
+
+                     // Principal Sponsors
+                     'maid_of_honor_name' => $weddingDetails['maid_of_honor_name'],
+                     'maid_of_honor_size' => $weddingDetails['maid_of_honor_size'],
+                     'best_man_name' => $weddingDetails['best_man_name'],
+                     'best_man_size' => $weddingDetails['best_man_size'],
+
+                     // Little Bride & Groom
+                     'little_bride_name' => $weddingDetails['little_bride_name'],
+                     'little_bride_size' => $weddingDetails['little_bride_size'],
+                     'little_groom_name' => $weddingDetails['little_groom_name'],
+                     'little_groom_size' => $weddingDetails['little_groom_size'],
+
+                     // Processing Info
+                     'prepared_by' => $weddingDetails['prepared_by'],
+                     'received_by' => $weddingDetails['received_by'],
+                     'pickup_date' => $weddingDetails['pickup_date'],
+                     'return_date' => $weddingDetails['return_date'],
+                     'customer_signature' => $weddingDetails['customer_signature'],
+
+                     // Wedding Items
+                     'cushions_qty' => $weddingDetails['cushions_qty'] ?? 0,
+                     'headdress_qty' => $weddingDetails['headdress_qty'] ?? 0,
+                     'shawls_qty' => $weddingDetails['shawls_qty'] ?? 0,
+                     'veil_cord_qty' => $weddingDetails['veil_cord_qty'] ?? 0,
+                     'basket_qty' => $weddingDetails['basket_qty'] ?? 0,
+                     'petticoat_qty' => $weddingDetails['petticoat_qty'] ?? 0,
+                     'neck_bowtie_qty' => $weddingDetails['neck_bowtie_qty'] ?? 0,
+                     'garter_leg_qty' => $weddingDetails['garter_leg_qty'] ?? 0,
+                     'fitting_form_qty' => $weddingDetails['fitting_form_qty'] ?? 0,
+                     'robe_qty' => $weddingDetails['robe_qty'] ?? 0,
+
+                     // Wedding Party Quantities and Names
+                     'bridesmaids_qty' => $weddingDetails['bridesmaids_qty'] ?? 0,
+                     'bridesmaids_names' => json_decode($weddingDetails['bridesmaids_names'] ?? '[]', true),
+                     'groomsmen_qty' => $weddingDetails['groomsmen_qty'] ?? 0,
+                     'groomsmen_names' => json_decode($weddingDetails['groomsmen_names'] ?? '[]', true),
+                     'junior_groomsmen_qty' => $weddingDetails['junior_groomsmen_qty'] ?? 0,
+                     'junior_groomsmen_names' => json_decode($weddingDetails['junior_groomsmen_names'] ?? '[]', true),
+                     'flower_girls_qty' => $weddingDetails['flower_girls_qty'] ?? 0,
+                     'flower_girls_names' => json_decode($weddingDetails['flower_girls_names'] ?? '[]', true),
+                     'ring_bearer_qty' => $weddingDetails['ring_bearer_qty'] ?? 0,
+                     'ring_bearer_names' => json_decode($weddingDetails['ring_bearer_names'] ?? '[]', true),
+                     'bible_bearer_qty' => $weddingDetails['bible_bearer_qty'] ?? 0,
+                     'bible_bearer_names' => json_decode($weddingDetails['bible_bearer_names'] ?? '[]', true),
+                     'coin_bearer_qty' => $weddingDetails['coin_bearer_qty'] ?? 0,
+                     'coin_bearer_names' => json_decode($weddingDetails['coin_bearer_names'] ?? '[]', true)
+                 ];
+
+                 return json_encode([
+                     "status" => "success",
+                     "wedding_details" => $formData
+                 ]);
+             } else {
+                 return json_encode([
+                     "status" => "success",
+                     "wedding_details" => null
+                 ]);
+             }
+         } catch (Exception $e) {
+             error_log("getWeddingDetails error: " . $e->getMessage());
+             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+         }
+     }
 }
 
 if (!$pdo) {
@@ -953,15 +1092,25 @@ try {
             echo $organizer->updateComponentDeliveryStatus($data);
             break;
 
-        case "getEventDeliveryProgress":
-            $eventId = (int)($_GET['event_id'] ?? ($data['event_id'] ?? 0));
-            $organizerId = (int)($_GET['organizer_id'] ?? ($data['organizer_id'] ?? 0));
-            if ($eventId <= 0 || $organizerId <= 0) {
-                echo json_encode(["status" => "error", "message" => "Valid event ID and organizer ID required"]);
-            } else {
-                echo $organizer->getEventDeliveryProgress($eventId, $organizerId);
-            }
-            break;
+         case "getEventDeliveryProgress":
+             $eventId = (int)($_GET['event_id'] ?? ($data['event_id'] ?? 0));
+             $organizerId = (int)($_GET['organizer_id'] ?? ($data['organizer_id'] ?? 0));
+             if ($eventId <= 0 || $organizerId <= 0) {
+                 echo json_encode(["status" => "error", "message" => "Valid event ID and organizer ID required"]);
+             } else {
+                 echo $organizer->getEventDeliveryProgress($eventId, $organizerId);
+             }
+             break;
+
+         case "getWeddingDetails":
+             $eventId = (int)($_GET['event_id'] ?? ($data['event_id'] ?? 0));
+             $organizerId = (int)($_GET['organizer_id'] ?? ($data['organizer_id'] ?? 0));
+             if ($eventId <= 0 || $organizerId <= 0) {
+                 echo json_encode(["status" => "error", "message" => "Valid event ID and organizer ID required"]);
+             } else {
+                 echo $organizer->getWeddingDetails($eventId, $organizerId);
+             }
+             break;
 
         default:
             echo json_encode([

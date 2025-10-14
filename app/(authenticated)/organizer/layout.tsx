@@ -46,6 +46,7 @@ import { startSessionWatcher } from "@/app/utils/session";
 import { useRealtimeNotifications } from "@/app/hooks/useRealtimeNotifications";
 
 interface User {
+  user_id: string;
   user_firstName: string;
   user_lastName: string;
   user_role: string;
@@ -412,7 +413,7 @@ export default function OrganizerLayout({
       const currentUser = secureStorage.getItem("user");
       if (!currentUser?.user_id) return;
       // Ensure we have organizerId
-      const orgId = organizerId ?? currentUser.user_id;
+      const orgId = organizerId ?? Number(currentUser.user_id);
       // Resolve assignment_id for this event
       const assignmentId = await getAssignmentIdForEvent(eventItem.event_id);
       if (!assignmentId) {
@@ -558,7 +559,9 @@ export default function OrganizerLayout({
       }
 
       // Refresh pending invites
-      await fetchPendingInvites();
+      if (organizerId) {
+        await fetchPendingInvites(organizerId!);
+      }
     } catch (error) {
       console.error("Error refreshing notifications:", error);
     }
@@ -711,7 +714,7 @@ export default function OrganizerLayout({
 
   // Realtime notifications: get_recent + counts
   useRealtimeNotifications({
-    userId: user?.user_id as any,
+    userId: user?.user_id,
     onCounts: ({ unread }) => setUnreadNotifCount(unread),
     onNew: (items) => {
       if (!notificationsOpen) return;
@@ -745,6 +748,11 @@ export default function OrganizerLayout({
     } catch {}
     try {
       secureStorage.removeItem("user");
+      // Clear session localStorage keys
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("session_organizer_absolute_start");
+        localStorage.removeItem("session_organizer_last_activity");
+      }
       document.cookie =
         "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";
       document.cookie =
@@ -1017,7 +1025,7 @@ export default function OrganizerLayout({
                 <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <img
-                      src={api.getServeImageUrl(user.user_pfp)}
+                      src={api.getServeImageUrl(user.user_pfp!) || ""}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       className="h-full w-full object-cover"
                     />
@@ -1025,8 +1033,8 @@ export default function OrganizerLayout({
                     <Image
                       src={user.profilePicture || "/placeholder.svg"}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
-                      width={40}
-                      height={40}
+                      width={32}
+                      height={32}
                       className="h-full w-full object-cover"
                     />
                   ) : (
@@ -1239,14 +1247,17 @@ export default function OrganizerLayout({
                 <div className="h-8 w-8 border border-gray-300 rounded-full overflow-hidden">
                   {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <img
-                      src={api.getServeImageUrl(user.user_pfp)}
+                      src={api.getServeImageUrl(user.user_pfp!) || ""}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       className="h-full w-full object-cover"
                     />
                   ) : user.profilePicture ? (
                     <Image
                       src={user.profilePicture || "/placeholder.svg"}
-                      alt={`${user.user_firstName} ${user.user_lastName}`}
+                      alt={
+                        `${user?.user_firstName || ""} ${user?.user_lastName || ""}`.trim() ||
+                        "User"
+                      }
                       width={32}
                       height={32}
                       className="h-full w-full object-cover"

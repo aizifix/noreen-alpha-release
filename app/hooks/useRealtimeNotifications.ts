@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { apiClient } from "@/utils/apiClient";
 import { API_URL } from "../config/api";
+import axios from "axios";
 
 type NotificationItem = {
   notification_id: number;

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
@@ -19,6 +19,8 @@ const ForgotPasswordPage = () => {
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  const otpRefs = useRef<(HTMLInputElement | null)[]>(new Array(6).fill(null));
 
   // math challenge
   const [num1, setNum1] = useState(0);
@@ -97,10 +99,26 @@ const ForgotPasswordPage = () => {
   };
 
   const handleOtpChange = (index: number, value: string) => {
+    if (value.length > 1) {
+      // Handle paste
+      const digits = value.replace(/\D/g, "").slice(0, 6).split("");
+      const next = [...otp];
+      digits.forEach((d, i) => {
+        if (i < 6) next[i] = d;
+      });
+      setOtp(next);
+      // Focus the next empty or last
+      const nextIndex = Math.min(digits.length, 5);
+      otpRefs.current[nextIndex]?.focus();
+      return;
+    }
     if (!/^\d?$/.test(value)) return;
     const next = [...otp];
     next[index] = value;
     setOtp(next);
+    if (value && index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
   };
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
@@ -271,6 +289,14 @@ const ForgotPasswordPage = () => {
                   key={i}
                   value={d}
                   onChange={(e) => handleOtpChange(i, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Backspace" && !otp[i] && i > 0) {
+                      otpRefs.current[i - 1]?.focus();
+                    }
+                  }}
+                  ref={(el) => {
+                    otpRefs.current[i] = el;
+                  }}
                   maxLength={1}
                   className="w-12 h-12 text-center text-xl font-semibold border-2 rounded-lg focus:outline-none focus:border-[#334746]"
                 />

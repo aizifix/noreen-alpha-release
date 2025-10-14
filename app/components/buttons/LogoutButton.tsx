@@ -27,6 +27,16 @@ export const LogoutButton = () => {
     // Clear all authentication-related data
     secureStorage.removeItem("user");
 
+    // Clear session localStorage keys
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("session_client_absolute_start");
+      localStorage.removeItem("session_client_last_activity");
+      localStorage.removeItem("session_organizer_absolute_start");
+      localStorage.removeItem("session_organizer_last_activity");
+      localStorage.removeItem("session_admin_absolute_start");
+      localStorage.removeItem("session_admin_last_activity");
+    }
+
     // Clear any other stored data
     document.cookie =
       "pending_otp_user_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;";

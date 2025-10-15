@@ -96,11 +96,16 @@ interface SubComponent {
 interface Venue {
   venue_id: number;
   venue_title: string;
+  venue_details: string;
   venue_location: string;
   venue_capacity: number;
+  venue_profile_picture: string;
+  venue_cover_photo?: string;
   total_price: number;
-  venue_profile_picture: string | null;
-  venue_cover_photo: string | null;
+  venue_price: number;
+  extra_pax_rate: number;
+  has_pax_rate?: boolean;
+  base_capacity?: number;
   inclusions: VenueInclusion[];
 }
 
@@ -361,12 +366,8 @@ export default function PackageDetailsPage() {
 
   const fetchAvailableVenues = async () => {
     try {
-      const response = await axios.post(
-        endpoints.admin,
-        {
-          operation: "getVenuesForPackage",
-        },
-        { headers: { "Content-Type": "application/json" } }
+      const response = await axios.get(
+        `${endpoints.admin}?operation=getVenuesForPackage`
       );
 
       console.log("Venues response:", response.data);
@@ -374,6 +375,10 @@ export default function PackageDetailsPage() {
       if (response.data && response.data.status === "success") {
         setAvailableVenues(response.data.venues || []);
         console.log("Available venues:", response.data.venues?.length || 0);
+        console.log("First venue data:", response.data.venues?.[0]);
+        console.log("First venue extra_pax_rate:", response.data.venues?.[0]?.extra_pax_rate);
+        console.log("First venue venue_price:", response.data.venues?.[0]?.venue_price);
+        console.log("All venues extra_pax_rates:", response.data.venues?.map(v => ({ id: v.venue_id, title: v.venue_title, extra_pax_rate: v.extra_pax_rate, venue_price: v.venue_price })));
       } else {
         console.error("Error fetching venues:", response.data?.message);
         toast.error("Failed to load venues");
@@ -2175,7 +2180,9 @@ export default function PackageDetailsPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {isEditing
-                  ? availableVenues.map((venue) => (
+                  ? availableVenues.map((venue) => {
+                      const hasPaxRate = venue.extra_pax_rate > 0;
+                      return (
                       <div
                         key={venue.venue_id}
                         className="border rounded-lg p-4"
@@ -2207,9 +2214,16 @@ export default function PackageDetailsPage() {
                             </div>
                           )}
                           <div className="flex-1">
-                            <h3 className="font-semibold text-gray-900">
-                              {venue.venue_title}
-                            </h3>
+                            <div className="flex items-start justify-between mb-2">
+                              <h3 className="font-semibold text-gray-900">
+                                {venue.venue_title}
+                              </h3>
+                              {hasPaxRate && (
+                                <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-semibold">
+                                  ₱{venue.extra_pax_rate.toLocaleString()}/pax
+                                </div>
+                              )}
+                            </div>
                             <p className="text-sm text-gray-600 mb-2">
                               {venue.venue_location}
                             </p>
@@ -2219,14 +2233,17 @@ export default function PackageDetailsPage() {
                                 {venue.venue_capacity} guests
                               </span>
                               <span className="text-lg font-bold text-[#028A75]">
-                                ₱{venue.total_price?.toLocaleString() || "0"}
+                                ₱{venue.extra_pax_rate?.toLocaleString() || "0"}/pax
                               </span>
                             </div>
                           </div>
                         </div>
                       </div>
-                    ))
-                  : (packageDetails.venues || []).map((venue) => (
+                      );
+                    })
+                  : (packageDetails.venues || []).map((venue) => {
+                      const hasPaxRate = venue.extra_pax_rate > 0;
+                      return (
                       <div
                         key={venue.venue_id}
                         className="border rounded-lg p-4"
@@ -2250,9 +2267,16 @@ export default function PackageDetailsPage() {
                             </div>
                           )}
                           <div className="flex-1">
-                            <h3 className="font-semibold text-gray-900">
-                              {venue.venue_title}
-                            </h3>
+                            <div className="flex items-start justify-between mb-2">
+                              <h3 className="font-semibold text-gray-900">
+                                {venue.venue_title}
+                              </h3>
+                              {hasPaxRate && (
+                                <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-semibold">
+                                  ₱{venue.extra_pax_rate.toLocaleString()}/pax
+                                </div>
+                              )}
+                            </div>
                             <p className="text-sm text-gray-600 mb-2">
                               {venue.venue_location}
                             </p>
@@ -2262,7 +2286,7 @@ export default function PackageDetailsPage() {
                                 {venue.venue_capacity} guests
                               </span>
                               <span className="text-lg font-bold text-[#028A75]">
-                                ₱{venue.total_price?.toLocaleString() || "0"}
+                                ₱{venue.extra_pax_rate?.toLocaleString() || "0"}/pax
                               </span>
                             </div>
                           </div>
@@ -2308,7 +2332,9 @@ export default function PackageDetailsPage() {
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })
+                }
               </div>
             </div>
 

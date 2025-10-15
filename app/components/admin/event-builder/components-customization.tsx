@@ -25,6 +25,7 @@ import {
   eventPackages,
   type PackageComponent as DataPackageComponent,
   ComponentCategory,
+  type VenueChoice,
 } from "@/data/packages";
 import { convertPackageToComponents } from "@/data/wedding-packages";
 import { venueList } from "@/data/venues";
@@ -132,6 +133,10 @@ export function ComponentCustomization({
   const [showSupplierModal, setShowSupplierModal] = useState(false);
   const [selectedComponentForSupplier, setSelectedComponentForSupplier] =
     useState<DataPackageComponent | null>(null);
+
+  // Venue choice selection state
+  const [selectedVenueChoice, setSelectedVenueChoice] =
+    useState<VenueChoice | null>(null);
 
   // Ref to track unique ID counter
   const uniqueIdCounter = useRef(0);

@@ -5748,8 +5748,8 @@ This is an automated message. Please do not reply.
             }
 
             // Insert main package
-            $sql = "INSERT INTO tbl_packages (package_title, package_description, package_price, guest_capacity, created_by, is_active)
-                    VALUES (:title, :description, :price, :capacity, :created_by, 1)";
+            $sql = "INSERT INTO tbl_packages (package_title, package_description, package_price, guest_capacity, venue_fee_buffer, created_by, is_active)
+                    VALUES (:title, :description, :price, :capacity, :venue_fee_buffer, :created_by, 1)";
 
             $stmt = $this->conn->prepare($sql);
             $stmt->execute([
@@ -5757,6 +5757,7 @@ This is an automated message. Please do not reply.
                 ':description' => $packageData['package_description'] ?? '',
                 ':price' => $packageData['package_price'],
                 ':capacity' => $packageData['guest_capacity'],
+                ':venue_fee_buffer' => $packageData['venue_fee_buffer'] ?? 0.00,
                 ':created_by' => $packageData['created_by']
             ]);
 
@@ -5775,13 +5776,20 @@ This is an automated message. Please do not reply.
             if (!empty($data['components']) && is_array($data['components'])) {
                 foreach ($data['components'] as $index => $component) {
                     if (!empty($component['component_name'])) {
+                        // Handle venue fee components with venue options
+                        $description = $component['component_description'] ?? '';
+                        if ($component['component_category'] === 'venue_fee' && !empty($component['venue_options'])) {
+                            $venueOptions = json_encode($component['venue_options']);
+                            $description = "Venue Fee Buffer - Options: " . $venueOptions;
+                        }
+                        
                         $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
                                         VALUES (:package_id, :name, :description, :price, :order)";
                         $componentStmt = $this->conn->prepare($componentSql);
                         $componentStmt->execute([
                             ':package_id' => $packageId,
                             ':name' => $component['component_name'],
-                            ':description' => $component['component_description'] ?? '',
+                            ':description' => $description,
                             ':price' => $component['component_price'] ?? 0,
                             ':order' => $index
                         ]);

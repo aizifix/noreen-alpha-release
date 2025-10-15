@@ -1,10 +1,14 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { X, Plus, Check, ArrowLeft } from "lucide-react";
+import { X, Plus, Check, ArrowLeft, Package, Users, MapPin, Gift, Heart, Cake, Music, Camera, Calendar, Star } from "lucide-react";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -14,7 +18,7 @@ import { BudgetBreakdown } from "./budget-breakdown";
 import { VenueSelection } from "./venue-selection";
 import { PackageInclusionsStep } from "./package-inclusions-step";
 import { FreebiesStepFixed } from "./freebies-step-fixed";
-import { toast } from "react-hot-toast";
+import { toast } from "sonner";
 import Image from "next/image";
 import { showConfetti } from "@/app/libs/confetti";
 
@@ -23,10 +27,17 @@ interface Component {
   name: string;
 }
 
+
 interface Inclusion {
   name: string;
   price: string | number;
   components: Component[];
+  category?: string;
+  supplier_id?: number;
+  offer_id?: number;
+  is_manual?: boolean;
+  tier_description?: string;
+  tier_level?: number;
 }
 
 interface EventType {
@@ -43,6 +54,8 @@ interface Venue {
   venue_capacity: number;
   venue_profile_picture: string;
   total_price: number;
+  venue_price: number;
+  extra_pax_rate: number;
 }
 
 interface VenueInclusion {
@@ -76,12 +89,16 @@ export default function PackageBuilderPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
 
   // Package details state
   const [packageTitle, setPackageTitle] = useState("");
   const [packageDescription, setPackageDescription] = useState("");
-  // Package price is now calculated based on inclusions, so no state needed
   const [guestCount, setGuestCount] = useState<number>(100);
+  const [totalPackagePrice, setTotalPackagePrice] = useState<number | null>(null); // Admin's total package price
+  
+  // Venue fee buffer state - follows venue enhancement plan
+  const [venueFeeBuffer, setVenueFeeBuffer] = useState<number | null>(null); // Default null - admin can freely adjust
 
   // Package price lock state
   const [isPackageLocked, setIsPackageLocked] = useState(false);
@@ -104,9 +121,17 @@ export default function PackageBuilderPage() {
     setGuestCount(value);
   }, []);
 
+  const handleVenueFeeBufferChange = useCallback((value: number | null) => {
+    setVenueFeeBuffer(value);
+  }, []);
+
+  const handleTotalPackagePriceChange = useCallback((value: number | null) => {
+    setTotalPackagePrice(value);
+  }, []);
+
   // Event types state - Initialize as empty array to prevent map errors
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
-  const [selectedEventTypes, setSelectedEventTypes] = useState<number[]>([]);
+  const [selectedEventType, setSelectedEventType] = useState<number | null>(null);
 
   // Add venue state - Initialize as empty array to prevent map errors
   const [venues, setVenues] = useState<Venue[]>([]);
@@ -171,17 +196,17 @@ export default function PackageBuilderPage() {
 
   // Handle event type selection - Use useCallback to prevent re-renders
   const handleEventTypeChange = useCallback((eventTypeId: number) => {
-    setSelectedEventTypes((prev) => {
-      if (prev.includes(eventTypeId)) {
-        return prev.filter((id) => id !== eventTypeId);
-      } else {
-        return [...prev, eventTypeId];
-      }
-    });
+    setSelectedEventType(eventTypeId);
   }, []);
 
-  // Inclusions state - Initialize with one empty inclusion
+  // Inclusions state - Initialize with venue_fee component and one empty inclusion
   const [inclusions, setInclusions] = useState<Inclusion[]>([
+    {
+      name: "Venue Fee",
+      price: venueFeeBuffer || 0, // Use venue fee buffer from state, default to 0 for display
+      category: "venue_fee",
+      components: [],
+    },
     {
       name: "",
       price: "",
@@ -195,6 +220,21 @@ export default function PackageBuilderPage() {
 
   // Freebies state - Initialize with one empty freebie
   const [freebies, setFreebies] = useState<Freebie[]>([{ freebie_name: "" }]);
+
+  // Update venue fee buffer in inclusions when it changes
+  useEffect(() => {
+    setInclusions((prev) =>
+      prev.map((inc) =>
+        inc.category === "venue_fee" ? { ...inc, price: venueFeeBuffer || 0 } : inc
+      )
+    );
+  }, [venueFeeBuffer]);
+
+  // Recalculate venue costs when guest count changes
+  useEffect(() => {
+    // This effect will trigger re-renders of components that depend on guestCount
+    // The actual calculation happens in the PackageInclusionsStep component
+  }, [guestCount]);
 
   // Handle inclusion components - Use useCallback to prevent re-renders
   const addInclusion = useCallback(() => {
@@ -293,8 +333,8 @@ export default function PackageBuilderPage() {
           index === inclusionIndex
             ? {
                 ...inclusion,
-                supplier_id: supplierId,
-                offer_id: offerId,
+                supplier_id: supplierId || undefined,
+                offer_id: offerId || undefined,
                 is_manual: isManual,
               }
             : inclusion
@@ -372,6 +412,20 @@ export default function PackageBuilderPage() {
       0
     );
 
+    // Check venue_fee components have valid venue options
+    const venueFeeComponents = inclusions.filter(
+      (inc) => inc.category === "venue_fee"
+    );
+    for (const venueFee of venueFeeComponents) {
+      if (venueFee.price === 0) {
+        return {
+          isValid: false,
+          overage: 0,
+          message: "Please set a venue budget for the Venue Fee component.",
+        };
+      }
+    }
+
     // Since package price is now based on inclusions, we just need to ensure there are inclusions
     if (inclusionsTotal <= 0) {
       return {
@@ -379,6 +433,16 @@ export default function PackageBuilderPage() {
         overage: 0,
         message:
           "No inclusions with valid prices found. Please add at least one inclusion with a price.",
+      };
+    }
+
+    // Check if venue cost exceeds venue fee buffer (warning, not error)
+    const clientAdditionalPayment = calculateClientAdditionalPayment();
+    if (clientAdditionalPayment > 0) {
+      return {
+        isValid: true,
+        overage: clientAdditionalPayment,
+        message: `Venue cost exceeds venue fee buffer by ₱${clientAdditionalPayment.toLocaleString()}. Client will need to pay this additional amount.`,
       };
     }
 
@@ -405,10 +469,14 @@ export default function PackageBuilderPage() {
         return;
       }
 
-      // Package price is now calculated based on inclusions, so no validation needed here
+      if (totalPackagePrice === null || totalPackagePrice <= 0) {
+        toast.error("Please set a total package price");
+        setLoading(false);
+        return;
+      }
 
-      if (selectedEventTypes.length === 0) {
-        toast.error("Please select at least one event type");
+      if (selectedEventType === null) {
+        toast.error("Please select an event type");
         setLoading(false);
         return;
       }
@@ -430,6 +498,16 @@ export default function PackageBuilderPage() {
           setLoading(false);
           return;
         }
+      } else if (pricingValidation.overage > 0) {
+        // Show information about client additional payment
+        const userConfirmed = window.confirm(
+          `Information: ${pricingValidation.message}\n\nThis is normal and expected. The client will pay this additional amount when booking.\n\nDo you want to proceed with package creation?`
+        );
+
+        if (!userConfirmed) {
+          setLoading(false);
+          return;
+        }
       }
 
       const packageData = {
@@ -439,17 +517,22 @@ export default function PackageBuilderPage() {
           package_description: packageDescription.trim(),
           package_price: 0, // Will be calculated based on inclusions
           guest_capacity: guestCount,
+          venue_fee_buffer: venueFeeBuffer || 0, // Add venue fee buffer, default to 0 if null
           created_by: adminId,
         },
         components: inclusions
-          .filter((inc) => inc.name.trim() !== "")
+          .filter(
+            (inc) => inc.name.trim() !== "" || inc.category === "venue_fee"
+          )
           .map((inc) => ({
             component_name: inc.name.trim(),
-            component_description: inc.components
-              .filter((comp) => comp.name.trim() !== "")
-              .map((comp) => comp.name.trim())
-              .join(", "),
+            component_description:
+              inc.components
+                    .filter((comp) => comp.name.trim() !== "")
+                    .map((comp) => comp.name.trim())
+                    .join(", "),
             component_price: Number(inc.price) || 0,
+            component_category: inc.category || "services",
           })),
         freebies: freebies
           .filter((f) => f.freebie_name.trim() !== "")
@@ -458,17 +541,12 @@ export default function PackageBuilderPage() {
             freebie_description: f.freebie_description || "",
             freebie_value: f.freebie_value || 0,
           })),
-        event_types: selectedEventTypes,
+        event_types: [selectedEventType],
         venue_ids: selectedVenues,
       };
 
-      // Calculate total package price based on inclusions
-      const totalInclusionsPrice = inclusions
-        .filter((inc) => inc.name.trim() !== "")
-        .reduce((sum, inc) => sum + (Number(inc.price) || 0), 0);
-
-      // Update package price to be the sum of inclusions
-      packageData.package_data.package_price = totalInclusionsPrice;
+      // Use the total package price set by admin
+      packageData.package_data.package_price = totalPackagePrice || 0;
 
       console.log("Creating package with data:", packageData);
 
@@ -519,8 +597,10 @@ export default function PackageBuilderPage() {
   const isPackageDetailsValid = () => {
     return (
       packageTitle.trim() !== "" &&
-      guestCount > 0 &&
-      selectedEventTypes.length > 0
+      packageDescription.trim() !== "" &&
+      selectedEventType !== null &&
+      totalPackagePrice !== null &&
+      totalPackagePrice > 0
     );
   };
 
@@ -531,10 +611,13 @@ export default function PackageBuilderPage() {
   const areInclusionsValid = () => {
     return (
       inclusions &&
-      inclusions.some(
-        (inclusion) =>
-          inclusion.name.trim() !== "" && Number(inclusion.price) >= 0
-      )
+      inclusions.some((inclusion) => {
+        if (inclusion.category === "venue_fee") {
+          // Venue fee must have a valid price
+          return Number(inclusion.price) > 0;
+        }
+        return inclusion.name.trim() !== "" && Number(inclusion.price) >= 0;
+      })
     );
   };
 
@@ -547,94 +630,268 @@ export default function PackageBuilderPage() {
       (sum, inclusion) => sum + (Number(inclusion.price) || 0),
       0
     );
-    const totalVenueCost = selectedVenues.reduce((sum, venueId) => {
-      const venue = venues?.find((v) => v.venue_id === venueId);
-      return sum + (venue?.total_price || 0);
-    }, 0);
+    // Note: Venue costs from selectedVenues are now handled within inclusions as venue_fee components
+    // The selectedVenues array is still used for backward compatibility but venue pricing is in inclusions
 
-    return inclusionsTotal + totalVenueCost;
+    return inclusionsTotal;
+  };
+
+  // Calculate venue cost based on pax count (same logic as in PackageInclusionsStep)
+  const calculateVenueCost = (venue: Venue): number => {
+    const basePrice = venue.venue_price || 0;
+    const extraPaxRate = venue.extra_pax_rate || 0;
+    const baseCapacity = 100; // Base capacity for pax rate calculation
+    
+    if (guestCount <= baseCapacity) {
+      return basePrice;
+    } else {
+      const extraPax = guestCount - baseCapacity;
+      return basePrice + (extraPax * extraPaxRate);
+    }
+  };
+
+  // Calculate total venue cost for all selected venues
+  const calculateTotalVenueCost = (): number => {
+    return selectedVenues.reduce((sum, venueId) => {
+      const venue = venues.find((v) => v.venue_id === venueId);
+      return sum + (venue ? calculateVenueCost(venue) : 0);
+    }, 0);
+  };
+
+  // Calculate remaining venue budget (venue fee buffer - actual venue cost)
+  const calculateRemainingVenueBudget = (): number => {
+    if (venueFeeBuffer === null || venueFeeBuffer === undefined) return 0;
+    const totalVenueCost = calculateTotalVenueCost();
+    return Math.max(0, venueFeeBuffer - totalVenueCost);
+  };
+
+  // Calculate client additional payment (when venue cost exceeds buffer)
+  const calculateClientAdditionalPayment = (): number => {
+    if (venueFeeBuffer === null || venueFeeBuffer === undefined) return 0;
+    const totalVenueCost = calculateTotalVenueCost();
+    return Math.max(0, totalVenueCost - venueFeeBuffer);
+  };
+
+  // Check if any selected venue exceeds the venue fee buffer
+  const getVenueOverageInfo = () => {
+    const overages: Array<{venue: Venue, cost: number, overage: number}> = [];
+    
+    // Only check overages if venue fee buffer is set
+    if (venueFeeBuffer === null || venueFeeBuffer === undefined || venueFeeBuffer === 0) {
+      return overages;
+    }
+    
+    selectedVenues.forEach(venueId => {
+      const venue = venues.find(v => v.venue_id === venueId);
+      if (venue) {
+        const cost = calculateVenueCost(venue);
+        if (cost > venueFeeBuffer) {
+          overages.push({
+            venue,
+            cost,
+            overage: cost - venueFeeBuffer
+          });
+        }
+      }
+    });
+    
+    return overages;
   };
 
   // Package Details Step Element (memoized to avoid remount/focus loss)
   const PackageDetailsStepElement = useMemo(
     () => (
       <div className="space-y-6">
-        <div className="space-y-4">
-          <div>
-            <label className="block mb-2 font-medium">Package Title</label>
-            <input
-              type="text"
-              value={packageTitle}
-              onChange={(e) => handlePackageTitleChange(e.target.value)}
-              placeholder="E.g., Premium Wedding Package"
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-
-          <div>
-            <label className="block mb-2 font-medium">
-              Package Description
-            </label>
-            <textarea
-              value={packageDescription}
-              onChange={(e) => handlePackageDescriptionChange(e.target.value)}
-              placeholder="Describe what this package offers"
-              className="w-full border rounded px-3 py-2 h-24"
-            />
-          </div>
-
-          <div>
-            <label className="block mb-2 font-medium">Package Price</label>
-            <div className="w-full border rounded px-3 py-2 bg-gray-100 text-gray-600">
-              <span className="text-lg font-semibold">
-                ₱{calculateTotalPrice().toLocaleString()}
-              </span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="packageTitle" className="text-sm font-medium text-gray-700">
+                Package Title *
+              </Label>
+              <Input
+                id="packageTitle"
+                value={packageTitle}
+                onChange={(e) => handlePackageTitleChange(e.target.value)}
+                placeholder="E.g., Premium Wedding Package"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="guestCapacity" className="text-sm font-medium text-gray-700">
+                Guest Capacity
+              </Label>
+              <Input
+                id="guestCapacity"
+                type="number"
+                value={guestCount}
+                onChange={(e) => handleGuestCountChange(Number(e.target.value))}
+                placeholder="100"
+                min="1"
+                className="mt-1"
+              />
               <p className="text-xs text-gray-500 mt-1">
-                Automatically calculated based on inclusions and venues
+                Default capacity for this package
               </p>
             </div>
-          </div>
-
-          <div>
-            <label className="block mb-2 font-medium">Guest Capacity</label>
-            <input
-              type="number"
-              value={guestCount}
-              onChange={(e) => handleGuestCountChange(Number(e.target.value))}
-              placeholder="100"
-              min="1"
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-
-          <div>
-            <label className="block mb-2 font-medium">Event Types</label>
-            <p className="text-gray-500 text-sm mb-2">
-              Select which event types this package is suitable for
-            </p>
-            <div className="space-y-2 grid grid-cols-2">
-              {eventTypes &&
-                eventTypes.map((type) => (
-                  <div key={type.event_type_id} className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id={`event-type-${type.event_type_id}`}
-                      checked={selectedEventTypes.includes(type.event_type_id)}
-                      onChange={() => handleEventTypeChange(type.event_type_id)}
-                      className="mr-2 h-4 w-4 text-green-600 focus:ring-green-500"
-                    />
-                    <label
-                      htmlFor={`event-type-${type.event_type_id}`}
-                      className="text-gray-700"
-                    >
-                      {type.event_name}
-                    </label>
-                  </div>
-                ))}
+            <div>
+              <Label htmlFor="totalPackagePrice" className="text-sm font-medium text-gray-700">
+                Total Package Price
+              </Label>
+              <div className="relative mt-1">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <span className="text-gray-500 text-lg">₱</span>
+                </div>
+                <Input
+                  id="totalPackagePrice"
+                  type="text"
+                  value={totalPackagePrice === null ? '' : totalPackagePrice.toLocaleString()}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    // Remove commas and parse as number
+                    const cleanValue = value.replace(/,/g, '');
+                    if (cleanValue === '') {
+                      handleTotalPackagePriceChange(null);
+                    } else {
+                      const numValue = parseFloat(cleanValue);
+                      if (!isNaN(numValue) && numValue >= 0) {
+                        handleTotalPackagePriceChange(numValue);
+                      }
+                    }
+                  }}
+                  placeholder="Enter total package price (e.g., 120,000)"
+                  className="pl-8"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Total budget for this package (used for calculations)
+              </p>
+              {totalPackagePrice !== null && totalPackagePrice > 0 && (
+                <p className="text-xs text-green-600 mt-1">
+                  Formatted: ₱{totalPackagePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              )}
             </div>
-            {selectedEventTypes.length === 0 && (
-              <p className="text-red-500 text-sm mt-1">
-                Please select at least one event type
+          </div>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="packageDescription" className="text-sm font-medium text-gray-700">
+                Package Description *
+              </Label>
+              <Textarea
+                id="packageDescription"
+                value={packageDescription}
+                onChange={(e) => handlePackageDescriptionChange(e.target.value)}
+                placeholder="Describe what this package offers"
+                className="mt-1 min-h-[100px]"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="venueFeeBuffer" className="text-sm font-medium text-gray-700">
+              Venue Fee Buffer
+            </Label>
+            <div className="relative mt-1">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <span className="text-gray-500 text-lg">₱</span>
+              </div>
+              <Input
+                id="venueFeeBuffer"
+                type="text"
+                value={venueFeeBuffer === null ? '' : venueFeeBuffer.toLocaleString()}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Remove commas and parse as number
+                  const cleanValue = value.replace(/,/g, '');
+                  if (cleanValue === '') {
+                    handleVenueFeeBufferChange(null);
+                  } else {
+                    const numValue = parseFloat(cleanValue);
+                    if (!isNaN(numValue) && numValue >= 0) {
+                      handleVenueFeeBufferChange(numValue);
+                    }
+                  }
+                }}
+                placeholder="Enter amount (e.g., 100,000)"
+                className="pl-8"
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Maximum amount allocated for venue costs. If selected venue exceeds this, client pays the difference.
+            </p>
+            {venueFeeBuffer !== null && venueFeeBuffer > 0 && (
+              <p className="text-xs text-green-600 mt-1">
+                Formatted: ₱{venueFeeBuffer.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <Label className="text-sm font-medium text-gray-700">
+              Event Type *
+            </Label>
+            <p className="text-gray-500 text-sm mb-3 mt-1">
+              Select the event type this package is designed for
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {eventTypes &&
+                eventTypes.map((type) => {
+                  const getEventIcon = (eventName: string) => {
+                    const name = eventName.toLowerCase();
+                    if (name.includes('wedding')) return <Heart className="w-5 h-5" />;
+                    if (name.includes('birthday')) return <Cake className="w-5 h-5" />;
+                    if (name.includes('corporate') || name.includes('business')) return <Calendar className="w-5 h-5" />;
+                    if (name.includes('party') || name.includes('celebration')) return <Music className="w-5 h-5" />;
+                    if (name.includes('photo') || name.includes('shoot')) return <Camera className="w-5 h-5" />;
+                    return <Star className="w-5 h-5" />;
+                  };
+
+                  return (
+                    <div
+                      key={type.event_type_id}
+                      className={`relative flex items-center space-x-3 p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 ${
+                        selectedEventType === type.event_type_id
+                          ? "border-green-500 bg-green-50"
+                          : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                      }`}
+                      onClick={() => handleEventTypeChange(type.event_type_id)}
+                    >
+                      <div className={`flex-shrink-0 ${
+                        selectedEventType === type.event_type_id ? "text-green-600" : "text-gray-400"
+                      }`}>
+                        {getEventIcon(type.event_name)}
+                      </div>
+                      <div className="flex-1">
+                        <Label
+                          htmlFor={`event-type-${type.event_type_id}`}
+                          className="text-sm font-medium text-gray-900 cursor-pointer"
+                        >
+                          {type.event_name}
+                        </Label>
+                        {type.event_description && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            {type.event_description}
+                          </p>
+                        )}
+                      </div>
+                      <div className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                        selectedEventType === type.event_type_id
+                          ? "border-green-500 bg-green-500"
+                          : "border-gray-300"
+                      }`}>
+                        {selectedEventType === type.event_type_id && (
+                          <Check className="w-3 h-3 text-white" />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            {selectedEventType === null && (
+              <p className="text-red-500 text-sm mt-2">
+                Please select an event type
               </p>
             )}
           </div>
@@ -645,24 +902,68 @@ export default function PackageBuilderPage() {
       packageTitle,
       packageDescription,
       guestCount,
-      selectedEventTypes,
+      totalPackagePrice,
+      venueFeeBuffer,
+      selectedEventType,
       eventTypes,
+      handlePackageTitleChange,
+      handlePackageDescriptionChange,
+      handleGuestCountChange,
+      handleTotalPackagePriceChange,
+      handleVenueFeeBufferChange,
+      handleEventTypeChange,
     ]
   );
 
   // Venue Selection Step Element (memoized)
-  const VenueSelectionStepElement = useMemo(
-    () => (
-      <VenueSelection
-        venues={venues}
-        selectedVenueIds={selectedVenues}
-        onVenueToggle={handleVenueToggle}
-        loading={venuesLoading}
-        error={venuesError}
-      />
-    ),
-    [venues, selectedVenues, handleVenueToggle, venuesLoading, venuesError]
-  );
+  const VenueSelectionStepElement = useMemo(() => {
+    const venueOverages = getVenueOverageInfo();
+    
+    return (
+      <div className="space-y-6">
+        {venueOverages.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <h4 className="text-sm font-medium text-amber-800 mb-2">
+              ⚠️ Venue Cost Exceeds Buffer
+            </h4>
+            <p className="text-sm text-amber-700 mb-3">
+              The following venues exceed your venue fee buffer of ₱{venueFeeBuffer?.toLocaleString()}:
+            </p>
+            <div className="space-y-2">
+              {venueOverages.map(({venue, cost, overage}) => (
+                <div key={venue.venue_id} className="bg-white rounded p-3 border border-amber-200">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-gray-900">{venue.venue_title}</p>
+                      <p className="text-sm text-gray-600">
+                        Cost for {guestCount} guests: ₱{cost.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-medium text-red-600">
+                        Client pays extra: ₱{overage.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-amber-600 mt-2">
+              Clients will need to pay the excess amount when booking these venues.
+            </p>
+          </div>
+        )}
+        <VenueSelection
+          venues={venues}
+          selectedVenueIds={selectedVenues}
+          onVenueToggle={handleVenueToggle}
+          loading={venuesLoading}
+          error={venuesError}
+          guestCount={guestCount}
+        />
+      </div>
+    );
+  }, [venues, selectedVenues, handleVenueToggle, venuesLoading, venuesError, guestCount, venueFeeBuffer]);
 
   // Package Inclusions Step Element (memoized)
   const PackageInclusionsStepElement = useMemo(
@@ -671,6 +972,8 @@ export default function PackageBuilderPage() {
         inclusions={inclusions}
         selectedVenues={selectedVenues}
         venues={venues}
+        guestCount={guestCount}
+        venueFeeBuffer={venueFeeBuffer}
         updateInclusionName={updateInclusionName}
         updateInclusionPrice={updateInclusionPrice}
         updateComponentName={updateComponentName}
@@ -686,6 +989,8 @@ export default function PackageBuilderPage() {
       inclusions,
       selectedVenues,
       venues,
+      guestCount,
+      venueFeeBuffer,
       updateInclusionName,
       updateInclusionPrice,
       updateComponentName,
@@ -706,8 +1011,13 @@ export default function PackageBuilderPage() {
 
   // Review Step Element (memoized)
   const ReviewStepElement = useMemo(
-    () => (
-      <div className="space-y-6">
+    () => {
+      const selectedEventTypeName = selectedEventType === null 
+        ? "Not selected" 
+        : eventTypes.find((et) => et.event_type_id === selectedEventType)?.event_name || "Unknown";
+
+      return (
+        <div className="space-y-6">
         <div className="bg-white rounded-lg border p-6">
           <h3 className="text-lg font-semibold mb-4">Review Package Details</h3>
 
@@ -720,9 +1030,9 @@ export default function PackageBuilderPage() {
                 <p className="font-medium">{packageTitle}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Calculated Price</p>
+                <p className="text-sm text-gray-600">Total Package Price</p>
                 <p className="font-medium">
-                  ₱{calculateTotalPrice().toLocaleString()}
+                  {totalPackagePrice !== null ? `₱${totalPackagePrice.toLocaleString()}` : 'Not set'}
                 </p>
               </div>
               <div>
@@ -730,16 +1040,15 @@ export default function PackageBuilderPage() {
                 <p className="font-medium">{guestCount} guests</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Event Types</p>
+                <p className="text-sm text-gray-600">Venue Fee Buffer</p>
                 <p className="font-medium">
-                  {selectedEventTypes
-                    .map(
-                      (id) =>
-                        eventTypes.find((et) => et.event_type_id === id)
-                          ?.event_name
-                    )
-                    .filter(Boolean)
-                    .join(", ")}
+                  {venueFeeBuffer !== null ? `₱${venueFeeBuffer.toLocaleString()}` : 'Not set'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Event Type</p>
+                <p className="font-medium">
+                  {selectedEventTypeName}
                 </p>
               </div>
             </div>
@@ -761,8 +1070,8 @@ export default function PackageBuilderPage() {
                         <img
                           src={
                             venue.venue_profile_picture
-                              ? `${venue.venue_profile_picture}`
-                              : "/placeholder-venue.jpg"
+                              ? `${endpoints.serveImage}?path=${encodeURIComponent(venue.venue_profile_picture)}`
+                              : "/default_pfp.png"
                           }
                           alt={venue.venue_title}
                           className="w-full h-full object-cover"
@@ -794,10 +1103,20 @@ export default function PackageBuilderPage() {
                 inclusions.map((inclusion, index) => (
                   <div
                     key={`inclusion-review-${index}`}
-                    className="flex flex-col items-start"
+                    className={`flex flex-col items-start ${inclusion.category === "venue_fee" ? "bg-blue-50 p-3 rounded-lg" : ""}`}
                   >
                     <div className="flex justify-between items-center w-full">
-                      <p className="font-medium">{inclusion.name}</p>
+                      <div>
+                        <p className="font-medium">{inclusion.name}</p>
+                        {inclusion.category === "venue_fee" && (
+                          <div className="text-sm text-blue-600">
+                            <p>
+                              Venue Budget: ₱
+                              {Number(inclusion.price).toLocaleString()}
+                            </p>
+                          </div>
+                        )}
+                      </div>
                       <p className="font-medium">
                         ₱{Number(inclusion.price).toLocaleString()}
                       </p>
@@ -840,17 +1159,19 @@ export default function PackageBuilderPage() {
             <div className="flex justify-between items-center text-lg font-semibold">
               <span>Total Package Price:</span>
               <span className="text-green-600">
-                ₱{calculateTotalPrice().toLocaleString()}
+                {totalPackagePrice !== null ? `₱${totalPackagePrice.toLocaleString()}` : 'Not set'}
               </span>
             </div>
           </div>
         </div>
       </div>
-    ),
+      );
+    },
     [
       packageTitle,
       guestCount,
-      selectedEventTypes,
+      totalPackagePrice,
+      selectedEventType,
       eventTypes,
       selectedVenues,
       venues,
@@ -859,7 +1180,7 @@ export default function PackageBuilderPage() {
     ]
   );
 
-  // Right-side summary (excludes venue totals for now)
+  // Right-side summary with pie chart
   const PackageSummary: React.FC = () => {
     const inclusionSubtotal = useMemo(
       () =>
@@ -869,76 +1190,137 @@ export default function PackageBuilderPage() {
       [inclusions]
     );
 
-    const selectedEventTypeNames = useMemo(
+    const selectedEventTypeName = useMemo(
+      () => {
+        if (selectedEventType === null) return "Not selected";
+        const eventType = eventTypes.find((et) => et.event_type_id === selectedEventType);
+        return eventType?.event_name || "Unknown";
+      },
+      [selectedEventType, eventTypes]
+    );
+
+    // Calculate components for pie chart
+    const componentsForSummaryChart = useMemo(
       () =>
-        selectedEventTypes
-          .map(
-            (id) => eventTypes.find((et) => et.event_type_id === id)?.event_name
-          )
-          .filter(Boolean)
-          .join(", "),
-      [selectedEventTypes, eventTypes]
+        (inclusions || [])
+          .filter((inc) => inc.name.trim() !== "")
+          .map((inc) => ({ name: inc.name, price: Number(inc.price) || 0 })),
+      [inclusions]
+    );
+
+    const freebiesNamesForSummaryChart = useMemo(
+      () => (freebies || []).map((f) => f.freebie_name).filter(Boolean),
+      [freebies]
     );
 
     return (
-      <div className="bg-white border rounded-lg p-4 lg:sticky lg:top-4">
-        <h3 className="text-base font-semibold mb-3">Package Summary</h3>
+      <div className="space-y-4 lg:sticky lg:top-4">
+        {/* Package Summary Card */}
+        <div className="bg-white border rounded-lg p-4">
+          <h3 className="text-base font-semibold mb-3">Package Summary</h3>
 
-        <div className="space-y-3 text-sm">
-          <div>
-            <div className="text-gray-500">Title</div>
-            <div className="font-medium break-words">{packageTitle || "—"}</div>
-          </div>
-          <div>
-            <div className="text-gray-500">Description</div>
-            <div className="break-words">
-              {packageDescription ? packageDescription : "—"}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-3 text-sm">
             <div>
-              <div className="text-gray-500">Guests</div>
-              <div className="font-medium">{guestCount || 0}</div>
+              <div className="text-gray-500">Title</div>
+              <div className="font-medium break-words">{packageTitle || "—"}</div>
             </div>
             <div>
-              <div className="text-gray-500">Event Types</div>
-              <div className="font-medium min-h-[20px]">
-                {selectedEventTypeNames || "—"}
+              <div className="text-gray-500">Description</div>
+              <div className="break-words">
+                {packageDescription ? packageDescription : "—"}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-gray-500">Guests</div>
+                <div className="font-medium">{guestCount || 0}</div>
+              </div>
+              <div>
+                <div className="text-gray-500">Total Price</div>
+                <div className="font-medium">
+                  {totalPackagePrice !== null ? `₱${totalPackagePrice.toLocaleString()}` : 'Not set'}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-gray-500">Venue Buffer</div>
+                <div className="font-medium">
+                  {venueFeeBuffer !== null ? `₱${venueFeeBuffer.toLocaleString()}` : 'Not set'}
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-500">Event Type</div>
+                <div className="font-medium min-h-[20px]">
+                  {selectedEventTypeName}
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t">
+              <div className="text-gray-500 mb-2">Inclusions</div>
+              <div className="space-y-2 max-h-32 overflow-auto pr-1">
+                {(inclusions || [])
+                  .filter((inc) => inc.name.trim() !== "")
+                  .map((inc, i) => (
+                    <div key={`sum-inc-${i}`} className="flex justify-between">
+                      <div className="truncate mr-2">
+                        <span>{inc.name}</span>
+                        {inc.category === "venue_fee" && (
+                          <div className="text-xs text-blue-600">
+                            Venue Budget
+                          </div>
+                        )}
+                      </div>
+                      <span
+                        className={`font-medium ${
+                          inc.category === "venue_fee" ? "text-blue-600" : ""
+                        }`}
+                      >
+                        {formatCurrency(Number(inc.price) || 0)}
+                      </span>
+                    </div>
+                  ))}
+                {(!inclusions || inclusions.every((inc) => !inc.name.trim())) && (
+                  <div className="text-gray-500">No inclusions yet</div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Subtotal (Inclusions)</span>
+                <span className="font-semibold">
+                  {formatCurrency(inclusionSubtotal)}
+                </span>
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                Includes venue budget allocation.
               </div>
             </div>
           </div>
-
-          <div className="pt-3 border-t">
-            <div className="text-gray-500 mb-2">Inclusions</div>
-            <div className="space-y-2 max-h-56 overflow-auto pr-1">
-              {(inclusions || [])
-                .filter((inc) => inc.name.trim() !== "")
-                .map((inc, i) => (
-                  <div key={`sum-inc-${i}`} className="flex justify-between">
-                    <span className="truncate mr-2">{inc.name}</span>
-                    <span className="font-medium">
-                      {formatCurrency(Number(inc.price) || 0)}
-                    </span>
-                  </div>
-                ))}
-              {(!inclusions || inclusions.every((inc) => !inc.name.trim())) && (
-                <div className="text-gray-500">No inclusions yet</div>
-              )}
-            </div>
-          </div>
-
-          <div className="pt-3 border-t">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Subtotal (Inclusions)</span>
-              <span className="font-semibold">
-                {formatCurrency(inclusionSubtotal)}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              Venue costs are excluded for now and will be calculated later.
-            </div>
-          </div>
         </div>
+
+        {/* Pie Chart Card */}
+        {totalPackagePrice !== null && totalPackagePrice > 0 && (
+          <div className="bg-white border rounded-lg p-4">
+            <h3 className="text-base font-semibold mb-3 flex items-center">
+              <Package className="w-4 h-4 mr-2" />
+              Budget Breakdown
+            </h3>
+            <BudgetBreakdown
+              packagePrice={totalPackagePrice}
+              selectedVenue={null}
+              components={componentsForSummaryChart}
+              freebies={freebiesNamesForSummaryChart}
+              venueFeeBuffer={venueFeeBuffer}
+              actualVenueCost={calculateTotalVenueCost()}
+              remainingVenueBudget={calculateRemainingVenueBudget()}
+              clientAdditionalPayment={calculateClientAdditionalPayment()}
+              onVenueFeeBufferChange={handleVenueFeeBufferChange}
+            />
+          </div>
+        )}
       </div>
     );
   };
@@ -968,8 +1350,8 @@ export default function PackageBuilderPage() {
   const steps: Step[] = [
     {
       id: "details",
-      title: "Package Details",
-      description: "Basic package information",
+      title: "Package Information",
+      description: "Set up basic package details and configuration",
       component: (
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">{PackageDetailsStepElement}</div>
@@ -982,7 +1364,7 @@ export default function PackageBuilderPage() {
     {
       id: "venues",
       title: "Venue Selection",
-      description: "Choose venues for this package",
+      description: "Choose venues to include in this package",
       component: (
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">{VenueSelectionStepElement}</div>
@@ -994,8 +1376,8 @@ export default function PackageBuilderPage() {
     },
     {
       id: "inclusions",
-      title: "Package Inclusions",
-      description: "Add components and pricing",
+      title: "Package Components",
+      description: "Add services, suppliers, and pricing details",
       component: (
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">{PackageInclusionsStepElement}</div>
@@ -1007,8 +1389,8 @@ export default function PackageBuilderPage() {
     },
     {
       id: "freebies",
-      title: "Freebies",
-      description: "Add freebies for the package",
+      title: "Bonus Items",
+      description: "Add complimentary items and special offers",
       component: (
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">{FreebiesStepElement}</div>
@@ -1020,22 +1402,12 @@ export default function PackageBuilderPage() {
     },
     {
       id: "review",
-      title: "Review",
-      description: "Review all package details",
+      title: "Final Review",
+      description: "Review and confirm all package details",
       component: (
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             {ReviewStepElement}
-            {/* Pie chart for inclusions vs buffer (venue excluded) */}
-            <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="text-base font-semibold mb-3">Budget Breakdown</h3>
-              <BudgetBreakdown
-                packagePrice={inclusionSubtotalForChart}
-                selectedVenue={null}
-                components={componentsForChart}
-                freebies={freebiesNamesForChart}
-              />
-            </div>
           </div>
           <div>
             <PackageSummary />
@@ -1047,12 +1419,48 @@ export default function PackageBuilderPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center space-x-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.back()}
+                className="flex items-center space-x-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back</span>
+              </Button>
+              <div className="h-6 w-px bg-gray-300" />
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">
+                  Package Builder
+                </h1>
+                <p className="text-sm text-gray-500">
+                  Create and customize event packages
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-4">
+              <div className="text-sm text-gray-500">
+                Step {currentStep + 1} of {steps.length}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <MultiStepWizard
           steps={steps}
           onComplete={createPackage}
           loading={loading}
           completionText="Create Package"
+          currentStepIndex={currentStep}
+          onStepChange={setCurrentStep}
           isValid={(stepId) => {
             switch (stepId) {
               case "details":

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { spawn } from "child_process";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
@@ -267,23 +268,61 @@ export async function GET(request: NextRequest) {
     // Build query string from all search params
     const queryString = searchParams.toString();
 
-    // Forward request to PHP API
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL || 'https://noreen-events.online/noreen-events'}/supplier.php?${queryString}`,
-      {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    // Get the PHP file path
+    const phpFilePath = process.cwd() + "/app/api/supplier.php";
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // Execute the PHP file with GET parameters
+    const phpProcess = spawn("php", [`${phpFilePath}?${queryString}`], {
+      env: {
+        ...process.env,
+        REQUEST_METHOD: "GET",
+        QUERY_STRING: queryString,
+      },
+    });
+
+    // Collect output
+    let stdout = "";
+    let stderr = "";
+
+    phpProcess.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    phpProcess.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    // Wait for the process to complete
+    await new Promise<void>((resolve, reject) => {
+      phpProcess.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`PHP process exited with code ${code}`));
+        }
+      });
+    });
+
+    if (stderr) {
+      console.error("PHP Error:", stderr);
+      return NextResponse.json(
+        { status: "error", message: "PHP execution error" },
+        { status: 500 }
+      );
     }
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    // Parse the PHP response
+    try {
+      const response = JSON.parse(stdout);
+      return NextResponse.json(response);
+    } catch (parseError) {
+      console.error("Response parsing error:", parseError);
+      console.log("Raw PHP output:", stdout);
+      return NextResponse.json(
+        { status: "error", message: "Invalid response format" },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error("Error fetching supplier data:", error);
     return NextResponse.json(

@@ -83,7 +83,6 @@ interface PackageItem {
   package_id: number;
   package_title: string;
   package_description: string;
-  package_price: string | number;
   guest_capacity: number;
   created_at: string;
   user_firstName: string;
@@ -97,6 +96,7 @@ interface PackageItem {
   freebie_count: number;
   event_type_ids?: number[];
   event_type_names?: string[];
+  venue_fee_buffer?: number | null;
 }
 
 // Update types to include price at each level
@@ -143,7 +143,6 @@ interface VenueInclusion {
 interface FilterState {
   search: string;
   status: string;
-  priceRange: string;
   capacity: string;
 }
 
@@ -156,20 +155,19 @@ export default function PackagesPage() {
   const [editForm, setEditForm] = useState<{
     package_title: string;
     package_description: string;
-    package_price: string;
     guest_capacity: number;
+    venue_fee_buffer: number | null;
   }>({
     package_title: "",
     package_description: "",
-    package_price: "",
     guest_capacity: 0,
+    venue_fee_buffer: null,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<FilterState>({
     search: "",
     status: "",
-    priceRange: "",
     capacity: "",
   });
 
@@ -240,17 +238,6 @@ export default function PackagesPage() {
       });
     }
 
-    // Price range filter
-    if (filters.priceRange) {
-      const [min, max] = filters.priceRange.split("-").map(Number);
-      filtered = filtered.filter((pkg) => {
-        const price = parseFloat(pkg.package_price.toString());
-        if (max) {
-          return price >= min && price <= max;
-        }
-        return price >= min;
-      });
-    }
 
     // Capacity filter
     if (filters.capacity) {
@@ -269,10 +256,7 @@ export default function PackagesPage() {
       let bValue = b[sortField];
 
       // Handle different data types
-      if (sortField === "package_price") {
-        aValue = parseFloat((aValue || 0).toString());
-        bValue = parseFloat((bValue || 0).toString());
-      } else if (sortField === "created_at") {
+      if (sortField === "created_at") {
         aValue = new Date((aValue as string) || "").getTime();
         bValue = new Date((bValue as string) || "").getTime();
       }
@@ -405,8 +389,8 @@ export default function PackagesPage() {
     setEditForm({
       package_title: pkg.package_title,
       package_description: pkg.package_description || "",
-      package_price: pkg.package_price.toString(),
       guest_capacity: pkg.guest_capacity,
+      venue_fee_buffer: pkg.venue_fee_buffer || null,
     });
   };
 
@@ -415,8 +399,8 @@ export default function PackagesPage() {
     setEditForm({
       package_title: "",
       package_description: "",
-      package_price: "",
       guest_capacity: 0,
+      venue_fee_buffer: null,
     });
   };
 
@@ -430,8 +414,8 @@ export default function PackagesPage() {
         package_id: editingPackage,
         package_title: editForm.package_title,
         package_description: editForm.package_description,
-        package_price: parseFloat(editForm.package_price),
         guest_capacity: editForm.guest_capacity,
+        venue_fee_buffer: editForm.venue_fee_buffer,
       };
 
       const response = await axios.post(endpoints.admin, updateData, {
@@ -487,7 +471,6 @@ export default function PackagesPage() {
     setFilters({
       search: "",
       status: "",
-      priceRange: "",
       capacity: "",
     });
   };
@@ -519,19 +502,12 @@ export default function PackagesPage() {
   const getStats = () => {
     const totalPackages = packages.length;
     const activePackages = packages.filter((p) => p.is_active).length;
-    const avgPrice =
-      packages.length > 0
-        ? packages.reduce(
-            (sum, p) => sum + parseFloat(p.package_price.toString()),
-            0
-          ) / packages.length
-        : 0;
     const maxCapacity =
       packages.length > 0
         ? Math.max(...packages.map((p) => p.guest_capacity))
         : 0;
 
-    return { totalPackages, activePackages, avgPrice, maxCapacity };
+    return { totalPackages, activePackages, maxCapacity };
   };
 
   const stats = getStats();
@@ -631,7 +607,7 @@ export default function PackagesPage() {
         {/* Stats Cards with Slide-up Animation */}
         {!isLoading && packages.length > 0 && (
           <div className="animate-slide-up-delay-1 mb-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <Card className="bg-white border border-gray-200">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
@@ -668,23 +644,6 @@ export default function PackagesPage() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-white border border-gray-200">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-600 mb-1">
-                        Average Price
-                      </p>
-                      <p className="text-3xl font-bold text-gray-900">
-                        ₱{Math.round(stats.avgPrice).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="bg-yellow-100 p-3 rounded-xl">
-                      <DollarSign className="h-6 w-6 text-yellow-600" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
 
               <Card className="bg-white border border-gray-200">
                 <CardContent className="p-6">
@@ -745,7 +704,6 @@ export default function PackagesPage() {
                   </Button>
                   {(filters.search ||
                     filters.status ||
-                    filters.priceRange ||
                     filters.capacity) && (
                     <Button
                       variant="ghost"
@@ -761,7 +719,7 @@ export default function PackagesPage() {
               {/* Expanded Filters */}
               {showFilters && (
                 <div className="mt-6 pt-6 border-t border-gray-100 animate-slide-down">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <Label className="text-sm font-medium text-gray-700 mb-2 block">
                         Status
@@ -782,29 +740,6 @@ export default function PackagesPage() {
                       </select>
                     </div>
 
-                    <div>
-                      <Label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Price Range
-                      </Label>
-                      <select
-                        value={filters.priceRange}
-                        onChange={(e) =>
-                          setFilters((prev) => ({
-                            ...prev,
-                            priceRange: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#028A75] focus:border-transparent"
-                      >
-                        <option value="">All Prices</option>
-                        <option value="0-50000">Under ₱50,000</option>
-                        <option value="50000-100000">₱50,000 - ₱100,000</option>
-                        <option value="100000-200000">
-                          ₱100,000 - ₱200,000
-                        </option>
-                        <option value="200000-">Over ₱200,000</option>
-                      </select>
-                    </div>
 
                     <div>
                       <Label className="text-sm font-medium text-gray-700 mb-2 block">
@@ -1016,18 +951,6 @@ export default function PackagesPage() {
                               <div className="space-y-3">
                                 <Input
                                   type="number"
-                                  value={editForm.package_price}
-                                  onChange={(e) =>
-                                    setEditForm((prev) => ({
-                                      ...prev,
-                                      package_price: e.target.value,
-                                    }))
-                                  }
-                                  className="text-2xl font-bold text-[#028A75] bg-white border-[#028A75]/30"
-                                  placeholder="Price"
-                                />
-                                <Input
-                                  type="number"
                                   value={editForm.guest_capacity}
                                   onChange={(e) =>
                                     setEditForm((prev) => ({
@@ -1039,6 +962,35 @@ export default function PackagesPage() {
                                   className="bg-white border-[#028A75]/30"
                                   placeholder="Guest capacity"
                                 />
+                                <div className="relative">
+                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <span className="text-gray-500 text-lg">₱</span>
+                                  </div>
+                                  <Input
+                                    type="text"
+                                    value={editForm.venue_fee_buffer === null ? '' : editForm.venue_fee_buffer.toLocaleString()}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      const cleanValue = value.replace(/,/g, '');
+                                      if (cleanValue === '') {
+                                        setEditForm((prev) => ({
+                                          ...prev,
+                                          venue_fee_buffer: null,
+                                        }));
+                                      } else {
+                                        const numValue = parseFloat(cleanValue);
+                                        if (!isNaN(numValue) && numValue >= 0) {
+                                          setEditForm((prev) => ({
+                                            ...prev,
+                                            venue_fee_buffer: numValue,
+                                          }));
+                                        }
+                                      }
+                                    }}
+                                    className="bg-white border-[#028A75]/30 pl-8"
+                                    placeholder="Venue fee buffer"
+                                  />
+                                </div>
                                 <Textarea
                                   value={editForm.package_description}
                                   onChange={(e) =>
@@ -1054,12 +1006,6 @@ export default function PackagesPage() {
                               </div>
                             ) : (
                               <>
-                                <div className="text-3xl font-bold text-[#028A75] mb-3">
-                                  ₱
-                                  {parseFloat(
-                                    pkg.package_price.toString()
-                                  ).toLocaleString()}
-                                </div>
                                 <p className="text-gray-600 text-sm line-clamp-2">
                                   {pkg.package_description ||
                                     "No description provided"}
@@ -1240,19 +1186,6 @@ export default function PackagesPage() {
                               </TableHead>
                               <TableHead
                                 className="cursor-pointer hover:bg-gray-50"
-                                onClick={() => handleSort("package_price")}
-                              >
-                                <div className="flex items-center gap-2">
-                                  Price
-                                  {sortField === "package_price" && (
-                                    <span className="text-[#028A75]">
-                                      {sortDirection === "asc" ? "↑" : "↓"}
-                                    </span>
-                                  )}
-                                </div>
-                              </TableHead>
-                              <TableHead
-                                className="cursor-pointer hover:bg-gray-50"
                                 onClick={() => handleSort("guest_capacity")}
                               >
                                 <div className="flex items-center gap-2">
@@ -1300,14 +1233,6 @@ export default function PackagesPage() {
                                       {pkg.package_description ||
                                         "No description"}
                                     </div>
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="font-bold text-[#028A75]">
-                                    ₱
-                                    {parseFloat(
-                                      pkg.package_price.toString()
-                                    ).toLocaleString()}
                                   </div>
                                 </TableCell>
                                 <TableCell>
@@ -1548,7 +1473,6 @@ export default function PackagesPage() {
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">
                   {filters.search ||
                   filters.status ||
-                  filters.priceRange ||
                   filters.capacity
                     ? "No packages found"
                     : "No packages yet!"}
@@ -1556,7 +1480,6 @@ export default function PackagesPage() {
                 <p className="text-gray-600 mb-6 max-w-md mx-auto">
                   {filters.search ||
                   filters.status ||
-                  filters.priceRange ||
                   filters.capacity
                     ? "Try adjusting your filters to see more results."
                     : "Create your first package to offer to clients and start growing your business."}
@@ -1564,7 +1487,6 @@ export default function PackagesPage() {
                 {!(
                   filters.search ||
                   filters.status ||
-                  filters.priceRange ||
                   filters.capacity
                 ) && (
                   <Link href="/admin/packages/package-builder">

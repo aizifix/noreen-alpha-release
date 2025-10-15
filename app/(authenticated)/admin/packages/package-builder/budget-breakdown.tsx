@@ -25,9 +25,14 @@ interface BudgetBreakdownProps {
   selectedVenue: Venue | null;
   components: Component[];
   freebies: string[];
+  venueFeeBuffer?: number | null; // Add venue fee buffer, can be null
+  actualVenueCost?: number; // Add actual venue cost calculation
+  remainingVenueBudget?: number; // Add remaining venue budget
+  clientAdditionalPayment?: number; // Add client additional payment
   isPackageLocked?: boolean;
   originalPrice?: number;
   onOverageWarning?: (overage: number) => void;
+  onVenueFeeBufferChange?: (value: number | null) => void; // Add onChange handler
 }
 
 const COLORS = [
@@ -48,19 +53,32 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
   selectedVenue,
   components,
   freebies,
+  venueFeeBuffer = null,
+  actualVenueCost = 0,
+  remainingVenueBudget = 0,
+  clientAdditionalPayment = 0,
   isPackageLocked = false,
   originalPrice,
   onOverageWarning,
+  onVenueFeeBufferChange,
 }) => {
-  // Calculate total component cost
-  const totalComponentCost = (components || []).reduce(
+  // Calculate total component cost (excluding venue fee buffer)
+  const nonVenueComponents = (components || []).filter(
+    (component) => component?.name !== "Venue Fee"
+  );
+  const totalNonVenueComponentCost = nonVenueComponents.reduce(
     (sum, component) => sum + (component?.price || 0),
     0
   );
 
+  // Calculate venue fee buffer cost
+  const venueFeeComponent = (components || []).find(
+    (component) => component?.name === "Venue Fee"
+  );
+  const venueFeeCost = venueFeeComponent?.price || venueFeeBuffer || 0;
+
   // Calculate remaining budget or overage
-  const venueCost = selectedVenue?.total_price || 0;
-  const totalInclusionsCost = totalComponentCost; // Remove venue cost from calculation
+  const totalInclusionsCost = totalNonVenueComponentCost + venueFeeCost;
   const budgetDifference = packagePrice - totalInclusionsCost;
 
   // Determine budget status
@@ -76,23 +94,34 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
     }
   }, [isOverBudget, overageAmount, onOverageWarning]);
 
-  // Prepare data for pie chart - only include package components (no venues)
+  // Prepare data for pie chart - use total package price as base minus venue buffer and remaining inclusion buffer
   const chartData = [
-    // Package components only
-    ...(components || []).map((component, index) => ({
-      name: component?.name || "Unknown",
-      value: component?.price || 0,
-      color: COLORS[index % COLORS.length],
-      category: "inclusion",
-    })),
-    // Buffer or overage
-    ...(budgetDifference !== 0
+    // Venue Fee Buffer (allocated budget for venue costs)
+    ...(venueFeeCost > 0
       ? [
           {
-            name: isOverBudget ? "Overage" : "Buffer/Margin",
-            value: Math.abs(budgetDifference),
-            color: isOverBudget ? "#FF4444" : "#28A745",
-            category: isOverBudget ? "overage" : "buffer",
+            name: "Venue Fee Buffer",
+            value: venueFeeCost,
+            color: "#0088FE",
+            category: "venue_buffer",
+          },
+        ]
+      : []),
+    // Non-venue components
+    ...nonVenueComponents.map((component, index) => ({
+      name: component?.name || "Unknown",
+      value: component?.price || 0,
+      color: COLORS[(index + 1) % COLORS.length],
+      category: "inclusion",
+    })),
+    // Remaining inclusion buffer (available for admin to add components)
+    ...(bufferAmount > 0
+      ? [
+          {
+            name: "Remaining Buffer",
+            value: bufferAmount,
+            color: "#FFBB28",
+            category: "buffer",
           },
         ]
       : []),
@@ -114,18 +143,21 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
             ((entry?.payload?.value || 0) / total) *
             100
           ).toFixed(1);
-          const isOverageItem = entry?.payload?.category === "overage";
           const isBufferItem = entry?.payload?.category === "buffer";
+          const isVenueBufferItem = entry?.payload?.category === "venue_buffer";
+          const isInclusionItem = entry?.payload?.category === "inclusion";
 
           return (
             <div
               key={index}
               className={`flex items-center gap-2 text-xs ${
-                isOverageItem
-                  ? "text-red-600 font-medium"
-                  : isBufferItem
-                    ? "text-green-600 font-medium"
-                    : "text-gray-600"
+                isBufferItem
+                  ? "text-green-600 font-medium"
+                  : isVenueBufferItem
+                    ? "text-blue-600 font-medium"
+                    : isInclusionItem
+                      ? "text-gray-600"
+                      : "text-gray-600"
               }`}
             >
               <div
@@ -136,11 +168,11 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
                 {entry?.value || "Unknown"} - ₱
                 {(entry?.payload?.value || 0).toLocaleString()} ({percentage}%)
               </span>
-              {isOverageItem && (
-                <AlertTriangle className="w-3 h-3 text-red-500" />
-              )}
               {isBufferItem && (
                 <CheckCircle className="w-3 h-3 text-green-500" />
+              )}
+              {isVenueBufferItem && (
+                <DollarSign className="w-3 h-3 text-blue-500" />
               )}
             </div>
           );
@@ -232,11 +264,13 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
                 <Tooltip
                   formatter={(value: number, name: string, props: any) => [
                     `₱${(value || 0).toLocaleString()}.00`,
-                    props?.payload?.category === "overage"
-                      ? "Overage Amount"
+                    props?.payload?.category === "venue_buffer"
+                      ? "Venue Fee Buffer"
                       : props?.payload?.category === "buffer"
-                        ? "Buffer/Margin"
-                        : "Inclusion Cost",
+                        ? "Remaining Buffer"
+                        : props?.payload?.category === "inclusion"
+                          ? "Inclusion Cost"
+                          : "Component Cost",
                   ]}
                   labelStyle={{ color: "#374151" }}
                   contentStyle={{
@@ -274,7 +308,49 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
           </div>
 
           <div className="flex justify-between items-center">
-            <span className="text-gray-600">Total Inclusions Cost:</span>
+            <span className="text-gray-600">Venue Fee Buffer:</span>
+            {onVenueFeeBufferChange ? (
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                  <span className="text-gray-500 text-sm">₱</span>
+                </div>
+                <input
+                  type="text"
+                  value={venueFeeBuffer === null ? '' : venueFeeBuffer.toLocaleString()}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    // Remove commas and parse as number
+                    const cleanValue = value.replace(/,/g, '');
+                    if (cleanValue === '') {
+                      onVenueFeeBufferChange(null);
+                    } else {
+                      const numValue = parseFloat(cleanValue);
+                      if (!isNaN(numValue) && numValue >= 0) {
+                        onVenueFeeBufferChange(numValue);
+                      }
+                    }
+                  }}
+                  placeholder="Enter amount"
+                  className="w-32 border rounded pl-6 pr-2 py-1 text-sm font-semibold text-blue-600 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            ) : (
+              <span className="font-semibold text-blue-600">
+                {venueFeeBuffer !== null ? `₱${(venueFeeBuffer || 0).toLocaleString()}` : 'Not set'}
+              </span>
+            )}
+          </div>
+
+
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">Other Inclusions:</span>
+            <span className="font-semibold text-gray-600">
+              ₱{(totalNonVenueComponentCost || 0).toLocaleString()}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center border-t pt-2">
+            <span className="text-gray-600 font-medium">Total Inclusions Cost:</span>
             <span className="font-semibold text-blue-600">
               ₱{(totalInclusionsCost || 0).toLocaleString()}
             </span>

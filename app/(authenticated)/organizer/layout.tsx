@@ -197,6 +197,8 @@ export default function OrganizerLayout({
         const role = userData.user_role.toLowerCase();
         if (role === "admin") {
           router.replace("/admin/dashboard");
+        } else if (role === "staff") {
+          router.replace("/staff/dashboard");
         } else if (role === "client") {
           router.replace("/client/dashboard");
         } else if (role === "vendor") {

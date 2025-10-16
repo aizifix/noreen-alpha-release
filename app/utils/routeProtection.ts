@@ -20,6 +20,8 @@ export const protectRoute = () => {
           window.location.replace("/organizer/dashboard");
         } else if (role === "client") {
           window.location.replace("/client/dashboard");
+        } else if (role === "staff") {
+          window.location.replace("/staff/dashboard");
         }
       }
     }
@@ -37,6 +39,8 @@ export const redirectIfAuthenticated = () => {
         window.location.replace("/organizer/dashboard");
       } else if (role === "client") {
         window.location.replace("/client/dashboard");
+      } else if (role === "staff") {
+        window.location.replace("/staff/dashboard");
       }
     }
   }

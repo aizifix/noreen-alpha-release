@@ -429,6 +429,9 @@ class Auth {
                 }
             }
 
+            // If staff role, no additional info needed (staff info is in tbl_users)
+            // Staff users are managed directly in tbl_users table
+
             return json_encode($response);
         }
 
@@ -552,6 +555,9 @@ class Auth {
                     $response['supplier_info'] = $supplier;
                 }
             }
+
+            // If staff role, no additional info needed (staff info is in tbl_users)
+            // Staff users are managed directly in tbl_users table
 
             return json_encode($response);
         } catch (PDOException $e) {

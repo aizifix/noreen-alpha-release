@@ -165,6 +165,8 @@ export default function ClientLayout({
           : "unknown";
         if (role === "admin") {
           router.replace("/admin/dashboard");
+        } else if (role === "staff") {
+          router.replace("/staff/dashboard");
         } else if (role === "vendor" || role === "organizer") {
           router.replace("/organizer/dashboard");
         } else {

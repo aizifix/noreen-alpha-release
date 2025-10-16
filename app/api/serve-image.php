@@ -16,7 +16,7 @@ $path = str_replace('../', '', $path);
 $path = str_replace('..\\', '', $path);
 
 // Define the base directory for uploads
-$baseDir = dirname(__FILE__) . '/../../public/';
+$baseDir = dirname(__FILE__) . '/';
 
 // Construct the full file path
 $fullPath = $baseDir . $path;
@@ -24,22 +24,24 @@ $fullPath = $baseDir . $path;
 // Check if file exists and is within the allowed directory
 if (!file_exists($fullPath) || !is_file($fullPath)) {
     // Return default profile picture if file not found
-    $defaultImage = dirname(__FILE__) . '/../../public/default_pfp.png';
-    if (file_exists($defaultImage)) {
-        $fullPath = $defaultImage;
-    } else {
-        // Try alternative default image paths
-        $altDefault1 = dirname(__FILE__) . '/uploads/user_profile/default_pfp.png';
-        $altDefault2 = dirname(__FILE__) . '/uploads/profile_pictures/default_pfp.png';
+    $defaultPaths = [
+        dirname(__FILE__) . '/uploads/user_profile/default_pfp.png',
+        dirname(__FILE__) . '/uploads/profile_pictures/default_pfp.png',
+        dirname(__FILE__) . '/../../public/default_pfp.png'
+    ];
 
-        if (file_exists($altDefault1)) {
-            $fullPath = $altDefault1;
-        } elseif (file_exists($altDefault2)) {
-            $fullPath = $altDefault2;
-        } else {
-            header('HTTP/1.0 404 Not Found');
-            exit('File not found');
+    $foundDefault = false;
+    foreach ($defaultPaths as $defaultPath) {
+        if (file_exists($defaultPath)) {
+            $fullPath = $defaultPath;
+            $foundDefault = true;
+            break;
         }
+    }
+
+    if (!$foundDefault) {
+        header('HTTP/1.0 404 Not Found');
+        exit('File not found');
     }
 }
 

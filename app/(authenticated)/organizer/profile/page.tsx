@@ -294,7 +294,7 @@ export default function OrganizerProfilePage() {
   const imageSrc =
     profile?.user_pfp && profile.user_pfp.trim() !== ""
       ? `${endpoints.serveImage}?path=${encodeURIComponent(profile.user_pfp)}`
-      : "/default_pfp.png";
+      : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">

@@ -105,6 +105,8 @@ export function ComponentCustomization({
   eventDetails,
   isStartFromScratch = false,
   selectedPackageId,
+  venueBufferFee,
+  originalPackagePrice,
 }: ComponentCustomizationProps & { selectedVenue?: any }) {
   const [componentList, setComponentList] = useState<DataPackageComponent[]>(
     initialComponents as DataPackageComponent[]
@@ -217,25 +219,22 @@ export function ComponentCustomization({
       // Use existing venue component
       setVenueComponents([existingVenueComponent]);
     } else if (selectedVenue) {
-      // Calculate overflow charge based on guest count
-      const baseCapacity = 100; // Default venue capacity as per instructions
-      const extraPaxRate = parseFloat(selectedVenue.extra_pax_rate) || 0;
-      const guestCount = parseInt(eventDetails?.capacity?.toString() || "100");
+      // Calculate venue cost using NEW FORMULA
+      const venueRate = parseFloat(selectedVenue.extra_pax_rate) || 0;
+      const clientPax = parseInt(eventDetails?.capacity?.toString() || "100");
 
-      let totalVenuePrice = parseFloat(selectedVenue.venue_price) || 0;
-      let overflowCharge = 0;
+      // Calculate actual venue cost: VenueRate × ClientPax
+      const actualVenueCost = venueRate * clientPax;
 
-      if (guestCount > baseCapacity && extraPaxRate > 0) {
-        const extraGuests = guestCount - baseCapacity;
-        overflowCharge = extraGuests * extraPaxRate;
-        totalVenuePrice += overflowCharge;
-      }
+      // For start-from-scratch events, use the actual venue cost
+      // For package-based events, this will be handled by the excess payment calculation
+      const totalVenuePrice = actualVenueCost;
 
       // Create a single venue component (not broken down into inclusions)
       const venueComponent = {
         id: `venue-${selectedVenue.venue_id}`,
         name: selectedVenue.venue_title || selectedVenue.venue_name,
-        description: `Venue: ${selectedVenue.venue_title || selectedVenue.venue_name}${overflowCharge > 0 ? ` (includes ₱${overflowCharge.toLocaleString()} overflow charge for ${guestCount - baseCapacity} extra guests)` : ""}`,
+        description: `Venue: ${selectedVenue.venue_title || selectedVenue.venue_name} (₱${venueRate.toLocaleString()} × ${clientPax} guests = ₱${actualVenueCost.toLocaleString()})`,
         price: totalVenuePrice,
         category: "venue" as ComponentCategory,
         included: true,
@@ -474,6 +473,68 @@ export function ComponentCustomization({
       .reduce((sum, component) => sum + component.price, 0);
   };
 
+  // Calculate complete total using new venue formula
+  const calculateCompleteTotal = () => {
+    // For package-based events, start with the package price
+    if (!isStartFromScratch && originalPackagePrice) {
+      let total = originalPackagePrice; // Start with package price
+
+      // Apply component deltas (subtract if unchecked, add custom components)
+      componentList.forEach((component) => {
+        const componentWithSupplier = component as ComponentWithSupplier;
+        const price = componentWithSupplier.supplierPrice || component.price;
+
+        // Package components: subtract if unchecked
+        if (component.category === ("package" as ComponentCategory)) {
+          if (component.included === false) {
+            total -= price;
+          }
+          return;
+        }
+
+        // Custom/supplier/extras: add if included (but not venue inclusions)
+        if (component.category !== "venue" && component.included !== false) {
+          total += price;
+        }
+      });
+
+      // Add venue excess payment for package-based events using NEW FORMULA
+      if (selectedVenue && venueBufferFee !== null) {
+        // Use the venue's per-pax rate (extra_pax_rate) as the VenueRate
+        const venueRate = parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
+        const clientPax = parseInt(eventDetails?.capacity?.toString() || "100");
+
+        // Calculate actual venue cost: VenueRate × ClientPax
+        const actualVenueCost = venueRate * clientPax;
+
+        // Calculate excess payment: MAX(0, ActualVenueCost - VenueBuffer)
+        const excessPayment = Math.max(
+          0,
+          actualVenueCost - (venueBufferFee || 0)
+        );
+        total += excessPayment;
+
+        console.log(`🏢 ComponentCustomization Total Calculation (NEW FORMULA):
+          - Package price: ₱${originalPackagePrice.toLocaleString()}
+          - Component adjustments: ₱${(total - originalPackagePrice - excessPayment).toLocaleString()}
+          - Venue Rate: ₱${venueRate.toLocaleString()} per pax
+          - Client Pax: ${clientPax}
+          - Actual Venue Cost: ₱${venueRate.toLocaleString()} × ${clientPax} = ₱${actualVenueCost.toLocaleString()}
+          - Venue Buffer: ₱${(venueBufferFee || 0).toLocaleString()} (included in package)
+          - Excess Payment: MAX(0, ₱${actualVenueCost.toLocaleString()} - ₱${(venueBufferFee || 0).toLocaleString()}) = ₱${excessPayment.toLocaleString()}
+          - Total: ₱${total.toLocaleString()}
+        `);
+      }
+
+      return total;
+    } else {
+      // For start-from-scratch events, sum all components
+      let total = calculateTotalPrice(); // Noreen components
+      total += calculateVenuePrice(); // Add venue price
+      return total;
+    }
+  };
+
   // Get category display name
   const getCategoryName = (category: string) => {
     const key = (category || "").toLowerCase();
@@ -632,76 +693,170 @@ export function ComponentCustomization({
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {venueComponents.map((component) => (
-                      <div key={component.id} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            <Lock className="h-4 w-4 mr-2 text-muted-foreground" />
-                            <span className="font-medium">
-                              {component.name}
-                            </span>
+                    {venueComponents.map((component, index) => {
+                      // Use venue buffer fee from package, fallback to venue price for start from scratch
+                      const displayVenueBufferFee = isStartFromScratch
+                        ? selectedVenue
+                          ? parseFloat(selectedVenue.venue_price || 0)
+                          : 0
+                        : venueBufferFee || 0;
+                      const venueRate = selectedVenue
+                        ? parseFloat(selectedVenue.extra_pax_rate || 0)
+                        : 0;
+                      const clientPax = parseInt(
+                        eventDetails?.capacity?.toString() || "100"
+                      );
+
+                      // Calculate actual venue cost: VenueRate × ClientPax
+                      const actualVenueCost = venueRate * clientPax;
+
+                      // Calculate excess payment: MAX(0, ActualVenueCost - VenueBuffer)
+                      const excessPayment = Math.max(
+                        0,
+                        actualVenueCost - displayVenueBufferFee
+                      );
+
+                      return (
+                        <div
+                          key={`venue-${component.id}-${index}`}
+                          className="space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                              <Lock className="h-4 w-4 mr-2 text-muted-foreground" />
+                              <span className="font-medium">
+                                {component.name}
+                              </span>
+                            </div>
+                            {component.price > 0 && (
+                              <span className="font-medium">
+                                {formatCurrency(component.price)}
+                              </span>
+                            )}
                           </div>
-                          {component.price > 0 && (
-                            <span className="font-medium">
-                              {formatCurrency(component.price)}
-                            </span>
-                          )}
-                        </div>
-                        {component.description && (
-                          <div className="ml-6">
-                            {renderDescriptionAsList(component.description)}
+
+                          {/* Venue Buffer Fee Breakdown */}
+                          <div className="ml-6 bg-green-50 p-3 rounded-lg border border-green-200">
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-green-800 font-medium">
+                                  Venue Buffer Fee:
+                                </span>
+                                <span className="text-sm text-green-800 font-medium">
+                                  {formatCurrency(displayVenueBufferFee)}
+                                </span>
+                              </div>
+                              <div className="text-xs text-green-700">
+                                Included in package price
+                              </div>
+
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-blue-800 font-medium">
+                                  Actual Venue Cost:
+                                </span>
+                                <span className="text-sm text-blue-800 font-medium">
+                                  {formatCurrency(actualVenueCost)}
+                                </span>
+                              </div>
+                              <div className="text-xs text-blue-700">
+                                {clientPax} guests × {formatCurrency(venueRate)}{" "}
+                                per guest
+                              </div>
+
+                              {excessPayment > 0 && (
+                                <>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-sm text-orange-800 font-medium">
+                                      Excess Payment:
+                                    </span>
+                                    <span className="text-sm text-orange-800 font-medium">
+                                      +{formatCurrency(excessPayment)}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-orange-700">
+                                    ₱{actualVenueCost.toLocaleString()} - ₱
+                                    {displayVenueBufferFee.toLocaleString()} = ₱
+                                    {excessPayment.toLocaleString()}
+                                  </div>
+                                </>
+                              )}
+
+                              {excessPayment === 0 && (
+                                <div className="text-xs text-green-700">
+                                  No additional charges (covered by buffer)
+                                </div>
+                              )}
+
+                              <div className="flex justify-between items-center pt-2 border-t border-green-300">
+                                <span className="text-sm font-bold text-green-900">
+                                  Total Venue Cost:
+                                </span>
+                                <span className="text-sm font-bold text-green-900">
+                                  {formatCurrency(actualVenueCost)}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                        )}
-                        {Array.isArray((component as any).venueInclusions) &&
-                          (component as any).venueInclusions.length > 0 && (
+
+                          {component.description && (
                             <div className="ml-6">
-                              <Accordion type="multiple" className="space-y-2">
-                                {(component as any).venueInclusions.map(
-                                  (inc: any, incIdx: number) => (
-                                    <AccordionItem
-                                      key={`venue-inc-${String(
-                                        inc.inclusion_id ?? inc.id ?? inc.name
-                                      )}-${incIdx}`}
-                                      value={`venue-inc-${String(
-                                        inc.inclusion_id ?? inc.id ?? inc.name
-                                      )}-${incIdx}`}
-                                      className="border-b last:border-b-0"
-                                    >
-                                      <AccordionTrigger className="p-0 text-sm">
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-medium">
-                                            {inc.inclusion_name ?? inc.name}
-                                          </span>
-                                          {typeof inc.inclusion_price ===
-                                            "number" && (
-                                            <Badge
-                                              variant="outline"
-                                              className="ml-2"
-                                            >
-                                              {formatCurrency(
-                                                inc.inclusion_price || 0
-                                              )}
-                                            </Badge>
-                                          )}
-                                        </div>
-                                      </AccordionTrigger>
-                                      <AccordionContent>
-                                        {(inc.inclusion_description ||
-                                          inc.description) && (
-                                          <p className="text-xs text-muted-foreground">
-                                            {inc.inclusion_description ||
-                                              inc.description}
-                                          </p>
-                                        )}
-                                      </AccordionContent>
-                                    </AccordionItem>
-                                  )
-                                )}
-                              </Accordion>
+                              {renderDescriptionAsList(component.description)}
                             </div>
                           )}
-                      </div>
-                    ))}
+                          {Array.isArray((component as any).venueInclusions) &&
+                            (component as any).venueInclusions.length > 0 && (
+                              <div className="ml-6">
+                                <Accordion
+                                  type="multiple"
+                                  className="space-y-2"
+                                >
+                                  {(component as any).venueInclusions.map(
+                                    (inc: any, incIdx: number) => (
+                                      <AccordionItem
+                                        key={`venue-inc-${String(
+                                          inc.inclusion_id ?? inc.id ?? inc.name
+                                        )}-${incIdx}`}
+                                        value={`venue-inc-${String(
+                                          inc.inclusion_id ?? inc.id ?? inc.name
+                                        )}-${incIdx}`}
+                                        className="border-b last:border-b-0"
+                                      >
+                                        <AccordionTrigger className="p-0 text-sm">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-medium">
+                                              {inc.inclusion_name ?? inc.name}
+                                            </span>
+                                            {typeof inc.inclusion_price ===
+                                              "number" && (
+                                              <Badge
+                                                variant="outline"
+                                                className="ml-2"
+                                              >
+                                                {formatCurrency(
+                                                  inc.inclusion_price || 0
+                                                )}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        </AccordionTrigger>
+                                        <AccordionContent>
+                                          {(inc.inclusion_description ||
+                                            inc.description) && (
+                                            <p className="text-xs text-muted-foreground">
+                                              {inc.inclusion_description ||
+                                                inc.description}
+                                            </p>
+                                          )}
+                                        </AccordionContent>
+                                      </AccordionItem>
+                                    )
+                                  )}
+                                </Accordion>
+                              </div>
+                            )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
@@ -775,7 +930,7 @@ export function ComponentCustomization({
                       <Accordion type="multiple" className="space-y-2">
                         {categoryComponents.map((component, idx) => (
                           <AccordionItem
-                            key={`${component.category}-${component.id}-${idx}`}
+                            key={`${component.category}-${component.id}-${idx}-${component.name?.replace(/\s+/g, "-") || "unnamed"}`}
                             value={`${component.category}-${component.id}-${idx}`}
                             className="border-b last:border-b-0 border-green-100 pb-3"
                           >
@@ -857,19 +1012,21 @@ export function ComponentCustomization({
                               {Array.isArray(component.subComponents) &&
                                 component.subComponents.length > 0 && (
                                   <div className="space-y-1">
-                                    {component.subComponents.map((sub) => (
-                                      <div
-                                        key={`${component.id}-sub-${sub.id}`}
-                                        className="flex items-center justify-between text-sm"
-                                      >
-                                        <span className="text-gray-700">
-                                          {sub.name}
-                                        </span>
-                                        <span className="text-gray-900">
-                                          {formatCurrency(sub.unitPrice || 0)}
-                                        </span>
-                                      </div>
-                                    ))}
+                                    {component.subComponents.map(
+                                      (sub, subIdx) => (
+                                        <div
+                                          key={`${component.id}-sub-${sub.id}-${subIdx}`}
+                                          className="flex items-center justify-between text-sm"
+                                        >
+                                          <span className="text-gray-700">
+                                            {sub.name}
+                                          </span>
+                                          <span className="text-gray-900">
+                                            {formatCurrency(sub.unitPrice || 0)}
+                                          </span>
+                                        </div>
+                                      )
+                                    )}
                                   </div>
                                 )}
                             </AccordionContent>
@@ -885,7 +1042,7 @@ export function ComponentCustomization({
                   Total Components Price:
                 </span>
                 <span className="font-bold text-green-900">
-                  {formatCurrency(calculateTotalPrice())}
+                  {formatCurrency(calculateCompleteTotal())}
                 </span>
               </div>
             </div>

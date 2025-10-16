@@ -44,6 +44,8 @@ export function middleware(request: NextRequest) {
     const role = user.user_role.toLowerCase();
     if (role === "admin") {
       return NextResponse.redirect(new URL("/admin/dashboard", request.url));
+    } else if (role === "staff") {
+      return NextResponse.redirect(new URL("/staff/dashboard", request.url));
     } else if (role === "vendor" || role === "organizer") {
       return NextResponse.redirect(
         new URL("/organizer/dashboard", request.url)
@@ -57,6 +59,7 @@ export function middleware(request: NextRequest) {
   if (
     !user &&
     (pathname.startsWith("/admin") ||
+      pathname.startsWith("/staff") ||
       pathname.startsWith("/organizer") ||
       pathname.startsWith("/client"))
   ) {
@@ -68,7 +71,21 @@ export function middleware(request: NextRequest) {
     const role = user.user_role.toLowerCase();
 
     if (pathname.startsWith("/admin") && role !== "admin") {
-      if (role === "organizer" || role === "vendor") {
+      if (role === "staff") {
+        return NextResponse.redirect(new URL("/staff/dashboard", request.url));
+      } else if (role === "organizer" || role === "vendor") {
+        return NextResponse.redirect(
+          new URL("/organizer/dashboard", request.url)
+        );
+      } else if (role === "client") {
+        return NextResponse.redirect(new URL("/client/dashboard", request.url));
+      }
+    }
+
+    if (pathname.startsWith("/staff") && role !== "staff") {
+      if (role === "admin") {
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url));
+      } else if (role === "organizer" || role === "vendor") {
         return NextResponse.redirect(
           new URL("/organizer/dashboard", request.url)
         );
@@ -84,6 +101,8 @@ export function middleware(request: NextRequest) {
     ) {
       if (role === "admin") {
         return NextResponse.redirect(new URL("/admin/dashboard", request.url));
+      } else if (role === "staff") {
+        return NextResponse.redirect(new URL("/staff/dashboard", request.url));
       } else if (role === "client") {
         return NextResponse.redirect(new URL("/client/dashboard", request.url));
       }
@@ -92,6 +111,8 @@ export function middleware(request: NextRequest) {
     if (pathname.startsWith("/client") && role !== "client") {
       if (role === "admin") {
         return NextResponse.redirect(new URL("/admin/dashboard", request.url));
+      } else if (role === "staff") {
+        return NextResponse.redirect(new URL("/staff/dashboard", request.url));
       } else if (role === "organizer" || role === "vendor") {
         return NextResponse.redirect(
           new URL("/organizer/dashboard", request.url)
@@ -107,6 +128,7 @@ export const config = {
   matcher: [
     "/",
     "/admin/:path*",
+    "/staff/:path*",
     "/organizer/:path*",
     "/client/:path*",
     "/auth/login",

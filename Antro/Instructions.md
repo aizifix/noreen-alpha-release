@@ -2,69 +2,66 @@ Identity:
 You are a senior full-stack web developer with top-tier certification and global recognition for debugging complex systems.
 
 Success Criteria:
-- Use the pie chart design in the package edit
+VENUE CALCULATION LOGIC PROMPT
 
-
-**Example Calculation:**
-- Package Budget: ₱120,000  
-- Venue Budget Allocation: ₱50,000  
-- Default Pax: 100  
-- Selected Venue: Demiren (₱350 per pax = ₱35,000)
-- Remaining from Venue Allocation: ₱15,000
-- New Inclusion Budget: ₱70,000 + ₱15,000 = ₱85,000
-
-✅ Final Allocation:
-- Venue Cost: ₱35,000  
-- Inclusions: ₱85,000  
-- Total: ₱120,000  
-- No additional client payment needed.
+Context:
+In the Event Planning System, each package has a total budget that includes a dedicated “venue buffer” for a default number of guests (usually 100 pax). The venue buffer acts as a fixed baseline for calculating the included venue cost. If the client increases the number of guests or chooses a venue with a higher rate per pax, the system automatically computes any additional payment.
 
 ---
 
-### 4. INCLUSIONS & COMPONENTS
-The Inclusion Budget (after venue computation) is distributed into categories and sub-components.
+Example Setup:
+Total Package Budget: ₱240,000
+Venue Buffer: ₱50,000 (covers 100 pax)
+Inclusions:
+- Inclusion 1: ₱120,000
+- Inclusion 2: ₱20,000
+- Inclusion 3: ₱50,000
+Total: ₱240,000
 
-**Example:**
-| Inclusion | Budget | Components |
-|------------|----------|-------------|
-| Photo & Video | ₱30,000 | Photographer, Videographer, Editor |
-| Coordination & Styling | ₱25,000 | Planner, Coordinator, Florist, Stylist |
-| Hair & Makeup | ₱15,000 | Bride HMUA, Groom HMUA |
-| Entertainment | ₱15,000 | Host, DJ, Lights & Sound |
+Available Venue Choices:
+- Venue 1: ₱350 per pax
+- Venue 2: ₱300 per pax
 
-💡 System should allow Admin to adjust these allocations manually and visualize them on the pie chart as well.
-
----
-
-### 5. FREEBIES
-These are fixed extras that don’t affect the total budget.
-- Free Prenup Photoshoot
-- Free Invitation Design
-- Free Wedding Signage
-- Free Event Coordination
-- Free Cake
+Client Selection:
+- Selected Venue: ₱350 per pax
+- Total Guests: 200 pax
+- Base Guests (default): 100 pax
 
 ---
 
-### 6. SYSTEM GOAL
-Create a clear, visual, and dynamic package creation flow where:
-- Admin defines the **overall package plan** and sees the **budget pie chart** update in real time.
-- Venue cost is computed **per pax**, based on the selected venue.
-- Any **unused venue budget** automatically returns to inclusions.
-- Any **excess** is shown as “Client Additional Payment.”
-- The total package budget always remains balanced and transparent.
+Calculation Process:
+1. Compute Actual Venue Cost:
+   ₱350 × 200 pax = ₱70,000
+
+2. Compare with Venue Buffer:
+   ₱70,000 (actual) - ₱50,000 (buffer) = ₱20,000 (excess)
+
+3. Add Excess to Package Total:
+   ₱240,000 + ₱20,000 = ₱260,000 (final total)
+
+   
 
 ---
 
-### 7. OPTIONAL FRONTEND UI LOGIC
-**Admin Form Layout:**
-1. Package Overview (Budget + Pie Chart)
-2. Venue Setup (per pax table)
-3. Automatic Venue Cost Preview
-4. Updated Inclusion Budget (editable)
-5. Freebies List
-6. Final Summary (Total = Venue + Inclusions)
+Formula Summary:
+Let:
+- PackageBudget = total base package price
+- VenueBuffer = fixed venue allocation
+- BasePax = default pax covered by the buffer
+- ClientPax = actual guest count
+- VenueRate = per pax rate for the selected venue
 
+Then:
+ActualVenueCost = VenueRate × ClientPax
+ExcessPayment = MAX(0, ActualVenueCost - VenueBuffer)
+FinalPackageTotal = PackageBudget + ExcessPayment
+
+---
+
+System Behavior:
+- If the selected venue cost is within the buffer, no extra charge.
+- If the selected venue cost exceeds the buffer, the difference is added as “Client Additional Payment.”
+- The total package budget always remains transparent and automatically recalculated in real time.
 
 Restrictions:
 - Do not change any API endpoints

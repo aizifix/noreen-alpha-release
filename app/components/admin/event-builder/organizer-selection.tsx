@@ -329,7 +329,7 @@ export function OrganizerSelection({
                         src={
                           organizer.organizer_profile_picture
                             ? `${API_URL}/serve-image.php?path=${encodeURIComponent(organizer.organizer_profile_picture)}`
-                            : "/default_pfp.png"
+                            : `${API_URL}/serve-image.php?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                         }
                         alt={organizer.organizer_name}
                         onError={(
@@ -337,7 +337,7 @@ export function OrganizerSelection({
                         ) => {
                           // Fallback to default if image fails to load
                           (e.currentTarget as HTMLImageElement).src =
-                            "/default_pfp.png";
+                            `${API_URL}/serve-image.php?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`;
                         }}
                       />
                       <AvatarFallback>

@@ -178,6 +178,8 @@ export interface ComponentCustomizationProps {
   eventDetails?: EventDetails;
   isStartFromScratch?: boolean;
   selectedPackageId?: string | null;
+  venueBufferFee?: number | null;
+  originalPackagePrice?: number | null;
 }
 
 export interface TimelineStepProps {

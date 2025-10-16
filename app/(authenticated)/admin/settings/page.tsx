@@ -604,7 +604,7 @@ export default function SettingsPage() {
                       userProfile?.user_pfp &&
                       userProfile.user_pfp.trim() !== ""
                         ? `${endpoints.serveImage}?path=${encodeURIComponent(userProfile.user_pfp)}`
-                        : "/default_pfp.png"
+                        : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                     }
                     alt="Profile"
                     className="h-24 w-24 rounded-full object-cover border-4 border-gray-200"

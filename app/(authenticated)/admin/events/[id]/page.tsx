@@ -5438,7 +5438,7 @@ export default function EventDetailsPage() {
                                     ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                         organizerDetails.profile_picture
                                       )}`
-                                    : "/default_pfp.png"
+                                    : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                                 }
                                 alt="Organizer"
                                 className="h-8 w-8 rounded-full object-cover"
@@ -5480,7 +5480,7 @@ export default function EventDetailsPage() {
                                     ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                         event.admin_pfp
                                       )}`
-                                    : "/default_pfp.png"
+                                    : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                                 }
                                 alt="Admin"
                                 className="h-8 w-8 rounded-full object-cover"
@@ -5980,7 +5980,7 @@ export default function EventDetailsPage() {
                                             ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                                 o.profile_picture
                                               )}`
-                                            : "/default_pfp.png"
+                                            : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                                         }
                                         alt="Profile"
                                         className="h-12 w-12 rounded-full object-cover border-2 border-gray-200"
@@ -6094,7 +6094,7 @@ export default function EventDetailsPage() {
                                               ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                                   selected.profile_picture
                                                 )}`
-                                              : "/default_pfp.png"
+                                              : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                                           }
                                           alt="Profile"
                                           className="h-10 w-10 rounded-full object-cover"

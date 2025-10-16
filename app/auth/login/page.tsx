@@ -178,6 +178,7 @@ const LoginPage = () => {
           secureStorage.setItem("user", userData);
 
           if (role === "admin") router.replace("/admin/dashboard");
+          else if (role === "staff") router.replace("/staff/dashboard");
           else if (role === "organizer") router.replace("/organizer/dashboard");
           else router.replace("/client/dashboard");
         } catch (e) {

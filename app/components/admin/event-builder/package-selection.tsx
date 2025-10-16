@@ -869,14 +869,15 @@ export function PackageSelection({
                                           src={
                                             getImageUrl(
                                               venue.venue_profile_picture
-                                            ) || "/default_pfp.png"
+                                            ) ||
+                                            `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                                           }
                                           alt={venue.venue_title}
                                           className="w-full h-full object-cover"
                                           onError={(e) => {
                                             const target =
                                               e.target as HTMLImageElement;
-                                            target.src = "/default_pfp.png";
+                                            target.src = `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`;
                                           }}
                                         />
                                       </div>

@@ -101,6 +101,71 @@ class Admin {
         return "CONCAT(" . implode(", ", $convertedParts) . ")";
     }
 
+    /**
+     * Helper function to check if a column exists in a table
+     * @param string $tableName The table name
+     * @param string $columnName The column name
+     * @return bool True if column exists, false otherwise
+     */
+    private function checkColumnExists($tableName, $columnName) {
+        try {
+            $sql = "SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = ?
+                    AND COLUMN_NAME = ?";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$tableName, $columnName]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $result['count'] > 0;
+        } catch (Exception $e) {
+            error_log("Error checking column existence: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Helper function to validate if a supplier exists
+     * @param int $supplierId The supplier ID to validate
+     * @return bool True if supplier exists, false otherwise
+     */
+    private function validateSupplierExists($supplierId) {
+        try {
+            $sql = "SELECT COUNT(*) as count FROM tbl_suppliers WHERE supplier_id = ? AND is_active = 1";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$supplierId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $result['count'] > 0;
+        } catch (Exception $e) {
+            error_log("Error validating supplier: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Helper function to validate if an offer exists
+     * @param mixed $offerId The offer ID to validate (can be int or string)
+     * @return bool True if offer exists, false otherwise
+     */
+    private function validateOfferExists($offerId) {
+        try {
+            // If offer_id starts with 'json_', it's a virtual offer from registration_docs
+            // These don't exist in the database, so we consider them valid
+            if (is_string($offerId) && strpos($offerId, 'json_') === 0) {
+                return true;
+            }
+
+            // For numeric offer_ids, check if they exist in the database
+            $sql = "SELECT COUNT(*) as count FROM tbl_supplier_offers WHERE offer_id = ? AND is_active = 1";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$offerId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $result['count'] > 0;
+        } catch (Exception $e) {
+            error_log("Error validating offer: " . $e->getMessage());
+            return false;
+        }
+    }
+
     // Simple bypass method for problematic queries
     private function safeExecute($sql, $params = []) {
         try {
@@ -1270,7 +1335,7 @@ class Admin {
             $activity_level = isset($_GET['activity_level']) ? trim($_GET['activity_level']) : '';
 
             // Build WHERE conditions
-            $whereConditions = ["u.user_role = 'client'"];
+            $whereConditions = ["u.user_role = 'client'", "u.account_status != 'deleted'"];
             $params = [];
 
             // Add search condition
@@ -1369,6 +1434,172 @@ class Admin {
         } catch (Exception $e) {
             error_log("getClients error: " . $e->getMessage());
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
+    public function deleteClient($clientId) {
+        try {
+            $this->conn->beginTransaction();
+
+            // First, check if client exists and get their details
+            $checkSql = "SELECT user_id, user_firstName, user_lastName, user_email FROM tbl_users WHERE user_id = ? AND user_role = 'client'";
+            $checkStmt = $this->conn->prepare($checkSql);
+            $checkStmt->execute([$clientId]);
+            $client = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$client) {
+                throw new Exception('Client not found');
+            }
+
+            // Check if client has any active events or bookings
+            $activeEventsSql = "SELECT COUNT(*) as count FROM tbl_events WHERE user_id = ? AND event_status IN ('confirmed', 'in_progress', 'pending')";
+            $activeEventsStmt = $this->conn->prepare($activeEventsSql);
+            $activeEventsStmt->execute([$clientId]);
+            $activeEvents = $activeEventsStmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+            $activeBookingsSql = "SELECT COUNT(*) as count FROM tbl_bookings WHERE user_id = ? AND booking_status IN ('confirmed', 'pending')";
+            $activeBookingsStmt = $this->conn->prepare($activeBookingsSql);
+            $activeBookingsStmt->execute([$clientId]);
+            $activeBookings = $activeBookingsStmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+            if ($activeEvents > 0 || $activeBookings > 0) {
+                throw new Exception('Cannot delete client with active events or bookings. Please cancel or complete them first.');
+            }
+
+            // Soft delete by setting account_status to 'deleted' instead of hard delete
+            // This preserves data integrity and allows for potential recovery
+            // Check if deleted_at column exists before using it
+            $checkColumnSql = "SHOW COLUMNS FROM tbl_users LIKE 'deleted_at'";
+            $checkColumnStmt = $this->conn->prepare($checkColumnSql);
+            $checkColumnStmt->execute();
+            $columnExists = $checkColumnStmt->fetch();
+
+            if ($columnExists) {
+                $deleteSql = "UPDATE tbl_users SET account_status = 'deleted', deleted_at = NOW() WHERE user_id = ?";
+            } else {
+                $deleteSql = "UPDATE tbl_users SET account_status = 'deleted' WHERE user_id = ?";
+            }
+
+            $deleteStmt = $this->conn->prepare($deleteSql);
+            $deleteStmt->execute([$clientId]);
+
+            // Log the deletion activity if logger is available
+            if ($this->logger) {
+                $this->logger->logActivity(
+                    'client_deleted',
+                    $clientId,
+                    'Client deleted: ' . $client['user_firstName'] . ' ' . $client['user_lastName'] . ' (' . $client['user_email'] . ')'
+                );
+            }
+
+            $this->conn->commit();
+            return json_encode([
+                'status' => 'success',
+                'message' => 'Client deleted successfully'
+            ]);
+
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            error_log("deleteClient error: " . $e->getMessage());
+            return json_encode([
+                'status' => 'error',
+                'message' => 'Error deleting client: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function deleteClients($clientIds) {
+        try {
+            if (empty($clientIds) || !is_array($clientIds)) {
+                throw new Exception('No client IDs provided');
+            }
+
+            $this->conn->beginTransaction();
+            $deletedCount = 0;
+            $errors = [];
+
+            foreach ($clientIds as $clientId) {
+                try {
+                    // Check if client exists and get their details
+                    $checkSql = "SELECT user_id, user_firstName, user_lastName, user_email FROM tbl_users WHERE user_id = ? AND user_role = 'client'";
+                    $checkStmt = $this->conn->prepare($checkSql);
+                    $checkStmt->execute([$clientId]);
+                    $client = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if (!$client) {
+                        $errors[] = "Client ID {$clientId} not found";
+                        continue;
+                    }
+
+                    // Check if client has any active events or bookings
+                    $activeEventsSql = "SELECT COUNT(*) as count FROM tbl_events WHERE user_id = ? AND event_status IN ('confirmed', 'in_progress', 'pending')";
+                    $activeEventsStmt = $this->conn->prepare($activeEventsSql);
+                    $activeEventsStmt->execute([$clientId]);
+                    $activeEvents = $activeEventsStmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+                    $activeBookingsSql = "SELECT COUNT(*) as count FROM tbl_bookings WHERE user_id = ? AND booking_status IN ('confirmed', 'pending')";
+                    $activeBookingsStmt = $this->conn->prepare($activeBookingsSql);
+                    $activeBookingsStmt->execute([$clientId]);
+                    $activeBookings = $activeBookingsStmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+                    if ($activeEvents > 0 || $activeBookings > 0) {
+                        $errors[] = "Client {$client['user_firstName']} {$client['user_lastName']} has active events or bookings";
+                        continue;
+                    }
+
+                    // Soft delete by setting account_status to 'deleted'
+                    // Check if deleted_at column exists before using it
+                    $checkColumnSql = "SHOW COLUMNS FROM tbl_users LIKE 'deleted_at'";
+                    $checkColumnStmt = $this->conn->prepare($checkColumnSql);
+                    $checkColumnStmt->execute();
+                    $columnExists = $checkColumnStmt->fetch();
+
+                    if ($columnExists) {
+                        $deleteSql = "UPDATE tbl_users SET account_status = 'deleted', deleted_at = NOW() WHERE user_id = ?";
+                    } else {
+                        $deleteSql = "UPDATE tbl_users SET account_status = 'deleted' WHERE user_id = ?";
+                    }
+
+                    $deleteStmt = $this->conn->prepare($deleteSql);
+                    $deleteStmt->execute([$clientId]);
+
+                    $deletedCount++;
+
+                    // Log the deletion activity if logger is available
+                    if ($this->logger) {
+                        $this->logger->logActivity(
+                            'client_deleted',
+                            $clientId,
+                            'Client deleted: ' . $client['user_firstName'] . ' ' . $client['user_lastName'] . ' (' . $client['user_email'] . ')'
+                        );
+                    }
+
+                } catch (Exception $e) {
+                    $errors[] = "Error deleting client ID {$clientId}: " . $e->getMessage();
+                }
+            }
+
+            $this->conn->commit();
+
+            $message = "Successfully deleted {$deletedCount} client(s)";
+            if (!empty($errors)) {
+                $message .= ". Errors: " . implode('; ', $errors);
+            }
+
+            return json_encode([
+                'status' => $deletedCount > 0 ? 'success' : 'error',
+                'message' => $message,
+                'deleted_count' => $deletedCount,
+                'errors' => $errors
+            ]);
+
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            error_log("deleteClients error: " . $e->getMessage());
+            return json_encode([
+                'status' => 'error',
+                'message' => 'Error deleting clients: ' . $e->getMessage()
+            ]);
         }
     }
 
@@ -2576,7 +2807,7 @@ This is an automated message. Please do not reply.
 
             // Get supplier offers with subcomponents
             $offersSql = "SELECT so.*,
-                        GROUP_CONCAT(CONCAT(sc.component_title COLLATE utf8mb4_unicode_ci, '|', sc.component_description COLLATE utf8mb4_unicode_ci) SEPARATOR ';;') as subcomponents
+                        GROUP_CONCAT(CONCAT(sc.component_name COLLATE utf8mb4_unicode_ci, '|', sc.component_description COLLATE utf8mb4_unicode_ci) SEPARATOR ';;') as subcomponents
                           FROM tbl_supplier_offers so
                           LEFT JOIN tbl_offer_subcomponents sc ON so.offer_id = sc.offer_id AND sc.is_active = 1
                           WHERE so.supplier_id = ? AND so.is_active = 1
@@ -2623,7 +2854,7 @@ This is an automated message. Please do not reply.
             $supplier['documents'] = $documents;
 
             // Get recent ratings with event details
-            $ratingsSql = "SELECT sr.*, u.user_firstName, u.user_lastName, e.event_title, ec.component_title
+            $ratingsSql = "SELECT sr.*, u.user_firstName, u.user_lastName, e.event_title, ec.component_name
                           FROM tbl_supplier_ratings sr
                           LEFT JOIN tbl_users u ON sr.client_id = u.user_id
                           LEFT JOIN tbl_events e ON sr.event_id = e.event_id
@@ -3283,7 +3514,6 @@ This is an automated message. Please do not reply.
                             v.venue_contact,
                             v.venue_details,
                             v.venue_capacity,
-                            v.venue_price,
                             COALESCE(v.extra_pax_rate, 0) AS extra_pax_rate,
                             v.venue_type,
                             v.venue_profile_picture,
@@ -3323,6 +3553,7 @@ This is an automated message. Please do not reply.
                 'package_description' => $package['package_description'],
                 'package_price' => $package['package_price'],
                 'guest_capacity' => $package['guest_capacity'],
+                'venue_fee_buffer' => $package['venue_fee_buffer'],
                 'is_active' => $package['is_active'],
                 'components' => $components,
                 'freebies' => $freebies,
@@ -3375,13 +3606,22 @@ This is an automated message. Please do not reply.
 
             error_log("getPackageDetails: Package found: " . $package['package_title']);
 
-            // Get package components/inclusions with supplier information
-            $componentsSql = "SELECT DISTINCT pc.*, s.business_name as supplier_name, so.tier_level
-                              FROM tbl_package_components pc
-                              LEFT JOIN tbl_suppliers s ON pc.supplier_id = s.supplier_id
-                              LEFT JOIN tbl_supplier_offers so ON pc.offer_id = so.offer_id
-                              WHERE pc.package_id = :package_id
-                              ORDER BY pc.display_order";
+            // Get package components/inclusions with supplier information (if columns exist)
+            $hasSupplierColumns = $this->checkColumnExists('tbl_package_components', 'supplier_id');
+
+            if ($hasSupplierColumns) {
+                $componentsSql = "SELECT DISTINCT pc.*, s.business_name as supplier_name, so.tier_level
+                                  FROM tbl_package_components pc
+                                  LEFT JOIN tbl_suppliers s ON pc.supplier_id = s.supplier_id
+                                  LEFT JOIN tbl_supplier_offers so ON pc.offer_id = so.offer_id
+                                  WHERE pc.package_id = :package_id
+                                  ORDER BY pc.display_order";
+            } else {
+                $componentsSql = "SELECT DISTINCT pc.*
+                                  FROM tbl_package_components pc
+                                  WHERE pc.package_id = :package_id
+                                  ORDER BY pc.display_order";
+            }
             error_log("getPackageDetails: Getting components with SQL: " . $componentsSql);
             $componentsStmt = $this->conn->prepare($componentsSql);
             $componentsStmt->execute([':package_id' => $packageId]);
@@ -3417,8 +3657,8 @@ This is an automated message. Please do not reply.
                     'components' => $childComponents,
                 ];
 
-                // Add supplier information if available
-                if (!empty($component['supplier_id'])) {
+                // Add supplier information if available and columns exist
+                if ($hasSupplierColumns && !empty($component['supplier_id'])) {
                     $inclusion['supplier_id'] = (int)$component['supplier_id'];
                     $inclusion['supplier_name'] = $component['supplier_name'];
                     $inclusion['offer_id'] = !empty($component['offer_id']) ? (int)$component['offer_id'] : null;
@@ -3450,12 +3690,14 @@ This is an automated message. Please do not reply.
                             v.venue_contact,
                             v.venue_details,
                             v.venue_capacity,
-                            v.venue_price as total_price,
+                            COALESCE(v.extra_pax_rate, 0) AS extra_pax_rate,
                             v.venue_type,
                             v.venue_profile_picture,
-                            v.venue_cover_photo
+                            v.venue_cover_photo,
+                            COALESCE(vp.venue_price_min, 0) AS total_price
                         FROM tbl_package_venues pv
                         JOIN tbl_venue v ON pv.venue_id = v.venue_id
+                        LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                         WHERE pv.package_id = :package_id AND v.venue_status = 'available'
                         ORDER BY v.venue_title";
 
@@ -3480,7 +3722,7 @@ This is an automated message. Please do not reply.
                 }
 
                 $venue['inclusions'] = $venueInclusions;
-                $venue['total_price'] = (float)$venue['total_price'];
+                $venue['total_price'] = (float)($venue['total_price'] ?? 0);
             }
 
             // Get event types associated with this package
@@ -3503,6 +3745,7 @@ This is an automated message. Please do not reply.
                 'package_description' => $package['package_description'],
                 'package_price' => (float)$package['package_price'],
                 'guest_capacity' => (int)$package['guest_capacity'],
+                'venue_fee_buffer' => (float)($package['venue_fee_buffer'] ?? 0),
                 'created_at' => $package['created_at'],
                 'user_firstName' => $package['user_firstName'],
                 'user_lastName' => $package['user_lastName'],
@@ -3675,20 +3918,63 @@ This is an automated message. Please do not reply.
 
                 // Insert new components
                 if (is_array($data['components'])) {
+                    // Check if supplier_id and offer_id columns exist
+                    $hasSupplierColumns = $this->checkColumnExists('tbl_package_components', 'supplier_id');
+                    error_log("Has supplier columns: " . ($hasSupplierColumns ? "true" : "false"));
+
                     foreach ($data['components'] as $index => $component) {
                         if (!empty($component['component_name'])) {
-                            $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order, supplier_id, offer_id)
-                                            VALUES (:package_id, :name, :description, :price, :order, :supplier_id, :offer_id)";
-                            $componentStmt = $this->conn->prepare($componentSql);
-                            $componentResult = $componentStmt->execute([
-                                ':package_id' => $data['package_id'],
-                                ':name' => $component['component_name'],
-                                ':description' => $component['component_description'] ?? '',
-                                ':price' => $component['component_price'] ?? 0,
-                                ':order' => $index,
-                                ':supplier_id' => $component['supplier_id'] ?? null,
-                                ':offer_id' => $component['offer_id'] ?? null
-                            ]);
+                            error_log("Processing component $index: " . json_encode($component));
+                            if ($hasSupplierColumns) {
+                                // Validate supplier_id and offer_id before inserting
+                                $supplierId = $component['supplier_id'] ?? null;
+                                $offerId = $component['offer_id'] ?? null;
+                                error_log("Original supplier_id: $supplierId, offer_id: $offerId");
+
+                                // Check if supplier_id exists if provided
+                                if ($supplierId && !$this->validateSupplierExists($supplierId)) {
+                                    error_log("Invalid supplier_id: $supplierId");
+                                    $supplierId = null;
+                                }
+
+                                // Check if offer_id exists if provided
+                                if ($offerId) {
+                                    // If it's a virtual offer (json_*), set to null for database storage
+                                    if (is_string($offerId) && strpos($offerId, 'json_') === 0) {
+                                        error_log("Virtual offer_id detected: $offerId, setting to null for database");
+                                        $offerId = null;
+                                    } elseif (!$this->validateOfferExists($offerId)) {
+                                        error_log("Invalid offer_id: $offerId");
+                                        $offerId = null;
+                                    }
+                                }
+
+                                error_log("Final supplier_id: $supplierId, offer_id: $offerId");
+
+                                $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order, supplier_id, offer_id)
+                                                VALUES (:package_id, :name, :description, :price, :order, :supplier_id, :offer_id)";
+                                $componentStmt = $this->conn->prepare($componentSql);
+                                $componentResult = $componentStmt->execute([
+                                    ':package_id' => $data['package_id'],
+                                    ':name' => $component['component_name'],
+                                    ':description' => $component['component_description'] ?? '',
+                                    ':price' => $component['component_price'] ?? 0,
+                                    ':order' => $index,
+                                    ':supplier_id' => $supplierId,
+                                    ':offer_id' => $offerId
+                                ]);
+                            } else {
+                                $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
+                                                VALUES (:package_id, :name, :description, :price, :order)";
+                                $componentStmt = $this->conn->prepare($componentSql);
+                                $componentResult = $componentStmt->execute([
+                                    ':package_id' => $data['package_id'],
+                                    ':name' => $component['component_name'],
+                                    ':description' => $component['component_description'] ?? '',
+                                    ':price' => $component['component_price'] ?? 0,
+                                    ':order' => $index
+                                ]);
+                            }
                             error_log("Insert component $index result: " . ($componentResult ? "success" : "failed"));
                         }
                     }
@@ -4039,14 +4325,14 @@ This is an automated message. Please do not reply.
 
                 // Get venue previews with pricing
                 $venuesSql = "SELECT v.venue_id, v.venue_title, v.venue_location, v.venue_capacity,
-                                    v.venue_profile_picture, v.venue_cover_photo, v.venue_price,
+                                    v.venue_profile_picture, v.venue_cover_photo,
                                     COALESCE(SUM(vi.inclusion_price), 0) as inclusions_total
                              FROM tbl_package_venues pv
                              JOIN tbl_venue v ON pv.venue_id = v.venue_id
                              LEFT JOIN tbl_venue_inclusions vi ON v.venue_id = vi.venue_id AND vi.is_active = 1
                              WHERE pv.package_id = ? AND v.venue_status = 'available'
                              GROUP BY v.venue_id, v.venue_title, v.venue_location, v.venue_capacity,
-                                      v.venue_profile_picture, v.venue_cover_photo, v.venue_price
+                                      v.venue_profile_picture, v.venue_cover_photo
                              ORDER BY v.venue_title";
                 $venuesStmt = $this->conn->prepare($venuesSql);
                 $venuesStmt->execute([$packageId]);
@@ -4064,11 +4350,10 @@ This is an automated message. Please do not reply.
                         'venue_capacity' => intval($venue['venue_capacity']),
                         'venue_profile_picture' => $venue['venue_profile_picture'],
                         'venue_cover_photo' => $venue['venue_cover_photo'],
-                        'venue_price' => floatval($venue['venue_price'])
                     ];
 
-                    // Calculate total venue price (base + inclusions)
-                    $totalVenuePrice = floatval($venue['venue_price']) + floatval($venue['inclusions_total']);
+                    // Calculate total venue price (inclusions only, no base price)
+                    $totalVenuePrice = floatval($venue['inclusions_total']);
                     $venuePrices[] = $totalVenuePrice;
                 }
 
@@ -4089,9 +4374,8 @@ This is an automated message. Please do not reply.
                                 'venue_capacity' => intval($venue['venue_capacity']),
                                 'venue_profile_picture' => $venue['venue_profile_picture'],
                                 'venue_cover_photo' => $venue['venue_cover_photo'],
-                                'venue_price' => $venue['venue_price'],
                                 'inclusions_total' => $venue['inclusions_total'],
-                                'total_venue_price' => strval(floatval($venue['venue_price']) + floatval($venue['inclusions_total']))
+                                'total_venue_price' => strval(floatval($venue['inclusions_total']))
                             ];
                         }, $venues)
                     ];
@@ -4402,7 +4686,7 @@ This is an automated message. Please do not reply.
                     v.venue_location,
                     v.venue_contact,
                     v.venue_capacity,
-                    v.venue_price,
+                    COALESCE(vp.venue_price_min, 0) as venue_price,
                     pst.schedule_name as payment_schedule_name,
                     pst.schedule_description as payment_schedule_description,
                     pst.installment_count
@@ -4415,6 +4699,7 @@ This is an automated message. Please do not reply.
                 LEFT JOIN tbl_event_type et ON e.event_type_id = et.event_type_id
                 LEFT JOIN tbl_packages p ON e.package_id = p.package_id
                 LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
+                LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                 LEFT JOIN tbl_payment_schedule_types pst ON e.payment_schedule_type_id = pst.schedule_type_id
                 WHERE e.event_id = ?
             ";
@@ -4631,7 +4916,7 @@ This is an automated message. Please do not reply.
                     v.venue_location,
                     v.venue_contact,
                     v.venue_capacity,
-                    v.venue_price,
+                    COALESCE(vp.venue_price_min, 0) as venue_price,
                     pst.schedule_name as payment_schedule_name,
                     pst.schedule_description as payment_schedule_description,
                     pst.installment_count,
@@ -4645,6 +4930,7 @@ This is an automated message. Please do not reply.
                 LEFT JOIN tbl_event_type et ON e.event_type_id = et.event_type_id
                 LEFT JOIN tbl_packages p ON e.package_id = p.package_id
                 LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
+                LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                 LEFT JOIN tbl_payment_schedule_types pst ON e.payment_schedule_type_id = pst.schedule_type_id
                 LEFT JOIN tbl_wedding_details wd ON e.event_wedding_form_id = wd.id
                 WHERE e.event_id = ?
@@ -5168,7 +5454,7 @@ This is an automated message. Please do not reply.
     public function createVenue() {
         try {
             // Validate required fields
-            $requiredFields = ['venue_title', 'venue_location', 'venue_contact', 'venue_capacity', 'venue_price'];
+            $requiredFields = ['venue_title', 'venue_location', 'venue_contact', 'venue_capacity'];
             foreach ($requiredFields as $field) {
                 if (!isset($_POST[$field]) || empty($_POST[$field])) {
                     return json_encode([
@@ -5225,12 +5511,12 @@ This is an automated message. Please do not reply.
             // Insert venue with all required fields
             $sql = "INSERT INTO tbl_venue (
                 venue_title, venue_details, venue_location, venue_contact,
-                venue_type, venue_capacity, venue_price, extra_pax_rate, is_active,
+                venue_type, venue_capacity, extra_pax_rate, is_active,
                 venue_profile_picture, venue_cover_photo, user_id, venue_owner,
                 venue_status
             ) VALUES (
                 :venue_title, :venue_details, :venue_location, :venue_contact,
-                :venue_type, :venue_capacity, :venue_price, :extra_pax_rate, :is_active,
+                :venue_type, :venue_capacity, :extra_pax_rate, :is_active,
                 :venue_profile_picture, :venue_cover_photo, :user_id, :venue_owner,
                 :venue_status
             )";
@@ -5243,7 +5529,6 @@ This is an automated message. Please do not reply.
                 'venue_contact' => $_POST['venue_contact'],
                 'venue_type' => $venueType,
                 'venue_capacity' => $_POST['venue_capacity'],
-                'venue_price' => $_POST['venue_price'],
                 'extra_pax_rate' => isset($_POST['extra_pax_rate']) ? $_POST['extra_pax_rate'] : 0.00,
                 'is_active' => isset($_POST['is_active']) ? $_POST['is_active'] : 1,
                 'venue_profile_picture' => $profilePicture,
@@ -5329,15 +5614,8 @@ This is an automated message. Please do not reply.
                 $venueTitle = $venue['venue_title'];
                 $currentPaxRate = floatval($venue['extra_pax_rate']);
 
-                // Define expected pax rates based on venue names
-                $expectedPaxRate = 0;
-                if (stripos($venueTitle, 'Pearlmont Hotel') !== false && stripos($venueTitle, 'Package 2') !== false) {
-                    $expectedPaxRate = 300.00;
-                } elseif (stripos($venueTitle, 'Pearlmont Hotel') !== false) {
-                    $expectedPaxRate = 350.00;
-                } elseif (stripos($venueTitle, 'Demiren') !== false) {
-                    $expectedPaxRate = 200.00;
-                }
+                // Use the actual pax rate from the database
+                $expectedPaxRate = floatval($venue['extra_pax_rate']);
 
                 $results[] = [
                     'venue_id' => $venue['venue_id'],
@@ -5520,7 +5798,6 @@ This is an automated message. Please do not reply.
                     venue_details = ?,
                     venue_status = ?,
                     venue_capacity = ?,
-                    venue_price = ?,
                     extra_pax_rate = ?,
                     venue_type = ?,
                     updated_at = CURRENT_TIMESTAMP
@@ -5535,7 +5812,6 @@ This is an automated message. Please do not reply.
                 $data['venue_details'] ?? '',
                 $data['venue_status'] ?? 'available',
                 $data['venue_capacity'],
-                $data['venue_price'],
                 $data['extra_pax_rate'] ?? 0.00,
                 $data['venue_type'] ?? 'indoor',
                 $data['venue_id']
@@ -5622,11 +5898,12 @@ This is an automated message. Please do not reply.
             $sql = "SELECT v.*,
                     GROUP_CONCAT(DISTINCT vc.component_name COLLATE utf8mb4_general_ci) as components,
                     GROUP_CONCAT(DISTINCT vi.inclusion_name COLLATE utf8mb4_general_ci) as inclusions,
-                    COALESCE(v.venue_price, 0) as total_price,
-                    COALESCE(v.extra_pax_rate, 0) as extra_pax_rate
+                    COALESCE(v.extra_pax_rate, 0) as extra_pax_rate,
+                    COALESCE(vp.venue_price_min, 0) as total_price
                     FROM tbl_venue v
                     LEFT JOIN tbl_venue_inclusions vi ON v.venue_id = vi.venue_id
                     LEFT JOIN tbl_venue_components vc ON vi.inclusion_id = vc.inclusion_id
+                    LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                     WHERE v.is_active = 1
                     GROUP BY v.venue_id
                     ORDER BY v.created_at DESC";
@@ -5637,8 +5914,8 @@ This is an automated message. Please do not reply.
             foreach ($venues as &$venue) {
                 $venue['components'] = $venue['components'] ? explode(',', $venue['components']) : [];
                 $venue['inclusions'] = $venue['inclusions'] ? explode(',', $venue['inclusions']) : [];
-                $venue['total_price'] = floatval($venue['total_price']);
-                $venue['extra_pax_rate'] = floatval($venue['extra_pax_rate']);
+                $venue['total_price'] = floatval($venue['total_price'] ?? 0);
+                $venue['extra_pax_rate'] = floatval($venue['extra_pax_rate'] ?? 0);
 
                 // Add pax rate information
                 $venue['has_pax_rate'] = $venue['extra_pax_rate'] > 0;
@@ -5661,7 +5938,6 @@ This is an automated message. Please do not reply.
     public function getAllAvailableVenues() {
         try {
             $sql = "SELECT v.*,
-                           COALESCE(v.venue_price, 0) as venue_price,
                            COALESCE(v.extra_pax_rate, 0) as extra_pax_rate,
                            v.venue_capacity,
                            v.venue_type,
@@ -5690,7 +5966,7 @@ This is an automated message. Please do not reply.
     public function calculateVenuePricing($venueId, $guestCount) {
         try {
             // Get venue details
-            $sql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate, venue_capacity
+            $sql = "SELECT venue_id, venue_title, extra_pax_rate, venue_capacity
                     FROM tbl_venue
                     WHERE venue_id = :venue_id AND is_active = 1";
 
@@ -5705,14 +5981,13 @@ This is an automated message. Please do not reply.
                 ]);
             }
 
-            $basePrice = floatval($venue['venue_price']);
             $extraPaxRate = floatval($venue['extra_pax_rate']);
             $baseCapacity = 100; // Base capacity for pax rate calculation
 
             // Calculate overflow charges
             $extraGuests = max(0, $guestCount - $baseCapacity);
             $overflowCharge = $extraGuests * $extraPaxRate;
-            $totalPrice = $basePrice + $overflowCharge;
+            $totalPrice = $overflowCharge;
 
             return json_encode([
                 "status" => "success",
@@ -5782,7 +6057,7 @@ This is an automated message. Please do not reply.
                             $venueOptions = json_encode($component['venue_options']);
                             $description = "Venue Fee Buffer - Options: " . $venueOptions;
                         }
-                        
+
                         $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
                                         VALUES (:package_id, :name, :description, :price, :order)";
                         $componentStmt = $this->conn->prepare($componentSql);
@@ -8166,12 +8441,12 @@ This is an automated message. Please do not reply.
             // Create new venue with duplicated data but unique ID
             $sql = "INSERT INTO tbl_venue (
                 venue_title, venue_details, venue_location, venue_contact,
-                venue_type, venue_capacity, venue_price, extra_pax_rate, is_active,
+                venue_type, venue_capacity, extra_pax_rate, is_active,
                 venue_profile_picture, venue_cover_photo, user_id, venue_owner,
                 venue_status
             ) VALUES (
                 :venue_title, :venue_details, :venue_location, :venue_contact,
-                :venue_type, :venue_capacity, :venue_price, :extra_pax_rate, :is_active,
+                :venue_type, :venue_capacity, :extra_pax_rate, :is_active,
                 :venue_profile_picture, :venue_cover_photo, :user_id, :venue_owner,
                 :venue_status
             )";
@@ -8184,7 +8459,6 @@ This is an automated message. Please do not reply.
                 'venue_contact' => $venue['venue_contact'],
                 'venue_type' => $venue['venue_type'],
                 'venue_capacity' => $venue['venue_capacity'],
-                'venue_price' => $venue['venue_price'],
                 'extra_pax_rate' => $venue['extra_pax_rate'] ?? 0,
                 'is_active' => 1, // Set as active so it shows up immediately
                 'venue_profile_picture' => $venue['venue_profile_picture'],
@@ -10498,12 +10772,13 @@ Event Coordination System Team
                             $venueSql = "SELECT
                                             'venue_created' as action_type,
                                             v.created_at as timestamp,
-                                            CONCAT('Venue \"', v.venue_title, '\" created with capacity ', v.venue_capacity, ' and price ₱', FORMAT(v.venue_price, 2)) as description,
+                                            CONCAT('Venue \"', v.venue_title, '\" created with capacity ', v.venue_capacity, ' and price ₱', FORMAT(COALESCE(vp.venue_price_min, 0), 2)) as description,
                                             'Admin' as user_name,
                                             'admin' as user_type,
                                             v.venue_id as related_id,
                                             'venue' as entity_type
                                         FROM tbl_venue v
+                                        LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                                         WHERE v.created_at BETWEEN ? AND ?";
                             $stmt = $this->conn->prepare($venueSql);
                             $stmt->execute([$startDate, $endDate]);
@@ -10803,16 +11078,17 @@ Event Coordination System Team
             $venueSql = "SELECT
                            'venue_created' as action_type,
                            v.created_at as timestamp,
-                           CONCAT('Venue \"', v.venue_title, '\" created with capacity ', v.venue_capacity, ' and price ₱', FORMAT(v.venue_price, 2)) as description,
+                           CONCAT('Venue \"', v.venue_title, '\" created with capacity ', v.venue_capacity, ' and price ₱', FORMAT(COALESCE(vp.venue_price_min, 0), 2)) as description,
                            'Admin' as user_name,
                            'admin' as user_type,
                            v.venue_id as related_id,
                            'venue' as entity_type,
                            v.venue_title as venue_title,
                            v.venue_capacity as venue_capacity,
-                           v.venue_price as venue_price,
+                           COALESCE(vp.venue_price_min, 0) as venue_price,
                            v.venue_location as venue_location
                         FROM tbl_venue v
+                        LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                         WHERE v.created_at BETWEEN ? AND ?";
 
             $stmt = $this->conn->prepare($venueSql);
@@ -12726,6 +13002,24 @@ try {
                     "message" => "Failed to fetch delivery progress"
                 ]);
             }
+        }
+        break;
+
+    case "deleteClient":
+        $clientId = (int)($_GET['client_id'] ?? ($data['client_id'] ?? 0));
+        if ($clientId <= 0) {
+            echo json_encode(["status" => "error", "message" => "Valid client ID required"]);
+        } else {
+            echo $admin->deleteClient($clientId);
+        }
+        break;
+
+    case "deleteClients":
+        $clientIds = $data['client_ids'] ?? [];
+        if (empty($clientIds) || !is_array($clientIds)) {
+            echo json_encode(["status" => "error", "message" => "Valid client IDs array required"]);
+        } else {
+            echo $admin->deleteClients($clientIds);
         }
         break;
 

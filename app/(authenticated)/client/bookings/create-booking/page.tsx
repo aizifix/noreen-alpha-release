@@ -286,7 +286,8 @@ export default function EnhancedCreateBookingPage() {
 
   // Helper function to get proper image URL - matches admin implementation
   const getImageUrl = (imagePath: string | null) => {
-    if (!imagePath || imagePath.trim() === "") return "/default_pfp.png";
+    if (!imagePath || imagePath.trim() === "")
+      return `${endpoints.client.replace("/client.php", "/serve-image.php")}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`;
 
     // If already a full URL, return as is
     if (imagePath.startsWith("http")) return imagePath;
@@ -1944,7 +1945,7 @@ export default function EnhancedCreateBookingPage() {
                               </p>
                               {conflictingEvents.map((event, index) => (
                                 <div
-                                  key={`conflict-${index}-${Date.now()}`}
+                                  key={`conflict-${event.event_id || index}`}
                                   className="text-sm"
                                 >
                                   • {event.event_title} ({event.start_time} -{" "}
@@ -3196,7 +3197,7 @@ export default function EnhancedCreateBookingPage() {
                               {modalPackage.venue_previews.map(
                                 (venue, index) => (
                                   <div
-                                    key={`venue-${index}`}
+                                    key={`venue-${venue.venue_id || index}`}
                                     className="snap-start shrink-0 w-[85%] sm:w-[48%] md:w-[45%] px-2 transition-transform duration-300 hover:scale-[1.02] venue-card-width"
                                   >
                                     <div className="border rounded-xl overflow-hidden bg-white shadow-md hover:shadow-lg transition-all duration-300 h-full flex flex-col">

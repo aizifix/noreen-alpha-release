@@ -824,7 +824,7 @@ export default function InclusionsStep({
                       <div className="divide-y">
                         {externalCustomizations.map((customization, index) => (
                           <div
-                            key={`external-customization-${index}`}
+                            key={`external-customization-${customization.name || index}`}
                             className="p-4"
                           >
                             <div className="flex items-center justify-between">
@@ -953,7 +953,7 @@ export default function InclusionsStep({
                 <div className="space-y-2">
                   {venueInclusions.map((inclusion, index) => (
                     <Card
-                      key={`venue-inc-${String(inclusion.inclusion_id)}-${index}`}
+                      key={`venue-inc-${String(inclusion.inclusion_id)}-${index}-${inclusion.inclusion_name?.replace(/\s+/g, "-") || "unnamed"}`}
                       className="bg-gray-50 border-gray-200"
                     >
                       <CardContent className="p-3 flex items-center justify-between">

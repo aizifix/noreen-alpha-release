@@ -91,9 +91,10 @@ function getPackagesByEventType($eventTypeId, $guestCount) {
 
             // Get venue previews for this package
             $venuesSql = "SELECT v.venue_id, v.venue_title, v.venue_location,
-                                v.venue_capacity, v.venue_price, v.venue_profile_picture, v.venue_cover_photo
+                                v.venue_capacity, COALESCE(vp.venue_price_min, 0) as venue_price, v.venue_profile_picture, v.venue_cover_photo
                          FROM tbl_package_venues pv
                          JOIN tbl_venue v ON pv.venue_id = v.venue_id
+                         LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                          WHERE pv.package_id = :package_id
                          AND v.venue_status = 'available'
                          ORDER BY v.venue_title ASC";
@@ -220,10 +221,11 @@ function getPackageDetails($packageId) {
 
         // Get all venues for this package
         $venuesSql = "SELECT v.venue_id, v.venue_title, v.venue_location,
-                            v.venue_capacity, v.venue_price as total_price,
+                            v.venue_capacity, COALESCE(vp.venue_price_min, 0) as total_price,
                             v.venue_profile_picture, v.venue_cover_photo
                      FROM tbl_package_venues pv
                      JOIN tbl_venue v ON pv.venue_id = v.venue_id
+                     LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                      WHERE pv.package_id = :package_id
                      AND v.venue_status = 'available'
                      ORDER BY v.venue_title ASC";
@@ -883,7 +885,7 @@ function getClientEventDetails($userId, $eventId) {
                 v.venue_location,
                 v.venue_contact,
                 v.venue_capacity,
-                v.venue_price,
+                COALESCE(vp.venue_price_min, 0) as venue_price,
                 CONCAT(a.user_firstName, ' ', a.user_lastName) as admin_name,
                 CONCAT(org.user_firstName, ' ', org.user_lastName) as organizer_name
             FROM tbl_events e
@@ -893,6 +895,7 @@ function getClientEventDetails($userId, $eventId) {
             LEFT JOIN tbl_event_type et ON e.event_type_id = et.event_type_id
             LEFT JOIN tbl_packages p ON e.package_id = p.package_id
             LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
+            LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
             WHERE e.event_id = ? AND e.user_id = ?
         ");
         $stmt->execute([$eventId, $userId]);

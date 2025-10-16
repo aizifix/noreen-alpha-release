@@ -177,6 +177,8 @@ const VerifyOTP = () => {
           setTimeout(() => {
             if (userRole === "admin") {
               router.replace("/admin/dashboard");
+            } else if (userRole === "staff") {
+              router.replace("/staff/dashboard");
             } else if (userRole === "organizer") {
               router.replace("/organizer/dashboard");
             } else if (userRole === "client") {

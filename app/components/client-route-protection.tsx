@@ -42,6 +42,8 @@ export default function ClientRouteProtection({
         const role = userData.user_role.toLowerCase();
         if (role === "admin") {
           router.replace("/admin/dashboard");
+        } else if (role === "staff") {
+          router.replace("/staff/dashboard");
         } else if (role === "vendor" || role === "organizer") {
           router.replace("/organizer/dashboard");
         } else if (role === "client") {

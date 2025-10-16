@@ -4971,7 +4971,7 @@ export default function EventDetailsPage() {
                                     ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                         organizerDetails.profile_picture
                                       )}`
-                                    : "/default_pfp.png"
+                                    : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                                 }
                                 alt="Organizer"
                                 className="h-8 w-8 rounded-full object-cover"
@@ -5386,7 +5386,7 @@ export default function EventDetailsPage() {
                                           ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                               o.profile_picture
                                             )}`
-                                          : "/default_pfp.png"
+                                          : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                                       }
                                       alt="pfp"
                                       className="h-8 w-8 rounded-full object-cover"

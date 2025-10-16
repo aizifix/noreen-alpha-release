@@ -267,6 +267,8 @@ export default function AdminLayout({
         const role = userData.user_role.toLowerCase();
         if (role === "client") {
           router.replace("/client/dashboard");
+        } else if (role === "staff") {
+          router.replace("/staff/dashboard");
         } else if (role === "vendor" || role === "organizer") {
           router.replace("/organizer/dashboard");
         } else {
@@ -286,11 +288,14 @@ export default function AdminLayout({
 
   // Listen for user data changes (like profile picture updates)
   useEffect(() => {
-    const handleUserDataChange = () => {
+    const handleUserDataChange = (event: any) => {
       try {
         const userData = secureStorage.getItem("user");
         if (userData && userData.user_role === "Admin") {
-          console.log("Admin layout: User data updated, refreshing navbar");
+          console.log("Admin layout: User data updated, refreshing navbar", {
+            user_pfp: userData.user_pfp,
+            eventDetail: event.detail,
+          });
           setUser(userData);
         }
       } catch (error) {
@@ -801,11 +806,9 @@ export default function AdminLayout({
               >
                 {/* Profile Picture */}
                 <div className="h-7 w-7 lg:h-8 lg:w-8 border border-[#D2D2D2] rounded-full overflow-hidden shrink-0">
-                  {user.user_pfp &&
-                  user.user_pfp.trim() !== "" &&
-                  api.getServeImageUrl(user.user_pfp) ? (
+                  {user.user_pfp && user.user_pfp.trim() !== "" ? (
                     <Image
-                      src={api.getServeImageUrl(user.user_pfp)!}
+                      src={`${process.env.NEXT_PUBLIC_API_URL || "https://noreen-events.online/noreen-events"}/serve-image.php?path=${encodeURIComponent(user.user_pfp)}`}
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       width={32}
                       height={32}

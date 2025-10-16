@@ -25,7 +25,7 @@ export default function StaffTestPage() {
         },
       });
 
-      setTestResults((prev) => ({
+      setTestResults((prev: any) => ({
         ...prev,
         [testName]: {
           status: "success",
@@ -33,7 +33,7 @@ export default function StaffTestPage() {
         },
       }));
     } catch (error: any) {
-      setTestResults((prev) => ({
+      setTestResults((prev: any) => ({
         ...prev,
         [testName]: {
           status: "error",

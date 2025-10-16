@@ -4,6 +4,13 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
+import {
+  getUserRole,
+  canCreate,
+  canEdit,
+  canDelete,
+} from "@/app/utils/permissions";
+import { secureStorage } from "@/app/utils/encryption";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -69,6 +76,7 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [showClientDetails, setShowClientDetails] = useState(false);
   const [selectedClients, setSelectedClients] = useState<number[]>([]);
@@ -143,6 +151,16 @@ export default function ClientsPage() {
 
   // Effect for pagination
   useEffect(() => {
+    // Get user data for permissions
+    try {
+      const userData = secureStorage.getItem("user");
+      if (userData) {
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Error getting user data:", error);
+    }
+
     fetchClients();
   }, [currentPage, fetchClients]);
 
@@ -774,16 +792,18 @@ export default function ClientsPage() {
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-red-600"
-                            onClick={() => {
-                              setClientToDelete(client);
-                              setDeleteConfirmOpen(true);
-                            }}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
+                          {canDelete("clients", getUserRole(user)) && (
+                            <DropdownMenuItem
+                              className="text-red-600"
+                              onClick={() => {
+                                setClientToDelete(client);
+                                setDeleteConfirmOpen(true);
+                              }}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </td>
@@ -1045,7 +1065,10 @@ export default function ClientsPage() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <Dialog
+        open={deleteConfirmOpen && canDelete("clients", getUserRole(user))}
+        onOpenChange={setDeleteConfirmOpen}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Delete Client</DialogTitle>

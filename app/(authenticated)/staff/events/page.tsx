@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
 import {
+  getUserRole,
+  canCreate,
+  canEdit,
+  canDelete,
+} from "@/app/utils/permissions";
+import {
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -101,6 +107,7 @@ export default function EventsPage() {
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [events, setEvents] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     new Date()
@@ -128,6 +135,7 @@ export default function EventsPage() {
         router.push("/auth/login");
         return;
       }
+      setUser(userData);
       setUserRole(userData.user_role);
       setUserId(userData.user_id);
       fetchEvents();
@@ -781,13 +789,20 @@ export default function EventsPage() {
             </button>
           </div>
 
-          <button
-            className="flex items-center gap-2 px-6 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors duration-200 font-medium"
-            onClick={() => router.push("/staff/event-builder")}
-          >
-            <Plus className="h-4 w-4" />
-            Create Event
-          </button>
+          {canCreate("events", getUserRole(user)) && (
+            <button
+              className="flex items-center gap-2 px-6 py-2 bg-[#028A75] text-white rounded-lg hover:bg-[#027a65] transition-colors duration-200 font-medium"
+              onClick={() => router.push("/staff/event-builder")}
+            >
+              <Plus className="h-4 w-4" />
+              Create Event
+            </button>
+          )}
+          {!canCreate("events", getUserRole(user)) && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg">
+              <span className="text-sm text-gray-600">View Only Access</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1158,13 +1173,21 @@ export default function EventsPage() {
                   : "Try adjusting your search criteria or clear the filters to see all events."}
               </p>
               {events.length === 0 ? (
-                <button
-                  className="px-6 py-3 rounded-lg bg-[#028A75] text-white font-semibold hover:bg-[#027a65] transition-colors duration-200 flex items-center gap-2 mx-auto"
-                  onClick={() => router.push("/staff/event-builder")}
-                >
-                  <Plus className="h-4 w-4" />
-                  Create Event
-                </button>
+                canCreate("events", getUserRole(user)) ? (
+                  <button
+                    className="px-6 py-3 rounded-lg bg-[#028A75] text-white font-semibold hover:bg-[#027a65] transition-colors duration-200 flex items-center gap-2 mx-auto"
+                    onClick={() => router.push("/staff/event-builder")}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create Event
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg mx-auto">
+                    <span className="text-sm text-gray-600">
+                      View Only Access
+                    </span>
+                  </div>
+                )
               ) : (
                 <button
                   className="px-6 py-3 rounded-lg bg-gray-600 text-white font-semibold hover:bg-gray-700 transition-colors duration-200 flex items-center gap-2 mx-auto"

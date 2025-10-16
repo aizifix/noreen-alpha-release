@@ -59,6 +59,7 @@ import {
   Check,
   ListPlus,
   Layers,
+  CreditCard,
 } from "lucide-react";
 
 // Types for the booking process
@@ -205,6 +206,7 @@ export default function EnhancedCreateBookingPage() {
   const searchParams = useSearchParams();
   const preselectedPackageId = searchParams.get("package");
   const preselectedEventType = searchParams.get("eventType");
+  const isEditMode = searchParams.get("edit") === "true";
   const isPrefilledPackage = Boolean(preselectedPackageId);
 
   // Multi-step wizard state
@@ -238,6 +240,8 @@ export default function EnhancedCreateBookingPage() {
   const [packageEventTypeFilter, setPackageEventTypeFilter] =
     useState<string>("all");
   const venueCarouselRef = useRef<HTMLDivElement | null>(null);
+  const [currentVenueIndex, setCurrentVenueIndex] = useState(0);
+
   const scrollVenueCarousel = (direction: number) => {
     const container = venueCarouselRef.current;
     if (!container) return;
@@ -247,10 +251,38 @@ export default function EnhancedCreateBookingPage() {
       : Math.floor(container.clientWidth * 0.8);
     container.scrollBy({ left: direction * scrollBy, behavior: "smooth" });
   };
+
+  // Handle scroll to update current venue index
+  const handleCarouselScroll = () => {
+    const container = venueCarouselRef.current;
+    if (!container || !modalPackage?.venue_previews) return;
+
+    const scrollLeft = container.scrollLeft;
+    const cardWidth = container.clientWidth;
+    const newIndex = Math.round(scrollLeft / cardWidth);
+
+    if (
+      newIndex !== currentVenueIndex &&
+      newIndex >= 0 &&
+      newIndex < modalPackage.venue_previews.length
+    ) {
+      setCurrentVenueIndex(newIndex);
+    }
+  };
   const [selectedPackage, setSelectedPackage] = useState<Package | null>(null);
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
   const [decideLater, setDecideLater] = useState(false);
   const [loadingEventTypes, setLoadingEventTypes] = useState(false);
+
+  // Payment state
+  const [paymentSettings, setPaymentSettings] = useState({
+    gcash_name: "",
+    gcash_number: "",
+    bank_name: "",
+    bank_account_name: "",
+    bank_account_number: "",
+    payment_instructions: "",
+  });
 
   // Components and inclusions state
   const [availableComponents, setAvailableComponents] = useState<Component[]>(
@@ -268,10 +300,9 @@ export default function EnhancedCreateBookingPage() {
     formData.guestCount.toString()
   );
 
-  // Sync guestCountInput when formData.guestCount changes
-  useEffect(() => {
-    setGuestCountInput(formData.guestCount.toString());
-  }, [formData.guestCount]);
+  // Edit mode state
+  const [editBookingData, setEditBookingData] = useState<any>(null);
+  const [isEditModeLoaded, setIsEditModeLoaded] = useState(false);
 
   // Calendar and conflict checking state
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -283,6 +314,45 @@ export default function EnhancedCreateBookingPage() {
   const [conflictingEvents, setConflictingEvents] = useState<
     ConflictingEvent[]
   >([]);
+
+  // Sync guestCountInput when formData.guestCount changes
+  useEffect(() => {
+    setGuestCountInput(formData.guestCount.toString());
+  }, [formData.guestCount]);
+
+  // Load edit data if in edit mode
+  useEffect(() => {
+    if (isEditMode && !isEditModeLoaded) {
+      const editData = localStorage.getItem("editBookingData");
+      if (editData) {
+        try {
+          const parsedData = JSON.parse(editData);
+          setEditBookingData(parsedData);
+
+          // Pre-fill form data
+          setFormData((prev) => ({
+            ...prev,
+            eventType: parsedData.eventType || "",
+            eventName: parsedData.eventName || "",
+            eventDate: parsedData.eventDate || "",
+            guestCount: parsedData.guestCount || 100,
+            packageId: parsedData.packageId || null,
+            venueId: parsedData.venueId || null,
+            notes: parsedData.notes || "",
+            startTime: parsedData.eventTime
+              ? parsedData.eventTime.split(":")[0] +
+                ":" +
+                parsedData.eventTime.split(":")[1]
+              : "12:00",
+          }));
+
+          setIsEditModeLoaded(true);
+        } catch (error) {
+          console.error("Error parsing edit data:", error);
+        }
+      }
+    }
+  }, [isEditMode, isEditModeLoaded]);
 
   // Helper function to get proper image URL - matches admin implementation
   const getImageUrl = (imagePath: string | null) => {
@@ -436,6 +506,12 @@ export default function EnhancedCreateBookingPage() {
       id: 5,
       title: "Review & Confirm",
       description: "Review your booking",
+      completed: false,
+    },
+    {
+      id: 6,
+      title: "Payment Information",
+      description: "View payment options",
       completed: false,
     },
   ];
@@ -1019,7 +1095,9 @@ export default function EnhancedCreateBookingPage() {
     setIsLoading(true);
     try {
       const bookingData = {
-        operation: "createBooking",
+        operation: isEditMode ? "updateBooking" : "createBooking",
+        ...(isEditMode &&
+          editBookingData && { booking_id: editBookingData.bookingId }),
         user_id: userId,
         event_type_id: getEventTypeId(formData.eventType),
         event_name: formData.eventName,
@@ -1062,21 +1140,42 @@ export default function EnhancedCreateBookingPage() {
       const response = await axios.post(`${endpoints.client}`, bookingData);
 
       if (response.data.status === "success") {
-        setBookingSuccess(true);
-        setBookingReference(response.data.booking_reference);
+        const bookingId = response.data.booking_id;
+        const bookingReference = response.data.booking_reference;
+
         toast({
-          title: "Booking Created Successfully!",
-          description: `Your booking reference is: ${response.data.booking_reference}`,
+          title: isEditMode
+            ? "Booking Updated Successfully!"
+            : "Booking Created Successfully!",
+          description: isEditMode
+            ? `Your booking has been updated successfully.`
+            : `Your booking reference is: ${bookingReference}. You can now make a payment using the methods shown to reserve your slot.`,
         });
+
+        // Clean up edit data if in edit mode
+        if (isEditMode) {
+          localStorage.removeItem("editBookingData");
+          router.push("/client/bookings");
+        } else {
+          setBookingSuccess(true);
+          setBookingReference(bookingReference);
+        }
       } else {
-        throw new Error(response.data.message || "Failed to create booking");
+        throw new Error(
+          response.data.message ||
+            `Failed to ${isEditMode ? "update" : "create"} booking`
+        );
       }
     } catch (error: any) {
-      console.error("Error creating booking:", error);
+      console.error(
+        `Error ${isEditMode ? "updating" : "creating"} booking:`,
+        error
+      );
       toast({
-        title: "Booking Failed",
+        title: isEditMode ? "Update Failed" : "Booking Failed",
         description:
-          error.message || "Failed to create booking. Please try again.",
+          error.message ||
+          `Failed to ${isEditMode ? "update" : "create"} booking. Please try again.`,
         variant: "destructive",
       });
     } finally {
@@ -1103,6 +1202,9 @@ export default function EnhancedCreateBookingPage() {
           fetchPackageInclusions(formData.packageId);
         }
         // Do NOT merge venue inclusions into package inclusions per requirements
+      } else if (currentStep + 1 === 6) {
+        // When moving to payment step, fetch payment settings
+        fetchPaymentSettings();
       }
     }
   };
@@ -1157,6 +1259,30 @@ export default function EnhancedCreateBookingPage() {
       display_order: component.display_order || 0,
       included: true,
     };
+  };
+
+  // Fetch payment settings
+  const fetchPaymentSettings = async () => {
+    try {
+      const response = await axios.get(`${endpoints.client}`, {
+        params: { operation: "getPaymentSettings" },
+      });
+
+      if (response.data.status === "success") {
+        setPaymentSettings(
+          response.data.payment_settings || {
+            gcash_name: "",
+            gcash_number: "",
+            bank_name: "",
+            bank_account_name: "",
+            bank_account_number: "",
+            payment_instructions: "",
+          }
+        );
+      }
+    } catch (err) {
+      console.error("Error fetching payment settings:", err);
+    }
   };
 
   // Fetch package inclusions
@@ -2880,13 +3006,165 @@ export default function EnhancedCreateBookingPage() {
             </div>
           </div>
 
+          {/* Step 6: Payment Step */}
+          {currentStep === 6 && (
+            <div className="space-y-6 animate-fadeSlideIn">
+              <Card className="border shadow-sm rounded-xl">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CreditCard className="h-5 w-5" />
+                    Payment Information
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    View available payment methods. You can make a payment to
+                    reserve your slot, or pay later. Staff will record your
+                    payment when received.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Payment Information Display */}
+                  {(paymentSettings.gcash_name ||
+                    paymentSettings.bank_name) && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold">
+                        Payment Information
+                      </h3>
+
+                      {paymentSettings.gcash_name && (
+                        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                          <h4 className="font-semibold text-green-800 mb-2">
+                            GCash
+                          </h4>
+                          <p className="text-sm text-green-700">
+                            <strong>Name:</strong> {paymentSettings.gcash_name}
+                          </p>
+                          {paymentSettings.gcash_number && (
+                            <p className="text-sm text-green-700">
+                              <strong>Number:</strong>{" "}
+                              {paymentSettings.gcash_number}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {paymentSettings.bank_name && (
+                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                          <h4 className="font-semibold text-blue-800 mb-2">
+                            Bank Transfer
+                          </h4>
+                          <p className="text-sm text-blue-700">
+                            <strong>Bank:</strong> {paymentSettings.bank_name}
+                          </p>
+                          {paymentSettings.bank_account_name && (
+                            <p className="text-sm text-blue-700">
+                              <strong>Account Name:</strong>{" "}
+                              {paymentSettings.bank_account_name}
+                            </p>
+                          )}
+                          {paymentSettings.bank_account_number && (
+                            <p className="text-sm text-blue-700">
+                              <strong>Account Number:</strong>{" "}
+                              {paymentSettings.bank_account_number}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {paymentSettings.payment_instructions && (
+                        <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                          <h4 className="font-semibold text-gray-800 mb-2">
+                            Instructions
+                          </h4>
+                          <p className="text-sm text-gray-700">
+                            {paymentSettings.payment_instructions}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Payment Options */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold">
+                      Available Payment Methods
+                    </h3>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* GCash Option */}
+                      <div className="p-4 border border-green-200 rounded-lg bg-green-50">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
+                            <span className="text-white text-sm font-bold">
+                              G
+                            </span>
+                          </div>
+                          <h4 className="font-semibold text-green-800">
+                            GCash
+                          </h4>
+                        </div>
+                        <p className="text-sm text-green-700">
+                          Send payment via GCash to the number provided above
+                        </p>
+                      </div>
+
+                      {/* Bank Transfer Option */}
+                      <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                            <span className="text-white text-sm font-bold">
+                              B
+                            </span>
+                          </div>
+                          <h4 className="font-semibold text-blue-800">
+                            Bank Transfer
+                          </h4>
+                        </div>
+                        <p className="text-sm text-blue-700">
+                          Transfer to the bank account details provided above
+                        </p>
+                      </div>
+
+                      {/* Cash on Site Option */}
+                      <div className="p-4 border border-orange-200 rounded-lg bg-orange-50">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 bg-orange-600 rounded-full flex items-center justify-center">
+                            <span className="text-white text-sm font-bold">
+                              ₱
+                            </span>
+                          </div>
+                          <h4 className="font-semibold text-orange-800">
+                            Cash on Site
+                          </h4>
+                        </div>
+                        <p className="text-sm text-orange-700">
+                          Pay in cash when you visit our office
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Payment Process Note */}
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>How it works:</strong> After creating your
+                      booking, you can make a payment using any of the methods
+                      above. Once you make a payment, contact our staff to
+                      record the transaction. This helps secure your booking
+                      slot and speeds up the confirmation process.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {/* Navigation Buttons */}
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-8 animate-fadeIn">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4 mt-8 animate-fadeIn">
             <Button
               variant="outline"
               onClick={prevStep}
               disabled={currentStep === 1}
-              className="w-full sm:w-auto flex items-center justify-center gap-2"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 min-h-[44px] px-6 py-3"
             >
               <ArrowLeft className="h-4 w-4" />
               Previous
@@ -2897,7 +3175,7 @@ export default function EnhancedCreateBookingPage() {
                 <Button
                   onClick={nextStep}
                   disabled={!canProceedToNextStep()}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#028A75] hover:bg-[#028A75]/90"
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#028A75] hover:bg-[#028A75]/90 min-h-[44px] px-6 py-3"
                 >
                   Next
                   <ArrowRight className="h-4 w-4" />
@@ -2906,17 +3184,19 @@ export default function EnhancedCreateBookingPage() {
                 <Button
                   onClick={handleSubmit}
                   disabled={isLoading || !canProceedToNextStep()}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#028A75] hover:bg-[#028A75]/90"
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#028A75] hover:bg-[#028A75]/90 min-h-[44px] px-6 py-3"
                 >
                   {isLoading ? (
                     <>
                       <RefreshCw className="h-4 w-4 animate-spin" />
-                      Creating Booking...
+                      {isEditMode
+                        ? "Updating Booking..."
+                        : "Creating Booking..."}
                     </>
                   ) : (
                     <>
                       <CheckCircle className="h-4 w-4" />
-                      Create Booking
+                      {isEditMode ? "Update Booking" : "Create Booking"}
                     </>
                   )}
                 </Button>
@@ -3045,7 +3325,7 @@ export default function EnhancedCreateBookingPage() {
         open={packageDetailsModalOpen}
         onOpenChange={setPackageDetailsModalOpen}
       >
-        <DialogContent className="max-w-4xl max-h-screen w-full overflow-hidden p-0 flex flex-col">
+        <DialogContent className="max-w-4xl max-h-[90vh] sm:max-h-[95vh] w-full overflow-hidden p-0 flex flex-col">
           <DialogHeader className="p-4 sm:p-6 md:p-8 border-b">
             <DialogTitle className="text-2xl font-bold flex items-center">
               <Package className="h-6 w-6 mr-2 text-[#028A75]" />
@@ -3193,6 +3473,7 @@ export default function EnhancedCreateBookingPage() {
                             <div
                               className="flex snap-x snap-mandatory overflow-x-auto scrollbar-hide pb-4 mx-0"
                               ref={venueCarouselRef}
+                              onScroll={handleCarouselScroll}
                             >
                               {modalPackage.venue_previews.map(
                                 (venue, index) => (
@@ -3249,9 +3530,30 @@ export default function EnhancedCreateBookingPage() {
                                           </h4>
                                         </div>
                                         <div className="mt-1">
-                                          <span className="text-base font-semibold text-[#028A75]">
-                                            {formatPrice(venue.venue_price)}
-                                          </span>
+                                          {venue.extra_pax_rate ? (
+                                            <div className="space-y-1">
+                                              <span className="text-base font-semibold text-[#028A75]">
+                                                {formatPrice(
+                                                  venue.extra_pax_rate
+                                                )}
+                                                /pax
+                                              </span>
+                                              <p className="text-sm text-gray-600">
+                                                Total for {formData.guestCount}{" "}
+                                                guests:{" "}
+                                                {formatPrice(
+                                                  computeVenueEstimatedPrice(
+                                                    venue,
+                                                    formData.guestCount
+                                                  )
+                                                )}
+                                              </p>
+                                            </div>
+                                          ) : (
+                                            <span className="text-base font-semibold text-[#028A75]">
+                                              {formatPrice(venue.venue_price)}
+                                            </span>
+                                          )}
                                         </div>
                                         <p className="text-sm text-gray-600 flex items-center mt-1">
                                           <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
@@ -3275,13 +3577,6 @@ export default function EnhancedCreateBookingPage() {
                                             Details
                                           </button>
                                         </div>
-                                        {venue.extra_pax_rate && (
-                                          <p className="text-xs text-gray-600 mt-1">
-                                            Extra pax rate:{" "}
-                                            {formatPrice(venue.extra_pax_rate)}{" "}
-                                            per guest
-                                          </p>
-                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -3295,8 +3590,10 @@ export default function EnhancedCreateBookingPage() {
                             {modalPackage.venue_previews.map((_, index) => (
                               <div
                                 key={`venue-dot-${index}`}
-                                className={`w-2 h-2 rounded-full ${
-                                  index === 0 ? "bg-[#028A75]" : "bg-gray-300"
+                                className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                                  index === currentVenueIndex
+                                    ? "bg-[#028A75] w-6"
+                                    : "bg-gray-300"
                                 }`}
                               />
                             ))}
@@ -3311,14 +3608,14 @@ export default function EnhancedCreateBookingPage() {
 
           {/* Horizontal divider and fixed button area */}
           {modalPackage && (
-            <div className="border-t border-gray-200 p-4 sm:p-6 bg-white mt-auto">
+            <div className="border-t border-gray-200 p-4 sm:p-6 bg-white mt-auto sticky bottom-0 z-10">
               <div className="flex justify-center sm:justify-end">
                 <Button
                   onClick={() => {
                     handlePackageSelect(modalPackage);
                     setPackageDetailsModalOpen(false);
                   }}
-                  className="bg-[#028A75] hover:bg-[#028A75]/90 w-full sm:w-auto px-6 py-5 text-base font-medium transform transition-all duration-300 hover:scale-[1.02] hover:shadow-lg flex items-center justify-center gap-2"
+                  className="bg-[#028A75] hover:bg-[#028A75]/90 w-full sm:w-auto px-6 py-4 text-base font-medium transform transition-all duration-300 hover:scale-[1.02] hover:shadow-lg flex items-center justify-center gap-2 min-h-[48px]"
                 >
                   <span>Select This Package</span>
                   <CheckCircle className="h-5 w-5 ml-1" />

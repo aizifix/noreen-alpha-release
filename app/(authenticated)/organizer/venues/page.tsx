@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { CheckIcon } from "lucide-react";
-import { apiClient } from "@/utils/apiClient";
+import axios from "axios";
 import { VenueCard } from "../../../components/card/venue-card";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
@@ -285,7 +285,7 @@ export default function VendorVenues() {
       );
 
       if (
-        response.status === "success" &&
+        response.data.status === "success" &&
         Array.isArray(response.data.venues)
       ) {
         setVenues(response.data.venues);
@@ -332,17 +332,13 @@ export default function VendorVenues() {
         formData.append("venue_cover_photo", venueCoverPhoto);
       }
 
-      const response = await axios.post(
-        "/vendor.php",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
+      const response = await axios.post("/vendor.php", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
-      if (response.status === "success") {
+      if (response.data.status === "success") {
         setShowModal(false);
         fetchVenues();
         // Reset form

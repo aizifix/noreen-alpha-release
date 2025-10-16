@@ -11,6 +11,8 @@ import {
   MapPin,
   Package,
   X,
+  CreditCard,
+  Wallet,
 } from "lucide-react";
 // import { apiClient } from "@/utils/apiClient";
 import axios from "axios";
@@ -21,6 +23,7 @@ import { secureStorage } from "@/app/utils/encryption";
 const statusColors: { [key: string]: string } = {
   confirmed: "bg-green-100 text-green-700",
   pending: "bg-yellow-100 text-yellow-700",
+  reserved: "bg-orange-100 text-orange-700",
   completed: "bg-blue-100 text-blue-700",
   converted: "bg-purple-100 text-purple-700",
   cancelled: "bg-red-100 text-red-700",
@@ -46,8 +49,25 @@ interface DbBooking {
     | "confirmed"
     | "completed"
     | "converted"
-    | "cancelled";
+    | "cancelled"
+    | "reserved";
   converted_event_id: number | null;
+  accepted_by_user_id: number | null;
+  accepted_by_role: string | null;
+  accepted_at: string | null;
+  created_at: string;
+  total_price?: number;
+  payments?: PaymentHistoryItem[];
+}
+
+interface PaymentHistoryItem {
+  payment_id: number;
+  payment_amount: number;
+  payment_method: string;
+  payment_date: string;
+  payment_status: string;
+  payment_reference: string | null;
+  payment_notes: string | null;
   created_at: string;
 }
 
@@ -85,6 +105,20 @@ export default function BookingsPage() {
   }
 
   const [availableEvents, setAvailableEvents] = useState<EventData[]>([]);
+  const [paymentSettings, setPaymentSettings] = useState({
+    gcash_name: "",
+    gcash_number: "",
+    bank_name: "",
+    bank_account_name: "",
+    bank_account_number: "",
+    payment_instructions: "",
+  });
+
+  // Payment form state - removed payment processing functionality
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [bookingToCancel, setBookingToCancel] = useState<DbBooking | null>(
+    null
+  );
 
   // Get user data from localStorage
   useEffect(() => {
@@ -127,50 +161,48 @@ export default function BookingsPage() {
 
     const uid = getUserData();
 
-    // Check for bookings in localStorage first (for demo purposes)
-    const localBookings = localStorage.getItem("newBookings");
-
-    if (localBookings) {
-      try {
-        const parsedBookings = JSON.parse(localBookings);
-        // Convert to expected DbBooking format
-        const formattedBookings: DbBooking[] = parsedBookings.map((b: any) => ({
-          booking_id: parseInt(b.id.replace("BK-", "")) || 0,
-          booking_reference: b.id,
-          user_id: 0,
-          event_type_id: 0,
-          event_type_name: b.eventType,
-          event_name: b.notes,
-          event_date: b.eventDate,
-          event_time: b.eventTime || "12:00:00",
-          guest_count: b.guestCount,
-          venue_id: null,
-          venue_name: b.venue,
-          package_id: null,
-          package_name: b.package,
-          notes: "",
-          booking_status: b.status as
-            | "pending"
-            | "confirmed"
-            | "completed"
-            | "cancelled",
-          created_at: b.createdAt,
-        }));
-
-        setBookings(formattedBookings);
-        setLoading(false);
-      } catch (err) {
-        console.error("Error parsing local bookings:", err);
-      }
-    }
-
-    // If we have a userId, fetch from API
+    // If we have a userId, fetch from API (which will handle local storage merging)
     if (uid) {
       fetchBookings(uid);
+      fetchPaymentSettings(); // Fetch payment settings for display in cards
     } else {
-      if (!localBookings) {
-        setLoading(false);
+      // Check for bookings in localStorage only if no user ID (demo mode)
+      const localBookings = localStorage.getItem("newBookings");
+      if (localBookings) {
+        try {
+          const parsedBookings = JSON.parse(localBookings);
+          // Convert to expected DbBooking format
+          const formattedBookings: DbBooking[] = parsedBookings.map(
+            (b: any) => ({
+              booking_id: parseInt(b.id.replace("BK-", "")) || 0,
+              booking_reference: b.id,
+              user_id: 0,
+              event_type_id: 0,
+              event_type_name: b.eventType,
+              event_name: b.notes,
+              event_date: b.eventDate,
+              event_time: b.eventTime || "12:00:00",
+              guest_count: b.guestCount,
+              venue_id: null,
+              venue_name: b.venue,
+              package_id: null,
+              package_name: b.package,
+              notes: "",
+              booking_status: b.status as
+                | "pending"
+                | "confirmed"
+                | "completed"
+                | "cancelled",
+              created_at: b.createdAt,
+            })
+          );
+
+          setBookings(formattedBookings);
+        } catch (err) {
+          console.error("Error parsing local bookings:", err);
+        }
       }
+      setLoading(false);
     }
   }, []);
 
@@ -217,10 +249,56 @@ export default function BookingsPage() {
             })
           );
 
-          mergedBookings = [...mergedBookings, ...formattedLocalBookings];
+          // Filter out local bookings that already exist in the database
+          const existingReferences = new Set(
+            response.data.bookings.map((b: DbBooking) => b.booking_reference)
+          );
+          const uniqueLocalBookings = formattedLocalBookings.filter(
+            (localBooking) =>
+              !existingReferences.has(localBooking.booking_reference)
+          );
+
+          console.log("Deduplication:", {
+            totalLocalBookings: formattedLocalBookings.length,
+            uniqueLocalBookings: uniqueLocalBookings.length,
+            filteredOut:
+              formattedLocalBookings.length - uniqueLocalBookings.length,
+            existingReferences: Array.from(existingReferences),
+          });
+
+          mergedBookings = [...mergedBookings, ...uniqueLocalBookings];
         }
 
-        setBookings(mergedBookings);
+        // Additional deduplication at the final level to ensure no duplicates
+        const finalBookings = mergedBookings.reduce(
+          (acc: DbBooking[], current: DbBooking) => {
+            const existingIndex = acc.findIndex(
+              (booking) =>
+                booking.booking_reference === current.booking_reference
+            );
+
+            if (existingIndex === -1) {
+              // Booking doesn't exist, add it
+              acc.push(current);
+            } else {
+              // Booking exists, keep the one with higher booking_id (more recent)
+              if (current.booking_id > acc[existingIndex].booking_id) {
+                acc[existingIndex] = current;
+              }
+            }
+
+            return acc;
+          },
+          []
+        );
+
+        console.log("Final deduplication:", {
+          before: mergedBookings.length,
+          after: finalBookings.length,
+          removed: mergedBookings.length - finalBookings.length,
+        });
+
+        setBookings(finalBookings);
       } else {
         setError(response.data.message || "Failed to fetch bookings");
       }
@@ -232,10 +310,107 @@ export default function BookingsPage() {
     }
   };
 
+  const fetchPaymentSettings = async () => {
+    try {
+      const response = await axios.get(`${endpoints.client}`, {
+        params: { operation: "getPaymentSettings" },
+      });
+
+      if (response.data.status === "success") {
+        const settings = response.data.payment_settings || {
+          gcash_name: "",
+          gcash_number: "",
+          bank_name: "",
+          bank_account_name: "",
+          bank_account_number: "",
+          payment_instructions: "",
+        };
+        setPaymentSettings(settings);
+      }
+    } catch (error) {
+      console.error("Error fetching payment settings:", error);
+    }
+  };
+
+  // Handle cancel booking
+  const handleCancelBooking = (booking: DbBooking) => {
+    setBookingToCancel(booking);
+    setShowCancelDialog(true);
+  };
+
+  // Confirm cancel booking
+  const confirmCancelBooking = async () => {
+    if (!bookingToCancel || !userId) return;
+
+    try {
+      const response = await axios.post(`${endpoints.client}`, {
+        operation: "cancelBooking",
+        booking_id: bookingToCancel.booking_id,
+        user_id: userId,
+      });
+
+      if (response.data.status === "success") {
+        toast({
+          title: "Booking Cancelled",
+          description: "Your booking has been cancelled successfully.",
+        });
+
+        // Refresh bookings list
+        fetchBookings(userId);
+      } else {
+        throw new Error(response.data.message || "Failed to cancel booking");
+      }
+    } catch (error: any) {
+      console.error("Error cancelling booking:", error);
+      toast({
+        title: "Cancellation Failed",
+        description:
+          error.message || "Failed to cancel booking. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setShowCancelDialog(false);
+      setBookingToCancel(null);
+    }
+  };
+
+  // Handle edit booking
+  const handleEditBooking = (booking: DbBooking) => {
+    // Store booking data in localStorage for the create-booking page to use
+    const editData = {
+      bookingId: booking.booking_id,
+      bookingReference: booking.booking_reference,
+      eventType: booking.event_type_name,
+      eventName: booking.event_name,
+      eventDate: booking.event_date,
+      eventTime: booking.event_time,
+      guestCount: booking.guest_count,
+      venueId: booking.venue_id,
+      venueName: booking.venue_name,
+      packageId: booking.package_id,
+      packageName: booking.package_name,
+      notes: booking.notes,
+      isEdit: true,
+    };
+
+    localStorage.setItem("editBookingData", JSON.stringify(editData));
+
+    // Navigate to create-booking page
+    router.push("/client/bookings/create-booking?edit=true");
+  };
+
+  // Payment processing functionality removed - clients can only view payment information
+
   // Filter by tab and search
   const filtered = bookings.filter((b) => {
     if (activeTab === "Upcoming") {
-      if (!(b.booking_status === "confirmed" || b.booking_status === "pending"))
+      if (
+        !(
+          b.booking_status === "confirmed" ||
+          b.booking_status === "pending" ||
+          b.booking_status === "reserved"
+        )
+      )
         return false;
     } else if (activeTab === "Past") {
       if (b.booking_status !== "completed") return false;
@@ -326,6 +501,10 @@ export default function BookingsPage() {
             {bookings.filter((b) => b.booking_status === "pending").length}
           </span>
           <span>
+            Reserved:{" "}
+            {bookings.filter((b) => b.booking_status === "reserved").length}
+          </span>
+          <span>
             Confirmed:{" "}
             {bookings.filter((b) => b.booking_status === "confirmed").length}
           </span>
@@ -348,15 +527,17 @@ export default function BookingsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filtered.map((b) => (
             <div
-              key={b.booking_reference}
+              key={`${b.booking_id}-${b.booking_reference}`}
               className={`bg-white rounded-xl border-2 p-6 flex flex-col gap-4 shadow-sm hover:shadow-md transition-all duration-200 ${
                 b.booking_status === "converted"
                   ? "opacity-75 bg-gray-50 border-purple-200"
                   : b.booking_status === "confirmed"
                     ? "border-green-200 bg-green-50"
-                    : b.booking_status === "pending"
-                      ? "border-yellow-200 bg-yellow-50"
-                      : "border-gray-200"
+                    : b.booking_status === "reserved"
+                      ? "border-orange-200 bg-orange-50"
+                      : b.booking_status === "pending"
+                        ? "border-yellow-200 bg-yellow-50"
+                        : "border-gray-200"
               }`}
             >
               {/* Header */}
@@ -366,26 +547,30 @@ export default function BookingsPage() {
                     className={`w-10 h-10 rounded-full flex items-center justify-center ${
                       b.booking_status === "confirmed"
                         ? "bg-green-100"
-                        : b.booking_status === "pending"
-                          ? "bg-yellow-100"
-                          : b.booking_status === "completed"
-                            ? "bg-blue-100"
-                            : b.booking_status === "converted"
-                              ? "bg-purple-100"
-                              : "bg-red-100"
+                        : b.booking_status === "reserved"
+                          ? "bg-orange-100"
+                          : b.booking_status === "pending"
+                            ? "bg-yellow-100"
+                            : b.booking_status === "completed"
+                              ? "bg-blue-100"
+                              : b.booking_status === "converted"
+                                ? "bg-purple-100"
+                                : "bg-red-100"
                     }`}
                   >
                     <Calendar
                       className={`h-5 w-5 ${
                         b.booking_status === "confirmed"
                           ? "text-green-600"
-                          : b.booking_status === "pending"
-                            ? "text-yellow-600"
-                            : b.booking_status === "completed"
-                              ? "text-blue-600"
-                              : b.booking_status === "converted"
-                                ? "text-purple-600"
-                                : "text-red-600"
+                          : b.booking_status === "reserved"
+                            ? "text-orange-600"
+                            : b.booking_status === "pending"
+                              ? "text-yellow-600"
+                              : b.booking_status === "completed"
+                                ? "text-blue-600"
+                                : b.booking_status === "converted"
+                                  ? "text-purple-600"
+                                  : "text-red-600"
                       }`}
                     />
                   </div>
@@ -405,6 +590,53 @@ export default function BookingsPage() {
                     b.booking_status.slice(1)}
                 </span>
               </div>
+
+              {/* Payment Status and Acceptance Info */}
+              {b.booking_status === "reserved" && (
+                <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg">
+                  <div className="flex items-center gap-2 text-sm text-orange-700">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                    <span className="font-medium">Payment Made</span>
+                  </div>
+                  <p className="text-xs text-orange-600 mt-1">
+                    Your reservation payment has been received. Waiting for
+                    confirmation.
+                  </p>
+                </div>
+              )}
+
+              {/* Payment Status for Pending Bookings */}
+              {b.booking_status === "pending" &&
+                b.payments &&
+                b.payments.length > 0 && (
+                  <div className="bg-green-50 border border-green-200 p-3 rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-green-700">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span className="font-medium">Payment Submitted</span>
+                    </div>
+                    <p className="text-xs text-green-600 mt-1">
+                      Payment of ₱{b.payments[0].payment_amount} submitted.
+                      Waiting for verification.
+                    </p>
+                  </div>
+                )}
+
+              {b.accepted_by_user_id && (
+                <div className="bg-green-50 border border-green-200 p-3 rounded-lg">
+                  <div className="flex items-center gap-2 text-sm text-green-700">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="font-medium">
+                      Accepted by{" "}
+                      {b.accepted_by_role === "admin" ? "Admin" : "Staff"}
+                    </span>
+                  </div>
+                  {b.accepted_at && (
+                    <p className="text-xs text-green-600 mt-1">
+                      Accepted on {new Date(b.accepted_at).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Event Name */}
               {b.event_name && (
@@ -649,6 +881,7 @@ export default function BookingsPage() {
                     onClick={() => {
                       setSelectedBooking(b);
                       setShowModal(true);
+                      fetchPaymentSettings();
                     }}
                   >
                     <Eye className="h-4 w-4" />
@@ -656,9 +889,20 @@ export default function BookingsPage() {
                   </button>
                 )}
                 {b.booking_status === "pending" && (
-                  <button className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors">
-                    Edit
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEditBooking(b)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleCancelBooking(b)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -694,20 +938,22 @@ export default function BookingsPage() {
       {/* Booking Details Modal */}
       {showModal && selectedBooking && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900">
-                  Booking Details
-                </h2>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <X className="h-6 w-6" />
-                </button>
-              </div>
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Sticky Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-white">
+              <h2 className="text-xl font-bold text-gray-900">
+                Booking Details
+              </h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
 
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6">
               <div className="space-y-6">
                 {/* Header Info */}
                 <div className="bg-gray-50 p-4 rounded-lg">
@@ -799,6 +1045,145 @@ export default function BookingsPage() {
                   )}
                 </div>
 
+                {/* Payment Information */}
+                <div className="bg-white p-4 rounded-lg border">
+                  <div className="flex items-center gap-3 mb-4">
+                    <CreditCard className="h-5 w-5 text-blue-600" />
+                    <h4 className="font-medium text-gray-900">
+                      Payment Information
+                    </h4>
+                  </div>
+
+                  {/* Payment History */}
+                  {selectedBooking.payments &&
+                    selectedBooking.payments.length > 0 && (
+                      <div className="mb-4">
+                        <h5 className="font-medium text-gray-900 mb-3">
+                          Payment History
+                        </h5>
+                        <div className="space-y-2">
+                          {selectedBooking.payments.map((payment, index) => (
+                            <div
+                              key={index}
+                              className="p-3 bg-green-50 border border-green-200 rounded-lg"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="font-medium text-green-800">
+                                    ₱{payment.payment_amount} -{" "}
+                                    {payment.payment_method}
+                                  </div>
+                                  <div className="text-sm text-green-700">
+                                    {new Date(
+                                      payment.payment_date
+                                    ).toLocaleDateString()}
+                                    {payment.payment_reference &&
+                                      ` • Ref: ${payment.payment_reference}`}
+                                  </div>
+                                </div>
+                                <span
+                                  className={`px-2 py-1 text-xs rounded-full ${
+                                    payment.payment_status === "completed"
+                                      ? "bg-green-100 text-green-800"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }`}
+                                >
+                                  {payment.payment_status}
+                                </span>
+                              </div>
+                              {payment.payment_notes && (
+                                <div className="text-sm text-green-600 mt-1">
+                                  {payment.payment_notes}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                  {/* Payment Methods */}
+                  <div className="space-y-4">
+                    <h5 className="font-medium text-gray-900">
+                      Available Payment Methods
+                    </h5>
+
+                    {/* GCash Information */}
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Wallet className="h-4 w-4 text-green-600" />
+                        <span className="font-medium text-green-800">
+                          GCash
+                        </span>
+                      </div>
+                      <div className="text-sm text-green-700">
+                        {paymentSettings.gcash_name ? (
+                          <>
+                            <div>Name: {paymentSettings.gcash_name}</div>
+                            {paymentSettings.gcash_number && (
+                              <div>Number: {paymentSettings.gcash_number}</div>
+                            )}
+                          </>
+                        ) : (
+                          <div>GCash details not configured</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bank Transfer Information */}
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CreditCard className="h-4 w-4 text-blue-600" />
+                        <span className="font-medium text-blue-800">
+                          Bank Transfer
+                        </span>
+                      </div>
+                      <div className="text-sm text-blue-700">
+                        {paymentSettings.bank_name ? (
+                          <>
+                            <div>Bank: {paymentSettings.bank_name}</div>
+                            {paymentSettings.bank_account_name && (
+                              <div>
+                                Account Name:{" "}
+                                {paymentSettings.bank_account_name}
+                              </div>
+                            )}
+                            {paymentSettings.bank_account_number && (
+                              <div>
+                                Account Number:{" "}
+                                {paymentSettings.bank_account_number}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div>Bank transfer details not configured</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Clock className="h-4 w-4 text-gray-600" />
+                        <span className="font-medium text-gray-800">
+                          Cash on Site
+                        </span>
+                      </div>
+                      <div className="text-sm text-gray-700">
+                        You can also pay in cash when you arrive at the venue.
+                      </div>
+                    </div>
+
+                    {paymentSettings.payment_instructions && (
+                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <div className="text-sm text-yellow-800">
+                          <strong>Instructions:</strong>{" "}
+                          {paymentSettings.payment_instructions}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Notes */}
                 {selectedBooking.notes && (
                   <div className="bg-white p-4 rounded-lg border">
@@ -806,15 +1191,6 @@ export default function BookingsPage() {
                     <p className="text-gray-700">{selectedBooking.notes}</p>
                   </div>
                 )}
-              </div>
-
-              <div className="flex justify-end mt-6">
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Close
-                </button>
               </div>
             </div>
           </div>
@@ -824,20 +1200,22 @@ export default function BookingsPage() {
       {/* Event Selector Modal */}
       {showEventSelector && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900">
-                  Select Event for Booking {selectedBooking?.booking_reference}
-                </h2>
-                <button
-                  onClick={() => setShowEventSelector(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <X className="h-6 w-6" />
-                </button>
-              </div>
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Sticky Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-white">
+              <h2 className="text-xl font-bold text-gray-900">
+                Select Event for Booking {selectedBooking?.booking_reference}
+              </h2>
+              <button
+                onClick={() => setShowEventSelector(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
 
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6">
               <div className="mb-4 p-4 bg-blue-50 rounded-lg">
                 <h3 className="font-medium text-blue-900 mb-2">
                   Booking Details:
@@ -886,13 +1264,63 @@ export default function BookingsPage() {
                     </div>
                   ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
 
-              <div className="flex justify-end mt-6">
+      {/* Cancel Booking Confirmation Dialog */}
+      {showCancelDialog && bookingToCancel && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full overflow-hidden flex flex-col">
+            {/* Sticky Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-white">
+              <h2 className="text-xl font-bold text-gray-900">
+                Cancel Booking
+              </h2>
+              <button
+                onClick={() => setShowCancelDialog(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              <div className="mb-6">
+                <p className="text-gray-600 mb-4">
+                  Are you sure you want to cancel this booking?
+                </p>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="font-medium text-gray-900">
+                    {bookingToCancel.event_name}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    {formatDate(bookingToCancel.event_date)} •{" "}
+                    {bookingToCancel.guest_count} guests
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Reference: {bookingToCancel.booking_reference}
+                  </p>
+                </div>
+                <p className="text-sm text-red-600 mt-3">
+                  This action cannot be undone.
+                </p>
+              </div>
+
+              <div className="flex gap-3 justify-end">
                 <button
-                  onClick={() => setShowEventSelector(false)}
+                  onClick={() => setShowCancelDialog(false)}
                   className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
                 >
-                  Cancel
+                  Keep Booking
+                </button>
+                <button
+                  onClick={confirmCancelBooking}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  Cancel Booking
                 </button>
               </div>
             </div>

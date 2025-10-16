@@ -2542,6 +2542,31 @@ export default function OrganizerEventDetailsPage() {
                     ₱{event.total_budget.toLocaleString()}
                   </span>
                 </div>
+                {event.payments &&
+                  event.payments.some(
+                    (p: any) => p.payment_type === "reserved"
+                  ) && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-blue-600">
+                        Reserved Fee:
+                      </span>
+                      <span className="text-sm font-semibold text-blue-600">
+                        ₱
+                        {event.payments
+                          .filter(
+                            (p: any) =>
+                              p.payment_type === "reserved" &&
+                              p.payment_status === "completed"
+                          )
+                          .reduce(
+                            (sum: number, p: any) =>
+                              sum + Number(p.payment_amount || 0),
+                            0
+                          )
+                          .toLocaleString()}
+                      </span>
+                    </div>
+                  )}
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-700">
                     Down Payment:

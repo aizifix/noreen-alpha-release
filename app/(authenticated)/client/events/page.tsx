@@ -69,6 +69,9 @@ export default function ClientEventsPage() {
     new Date()
   );
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [eventTypeFilter, setEventTypeFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("");
 
   useEffect(() => {
     try {
@@ -121,7 +124,34 @@ export default function ClientEventsPage() {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     const dateString = `${year}-${month}-${day}`;
-    return events.filter((event) => event.event_date === dateString);
+
+    let filteredEvents = events.filter(
+      (event) => event.event_date === dateString
+    );
+
+    // Apply event type filter
+    if (eventTypeFilter) {
+      filteredEvents = filteredEvents.filter(
+        (event) => event.event_type_id.toString() === eventTypeFilter
+      );
+    }
+
+    // Apply status filter
+    if (statusFilter) {
+      filteredEvents = filteredEvents.filter((event) => {
+        const derivedStatus = getDerivedEventStatus(event);
+        return derivedStatus === statusFilter;
+      });
+    }
+
+    // Apply payment status filter
+    if (paymentStatusFilter) {
+      filteredEvents = filteredEvents.filter(
+        (event) => event.payment_status === paymentStatusFilter
+      );
+    }
+
+    return filteredEvents;
   };
 
   const getEventsForMonth = (date: Date) => {
@@ -289,10 +319,30 @@ export default function ClientEventsPage() {
             {dayEvents.slice(0, 3).map((event) => {
               const derivedStatus = getDerivedEventStatus(event);
               const colors = getStatusColor(derivedStatus);
+
+              // Check if this event matches the active filter
+              const matchesEventTypeFilter =
+                !eventTypeFilter ||
+                event.event_type_id.toString() === eventTypeFilter;
+              const matchesStatusFilter =
+                !statusFilter || derivedStatus === statusFilter;
+              const matchesPaymentFilter =
+                !paymentStatusFilter ||
+                event.payment_status === paymentStatusFilter;
+              const isFiltered =
+                matchesEventTypeFilter &&
+                matchesStatusFilter &&
+                matchesPaymentFilter;
+
+              // Apply different styling based on filter state
+              const eventClasses = isFiltered
+                ? `${colors.bg} ${colors.text} border-2 border-current` // Prominent styling for filtered events
+                : `${colors.bg} ${colors.text} opacity-50 border border-gray-300`; // Muted styling for non-filtered events
+
               return (
                 <div
                   key={event.event_id}
-                  className={`text-xs p-1 rounded truncate ${colors.bg} ${colors.text} cursor-pointer hover:opacity-80`}
+                  className={`text-xs p-1 rounded truncate cursor-pointer hover:opacity-80 ${eventClasses}`}
                   title={`${event.event_title} - ${event.organizer_name || "Assigned Organizer"}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -484,7 +534,11 @@ export default function ClientEventsPage() {
             placeholder="Search events..."
           />
         </div>
-        <select className="border rounded px-3 py-2">
+        <select
+          className="border rounded px-3 py-2"
+          value={eventTypeFilter}
+          onChange={(e) => setEventTypeFilter(e.target.value)}
+        >
           <option value="">All Types</option>
           <option value="1">Wedding</option>
           <option value="2">Anniversary</option>
@@ -499,7 +553,11 @@ export default function ClientEventsPage() {
           <option value="15">Christmas Party</option>
           <option value="16">New Year's Party</option>
         </select>
-        <select className="border rounded px-3 py-2">
+        <select
+          className="border rounded px-3 py-2"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
           <option value="">All Statuses</option>
           <option value="draft">Draft</option>
           <option value="confirmed">Confirmed</option>
@@ -507,7 +565,11 @@ export default function ClientEventsPage() {
           <option value="done">Done</option>
           <option value="cancelled">Cancelled</option>
         </select>
-        <select className="border rounded px-3 py-2">
+        <select
+          className="border rounded px-3 py-2"
+          value={paymentStatusFilter}
+          onChange={(e) => setPaymentStatusFilter(e.target.value)}
+        >
           <option value="">All Payment Status</option>
           <option value="unpaid">Unpaid</option>
           <option value="partial">Partial</option>

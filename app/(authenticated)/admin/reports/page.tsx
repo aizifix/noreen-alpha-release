@@ -154,6 +154,8 @@ export default function ReportsPage() {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [staffAuditLog, setStaffAuditLog] = useState<any[]>([]);
+  const [staffAuditLoading, setStaffAuditLoading] = useState(false);
   // Leave dates empty to let backend apply wide default (last 6 months)
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
@@ -224,6 +226,32 @@ export default function ReportsPage() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchStaffAuditLog = async () => {
+    setStaffAuditLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.append("date_from", startDate);
+      if (endDate) params.append("date_to", endDate);
+      if (filter !== "all") params.append("action_type", filter);
+
+      const response = await fetch(
+        `${endpoints.admin}?operation=getActivityLog&${params.toString()}`
+      );
+      const data = await response.json();
+
+      if (data.status === "success") {
+        setStaffAuditLog(data.data || []);
+      } else {
+        setError(data.message || "Failed to fetch staff audit log");
+      }
+    } catch (err) {
+      setError("Network error occurred");
+      console.error("Error fetching staff audit log:", err);
+    } finally {
+      setStaffAuditLoading(false);
     }
   };
 
@@ -331,6 +359,8 @@ export default function ReportsPage() {
   useEffect(() => {
     if (activeTab === "sessions") {
       fetchSessionLogs();
+    } else if (activeTab === "staff-audit") {
+      fetchStaffAuditLog();
     }
   }, [
     activeTab,
@@ -650,6 +680,17 @@ export default function ReportsPage() {
           >
             <TrendingUp className="inline h-4 w-4 mr-2" />
             Session Analytics
+          </button>
+          <button
+            onClick={() => setActiveTab("staff-audit")}
+            className={`px-4 py-2 font-medium text-sm rounded-t-lg ${
+              activeTab === "staff-audit"
+                ? "bg-blue-50 text-blue-700 border-b-2 border-blue-700"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            <Shield className="inline h-4 w-4 mr-2" />
+            Staff Audit Trail
           </button>
         </div>
 
@@ -1077,6 +1118,87 @@ export default function ReportsPage() {
                 </CardContent>
               </Card>
             )}
+          </>
+        )}
+
+        {activeTab === "staff-audit" && (
+          <>
+            {/* Staff Audit Trail */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div className="flex flex-col">
+                  <CardTitle className="text-xl font-semibold text-gray-900">
+                    Staff Activity Audit Trail
+                  </CardTitle>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Track all staff actions and activities for accountability
+                  </p>
+                </div>
+                <Button
+                  onClick={fetchStaffAuditLog}
+                  disabled={staffAuditLoading}
+                >
+                  {staffAuditLoading ? "Refreshing..." : "Refresh"}
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {staffAuditLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <span className="ml-2 text-gray-600">
+                      Loading staff audit log...
+                    </span>
+                  </div>
+                ) : staffAuditLog.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No staff activities found for the selected period.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {staffAuditLog.map((activity, index) => (
+                      <div
+                        key={activity.log_id || index}
+                        className="flex items-start space-x-4 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex-shrink-0">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <Activity className="w-4 h-4 text-blue-600" />
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-medium text-gray-900">
+                                {activity.user_firstName}{" "}
+                                {activity.user_lastName}
+                              </span>
+                              <Badge variant="secondary" className="text-xs">
+                                {activity.user_role}
+                              </Badge>
+                            </div>
+                            <span className="text-sm text-gray-500">
+                              {format(
+                                new Date(activity.created_at),
+                                "MMM dd, yyyy 'at' h:mm a"
+                              )}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-700 mt-1">
+                            {activity.description}
+                          </p>
+                          <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
+                            <span>Action: {activity.action_type}</span>
+                            {activity.ip_address && (
+                              <span>IP: {activity.ip_address}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </>
         )}
 

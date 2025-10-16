@@ -31,6 +31,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { endpoints } from "@/app/config/api";
+import {
+  getUserRole,
+  canCreate,
+  canEdit,
+  canDelete,
+} from "@/app/utils/permissions";
+import { secureStorage } from "@/app/utils/encryption";
 import { Check, ArrowLeft } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -151,6 +158,7 @@ export default function PackagesPage() {
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [filteredPackages, setFilteredPackages] = useState<PackageItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
   const [editingPackage, setEditingPackage] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{
     package_title: string;
@@ -205,6 +213,16 @@ export default function PackagesPage() {
   });
 
   useEffect(() => {
+    // Get user data for permissions
+    try {
+      const userData = secureStorage.getItem("user");
+      if (userData) {
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Error getting user data:", error);
+    }
+
     // Fetch packages when component mounts
     fetchPackages();
   }, []);
@@ -237,7 +255,6 @@ export default function PackagesPage() {
         return true;
       });
     }
-
 
     // Capacity filter
     if (filters.capacity) {
@@ -344,44 +361,8 @@ export default function PackagesPage() {
     });
   };
 
-  const handleDuplicatePackage = async (packageId: number) => {
-    setConfirmationModal({
-      isOpen: true,
-      title: "Duplicate Package",
-      description:
-        "Are you sure you want to duplicate this package? This will create a copy with all the same details.",
-      onConfirm: async () => {
-        try {
-          const response = await axios.post(
-            endpoints.admin,
-            {
-              operation: "duplicatePackage",
-              package_id: packageId,
-            },
-            { headers: { "Content-Type": "application/json" } }
-          );
-
-          if (response.data?.status === "success") {
-            toast.success(
-              response.data?.message || "Package duplicated successfully"
-            );
-            // Refresh the list
-            fetchPackages();
-          } else {
-            console.error("Duplicate error:", response.data?.message);
-            toast.error(
-              "Failed to duplicate package: " +
-                (response.data?.message || "Unknown error")
-            );
-          }
-        } catch (error) {
-          console.error("API error:", error);
-          toast.error("Failed to connect to server");
-        }
-        setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
-      },
-      variant: "warning",
-    });
+  const handleViewPackage = (packageId: number) => {
+    router.push(`/staff/packages/${packageId}`);
   };
 
   const handleEditClick = (pkg: PackageItem) => {
@@ -591,15 +572,25 @@ export default function PackagesPage() {
                 </Button>
               </div>
 
-              <Link href="/admin/packages/package-builder">
-                <Button
-                  size="lg"
-                  className="bg-[#028A75] hover:bg-[#027A65] text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
-                >
-                  <Plus className="h-5 w-5 mr-2" />
-                  Create New Package
-                </Button>
-              </Link>
+              {canCreate("packages", getUserRole(user)) && (
+                <Link href="/staff/package-builder">
+                  <Button
+                    size="lg"
+                    className="bg-[#028A75] hover:bg-[#027A65] text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                  >
+                    <Plus className="h-5 w-5 mr-2" />
+                    Create New Package
+                  </Button>
+                </Link>
+              )}
+              {!canCreate("packages", getUserRole(user)) && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg">
+                  <Eye className="h-4 w-4 text-gray-500" />
+                  <span className="text-sm text-gray-600">
+                    View Only Access
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -643,7 +634,6 @@ export default function PackagesPage() {
                   </div>
                 </CardContent>
               </Card>
-
 
               <Card className="bg-white border border-gray-200">
                 <CardContent className="p-6">
@@ -702,9 +692,7 @@ export default function PackagesPage() {
                       <ChevronDown className="h-4 w-4 ml-2" />
                     )}
                   </Button>
-                  {(filters.search ||
-                    filters.status ||
-                    filters.capacity) && (
+                  {(filters.search || filters.status || filters.capacity) && (
                     <Button
                       variant="ghost"
                       onClick={clearFilters}
@@ -739,7 +727,6 @@ export default function PackagesPage() {
                         <option value="inactive">Inactive</option>
                       </select>
                     </div>
-
 
                     <div>
                       <Label className="text-sm font-medium text-gray-700 mb-2 block">
@@ -832,7 +819,8 @@ export default function PackagesPage() {
                           {/* Header Section */}
                           <div className="bg-gradient-to-r from-[#E6F4F1] to-[#D1E8E3] p-6 border-b border-[#028A75]/20 relative">
                             <div className="flex justify-between items-start mb-4">
-                              {editingPackage === pkg.package_id ? (
+                              {editingPackage === pkg.package_id &&
+                              canEdit("packages", getUserRole(user)) ? (
                                 <div className="flex-1">
                                   <Input
                                     value={editForm.package_title}
@@ -903,51 +891,63 @@ export default function PackagesPage() {
                                     align="end"
                                     className="w-48"
                                   >
-                                    <DropdownMenuItem
-                                      onClick={() => handleEditClick(pkg)}
-                                      className="cursor-pointer"
-                                    >
-                                      <Edit className="h-4 w-4 mr-2" />
-                                      Quick Edit
-                                    </DropdownMenuItem>
+                                    {canEdit("packages", getUserRole(user)) && (
+                                      <DropdownMenuItem
+                                        onClick={() => handleEditClick(pkg)}
+                                        className="cursor-pointer"
+                                      >
+                                        <Edit className="h-4 w-4 mr-2" />
+                                        Quick Edit
+                                      </DropdownMenuItem>
+                                    )}
+                                    {canEdit("packages", getUserRole(user)) && (
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          handleEventTypeEdit(
+                                            pkg.package_id,
+                                            pkg.event_type_ids || []
+                                          )
+                                        }
+                                        className="cursor-pointer"
+                                      >
+                                        <Tag className="h-4 w-4 mr-2" />
+                                        Edit Event Types
+                                      </DropdownMenuItem>
+                                    )}
                                     <DropdownMenuItem
                                       onClick={() =>
-                                        handleEventTypeEdit(
-                                          pkg.package_id,
-                                          pkg.event_type_ids || []
-                                        )
+                                        handleViewPackage(pkg.package_id)
                                       }
                                       className="cursor-pointer"
                                     >
-                                      <Tag className="h-4 w-4 mr-2" />
-                                      Edit Event Types
+                                      <Eye className="h-4 w-4 mr-2" />
+                                      View
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        handleDuplicatePackage(pkg.package_id)
-                                      }
-                                      className="cursor-pointer"
-                                    >
-                                      <Copy className="h-4 w-4 mr-2" />
-                                      Duplicate Package
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        handleDeletePackage(pkg.package_id)
-                                      }
-                                      className="cursor-pointer text-red-600 focus:text-red-600"
-                                      disabled={!pkg.is_active}
-                                    >
-                                      <Trash className="h-4 w-4 mr-2" />
-                                      Delete Package
-                                    </DropdownMenuItem>
+                                    {canDelete(
+                                      "packages",
+                                      getUserRole(user)
+                                    ) && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          onClick={() =>
+                                            handleDeletePackage(pkg.package_id)
+                                          }
+                                          className="cursor-pointer text-red-600 focus:text-red-600"
+                                          disabled={!pkg.is_active}
+                                        >
+                                          <Trash className="h-4 w-4 mr-2" />
+                                          Delete Package
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               </div>
                             </div>
 
-                            {editingPackage === pkg.package_id ? (
+                            {editingPackage === pkg.package_id &&
+                            canEdit("packages", getUserRole(user)) ? (
                               <div className="space-y-3">
                                 <Input
                                   type="number"
@@ -964,15 +964,24 @@ export default function PackagesPage() {
                                 />
                                 <div className="relative">
                                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <span className="text-gray-500 text-lg">₱</span>
+                                    <span className="text-gray-500 text-lg">
+                                      ₱
+                                    </span>
                                   </div>
                                   <Input
                                     type="text"
-                                    value={editForm.venue_fee_buffer === null ? '' : editForm.venue_fee_buffer.toLocaleString()}
+                                    value={
+                                      editForm.venue_fee_buffer === null
+                                        ? ""
+                                        : editForm.venue_fee_buffer.toLocaleString()
+                                    }
                                     onChange={(e) => {
                                       const value = e.target.value;
-                                      const cleanValue = value.replace(/,/g, '');
-                                      if (cleanValue === '') {
+                                      const cleanValue = value.replace(
+                                        /,/g,
+                                        ""
+                                      );
+                                      if (cleanValue === "") {
                                         setEditForm((prev) => ({
                                           ...prev,
                                           venue_fee_buffer: null,
@@ -1121,7 +1130,8 @@ export default function PackagesPage() {
 
                             {/* Action Buttons */}
                             <div className="mt-auto pt-6">
-                              {editingPackage === pkg.package_id ? (
+                              {editingPackage === pkg.package_id &&
+                              canEdit("packages", getUserRole(user)) ? (
                                 <div className="flex gap-3">
                                   <Button
                                     onClick={handleSaveEdit}
@@ -1144,9 +1154,7 @@ export default function PackagesPage() {
                               ) : (
                                 <Button
                                   onClick={() =>
-                                    router.push(
-                                      `/admin/packages/${pkg.package_id}`
-                                    )
+                                    handleViewPackage(pkg.package_id)
                                   }
                                   className="w-full bg-[#028A75] hover:bg-[#027A65] text-white rounded-xl py-3 font-medium transition-all duration-300 shadow-lg hover:shadow-xl"
                                 >
@@ -1311,53 +1319,66 @@ export default function PackagesPage() {
                                     >
                                       <DropdownMenuItem
                                         onClick={() =>
-                                          router.push(
-                                            `/admin/packages/${pkg.package_id}`
-                                          )
+                                          handleViewPackage(pkg.package_id)
                                         }
                                         className="cursor-pointer"
                                       >
                                         <Eye className="h-4 w-4 mr-2" />
                                         View
                                       </DropdownMenuItem>
-                                      <DropdownMenuItem
-                                        onClick={() => handleEditClick(pkg)}
-                                        className="cursor-pointer"
-                                      >
-                                        <Edit className="h-4 w-4 mr-2" />
-                                        Edit
-                                      </DropdownMenuItem>
+                                      {canEdit(
+                                        "packages",
+                                        getUserRole(user)
+                                      ) && (
+                                        <DropdownMenuItem
+                                          onClick={() => handleEditClick(pkg)}
+                                          className="cursor-pointer"
+                                        >
+                                          <Edit className="h-4 w-4 mr-2" />
+                                          Edit
+                                        </DropdownMenuItem>
+                                      )}
+                                      {canEdit(
+                                        "packages",
+                                        getUserRole(user)
+                                      ) && (
+                                        <DropdownMenuItem
+                                          onClick={() =>
+                                            router.push(
+                                              `/staff/package-builder/edit/${pkg.package_id}`
+                                            )
+                                          }
+                                          className="cursor-pointer"
+                                        >
+                                          <Settings className="h-4 w-4 mr-2" />
+                                          Full Edit
+                                        </DropdownMenuItem>
+                                      )}
+                                      {canEdit(
+                                        "packages",
+                                        getUserRole(user)
+                                      ) && (
+                                        <DropdownMenuItem
+                                          onClick={() =>
+                                            handleEventTypeEdit(
+                                              pkg.package_id,
+                                              pkg.event_type_ids || []
+                                            )
+                                          }
+                                          className="cursor-pointer"
+                                        >
+                                          <Tag className="h-4 w-4 mr-2" />
+                                          Edit Event Types
+                                        </DropdownMenuItem>
+                                      )}
                                       <DropdownMenuItem
                                         onClick={() =>
-                                          router.push(
-                                            `/admin/packages/package-builder/edit/${pkg.package_id}`
-                                          )
+                                          handleViewPackage(pkg.package_id)
                                         }
                                         className="cursor-pointer"
                                       >
-                                        <Settings className="h-4 w-4 mr-2" />
-                                        Full Edit
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem
-                                        onClick={() =>
-                                          handleEventTypeEdit(
-                                            pkg.package_id,
-                                            pkg.event_type_ids || []
-                                          )
-                                        }
-                                        className="cursor-pointer"
-                                      >
-                                        <Tag className="h-4 w-4 mr-2" />
-                                        Edit Event Types
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem
-                                        onClick={() =>
-                                          handleDuplicatePackage(pkg.package_id)
-                                        }
-                                        className="cursor-pointer"
-                                      >
-                                        <Copy className="h-4 w-4 mr-2" />
-                                        Duplicate Package
+                                        <Eye className="h-4 w-4 mr-2" />
+                                        View
                                       </DropdownMenuItem>
                                       <DropdownMenuSeparator />
                                       <DropdownMenuItem
@@ -1471,34 +1492,27 @@ export default function PackagesPage() {
                   <Package className="h-12 w-12 text-gray-300" />
                 </div>
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">
-                  {filters.search ||
-                  filters.status ||
-                  filters.capacity
+                  {filters.search || filters.status || filters.capacity
                     ? "No packages found"
                     : "No packages yet!"}
                 </h3>
                 <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                  {filters.search ||
-                  filters.status ||
-                  filters.capacity
+                  {filters.search || filters.status || filters.capacity
                     ? "Try adjusting your filters to see more results."
                     : "Create your first package to offer to clients and start growing your business."}
                 </p>
-                {!(
-                  filters.search ||
-                  filters.status ||
-                  filters.capacity
-                ) && (
-                  <Link href="/admin/packages/package-builder">
-                    <Button
-                      size="lg"
-                      className="bg-[#028A75] hover:bg-[#027A65] text-white px-8 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
-                    >
-                      <Plus className="h-5 w-5 mr-2" />
-                      Create Your First Package
-                    </Button>
-                  </Link>
-                )}
+                {!(filters.search || filters.status || filters.capacity) &&
+                  canCreate("packages", getUserRole(user)) && (
+                    <Link href="/staff/package-builder">
+                      <Button
+                        size="lg"
+                        className="bg-[#028A75] hover:bg-[#027A65] text-white px-8 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                      >
+                        <Plus className="h-5 w-5 mr-2" />
+                        Create Your First Package
+                      </Button>
+                    </Link>
+                  )}
               </div>
             )}
           </div>

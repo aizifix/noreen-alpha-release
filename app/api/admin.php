@@ -2,6 +2,10 @@
 // Start output buffering to prevent any accidental output
 ob_start();
 
+// Suppress all error output to prevent interference with JSON responses
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+
 require 'db_connect.php';
 require_once 'ActivityLogger.php';
 
@@ -476,9 +480,9 @@ class Admin {
                 'external_organizer', 'event_title', 'event_theme', 'event_description',
                 'church_location', 'church_start_time', 'event_type_id', 'guest_count',
                 'event_date', 'start_time', 'end_time', 'package_id', 'venue_id', 'total_budget',
-                'down_payment', 'payment_method', 'payment_schedule_type_id', 'reference_number',
-                'additional_notes', 'event_status', 'is_recurring', 'recurrence_rule',
-                'client_signature', 'finalized_at', 'event_attachments',
+                'down_payment', 'payment_method',
+                'payment_schedule_type_id', 'reference_number', 'additional_notes', 'event_status',
+                'is_recurring', 'recurrence_rule', 'client_signature', 'finalized_at', 'event_attachments',
                 'components', 'timeline'
             ];
 
@@ -643,7 +647,7 @@ class Admin {
                 }
             }
 
-            // Insert the main event
+            // Insert the main event (without reserved_payment_total and adjusted_total columns for now)
             $sql = "INSERT INTO tbl_events (
                         original_booking_reference, user_id, admin_id, organizer_id, event_title,
                         event_theme, event_description, church_location, church_start_time, event_type_id, guest_count, event_date, start_time, end_time,
@@ -1087,14 +1091,39 @@ class Admin {
 
             // If this event was created from a booking, mark the booking as converted
             if (isset($data['original_booking_reference']) && !empty($data['original_booking_reference'])) {
-                $bookingConvertSql = "UPDATE tbl_bookings
-                                     SET booking_status = 'converted', converted_event_id = :event_id, updated_at = NOW()
-                                     WHERE booking_reference = :booking_reference";
-                $bookingStmt = $this->conn->prepare($bookingConvertSql);
-                $bookingStmt->execute([
-                    ':event_id' => $eventId,
-                    ':booking_reference' => $data['original_booking_reference']
-                ]);
+                try {
+                    // Check if converted_event_id column exists
+                    $columnCheckSql = "SHOW COLUMNS FROM tbl_bookings LIKE 'converted_event_id'";
+                    $columnCheckStmt = $this->conn->prepare($columnCheckSql);
+                    $columnCheckStmt->execute();
+                    $hasConvertedEventId = $columnCheckStmt->rowCount() > 0;
+
+                    if ($hasConvertedEventId) {
+                        // Column exists, use the full update
+                        $bookingConvertSql = "UPDATE tbl_bookings
+                                             SET booking_status = 'converted', converted_event_id = :event_id, updated_at = NOW()
+                                             WHERE booking_reference = :booking_reference";
+                        $bookingStmt = $this->conn->prepare($bookingConvertSql);
+                        $bookingStmt->execute([
+                            ':event_id' => $eventId,
+                            ':booking_reference' => $data['original_booking_reference']
+                        ]);
+                        error_log("createEvent: Updated booking with converted_event_id column");
+                    } else {
+                        // Column doesn't exist, just update the status
+                        $bookingConvertSql = "UPDATE tbl_bookings
+                                             SET booking_status = 'converted'
+                                             WHERE booking_reference = :booking_reference";
+                        $bookingStmt = $this->conn->prepare($bookingConvertSql);
+                        $bookingStmt->execute([
+                            ':booking_reference' => $data['original_booking_reference']
+                        ]);
+                        error_log("createEvent: Updated booking status only (converted_event_id column not found)");
+                    }
+                } catch (Exception $e) {
+                    error_log("createEvent: Failed to update booking status: " . $e->getMessage());
+                    // Continue with event creation even if booking update fails
+                }
             }
 
             $this->conn->commit();
@@ -1209,6 +1238,8 @@ class Admin {
                             "suggestion" => "Try again or contact administrator"
                         ]
                     ]);
+                    error_log("createEvent: Returning collation error response: " . $errorResponse);
+                    return $errorResponse;
                 }
             } else {
                 $errorResponse = json_encode([
@@ -1220,9 +1251,9 @@ class Admin {
                         "line" => $e->getLine()
                     ]
                 ]);
+                error_log("createEvent: Returning general error response: " . $errorResponse);
+                return $errorResponse;
             }
-            error_log("createEvent: Returning error response: " . $errorResponse);
-            return $errorResponse;
         }
     }
 
@@ -1786,6 +1817,74 @@ class Admin {
             }
         } catch (Exception $e) {
             error_log("getBookingByReference error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
+    public function getBookingById($bookingId) {
+        try {
+            error_log("getBookingById: Looking for booking ID: " . $bookingId);
+
+            // Get booking details
+            $sql = "SELECT b.*,
+                        u.user_id, u.user_firstName, u.user_lastName, u.user_email, u.user_contact,
+                        et.event_name as event_type_name,
+                        v.venue_title as venue_name,
+                        p.package_title as package_name,
+                        CASE WHEN e.event_id IS NOT NULL THEN 1 ELSE 0 END as is_converted,
+                        e.event_id as converted_event_id
+                    FROM tbl_bookings b
+                    JOIN tbl_users u ON b.user_id = u.user_id
+                    JOIN tbl_event_type et ON b.event_type_id = et.event_type_id
+                    LEFT JOIN tbl_venue v ON b.venue_id = v.venue_id
+                    LEFT JOIN tbl_packages p ON b.package_id = p.package_id
+                    LEFT JOIN tbl_events e ON b.booking_reference = e.original_booking_reference
+                    WHERE b.booking_id = :booking_id";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([':booking_id' => $bookingId]);
+
+            $booking = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($booking) {
+                error_log("getBookingById: Found booking: " . json_encode($booking));
+                // Get payments for this booking
+                error_log("getBookingById: Looking for payments with booking_id: " . $booking['booking_id']);
+                $paymentStmt = $this->conn->prepare("
+                    SELECT
+                        payment_id,
+                        payment_amount,
+                        payment_method,
+                        payment_date,
+                        payment_status,
+                        payment_reference,
+                        payment_notes,
+                        created_at
+                    FROM tbl_payments
+                    WHERE booking_id = ? AND payment_status != 'cancelled'
+                    ORDER BY payment_date DESC
+                ");
+                $paymentStmt->execute([$booking['booking_id']]);
+                $booking['payments'] = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                error_log("getBookingById: Found " . count($booking['payments']) . " payments: " . json_encode($booking['payments']));
+
+                // Calculate total reserved payment amount
+                $booking['reserved_payment_total'] = 0;
+                foreach ($booking['payments'] as $payment) {
+                    if ($payment['payment_status'] === 'completed') {
+                        $booking['reserved_payment_total'] += floatval($payment['payment_amount']);
+                    }
+                }
+
+                error_log("getBookingById: Calculated reserved_payment_total: " . $booking['reserved_payment_total']);
+
+                return json_encode(["status" => "success", "booking" => $booking]);
+            } else {
+                return json_encode(["status" => "error", "message" => "Booking not found"]);
+            }
+        } catch (Exception $e) {
+            error_log("getBookingById error: " . $e->getMessage());
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
         }
     }
@@ -4995,6 +5094,29 @@ This is an automated message. Please do not reply.
             $stmt->execute([$eventId]);
             $event['payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Reserved payments from original booking (if event was created from a booking)
+            if (!empty($event['original_booking_reference'])) {
+                $stmt = $this->pdo->prepare("
+                    SELECT
+                        p.*,
+                        'reserved' as payment_type
+                    FROM tbl_payments p
+                    JOIN tbl_bookings b ON p.booking_id = b.booking_id
+                    WHERE b.booking_reference = ? AND p.payment_status != 'cancelled'
+                    ORDER BY p.payment_date DESC
+                ");
+                $stmt->execute([$event['original_booking_reference']]);
+                $reservedPayments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Add reserved payments to the main payments array
+                $event['payments'] = array_merge($event['payments'], $reservedPayments);
+
+                // Sort all payments by date (most recent first)
+                usort($event['payments'], function($a, $b) {
+                    return strtotime($b['payment_date']) - strtotime($a['payment_date']);
+                });
+            }
+
             // Get wedding details if this is a wedding event and has wedding form
             if ($event['event_type_id'] == 1 && $event['event_wedding_form_id']) {
                 $weddingDetails = $this->getWeddingDetails($eventId);
@@ -5173,6 +5295,125 @@ This is an automated message. Please do not reply.
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
         }
     }
+
+    public function acceptBooking($bookingId, $userId, $userRole) {
+        try {
+            // Validate user role
+            if (!in_array($userRole, ['admin', 'staff'])) {
+                return json_encode(["status" => "error", "message" => "Invalid user role"]);
+            }
+
+            // Check if booking exists and is in correct status
+            $checkSql = "SELECT booking_id, booking_reference, user_id, booking_status FROM tbl_bookings WHERE booking_id = :booking_id";
+            $checkStmt = $this->conn->prepare($checkSql);
+            $checkStmt->execute([':booking_id' => $bookingId]);
+            $booking = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$booking) {
+                return json_encode(["status" => "error", "message" => "Booking not found"]);
+            }
+
+            if (!in_array($booking['booking_status'], ['pending', 'reserved'])) {
+                return json_encode(["status" => "error", "message" => "Booking is not in pending or reserved status"]);
+            }
+
+            // Get user name for tracking
+            $userSql = "SELECT user_firstName, user_lastName FROM tbl_users WHERE user_id = :user_id";
+            $userStmt = $this->conn->prepare($userSql);
+            $userStmt->execute([':user_id' => $userId]);
+            $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+            $userName = trim(($user['user_firstName'] ?? 'User') . ' ' . ($user['user_lastName'] ?? ''));
+
+            // Update booking status and acceptance tracking
+            $updateSql = "UPDATE tbl_bookings SET
+                         booking_status = 'confirmed',
+                         accepted_by_user_id = :accepted_by_user_id,
+                         accepted_by_role = :accepted_by_role,
+                         accepted_at = NOW(),
+                         updated_at = NOW()
+                         WHERE booking_id = :booking_id";
+            $updateStmt = $this->conn->prepare($updateSql);
+            $updateStmt->execute([
+                ':accepted_by_user_id' => $userId,
+                ':accepted_by_role' => $userRole,
+                ':booking_id' => $bookingId
+            ]);
+
+            // Notify client about acceptance
+            try {
+                $clientNotif = $this->conn->prepare("INSERT INTO tbl_notifications (
+                    user_id, notification_type, notification_title, notification_message,
+                    notification_priority, notification_icon, notification_url,
+                    event_id, booking_id, venue_id, store_id, budget_id, feedback_id, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+                $clientNotif->execute([
+                    $booking['user_id'],
+                    'booking_accepted',
+                    'Booking Accepted',
+                    "Your booking {$booking['booking_reference']} has been accepted by {$userRole}: {$userName}",
+                    'high',
+                    'check-circle',
+                    '/client/bookings',
+                    null,
+                    $bookingId,
+                    null,
+                    null,
+                    null,
+                    null,
+                    date('Y-m-d H:i:s', strtotime('+72 hours'))
+                ]);
+            } catch (Exception $e) {
+                error_log('acceptBooking: client notification failed: ' . $e->getMessage());
+            }
+
+            // Notify other admins and staff about acceptance
+            try {
+                $otherUsersSql = "SELECT user_id FROM tbl_users WHERE user_role IN ('admin', 'staff') AND user_id != :user_id";
+                $otherUsersStmt = $this->conn->prepare($otherUsersSql);
+                $otherUsersStmt->execute([':user_id' => $userId]);
+                $otherUsers = $otherUsersStmt->fetchAll(PDO::FETCH_COLUMN);
+
+                foreach ($otherUsers as $otherUserId) {
+                    $otherNotif = $this->conn->prepare("INSERT INTO tbl_notifications (
+                        user_id, notification_type, notification_title, notification_message,
+                        notification_priority, notification_icon, notification_url,
+                        event_id, booking_id, venue_id, store_id, budget_id, feedback_id, expires_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+                    $otherNotif->execute([
+                        $otherUserId,
+                        'booking_accepted_by_other',
+                        'Booking Accepted by ' . ucfirst($userRole),
+                        "Booking {$booking['booking_reference']} has been accepted by {$userRole}: {$userName}",
+                        'medium',
+                        'info',
+                        '/admin/bookings',
+                        null,
+                        $bookingId,
+                        null,
+                        null,
+                        null,
+                        null,
+                        date('Y-m-d H:i:s', strtotime('+72 hours'))
+                    ]);
+                }
+            } catch (Exception $e) {
+                error_log('acceptBooking: other users notification failed: ' . $e->getMessage());
+            }
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Booking accepted successfully",
+                "accepted_by" => $userName,
+                "accepted_by_role" => $userRole
+            ]);
+
+        } catch (Exception $e) {
+            error_log("acceptBooking error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
     public function confirmBooking($bookingReference) {
         try {
             // Check if booking exists
@@ -5295,6 +5536,7 @@ This is an automated message. Please do not reply.
                         p.package_title as package_name,
                         b.notes,
                         b.booking_status,
+                        b.total_price,
                         b.created_at,
                         b.updated_at,
                         CASE WHEN e.event_id IS NOT NULL THEN 1 ELSE 0 END as is_converted,
@@ -5311,6 +5553,35 @@ This is an automated message. Please do not reply.
             $stmt->execute();
 
             $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Add payment information for each booking
+            foreach ($bookings as &$booking) {
+                // Get payments for this booking
+                $paymentStmt = $this->conn->prepare("
+                    SELECT
+                        payment_id,
+                        payment_amount,
+                        payment_method,
+                        payment_date,
+                        payment_status,
+                        payment_reference,
+                        payment_notes,
+                        created_at
+                    FROM tbl_payments
+                    WHERE booking_id = ? AND payment_status != 'cancelled'
+                    ORDER BY payment_date DESC
+                ");
+                $paymentStmt->execute([$booking['booking_id']]);
+                $booking['payments'] = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Calculate total reserved payment amount
+                $booking['reserved_payment_total'] = 0;
+                foreach ($booking['payments'] as $payment) {
+                    if ($payment['payment_status'] === 'completed') {
+                        $booking['reserved_payment_total'] += floatval($payment['payment_amount']);
+                    }
+                }
+            }
 
             return json_encode([
                 "status" => "success",
@@ -5345,6 +5616,7 @@ This is an automated message. Please do not reply.
                         p.package_title as package_name,
                         b.notes,
                         b.booking_status,
+                        b.total_price,
                         b.created_at,
                         b.updated_at,
                         CASE WHEN e.event_id IS NOT NULL THEN 1 ELSE 0 END as is_converted,
@@ -6442,7 +6714,12 @@ This is an automated message. Please do not reply.
         try {
             error_log("getEventPayments: Fetching payments for event ID: " . $eventId);
 
-            // First get the payments
+            // First get the event to check for original_booking_reference
+            $eventStmt = $this->pdo->prepare("SELECT original_booking_reference FROM tbl_events WHERE event_id = ?");
+            $eventStmt->execute([$eventId]);
+            $event = $eventStmt->fetch(PDO::FETCH_ASSOC);
+
+            // Get event payments
             $stmt = $this->pdo->prepare("
                 SELECT
                     p.*,
@@ -6459,6 +6736,32 @@ This is an automated message. Please do not reply.
             ");
             $stmt->execute([$eventId]);
             $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get reserved payments from original booking (if event was created from a booking)
+            if (!empty($event['original_booking_reference'])) {
+                $reservedStmt = $this->pdo->prepare("
+                    SELECT
+                        p.*,
+                        'reserved' as payment_type,
+                        u.user_firstName,
+                        u.user_lastName
+                    FROM tbl_payments p
+                    JOIN tbl_bookings b ON p.booking_id = b.booking_id
+                    LEFT JOIN tbl_users u ON p.client_id = u.user_id
+                    WHERE b.booking_reference = ? AND p.payment_status != 'cancelled'
+                    ORDER BY p.payment_date DESC
+                ");
+                $reservedStmt->execute([$event['original_booking_reference']]);
+                $reservedPayments = $reservedStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Add reserved payments to the main payments array
+                $payments = array_merge($payments, $reservedPayments);
+
+                // Sort all payments by date (most recent first)
+                usort($payments, function($a, $b) {
+                    return strtotime($b['payment_date']) - strtotime($a['payment_date']);
+                });
+            }
 
             error_log("getEventPayments: Found " . count($payments) . " payments for event " . $eventId);
 
@@ -6973,7 +7276,12 @@ This is an automated message. Please do not reply.
                 }
             }
 
-            $sql = "SELECT * FROM tbl_website_settings ORDER BY setting_id DESC LIMIT 1";
+            $sql = "SELECT company_name, company_logo, hero_image, primary_color, secondary_color,
+                           contact_email, contact_phone, address, about_text, social_facebook,
+                           social_instagram, social_twitter, require_otp_on_login, gcash_name,
+                           gcash_number, bank_name, bank_account_name, bank_account_number,
+                           payment_instructions, created_at, updated_at
+                    FROM tbl_website_settings ORDER BY setting_id DESC LIMIT 1";
             $stmt = $this->conn->prepare($sql);
             $stmt->execute();
             $settings = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -7017,6 +7325,12 @@ This is an automated message. Please do not reply.
                         social_instagram = ?,
                         social_twitter = ?,
                         require_otp_on_login = ?,
+                        gcash_name = ?,
+                        gcash_number = ?,
+                        bank_name = ?,
+                        bank_account_name = ?,
+                        bank_account_number = ?,
+                        payment_instructions = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE setting_id = (SELECT MAX(setting_id) FROM (SELECT setting_id FROM tbl_website_settings) as temp)";
 
@@ -7034,7 +7348,13 @@ This is an automated message. Please do not reply.
                 $settings['social_facebook'],
                 $settings['social_instagram'],
                 $settings['social_twitter'],
-                (isset($settings['require_otp_on_login']) && ($settings['require_otp_on_login'] === 1 || $settings['require_otp_on_login'] === '1' || $settings['require_otp_on_login'] === true)) ? 1 : 0
+                (isset($settings['require_otp_on_login']) && ($settings['require_otp_on_login'] === 1 || $settings['require_otp_on_login'] === '1' || $settings['require_otp_on_login'] === true)) ? 1 : 0,
+                $settings['gcash_name'] ?? null,
+                $settings['gcash_number'] ?? null,
+                $settings['bank_name'] ?? null,
+                $settings['bank_account_name'] ?? null,
+                $settings['bank_account_number'] ?? null,
+                $settings['payment_instructions'] ?? null
             ]);
 
             if ($result) {
@@ -11897,6 +12217,86 @@ Event Coordination System Team
             error_log("Failed ensuring tbl_user_activity_logs: " . $e->getMessage());
         }
     }
+
+    // Get activity log for admin audit trail
+    public function getActivityLog($staffId = null, $dateFrom = null, $dateTo = null, $actionType = null, $limit = 50, $offset = 0) {
+        try {
+            $whereConditions = [];
+            $params = [];
+
+            // Build WHERE conditions
+            if ($staffId) {
+                $whereConditions[] = "al.user_id = ?";
+                $params[] = $staffId;
+            }
+
+            if ($dateFrom) {
+                $whereConditions[] = "DATE(al.created_at) >= ?";
+                $params[] = $dateFrom;
+            }
+
+            if ($dateTo) {
+                $whereConditions[] = "DATE(al.created_at) <= ?";
+                $params[] = $dateTo;
+            }
+
+            if ($actionType) {
+                $whereConditions[] = "al.action_type = ?";
+                $params[] = $actionType;
+            }
+
+            // Only show staff activities
+            $whereConditions[] = "al.user_role = 'staff'";
+
+            $whereClause = !empty($whereConditions) ? "WHERE " . implode(" AND ", $whereConditions) : "";
+
+            // Get total count
+            $countSql = "SELECT COUNT(*) as total FROM tbl_user_activity_logs al $whereClause";
+            $countStmt = $this->pdo->prepare($countSql);
+            $countStmt->execute($params);
+            $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+            // Get activity log entries
+            $sql = "SELECT
+                        al.log_id,
+                        al.user_id,
+                        al.user_role,
+                        al.action_type,
+                        al.description,
+                        al.ip_address,
+                        al.created_at,
+                        u.user_firstName,
+                        u.user_lastName,
+                        u.user_email
+                    FROM tbl_user_activity_logs al
+                    LEFT JOIN tbl_users u ON al.user_id = u.user_id
+                    $whereClause
+                    ORDER BY al.created_at DESC
+                    LIMIT ? OFFSET ?";
+
+            $params[] = (int)$limit;
+            $params[] = (int)$offset;
+
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
+            $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "data" => $activities,
+                "pagination" => [
+                    "total" => (int)$totalCount,
+                    "limit" => (int)$limit,
+                    "offset" => (int)$offset,
+                    "has_more" => ($offset + $limit) < $totalCount
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            error_log("getActivityLog error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
 }
 
 if (!$pdo) {
@@ -12129,6 +12529,12 @@ try {
         error_log("Admin.php - Starting createEvent operation");
         try {
             error_log("Admin.php - Starting createEvent with data: " . json_encode($data));
+
+            // Clear any previous output before processing
+            if (ob_get_length()) {
+                ob_clean();
+            }
+
             $result = $admin->createEvent($data);
             error_log("Admin.php - createEvent result: " . $result);
 
@@ -12145,7 +12551,7 @@ try {
                 throw new Exception("Invalid JSON response from createEvent: " . json_last_error_msg());
             }
 
-            // Clear any previous output
+            // Clear any output that might have been generated during processing
             if (ob_get_length()) {
                 ob_clean();
             }
@@ -12155,9 +12561,21 @@ try {
             echo $result;
         } catch (Exception $e) {
             error_log("Admin.php - createEvent exception: " . $e->getMessage());
+            error_log("Admin.php - createEvent exception stack trace: " . $e->getTraceAsString());
+
+            // Clear any output before sending error response
+            if (ob_get_length()) {
+                ob_clean();
+            }
+
             $errorResponse = json_encode([
                 "status" => "error",
-                "message" => "Failed to create event: " . $e->getMessage()
+                "message" => "Failed to create event: " . $e->getMessage(),
+                "debug" => [
+                    "error" => $e->getMessage(),
+                    "file" => basename($e->getFile()),
+                    "line" => $e->getLine()
+                ]
             ]);
             error_log("Admin.php - Sending error response: " . $errorResponse);
             echo $errorResponse;
@@ -12253,10 +12671,20 @@ try {
         $reference = $_GET['reference'] ?? ($data['reference'] ?? '');
         echo $admin->getBookingByReference($reference);
         break;
+    case "getBookingById":
+        $bookingId = $_GET['booking_id'] ?? ($data['booking_id'] ?? 0);
+        echo $admin->getBookingById($bookingId);
+        break;
     case "updateBookingStatus":
         $bookingId = $_GET['booking_id'] ?? ($data['booking_id'] ?? 0);
         $status = $_GET['status'] ?? ($data['status'] ?? '');
         echo $admin->updateBookingStatus($bookingId, $status);
+        break;
+    case "acceptBooking":
+        $bookingId = $_GET['booking_id'] ?? ($data['booking_id'] ?? 0);
+        $userId = $_GET['user_id'] ?? ($data['user_id'] ?? 0);
+        $userRole = $_GET['user_role'] ?? ($data['user_role'] ?? 'admin');
+        echo $admin->acceptBooking($bookingId, $userId, $userRole);
         break;
     case "confirmBooking":
         $bookingReference = $_GET['booking_reference'] ?? ($data['booking_reference'] ?? '');
@@ -13023,9 +13451,36 @@ try {
         }
         break;
 
+    case "getActivityLog":
+        // Get activity log for admin audit trail
+        $staffId = $_GET['staff_id'] ?? ($data['staff_id'] ?? null);
+        $dateFrom = $_GET['date_from'] ?? ($data['date_from'] ?? null);
+        $dateTo = $_GET['date_to'] ?? ($data['date_to'] ?? null);
+        $actionType = $_GET['action_type'] ?? ($data['action_type'] ?? null);
+        $limit = $_GET['limit'] ?? ($data['limit'] ?? 50);
+        $offset = $_GET['offset'] ?? ($data['offset'] ?? 0);
+
+        echo $admin->getActivityLog($staffId, $dateFrom, $dateTo, $actionType, $limit, $offset);
+        break;
+
+    case "createReservationPayment":
+        $bookingId = (int)($data['booking_id'] ?? 0);
+        if ($bookingId <= 0) {
+            echo json_encode(["status" => "error", "message" => "Valid booking ID required"]);
+        } else {
+            echo json_encode(createReservationPayment($bookingId, $data));
+        }
+        break;
+
     default:
         error_log("Admin.php - Unknown operation: " . $operation);
         error_log("Admin.php - Available data: " . json_encode($data));
+
+        // Clear any output before sending error response
+        if (ob_get_length()) {
+            ob_clean();
+        }
+
         echo json_encode([
             "status" => "error",
             "message" => "Invalid or missing operation: '$operation'",
@@ -13042,6 +13497,8 @@ try {
         ob_clean();
     }
 
+    // Ensure we send proper JSON response
+    header('Content-Type: application/json');
     echo json_encode([
         "status" => "error",
         "message" => "Server error occurred",
@@ -13053,5 +13510,134 @@ try {
     ]);
 }
 
+// Function to create reservation payment for a booking
+function createReservationPayment($bookingId, $paymentData) {
+    global $pdo;
+
+    try {
+        $pdo->beginTransaction();
+
+        // Validate booking exists
+        $bookingStmt = $pdo->prepare("SELECT booking_id, user_id, booking_reference, booking_status FROM tbl_bookings WHERE booking_id = ?");
+        $bookingStmt->execute([$bookingId]);
+        $booking = $bookingStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$booking) {
+            return ["status" => "error", "message" => "Booking not found"];
+        }
+
+        if ($booking['booking_status'] !== 'pending') {
+            return ["status" => "error", "message" => "Booking is not in pending status"];
+        }
+
+        // Validate payment data
+        $requiredFields = ['payment_method', 'payment_amount', 'payment_reference'];
+        foreach ($requiredFields as $field) {
+            if (!isset($paymentData[$field]) || $paymentData[$field] === '') {
+                return ["status" => "error", "message" => "Missing required field: " . $field];
+            }
+        }
+
+        // Create payment record
+        $paymentSql = "INSERT INTO tbl_payments (
+            booking_id, client_id, payment_date, payment_amount, payment_method,
+            payment_status, payment_reference, payment_notes, payment_percentage
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        $paymentStmt = $pdo->prepare($paymentSql);
+        $paymentDate = $paymentData['payment_date'] ?? date('Y-m-d');
+        $paymentStatus = $paymentData['payment_status'] ?? 'completed';
+        $paymentNotes = $paymentData['payment_notes'] ?? '';
+        $paymentPercentage = null; // Will be calculated if needed
+
+        $paymentResult = $paymentStmt->execute([
+            $bookingId,
+            $booking['user_id'],
+            $paymentDate,
+            $paymentData['payment_amount'],
+            $paymentData['payment_method'],
+            $paymentStatus,
+            $paymentData['payment_reference'],
+            $paymentNotes,
+            $paymentPercentage
+        ]);
+
+        if (!$paymentResult) {
+            throw new Exception("Failed to create payment record");
+        }
+
+        $paymentId = $pdo->lastInsertId();
+
+        // Update booking status to 'reserved'
+        $updateBookingSql = "UPDATE tbl_bookings SET booking_status = 'reserved' WHERE booking_id = ?";
+        $updateStmt = $pdo->prepare($updateBookingSql);
+        $updateStmt->execute([$bookingId]);
+
+        // Notify all admins and staff about payment made
+        try {
+            // Get admin IDs
+            $adminStmt = $pdo->query("SELECT user_id FROM tbl_users WHERE user_role = 'admin'");
+            $adminIds = $adminStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Get staff IDs
+            $staffStmt = $pdo->query("SELECT user_id FROM tbl_users WHERE user_role = 'staff' AND user_status = 'active'");
+            $staffIds = $staffStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Get client name
+            $clientStmt = $pdo->prepare("SELECT user_firstName, user_lastName FROM tbl_users WHERE user_id = ?");
+            $clientStmt->execute([$booking['user_id']]);
+            $client = $clientStmt->fetch(PDO::FETCH_ASSOC);
+            $clientName = trim(($client['user_firstName'] ?? 'User') . ' ' . ($client['user_lastName'] ?? ''));
+
+            $allRecipients = array_merge($adminIds, $staffIds);
+
+            foreach ($allRecipients as $recipientId) {
+                $notifStmt = $pdo->prepare("INSERT INTO tbl_notifications (
+                    user_id, notification_type, notification_title, notification_message,
+                    notification_priority, notification_icon, notification_url,
+                    event_id, booking_id, venue_id, store_id, budget_id, feedback_id, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+                $notifStmt->execute([
+                    $recipientId,
+                    'booking_payment_made',
+                    'Reservation Payment Received',
+                    "Client {$clientName} made a reservation payment of ₱{$paymentData['payment_amount']} for booking {$booking['booking_reference']}",
+                    'high',
+                    'credit-card',
+                    '/admin/bookings',
+                    null,
+                    $bookingId,
+                    null,
+                    null,
+                    null,
+                    null,
+                    date('Y-m-d H:i:s', strtotime('+72 hours'))
+                ]);
+            }
+        } catch (Exception $e) {
+            error_log('createReservationPayment: notification failed: ' . $e->getMessage());
+        }
+
+        $pdo->commit();
+
+        return [
+            "status" => "success",
+            "payment_id" => $paymentId,
+            "message" => "Reservation payment created successfully",
+            "booking_status" => "reserved"
+        ];
+
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
+    }
+}
+
 // End output buffering and flush
-ob_end_flush();
+// Only flush if there's content to flush
+if (ob_get_length() > 0) {
+    ob_end_flush();
+} else {
+    ob_end_clean();
+}

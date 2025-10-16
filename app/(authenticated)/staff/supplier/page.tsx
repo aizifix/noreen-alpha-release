@@ -5,6 +5,13 @@ import axios from "axios";
 import { endpoints } from "@/app/config/api";
 import { toast } from "sonner";
 import {
+  getUserRole,
+  canCreate,
+  canEdit,
+  canDelete,
+} from "@/app/utils/permissions";
+import { secureStorage } from "@/app/utils/encryption";
+import {
   Plus,
   Search,
   Filter,
@@ -119,6 +126,7 @@ export default function SupplierPage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [stats, setStats] = useState<SupplierStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -248,6 +256,16 @@ export default function SupplierPage() {
   }, [currentPage, fetchSuppliers]);
 
   useEffect(() => {
+    // Get user data for permissions
+    try {
+      const userData = secureStorage.getItem("user");
+      if (userData) {
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Error getting user data:", error);
+    }
+
     fetchMetadata();
   }, []);
 
@@ -310,34 +328,20 @@ export default function SupplierPage() {
   // Bulk actions
   const handleBulkDelete = () => {
     if (selectedSuppliers.length === 0) {
-      toast({
-        title: "No suppliers selected",
-        description: "Please select suppliers to delete",
-        variant: "destructive",
-      });
+      toast.error("No suppliers selected - Please select suppliers to delete");
       return;
     }
     // Implement bulk delete logic here
-    toast({
-      title: "Bulk delete",
-      description: `Deleting ${selectedSuppliers.length} suppliers...`,
-    });
+    toast.success(`Deleting ${selectedSuppliers.length} suppliers...`);
   };
 
   const handleBulkExport = () => {
     if (selectedSuppliers.length === 0) {
-      toast({
-        title: "No suppliers selected",
-        description: "Please select suppliers to export",
-        variant: "destructive",
-      });
+      toast.error("No suppliers selected - Please select suppliers to export");
       return;
     }
     // Implement bulk export logic here
-    toast({
-      title: "Bulk export",
-      description: `Exporting ${selectedSuppliers.length} suppliers...`,
-    });
+    toast.success(`Exporting ${selectedSuppliers.length} suppliers...`);
   };
 
   // Handle supplier actions
@@ -372,24 +376,13 @@ export default function SupplierPage() {
 
       if (data.status === "success") {
         fetchSuppliers();
-        toast({
-          title: "Success!",
-          description: "Supplier deleted successfully",
-        });
+        toast.success("Supplier deleted successfully");
       } else {
-        toast({
-          title: "Error",
-          description: data.message || "Failed to delete supplier",
-          variant: "destructive",
-        });
+        toast.error(data.message || "Failed to delete supplier");
       }
     } catch (error) {
       console.error("Error deleting supplier:", error);
-      toast({
-        title: "Error",
-        description: "Failed to delete supplier",
-        variant: "destructive",
-      });
+      toast.error("Failed to delete supplier");
     }
   };
 
@@ -476,13 +469,21 @@ export default function SupplierPage() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          <Button
-            onClick={handleAddSupplier}
-            className="bg-[#028A75] hover:bg-[#027a68] text-white"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Supplier
-          </Button>
+          {canCreate("suppliers", getUserRole(user)) && (
+            <Button
+              onClick={handleAddSupplier}
+              className="bg-[#028A75] hover:bg-[#027a68] text-white"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Supplier
+            </Button>
+          )}
+          {!canCreate("suppliers", getUserRole(user)) && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg">
+              <Eye className="h-4 w-4 text-gray-500" />
+              <span className="text-sm text-gray-600">View Only Access</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -772,22 +773,28 @@ export default function SupplierPage() {
                             <Eye className="mr-2 h-4 w-4" />
                             View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleEditSupplier(supplier)}
-                          >
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-red-600"
-                            onClick={() =>
-                              handleDeleteSupplier(supplier.supplier_id)
-                            }
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
+                          {canEdit("suppliers", getUserRole(user)) && (
+                            <DropdownMenuItem
+                              onClick={() => handleEditSupplier(supplier)}
+                            >
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                          )}
+                          {canDelete("suppliers", getUserRole(user)) && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600"
+                                onClick={() =>
+                                  handleDeleteSupplier(supplier.supplier_id)
+                                }
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </td>
@@ -827,19 +834,21 @@ export default function SupplierPage() {
       </Card>
 
       {/* Enhanced Modal */}
-      {showAddModal && (
-        <EnhancedSupplierModal
-          supplier={selectedSupplier}
-          mode={viewMode}
-          categories={categories}
-          documentTypes={documentTypes}
-          onClose={() => setShowAddModal(false)}
-          onSuccess={() => {
-            fetchSuppliers();
-            setShowAddModal(false);
-          }}
-        />
-      )}
+      {showAddModal &&
+        (canCreate("suppliers", getUserRole(user)) ||
+          canEdit("suppliers", getUserRole(user))) && (
+          <EnhancedSupplierModal
+            supplier={selectedSupplier}
+            mode={viewMode}
+            categories={categories}
+            documentTypes={documentTypes}
+            onClose={() => setShowAddModal(false)}
+            onSuccess={() => {
+              fetchSuppliers();
+              setShowAddModal(false);
+            }}
+          />
+        )}
     </div>
   );
 }

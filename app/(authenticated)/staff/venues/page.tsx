@@ -26,6 +26,13 @@ import {
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
+import {
+  getUserRole,
+  canCreate,
+  canEdit,
+  canDelete,
+} from "@/app/utils/permissions";
+import { secureStorage } from "@/app/utils/encryption";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,6 +125,7 @@ export default function VenuesPage() {
   const [venues, setVenues] = useState<Venue[]>([]);
   const [filteredVenues, setFilteredVenues] = useState<Venue[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
   const [editingVenue, setEditingVenue] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{
     venue_title: string;
@@ -160,6 +168,16 @@ export default function VenuesPage() {
   });
 
   useEffect(() => {
+    // Get user data for permissions
+    try {
+      const userData = secureStorage.getItem("user");
+      if (userData) {
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Error getting user data:", error);
+    }
+
     // Fetch venues when component mounts
     fetchVenues();
   }, []);
@@ -289,37 +307,8 @@ export default function VenuesPage() {
     });
   };
 
-  const handleDuplicateVenue = async (venueId: number) => {
-    setConfirmationModal({
-      isOpen: true,
-      title: "Duplicate Venue",
-      description:
-        "Are you sure you want to duplicate this venue? This will create a copy with all the same details.",
-      onConfirm: async () => {
-        try {
-          const response = await axios.post(endpoints.admin, {
-            operation: "duplicateVenue",
-            venue_id: venueId,
-          });
-
-          if (response.data.status === "success") {
-            toast.success(
-              response.data.message || "Venue duplicated successfully"
-            );
-            // Refresh the list
-            fetchVenues();
-          } else {
-            console.error("Duplicate error:", response.data.message);
-            toast.error("Failed to duplicate venue: " + response.data.message);
-          }
-        } catch (error) {
-          console.error("API error:", error);
-          toast.error("Failed to connect to server");
-        }
-        setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
-      },
-      variant: "warning",
-    });
+  const handleViewVenue = (venueId: number) => {
+    router.push(`/staff/venues/${venueId}`);
   };
 
   const handleEditClick = (venue: Venue) => {
@@ -419,15 +408,23 @@ export default function VenuesPage() {
                 Manage and organize your event venues
               </p>
             </div>
-            <Link href="/admin/venues/venue-builder">
-              <Button
-                size="lg"
-                className="bg-[#028A75] hover:bg-[#027A65] text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
-              >
-                <Plus className="h-5 w-5 mr-2" />
-                Add New Venue
-              </Button>
-            </Link>
+            {canCreate("venues", getUserRole(user)) && (
+              <Link href="/staff/venues/venue-builder">
+                <Button
+                  size="lg"
+                  className="bg-[#028A75] hover:bg-[#027A65] text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
+                  Add New Venue
+                </Button>
+              </Link>
+            )}
+            {!canCreate("venues", getUserRole(user)) && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg">
+                <Eye className="h-4 w-4 text-gray-500" />
+                <span className="text-sm text-gray-600">View Only Access</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -710,44 +707,50 @@ export default function VenuesPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-48">
+                              {canEdit("venues", getUserRole(user)) && (
+                                <DropdownMenuItem
+                                  onClick={() => handleEditClick(venue)}
+                                  className="cursor-pointer"
+                                >
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Quick Edit
+                                </DropdownMenuItem>
+                              )}
+                              {canEdit("venues", getUserRole(user)) && (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    router.push(
+                                      `/staff/venues/venue-builder/${venue.venue_id}`
+                                    )
+                                  }
+                                  className="cursor-pointer"
+                                >
+                                  <Settings className="h-4 w-4 mr-2" />
+                                  Full Edit
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem
-                                onClick={() => handleEditClick(venue)}
+                                onClick={() => handleViewVenue(venue.venue_id)}
                                 className="cursor-pointer"
                               >
-                                <Edit className="h-4 w-4 mr-2" />
-                                Quick Edit
+                                <Eye className="h-4 w-4 mr-2" />
+                                View
                               </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  router.push(
-                                    `/admin/venues/venue-builder/${venue.venue_id}`
-                                  )
-                                }
-                                className="cursor-pointer"
-                              >
-                                <Settings className="h-4 w-4 mr-2" />
-                                Full Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  handleDuplicateVenue(venue.venue_id)
-                                }
-                                className="cursor-pointer"
-                              >
-                                <Copy className="h-4 w-4 mr-2" />
-                                Duplicate Venue
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  handleDeleteVenue(venue.venue_id)
-                                }
-                                className="cursor-pointer text-red-600 focus:text-red-600"
-                                disabled={!venue.is_active}
-                              >
-                                <Trash className="h-4 w-4 mr-2" />
-                                Delete Venue
-                              </DropdownMenuItem>
+                              {canDelete("venues", getUserRole(user)) && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      handleDeleteVenue(venue.venue_id)
+                                    }
+                                    className="cursor-pointer text-red-600 focus:text-red-600"
+                                    disabled={!venue.is_active}
+                                  >
+                                    <Trash className="h-4 w-4 mr-2" />
+                                    Delete Venue
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
@@ -787,7 +790,8 @@ export default function VenuesPage() {
                             </div>
                           </div>
                           <div className="flex-1">
-                            {editingVenue === venue.venue_id ? (
+                            {editingVenue === venue.venue_id &&
+                            canEdit("venues", getUserRole(user)) ? (
                               <Input
                                 value={editForm.venue_title}
                                 onChange={(e) =>
@@ -812,65 +816,66 @@ export default function VenuesPage() {
                         </div>
 
                         {/* Quick Edit Form */}
-                        {editingVenue === venue.venue_id && (
-                          <div className="space-y-3 mb-4 p-4 bg-gray-50 rounded-lg">
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <Label className="text-xs font-medium text-gray-700 mb-1 block">
-                                  Extra Pax Rate
-                                </Label>
-                                <Input
-                                  type="number"
-                                  value={editForm.extra_pax_rate}
-                                  onChange={(e) =>
-                                    setEditForm((prev) => ({
-                                      ...prev,
-                                      extra_pax_rate:
-                                        parseFloat(e.target.value) || 0,
-                                    }))
-                                  }
-                                  className="text-sm bg-white border-[#028A75]/30"
-                                  placeholder="Extra Pax Rate"
-                                />
+                        {editingVenue === venue.venue_id &&
+                          canEdit("venues", getUserRole(user)) && (
+                            <div className="space-y-3 mb-4 p-4 bg-gray-50 rounded-lg">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <Label className="text-xs font-medium text-gray-700 mb-1 block">
+                                    Extra Pax Rate
+                                  </Label>
+                                  <Input
+                                    type="number"
+                                    value={editForm.extra_pax_rate}
+                                    onChange={(e) =>
+                                      setEditForm((prev) => ({
+                                        ...prev,
+                                        extra_pax_rate:
+                                          parseFloat(e.target.value) || 0,
+                                      }))
+                                    }
+                                    className="text-sm bg-white border-[#028A75]/30"
+                                    placeholder="Extra Pax Rate"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs font-medium text-gray-700 mb-1 block">
+                                    Capacity
+                                  </Label>
+                                  <Input
+                                    type="number"
+                                    value={editForm.venue_capacity}
+                                    onChange={(e) =>
+                                      setEditForm((prev) => ({
+                                        ...prev,
+                                        venue_capacity:
+                                          parseInt(e.target.value) || 0,
+                                      }))
+                                    }
+                                    className="text-sm bg-white border-[#028A75]/30"
+                                    placeholder="Capacity"
+                                  />
+                                </div>
                               </div>
                               <div>
                                 <Label className="text-xs font-medium text-gray-700 mb-1 block">
-                                  Capacity
+                                  Description
                                 </Label>
-                                <Input
-                                  type="number"
-                                  value={editForm.venue_capacity}
+                                <Textarea
+                                  value={editForm.venue_details}
                                   onChange={(e) =>
                                     setEditForm((prev) => ({
                                       ...prev,
-                                      venue_capacity:
-                                        parseInt(e.target.value) || 0,
+                                      venue_details: e.target.value,
                                     }))
                                   }
                                   className="text-sm bg-white border-[#028A75]/30"
-                                  placeholder="Capacity"
+                                  placeholder="Venue description"
+                                  rows={2}
                                 />
                               </div>
                             </div>
-                            <div>
-                              <Label className="text-xs font-medium text-gray-700 mb-1 block">
-                                Description
-                              </Label>
-                              <Textarea
-                                value={editForm.venue_details}
-                                onChange={(e) =>
-                                  setEditForm((prev) => ({
-                                    ...prev,
-                                    venue_details: e.target.value,
-                                  }))
-                                }
-                                className="text-sm bg-white border-[#028A75]/30"
-                                placeholder="Venue description"
-                                rows={2}
-                              />
-                            </div>
-                          </div>
-                        )}
+                          )}
 
                         {/* Venue Details */}
                         <div className="space-y-3 mb-6">
@@ -947,7 +952,8 @@ export default function VenuesPage() {
 
                         {/* Action Buttons */}
                         <div className="mt-auto pt-4">
-                          {editingVenue === venue.venue_id ? (
+                          {editingVenue === venue.venue_id &&
+                          canEdit("venues", getUserRole(user)) ? (
                             <div className="flex gap-3">
                               <Button
                                 onClick={handleSaveEdit}
@@ -969,9 +975,7 @@ export default function VenuesPage() {
                             </div>
                           ) : (
                             <Button
-                              onClick={() =>
-                                router.push(`/admin/venues/${venue.venue_id}`)
-                              }
+                              onClick={() => handleViewVenue(venue.venue_id)}
                               className="w-full bg-[#028A75] hover:bg-[#027A65] text-white rounded-xl py-3 font-medium transition-all duration-300 shadow-lg hover:shadow-xl"
                             >
                               <Eye className="h-4 w-4 mr-2" />
@@ -1014,17 +1018,18 @@ export default function VenuesPage() {
                   filters.priceRange ||
                   filters.capacity ||
                   filters.type
-                ) && (
-                  <Link href="/admin/venues/venue-builder">
-                    <Button
-                      size="lg"
-                      className="bg-[#028A75] hover:bg-[#027A65] text-white px-8 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
-                    >
-                      <Plus className="h-5 w-5 mr-2" />
-                      Create Your First Venue
-                    </Button>
-                  </Link>
-                )}
+                ) &&
+                  canCreate("venues", getUserRole(user)) && (
+                    <Link href="/staff/venues/venue-builder">
+                      <Button
+                        size="lg"
+                        className="bg-[#028A75] hover:bg-[#027A65] text-white px-8 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                      >
+                        <Plus className="h-5 w-5 mr-2" />
+                        Create Your First Venue
+                      </Button>
+                    </Link>
+                  )}
               </div>
             )}
           </div>

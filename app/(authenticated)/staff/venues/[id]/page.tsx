@@ -47,6 +47,8 @@ import {
 import { toast } from "sonner";
 import { endpoints, api } from "@/app/config/api";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
+import { getUserRole, canEdit, canDelete } from "@/app/utils/permissions";
+import { secureStorage } from "@/app/utils/encryption";
 
 // Image URL helper function
 const getImageUrl = (imagePath: string | null) => {
@@ -139,6 +141,7 @@ export default function VenueDetailsPage() {
 
   const [venue, setVenue] = useState<Venue | null>(null);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<VenueEditForm | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -182,6 +185,16 @@ export default function VenueDetailsPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    // Get user data for permissions
+    try {
+      const userData = secureStorage.getItem("user");
+      if (userData) {
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Error getting user data:", error);
+    }
+
     if (venueId) {
       fetchVenueDetails();
     }
@@ -401,7 +414,7 @@ export default function VenueDetailsPage() {
 
         // Navigate back to venues list to show updated data
         setTimeout(() => {
-          router.push("/admin/venues");
+          router.push("/staff/venues");
         }, 1000); // Small delay to show success message
       } else {
         toast.error(data.message || "Failed to delete image");
@@ -551,7 +564,7 @@ export default function VenueDetailsPage() {
 
         // Navigate back to venues list to show updated data
         setTimeout(() => {
-          router.push("/admin/venues");
+          router.push("/staff/venues");
         }, 1000); // Small delay to show success message
       } else {
         toast.error(data.message || "Failed to update venue", { id: toastId });
@@ -582,7 +595,7 @@ export default function VenueDetailsPage() {
 
         // Navigate back to venues list to show updated status
         setTimeout(() => {
-          router.push("/admin/venues");
+          router.push("/staff/venues");
         }, 1000); // Small delay to show success message
       } else {
         toast.error(data.message || "Failed to update venue status");
@@ -612,7 +625,7 @@ export default function VenueDetailsPage() {
           const data = await response.json();
           if (data.status === "success") {
             toast.success("Venue deleted successfully");
-            router.push("/admin/venues");
+            router.push("/staff/venues");
           } else {
             toast.error(data.message || "Failed to delete venue");
           }
@@ -645,7 +658,7 @@ export default function VenueDetailsPage() {
           const data = await response.json();
           if (data.status === "success") {
             toast.success("Venue duplicated successfully");
-            router.push("/admin/venues");
+            router.push("/staff/venues");
           } else {
             toast.error(data.message || "Failed to duplicate venue");
           }
@@ -733,27 +746,24 @@ export default function VenueDetailsPage() {
                   </>
                 )}
               </Button>
-              <button
-                onClick={handleDuplicateVenue}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                Duplicate Venue
-              </button>
-              <button
-                onClick={handleEdit}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#028A75] hover:bg-[#027a68]"
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Venue
-              </button>
-              <button
-                onClick={handleDeleteVenue}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete Venue
-              </button>
+              {canEdit("venues", getUserRole(user)) && (
+                <button
+                  onClick={handleEdit}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#028A75] hover:bg-[#027a68]"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Venue
+                </button>
+              )}
+              {canDelete("venues", getUserRole(user)) && (
+                <button
+                  onClick={handleDeleteVenue}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Venue
+                </button>
+              )}
             </div>
           </div>
         </div>

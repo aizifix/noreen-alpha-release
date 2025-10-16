@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
+import { endpoints } from "@/app/config/api";
 import {
   Calendar,
   Clock,
@@ -18,6 +19,10 @@ import {
   Search,
   Filter,
   RefreshCw,
+  Wallet,
+  DollarSign,
+  Percent,
+  CreditCard,
 } from "lucide-react";
 import axios from "axios";
 import { toast } from "@/components/ui/use-toast";
@@ -74,11 +79,24 @@ interface Booking {
   booking_status:
     | "pending"
     | "confirmed"
+    | "reserved"
     | "converted"
     | "cancelled"
     | "completed";
   created_at: string;
   converted_event_id?: number | null;
+  total_price?: number;
+  payments?: PaymentHistoryItem[];
+}
+
+interface PaymentHistoryItem {
+  payment_id: number;
+  payment_amount: number;
+  payment_date: string;
+  payment_method: string;
+  payment_status: string;
+  payment_reference?: string;
+  description?: string;
 }
 
 export default function AdminBookingsPage() {
@@ -106,6 +124,21 @@ export default function AdminBookingsPage() {
   const [tableCurrentPage, setTableCurrentPage] = useState<number>(1);
   const [tableItemsPerPage, setTableItemsPerPage] = useState<number>(10);
   const [detailsTab, setDetailsTab] = useState<string>("summary");
+
+  // Payment modal state
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isCreatingPayment, setIsCreatingPayment] = useState(false);
+  const [newPayment, setNewPayment] = useState({
+    payment_type: "custom" as "custom" | "percentage" | "full",
+    percentage: 0 as number,
+    payment_amount: 0,
+    payment_method: "cash" as "gcash" | "bank-transfer" | "cash",
+    payment_date: new Date().toISOString().slice(0, 10),
+    payment_status: "completed" as "completed" | "pending",
+    payment_reference: "",
+    payment_notes: "",
+  });
+  const [paymentAmountDisplay, setPaymentAmountDisplay] = useState("");
 
   useEffect(() => {
     try {
@@ -488,30 +521,28 @@ export default function AdminBookingsPage() {
 
   const handleAcceptBooking = async (booking: Booking) => {
     try {
-      const response = await axios.post("/admin.php", {
-        operation: "updateBookingStatus",
+      const userData = secureStorage.getItem("user");
+      const response = await axios.post(`${endpoints.admin}`, {
+        operation: "acceptBooking",
         booking_id: booking.booking_id,
-        status: "confirmed",
+        user_id: userData?.user_id,
+        user_role: "admin",
       });
 
       if (response.data.status === "success") {
         toast({
           title: "Booking Accepted",
-          description: `Booking ${booking.booking_reference} has been confirmed and is now available for event creation.`,
+          description: `Booking ${booking.booking_reference} has been accepted successfully`,
         });
         fetchBookings(); // Refresh the list
       } else {
-        toast({
-          title: "Error",
-          description: response.data.message || "Failed to accept booking",
-          variant: "destructive",
-        });
+        throw new Error(response.data.message || "Failed to accept booking");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error accepting booking:", error);
       toast({
         title: "Error",
-        description: "Failed to connect to server",
+        description: error.message || "Failed to accept booking",
         variant: "destructive",
       });
     }
@@ -591,6 +622,130 @@ export default function AdminBookingsPage() {
     }
   };
 
+  // Payment handling functions
+  const handlePaymentAmountChange = (value: string) => {
+    const cleanValue = value.replace(/,/g, "");
+
+    if (cleanValue === "" || cleanValue === "0") {
+      setNewPayment((p) => ({ ...p, payment_amount: 0 }));
+      setPaymentAmountDisplay("");
+      return;
+    }
+
+    if (
+      cleanValue === "." ||
+      cleanValue.endsWith(".") ||
+      /^\d+\.$/.test(cleanValue) ||
+      /^\d+\.\d*$/.test(cleanValue)
+    ) {
+      setPaymentAmountDisplay(value);
+      const numericPart = cleanValue.replace(/\.$/, "");
+      const numericValue = parseFloat(numericPart);
+      if (!isNaN(numericValue) && numericValue >= 0) {
+        setNewPayment((p) => ({ ...p, payment_amount: numericValue }));
+      }
+      return;
+    }
+
+    const numericValue = parseFloat(cleanValue);
+    if (!isNaN(numericValue) && numericValue >= 0) {
+      setNewPayment((p) => ({ ...p, payment_amount: numericValue }));
+      setPaymentAmountDisplay(formatNumberWithCommas(numericValue));
+    }
+  };
+
+  const handlePaymentAmountBlur = () => {
+    if (newPayment.payment_amount > 0) {
+      setPaymentAmountDisplay(
+        formatNumberWithCommas(newPayment.payment_amount)
+      );
+    } else {
+      setPaymentAmountDisplay("");
+    }
+  };
+
+  const handleCreatePayment = async () => {
+    if (!selectedBooking) return;
+
+    try {
+      setIsCreatingPayment(true);
+
+      const paymentAmount = Number(newPayment.payment_amount) || 0;
+
+      if (paymentAmount <= 0) {
+        toast({
+          title: "Payment Validation Error",
+          description: "Payment amount must be greater than zero",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const remainingBalance = getRemainingBalance(selectedBooking);
+      if (paymentAmount > remainingBalance) {
+        toast({
+          title: "Payment Validation Error",
+          description: `Payment amount cannot exceed remaining balance of ${formatCurrency(remainingBalance)}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const paymentData = {
+        operation: "createReservationPayment",
+        booking_id: selectedBooking.booking_id,
+        payment_method: newPayment.payment_method,
+        payment_amount: paymentAmount,
+        payment_notes: newPayment.payment_notes || "",
+        payment_status: newPayment.payment_status,
+        payment_date: newPayment.payment_date,
+        payment_reference: newPayment.payment_reference || "",
+      };
+
+      const response = await axios.post(endpoints.admin, paymentData);
+
+      if (response.data.status !== "success") {
+        toast({
+          title: "Error",
+          description: response.data.message || "Failed to create payment",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Success",
+        description: "Payment recorded successfully",
+      });
+
+      // Reset form & close modal
+      setNewPayment({
+        payment_type: "custom",
+        percentage: 0,
+        payment_amount: 0,
+        payment_method: "cash",
+        payment_date: new Date().toISOString().slice(0, 10),
+        payment_status: "completed",
+        payment_reference: "",
+        payment_notes: "",
+      });
+      setPaymentAmountDisplay("");
+      setIsPaymentModalOpen(false);
+
+      // Refresh bookings
+      await fetchBookings();
+    } catch (error) {
+      console.error("Error creating payment:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create payment",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreatingPayment(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "pending":
@@ -623,6 +778,54 @@ export default function AdminBookingsPage() {
       default:
         return <Clock className="h-4 w-4" />;
     }
+  };
+
+  // Payment utility functions
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat("en-PH", {
+      style: "currency",
+      currency: "PHP",
+      minimumFractionDigits: 2,
+    }).format(amount);
+  };
+
+  const formatNumberWithCommas = (value: string | number): string => {
+    if (!value || value === 0) return "";
+    const numValue = typeof value === "string" ? parseFloat(value) : value;
+    if (isNaN(numValue)) return "";
+    return numValue.toLocaleString("en-US", {
+      style: "decimal",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 20,
+    });
+  };
+
+  const parseFormattedNumber = (formattedValue: string): number => {
+    if (!formattedValue) return 0;
+    const cleanValue = formattedValue.replace(/,/g, "");
+    const parsed = parseFloat(cleanValue);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const calculatePaidAmount = (booking: Booking): number => {
+    if (booking.payments && booking.payments.length > 0) {
+      return booking.payments.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" || p.payment_status === "paid";
+        return isPaid ? sum + p.payment_amount : sum;
+      }, 0);
+    }
+    return 0;
+  };
+
+  const getRemainingBalance = (booking: Booking): number => {
+    const totalPrice = bookingDetails?.total_price || booking.total_price || 0;
+    const paidAmount = calculatePaidAmount(booking);
+    return Math.max(0, totalPrice - paidAmount);
+  };
+
+  const isBookingFullyPaid = (booking: Booking): boolean => {
+    return getRemainingBalance(booking) <= 0;
   };
 
   const BookingCard = ({ booking }: { booking: Booking }) => {
@@ -722,8 +925,8 @@ export default function AdminBookingsPage() {
               View
             </Button>
 
-            {/* Show Accept/Reject buttons for pending bookings */}
-            {isPending && (
+            {/* Show Accept/Reject buttons for pending and reserved bookings */}
+            {(isPending || booking.booking_status === "reserved") && (
               <>
                 <Button
                   key={`${booking.booking_id}-accept-button`}
@@ -739,7 +942,12 @@ export default function AdminBookingsPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => handleRejectBooking(booking)}
-                  className="border-red-200 text-red-700 hover:bg-red-50"
+                  disabled={booking.booking_status === "reserved"}
+                  className={`border-red-200 text-red-700 hover:bg-red-50 ${
+                    booking.booking_status === "reserved"
+                      ? "opacity-50 cursor-not-allowed"
+                      : ""
+                  }`}
                 >
                   <XCircle className="h-4 w-4 mr-1" />
                   Reject
@@ -748,6 +956,7 @@ export default function AdminBookingsPage() {
             )}
 
             {/* Show Convert to Event button for confirmed bookings */}
+
             {isConfirmed && (
               <Button
                 key={`${booking.booking_id}-create-event-button`}
@@ -1104,7 +1313,8 @@ export default function AdminBookingsPage() {
                                     <Eye className="h-4 w-4 mr-1" />
                                     View
                                   </Button>
-                                  {booking.booking_status === "pending" && (
+                                  {(booking.booking_status === "pending" ||
+                                    booking.booking_status === "reserved") && (
                                     <>
                                       <Button
                                         key={`table-${booking.booking_id}-accept`}
@@ -1124,7 +1334,14 @@ export default function AdminBookingsPage() {
                                         onClick={() =>
                                           handleRejectBooking(booking)
                                         }
-                                        className="border-red-200 text-red-700 hover:bg-red-50"
+                                        disabled={
+                                          booking.booking_status === "reserved"
+                                        }
+                                        className={`border-red-200 text-red-700 hover:bg-red-50 ${
+                                          booking.booking_status === "reserved"
+                                            ? "opacity-50 cursor-not-allowed"
+                                            : ""
+                                        }`}
                                       >
                                         <XCircle className="h-4 w-4 mr-1" />
                                         Reject
@@ -1270,17 +1487,17 @@ export default function AdminBookingsPage() {
 
           {/* Booking Details Modal */}
           <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
-            <DialogContent className="sm:max-w-[720px] p-0">
-              <DialogHeader className="px-6 pt-6 pb-4">
+            <DialogContent className="sm:max-w-[720px] h-[80vh] flex flex-col p-0">
+              <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0">
                 <DialogTitle>Booking Details</DialogTitle>
                 <DialogDescription>
                   {selectedBooking?.booking_reference}
                 </DialogDescription>
               </DialogHeader>
-              <Separator />
+              <Separator className="flex-shrink-0" />
 
               {selectedBooking && (
-                <div className="flex flex-col h-[80vh]">
+                <div className="flex flex-col flex-1 min-h-0">
                   <div className="flex-1 overflow-y-auto px-6 py-4">
                     {detailsLoading && (
                       <div className="text-sm text-gray-500">
@@ -1779,7 +1996,7 @@ export default function AdminBookingsPage() {
                     </Tabs>
                   </div>
 
-                  <DialogFooter className="sticky bottom-0 border-t bg-background px-6 py-4">
+                  <DialogFooter className="flex-shrink-0 border-t bg-background px-6 py-4">
                     <div className="w-full flex items-center justify-between gap-4">
                       <Badge
                         className={`${getStatusColor(selectedBooking.booking_status)} flex items-center gap-1`}
@@ -1788,6 +2005,20 @@ export default function AdminBookingsPage() {
                         {selectedBooking.booking_status}
                       </Badge>
                       <div className="flex gap-2">
+                        {/* Make Payment Button - Show for pending and reserved bookings */}
+                        {(selectedBooking.booking_status === "pending" ||
+                          selectedBooking.booking_status === "reserved") && (
+                          <Button
+                            key={`modal-${selectedBooking.booking_id}-make-payment-btn`}
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => setIsPaymentModalOpen(true)}
+                          >
+                            <Wallet className="h-4 w-4 mr-1" />
+                            Make Payment
+                          </Button>
+                        )}
+
                         {selectedBooking.booking_status === "pending" && (
                           <>
                             <Button
@@ -1849,6 +2080,315 @@ export default function AdminBookingsPage() {
                   </DialogFooter>
                 </div>
               )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Make Payment Modal */}
+          <Dialog
+            open={isPaymentModalOpen}
+            onOpenChange={setIsPaymentModalOpen}
+          >
+            <DialogContent className="max-w-2xl lg:max-w-xl h-[90vh] flex flex-col p-0">
+              {/* Header */}
+              <div className="flex-shrink-0 bg-white border-b border-gray-200 p-6 pb-4">
+                <DialogHeader>
+                  <DialogTitle className="text-xl">Record Payment</DialogTitle>
+                  <DialogDescription className="text-sm">
+                    Record a new payment for booking{" "}
+                    {selectedBooking?.booking_reference}. You can make partial
+                    payments, full payment, or any custom amount.
+                  </DialogDescription>
+                </DialogHeader>
+              </div>
+
+              {/* Payment Summary */}
+              {selectedBooking && (
+                <div className="flex-shrink-0 bg-white border-b border-gray-200 p-6 bg-gradient-to-r from-blue-50 to-indigo-50">
+                  <h4 className="font-semibold mb-4 flex items-center gap-2 text-blue-900">
+                    <Wallet className="h-5 w-5" />
+                    Payment Summary
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                    <div className="bg-white rounded-lg p-3 border">
+                      <div className="text-blue-700 font-medium mb-1">
+                        Total Price
+                      </div>
+                      <div className="font-bold text-lg text-blue-900">
+                        {formatCurrency(
+                          bookingDetails?.total_price ||
+                            selectedBooking.total_price ||
+                            0
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border">
+                      <div className="text-green-700 font-medium mb-1">
+                        Amount Paid
+                      </div>
+                      <div className="font-bold text-lg text-green-600">
+                        {formatCurrency(calculatePaidAmount(selectedBooking))}
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border">
+                      <div className="text-orange-700 font-medium mb-1">
+                        Balance Due
+                      </div>
+                      <div className="font-bold text-lg text-orange-600">
+                        {formatCurrency(getRemainingBalance(selectedBooking))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Scrollable Content Area */}
+              <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 flex-shrink">
+                <div className="grid grid-cols-1 gap-6">
+                  {/* Payment Type Selection */}
+                  <div>
+                    <div className="text-sm font-medium text-gray-700 mb-3">
+                      Quick Payment Options
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <Button
+                        type="button"
+                        variant={
+                          newPayment.payment_type === "custom"
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() =>
+                          setNewPayment((p) => ({
+                            ...p,
+                            payment_type: "custom",
+                          }))
+                        }
+                        className="h-12"
+                      >
+                        <DollarSign className="h-4 w-4 mr-2" />
+                        <div className="text-left">
+                          <div className="font-medium">Custom Amount</div>
+                          <div className="text-xs opacity-75">
+                            Enter any amount
+                          </div>
+                        </div>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={
+                          newPayment.payment_type === "percentage"
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() =>
+                          setNewPayment((p) => ({
+                            ...p,
+                            payment_type: "percentage",
+                          }))
+                        }
+                        className="h-12"
+                      >
+                        <Percent className="h-4 w-4 mr-2" />
+                        <div className="text-left">
+                          <div className="font-medium">Percentage</div>
+                          <div className="text-xs opacity-75">Pay by %</div>
+                        </div>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={
+                          newPayment.payment_type === "full"
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() => {
+                          if (selectedBooking) {
+                            const remainingBalance =
+                              getRemainingBalance(selectedBooking);
+                            setNewPayment((p) => ({
+                              ...p,
+                              payment_type: "full",
+                              percentage: 100,
+                              payment_amount: remainingBalance,
+                            }));
+                            setPaymentAmountDisplay(
+                              formatNumberWithCommas(remainingBalance)
+                            );
+                          }
+                        }}
+                        className="h-12"
+                      >
+                        <Wallet className="h-4 w-4 mr-2" />
+                        <div className="text-left">
+                          <div className="font-medium">Full Balance</div>
+                          <div className="text-xs opacity-75">
+                            Pay remaining
+                          </div>
+                        </div>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Payment Details Form */}
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Payment Amount *
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+                            ₱
+                          </span>
+                          <input
+                            type="text"
+                            value={paymentAmountDisplay}
+                            onChange={(e) =>
+                              handlePaymentAmountChange(e.target.value)
+                            }
+                            onBlur={handlePaymentAmountBlur}
+                            className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:border-blue-500"
+                            placeholder="0.00"
+                            disabled={newPayment.payment_type === "full"}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Payment Method *
+                        </label>
+                        <select
+                          value={newPayment.payment_method}
+                          onChange={(e) =>
+                            setNewPayment((p) => ({
+                              ...p,
+                              payment_method: e.target.value as
+                                | "gcash"
+                                | "bank-transfer"
+                                | "cash",
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:border-blue-500"
+                        >
+                          <option value="cash">Cash</option>
+                          <option value="gcash">GCash</option>
+                          <option value="bank-transfer">Bank Transfer</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Payment Date *
+                        </label>
+                        <input
+                          type="date"
+                          value={newPayment.payment_date}
+                          onChange={(e) =>
+                            setNewPayment((p) => ({
+                              ...p,
+                              payment_date: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Payment Status *
+                        </label>
+                        <select
+                          value={newPayment.payment_status}
+                          onChange={(e) =>
+                            setNewPayment((p) => ({
+                              ...p,
+                              payment_status: e.target.value as
+                                | "completed"
+                                | "pending",
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:border-blue-500"
+                        >
+                          <option value="completed">Completed</option>
+                          <option value="pending">Pending</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Reference Number
+                      </label>
+                      <input
+                        type="text"
+                        value={newPayment.payment_reference}
+                        onChange={(e) =>
+                          setNewPayment((p) => ({
+                            ...p,
+                            payment_reference: e.target.value,
+                          }))
+                        }
+                        placeholder="Transaction reference or receipt number"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Payment Notes
+                      </label>
+                      <textarea
+                        value={newPayment.payment_notes}
+                        onChange={(e) =>
+                          setNewPayment((p) => ({
+                            ...p,
+                            payment_notes: e.target.value,
+                          }))
+                        }
+                        placeholder="Additional notes about this payment"
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex-shrink-0 bg-white border-t border-gray-200 p-6">
+                <div className="flex justify-end gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsPaymentModalOpen(false)}
+                    disabled={isCreatingPayment}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleCreatePayment}
+                    disabled={
+                      isCreatingPayment || newPayment.payment_amount <= 0
+                    }
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {isCreatingPayment ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Recording...
+                      </>
+                    ) : (
+                      <>
+                        <Wallet className="h-4 w-4 mr-2" />
+                        Record Payment
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
             </DialogContent>
           </Dialog>
         </div>

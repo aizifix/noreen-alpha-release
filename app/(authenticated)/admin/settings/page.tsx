@@ -30,6 +30,7 @@ import {
   Star,
   Calendar,
   Mail,
+  CreditCard,
   Phone,
   MapPin,
   Camera,
@@ -62,6 +63,12 @@ interface WebsiteSettings {
   social_instagram: string;
   social_twitter: string;
   require_otp_on_login?: boolean | number;
+  gcash_name?: string;
+  gcash_number?: string;
+  bank_name?: string;
+  bank_account_name?: string;
+  bank_account_number?: string;
+  payment_instructions?: string;
 }
 
 interface Feedback {
@@ -117,6 +124,12 @@ export default function SettingsPage() {
     social_instagram: "",
     social_twitter: "",
     require_otp_on_login: 1,
+    gcash_name: "",
+    gcash_number: "",
+    bank_name: "",
+    bank_account_name: "",
+    bank_account_number: "",
+    payment_instructions: "",
   });
 
   // Feedback state
@@ -513,7 +526,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="profile" className="flex items-center gap-2">
             <User className="h-4 w-4" />
             Profile
@@ -525,6 +538,10 @@ export default function SettingsPage() {
           <TabsTrigger value="website" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
             Website
+          </TabsTrigger>
+          <TabsTrigger value="payments" className="flex items-center gap-2">
+            <CreditCard className="h-4 w-4" />
+            Payments
           </TabsTrigger>
           <TabsTrigger value="feedback" className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" />
@@ -1040,6 +1057,148 @@ export default function SettingsPage() {
                 )}
                 Save Website Settings
               </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Payment Settings Tab */}
+        <TabsContent value="payments" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5" />
+                Payment Information
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Configure payment methods and information for client
+                reservations
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* GCash Information */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">GCash Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="gcash_name">GCash Account Name</Label>
+                    <Input
+                      id="gcash_name"
+                      value={websiteSettings.gcash_name || ""}
+                      onChange={(e) =>
+                        setWebsiteSettings({
+                          ...websiteSettings,
+                          gcash_name: e.target.value,
+                        })
+                      }
+                      placeholder="Enter GCash account holder name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="gcash_number">GCash Number</Label>
+                    <Input
+                      id="gcash_number"
+                      value={websiteSettings.gcash_number || ""}
+                      onChange={(e) =>
+                        setWebsiteSettings({
+                          ...websiteSettings,
+                          gcash_number: e.target.value,
+                        })
+                      }
+                      placeholder="Enter GCash mobile number"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Bank Transfer Information */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">
+                  Bank Transfer Information
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="bank_name">Bank Name</Label>
+                    <Input
+                      id="bank_name"
+                      value={websiteSettings.bank_name || ""}
+                      onChange={(e) =>
+                        setWebsiteSettings({
+                          ...websiteSettings,
+                          bank_name: e.target.value,
+                        })
+                      }
+                      placeholder="Enter bank name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bank_account_name">
+                      Account Holder Name
+                    </Label>
+                    <Input
+                      id="bank_account_name"
+                      value={websiteSettings.bank_account_name || ""}
+                      onChange={(e) =>
+                        setWebsiteSettings({
+                          ...websiteSettings,
+                          bank_account_name: e.target.value,
+                        })
+                      }
+                      placeholder="Enter account holder name"
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="bank_account_number">Account Number</Label>
+                    <Input
+                      id="bank_account_number"
+                      value={websiteSettings.bank_account_number || ""}
+                      onChange={(e) =>
+                        setWebsiteSettings({
+                          ...websiteSettings,
+                          bank_account_number: e.target.value,
+                        })
+                      }
+                      placeholder="Enter bank account number"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Instructions */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Payment Instructions</h3>
+                <div className="space-y-2">
+                  <Label htmlFor="payment_instructions">
+                    Additional Instructions
+                  </Label>
+                  <Textarea
+                    id="payment_instructions"
+                    value={websiteSettings.payment_instructions || ""}
+                    onChange={(e) =>
+                      setWebsiteSettings({
+                        ...websiteSettings,
+                        payment_instructions: e.target.value,
+                      })
+                    }
+                    placeholder="Enter any additional payment instructions for clients..."
+                    rows={4}
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  onClick={handleWebsiteSettingsUpdate}
+                  disabled={isSaving}
+                  className="flex items-center gap-2"
+                >
+                  {isSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Save Payment Settings
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

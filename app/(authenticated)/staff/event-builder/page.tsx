@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { generateStableId } from "@/app/utils/stableIds";
 import { secureStorage } from "@/app/utils/encryption";
+import { getUserRole, canCreate, canEdit } from "@/app/utils/permissions";
 import axios from "axios";
 import { endpoints, api } from "@/app/config/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -178,6 +179,7 @@ export default function EventBuilderPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bookingId = searchParams.get("booking");
+  const [user, setUser] = useState<any>(null);
   const bookingRefFromUrl =
     searchParams.get("booking_ref") ||
     searchParams.get("bookingReference") ||
@@ -378,6 +380,18 @@ export default function EventBuilderPage() {
         (wedding.bride_name && wedding.bride_name.trim()) ||
         (wedding.groom_name && wedding.groom_name.trim())
     );
+  }, []);
+
+  // Get user data for permissions
+  useEffect(() => {
+    try {
+      const userData = secureStorage.getItem("user");
+      if (userData) {
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Error getting user data:", error);
+    }
   }, []);
 
   // Check for localStorage recovery on mount
@@ -3779,6 +3793,52 @@ export default function EventBuilderPage() {
     // Reset step to first step
     setCurrentStep(1);
   };
+
+  // Check if user has permission to create events
+  if (!canCreate("event_builder", getUserRole(user)) && !bookingId) {
+    return (
+      <div className="container mx-auto py-6 lg:py-8 space-y-6 lg:space-y-8">
+        <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
+          <div className="bg-gray-100 rounded-full p-6 mb-4">
+            <svg
+              className="w-12 h-12 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+            Access Restricted
+          </h2>
+          <p className="text-gray-600 mb-4 max-w-md">
+            You don't have permission to create new events. You can only edit
+            existing events from bookings.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => router.push("/staff/bookings")}
+              className="bg-[#028A75] hover:bg-[#027a68] text-white px-6 py-2 rounded-lg transition-colors"
+            >
+              View Bookings
+            </button>
+            <button
+              onClick={() => router.push("/staff/dashboard")}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-2 rounded-lg transition-colors"
+            >
+              Go to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto py-6 lg:py-8 space-y-6 lg:space-y-8">

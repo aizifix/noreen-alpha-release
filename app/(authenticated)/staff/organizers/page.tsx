@@ -3,6 +3,13 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
 import { toast } from "sonner";
+import {
+  getUserRole,
+  canCreate,
+  canEdit,
+  canDelete,
+} from "@/app/utils/permissions";
+import { secureStorage } from "@/app/utils/encryption";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -123,6 +130,7 @@ export default function OrganizersPage() {
   const [organizers, setOrganizers] = useState<Organizer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedOrganizer, setSelectedOrganizer] = useState<Organizer | null>(
     null
@@ -221,6 +229,16 @@ export default function OrganizersPage() {
 
   // Effect for pagination
   useEffect(() => {
+    // Get user data for permissions
+    try {
+      const userData = secureStorage.getItem("user");
+      if (userData) {
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Error getting user data:", error);
+    }
+
     fetchOrganizers();
   }, [currentPage, fetchOrganizers]);
 
@@ -600,34 +618,24 @@ export default function OrganizersPage() {
       const data = response.data;
 
       if (data.status === "success") {
-        toast({
-          title: "Success!",
-          description:
-            modalMode === "add"
-              ? "Organizer added successfully"
-              : "Organizer updated successfully",
-          className: "border-green-200 bg-green-50 text-green-800",
-        });
+        toast.success(
+          modalMode === "add"
+            ? "Organizer added successfully"
+            : "Organizer updated successfully"
+        );
         resetForm();
         await fetchOrganizers();
       } else {
-        toast({
-          title: "Error",
-          description: data.message || data.debug?.error || "Operation failed",
-          variant: "destructive",
-        });
+        toast.error(data.message || data.debug?.error || "Operation failed");
         await fetchOrganizers();
       }
     } catch (error) {
       console.error("Submit error:", error);
       const apiMessage = (error as any)?.response?.data?.message;
       const apiDebug = (error as any)?.response?.data?.debug?.error;
-      toast({
-        title: "Error",
-        description:
-          apiMessage || apiDebug || "An error occurred. Please try again.",
-        variant: "destructive",
-      });
+      toast.error(
+        apiMessage || apiDebug || "An error occurred. Please try again."
+      );
       await fetchOrganizers();
     } finally {
       setIsSubmitting(false);
@@ -650,11 +658,7 @@ export default function OrganizersPage() {
         toast.success("Success! - Organizer deleted successfully");
         fetchOrganizers();
       } else {
-        toast({
-          title: "Error",
-          description: data.message || "Delete failed",
-          variant: "destructive",
-        });
+        toast.error(data.message || "Delete failed");
       }
     } catch (error) {
       console.error("Delete error:", error);
@@ -697,13 +701,21 @@ export default function OrganizersPage() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          <Button
-            onClick={() => openModal("add")}
-            className="bg-[#028A75] hover:bg-[#027a68] text-white"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Organizer
-          </Button>
+          {canCreate("organizers", getUserRole(user)) && (
+            <Button
+              onClick={() => openModal("add")}
+              className="bg-[#028A75] hover:bg-[#027a68] text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Organizer
+            </Button>
+          )}
+          {!canCreate("organizers", getUserRole(user)) && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg">
+              <Eye className="h-4 w-4 text-gray-500" />
+              <span className="text-sm text-gray-600">View Only Access</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -956,20 +968,28 @@ export default function OrganizersPage() {
                             <Eye className="mr-2 h-4 w-4" />
                             View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => openModal("edit", organizer)}
-                          >
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-red-600"
-                            onClick={() => handleDelete(organizer.organizer_id)}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
+                          {canEdit("organizers", getUserRole(user)) && (
+                            <DropdownMenuItem
+                              onClick={() => openModal("edit", organizer)}
+                            >
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                          )}
+                          {canDelete("organizers", getUserRole(user)) && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600"
+                                onClick={() =>
+                                  handleDelete(organizer.organizer_id)
+                                }
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </td>
@@ -1008,7 +1028,14 @@ export default function OrganizersPage() {
       </Card>
 
       {/* Add/Edit Modal */}
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+      <Dialog
+        open={
+          isModalOpen &&
+          (canCreate("organizers", getUserRole(user)) ||
+            canEdit("organizers", getUserRole(user)))
+        }
+        onOpenChange={setIsModalOpen}
+      >
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto backdrop-blur-sm bg-white/95">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

@@ -277,6 +277,35 @@ export function PackageSelection({
   const [currentVenueIndex, setCurrentVenueIndex] = useState(0);
   const [isModalLoading, setIsModalLoading] = useState(false);
   const [showAllPackages, setShowAllPackages] = useState(false);
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
+
+  // Touch handlers for carousel
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+    const maxIndex =
+      (selectedPackageForDetails?.venue_previews?.length || 1) - 1;
+
+    if (isLeftSwipe && currentVenueIndex < maxIndex) {
+      setCurrentVenueIndex((prev) => prev + 1);
+    }
+    if (isRightSwipe && currentVenueIndex > 0) {
+      setCurrentVenueIndex((prev) => prev - 1);
+    }
+  };
 
   // Limit to show only 4 packages initially
   const PACKAGES_TO_SHOW = 4;
@@ -840,6 +869,9 @@ export function PackageSelection({
                               display: "flex",
                               width: `${selectedPackageForDetails.venue_previews.length * 100}%`,
                             }}
+                            onTouchStart={handleTouchStart}
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={handleTouchEnd}
                           >
                             {selectedPackageForDetails.venue_previews.map(
                               (venue, idx) => (

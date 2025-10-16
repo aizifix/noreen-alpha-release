@@ -568,6 +568,14 @@ export default function EventBuilderPage() {
     cashBondStatus: "pending",
     scheduleTypeId: 2,
   });
+
+  // State for reserved payments from booking
+  const [reservedPaymentData, setReservedPaymentData] = useState({
+    reservedPayments: [] as any[],
+    reservedPaymentTotal: 0,
+    adjustedTotal: 0,
+  });
+
   const [showMissingRefDialog, setShowMissingRefDialog] = useState(false);
   const [showBookingLookupModal, setShowBookingLookupModal] = useState(false);
   const [bookingSearchResults, setBookingSearchResults] = useState<any[]>([]);
@@ -1454,6 +1462,13 @@ export default function EventBuilderPage() {
           // Set original package price
           setOriginalPackagePrice(parseFloat(packageData.package_price));
 
+          // Update reserved payment data with adjusted total
+          setReservedPaymentData((prev) => ({
+            ...prev,
+            adjustedTotal:
+              parseFloat(packageData.package_price) - prev.reservedPaymentTotal,
+          }));
+
           // Set venue buffer fee from package
           const bufferFee = parseFloat(packageData.venue_fee_buffer || 0);
           setVenueBufferFee(bufferFee);
@@ -1486,10 +1501,21 @@ export default function EventBuilderPage() {
 
     if (weddingPkg) {
       // Use basePrice or price for wedding packages
-      setOriginalPackagePrice(weddingPkg.basePrice || weddingPkg.price);
+      const packagePrice = weddingPkg.basePrice || weddingPkg.price;
+      setOriginalPackagePrice(packagePrice);
+      // Update reserved payment data with adjusted total
+      setReservedPaymentData((prev) => ({
+        ...prev,
+        adjustedTotal: packagePrice - prev.reservedPaymentTotal,
+      }));
     } else if (eventPkg) {
       // Use basePrice for event packages
       setOriginalPackagePrice(eventPkg.basePrice);
+      // Update reserved payment data with adjusted total
+      setReservedPaymentData((prev) => ({
+        ...prev,
+        adjustedTotal: eventPkg.basePrice - prev.reservedPaymentTotal,
+      }));
     }
 
     // Try to load from wedding packages first
@@ -2159,6 +2185,17 @@ export default function EventBuilderPage() {
         total_budget: Number(
           (parseFloat(calculateEventSummaryTotal()?.toString()) || 0).toFixed(2)
         ),
+        reserved_payment_total: Number(
+          (
+            parseFloat(reservedPaymentData?.reservedPaymentTotal?.toString()) ||
+            0
+          ).toFixed(2)
+        ),
+        adjusted_total: Number(
+          (
+            parseFloat(reservedPaymentData?.adjustedTotal?.toString()) || 0
+          ).toFixed(2)
+        ),
         down_payment: Number(
           (parseFloat(paymentData?.downPayment?.toString()) || 0).toFixed(2)
         ),
@@ -2392,9 +2429,24 @@ export default function EventBuilderPage() {
         response.data !== null &&
         Object.keys(response.data).length === 0;
       const apiReportsSuccess = response?.data?.status === "success";
+      const hasValidResponse =
+        response.data && typeof response.data === "object";
+
+      // Check for empty object response (common issue)
+      if (isEmptyObject) {
+        console.error(
+          "❌ API returned empty object - this indicates a server-side issue"
+        );
+        toast.error(
+          "Server returned empty response. Please check the server logs and try again."
+        );
+        setLoading(false);
+        submitLockRef.current = false;
+        return;
+      }
+
       const shouldAssumeSuccess =
-        isHttpSuccess &&
-        (apiReportsSuccess || isEmptyObject || response.data == null);
+        isHttpSuccess && (apiReportsSuccess || response.data == null);
 
       if (shouldAssumeSuccess) {
         console.log("✅ Event created successfully!");
@@ -2538,11 +2590,24 @@ export default function EventBuilderPage() {
         console.error("API Error Response:", response.data);
         let errorMessage = "Failed to create event. Please try again.";
 
+        // Handle different types of error responses
         if (response.data?.message) {
           errorMessage = response.data.message;
         } else if (typeof response.data === "string") {
           errorMessage = response.data;
+        } else if (response.data?.debug?.error) {
+          errorMessage = `Server error: ${response.data.debug.error}`;
+        } else if (!response.data || typeof response.data !== "object") {
+          errorMessage =
+            "Server returned invalid response format. Please try again.";
         }
+
+        // Show detailed error information in console for debugging
+        console.error("Full error details:", {
+          status: response.status,
+          data: response.data,
+          headers: response.headers,
+        });
 
         toast.error(errorMessage);
       }
@@ -2962,9 +3027,48 @@ export default function EventBuilderPage() {
     }
   };
 
-  const loadBookingData = (booking: any) => {
+  const loadBookingData = async (booking: any) => {
     // Set loading flag to prevent dirty detection during data loading
     setIsLoadingBookingData(true);
+
+    try {
+      // Debug: Log the original booking data
+      console.log("🔍 Original booking data:", {
+        booking_id: booking.booking_id,
+        booking_reference: booking.booking_reference,
+        package_id: booking.package_id,
+        venue_id: booking.venue_id,
+      });
+
+      // Fetch complete booking data with payment information
+      const response = await axios.get(
+        `${endpoints.admin}?operation=getBookingById&booking_id=${booking.booking_id}`
+      );
+
+      console.log("🌐 API Response:", response.data);
+
+      let completeBooking = booking;
+      if (response.data.status === "success") {
+        completeBooking = response.data.booking;
+        console.log("📋 Complete booking data with payments:", completeBooking);
+        console.log(
+          "💰 Payments found:",
+          completeBooking.payments?.length || 0
+        );
+        console.log(
+          "💰 Reserved payment total:",
+          completeBooking.reserved_payment_total
+        );
+      } else {
+        console.error("❌ API Error:", response.data.message);
+      }
+
+      // Use complete booking data for all subsequent operations
+      booking = completeBooking;
+    } catch (error) {
+      console.error("Error fetching complete booking data:", error);
+      console.log("Using original booking data as fallback");
+    }
 
     // Parse the booking data and populate the form
     const mapEventType = (eventTypeName: string): string => {
@@ -3071,6 +3175,23 @@ export default function EventBuilderPage() {
       },
       packageId: booking.package_id,
       venueId: booking.venue_id,
+    });
+
+    // Set reserved payment data from booking
+    const reservedPayments = booking.payments || [];
+    const reservedPaymentTotal = booking.reserved_payment_total || 0;
+
+    console.log("💰 Reserved payment data from booking:", {
+      reservedPayments,
+      reservedPaymentTotal,
+      bookingId: booking.booking_id,
+      bookingReference: booking.booking_reference,
+    });
+
+    setReservedPaymentData({
+      reservedPayments,
+      reservedPaymentTotal,
+      adjustedTotal: 0, // Will be calculated when package is selected
     });
 
     // Set payment data with defaults since booking doesn't have payment info
@@ -3584,6 +3705,29 @@ export default function EventBuilderPage() {
                 </div>
               )}
 
+              {/* Debug: Reserved Payment Data */}
+              <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200 mb-4">
+                <h3 className="text-lg font-semibold mb-3 text-yellow-800">
+                  Debug: Reserved Payment Data
+                </h3>
+                <div className="text-sm text-yellow-700 space-y-1">
+                  <p>
+                    Reserved Payments Count:{" "}
+                    {reservedPaymentData.reservedPayments?.length || 0}
+                  </p>
+                  <p>
+                    Reserved Payment Total: ₱
+                    {reservedPaymentData.reservedPaymentTotal || 0}
+                  </p>
+                  <p>
+                    Adjusted Total: ₱{reservedPaymentData.adjustedTotal || 0}
+                  </p>
+                  <p>Total Budget: ₱{totalBudget}</p>
+                  <p>Booking Reference: {bookingReference || "None"}</p>
+                  <p>Selected Package ID: {selectedPackageId || "None"}</p>
+                </div>
+              </div>
+
               {/* Cost Breakdown */}
               <div>
                 <h3 className="text-lg font-semibold mb-3 text-brand-600">
@@ -3602,20 +3746,100 @@ export default function EventBuilderPage() {
                       {formatCurrency(calculateNoreenComponentsTotal())}
                     </span>
                   </div>
+
+                  {/* Reserved Fee Section */}
+                  {reservedPaymentData.reservedPaymentTotal > 0 && (
+                    <div className="flex justify-between items-center text-blue-600">
+                      <span>Reserved Fee (from booking):</span>
+                      <span className="font-semibold">
+                        {formatCurrency(
+                          reservedPaymentData.reservedPaymentTotal
+                        )}
+                      </span>
+                    </div>
+                  )}
+
                   <div className="border-t pt-3">
                     <div className="flex justify-between items-center text-lg font-bold">
-                      <span>Total Budget</span>
+                      <span>Total Package Price</span>
                       <span className="text-brand-600">
                         {formatCurrency(totalBudget)}
                       </span>
                     </div>
                   </div>
+
+                  {/* Adjusted Total Section */}
+                  {reservedPaymentData.reservedPaymentTotal > 0 && (
+                    <div className="border-t pt-3">
+                      <div className="flex justify-between items-center text-lg font-bold">
+                        <span>Adjusted Total (Remaining Balance):</span>
+                        <span className="text-orange-600">
+                          {formatCurrency(
+                            totalBudget -
+                              reservedPaymentData.reservedPaymentTotal
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="text-sm text-gray-600 mt-2">
                     * Venue inclusions and Noreen components are calculated
                     separately
                   </div>
                 </div>
               </div>
+
+              {/* Reserved Payment Details */}
+              {reservedPaymentData.reservedPayments &&
+                reservedPaymentData.reservedPayments.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold mb-3 text-brand-600">
+                      Reserved Payments from Booking
+                    </h3>
+                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="space-y-3">
+                        {reservedPaymentData.reservedPayments.map(
+                          (payment, index) => (
+                            <div
+                              key={index}
+                              className="flex justify-between items-center p-3 bg-white rounded-lg border"
+                            >
+                              <div>
+                                <div className="font-medium text-blue-800">
+                                  {formatCurrency(
+                                    parseFloat(payment.payment_amount)
+                                  )}{" "}
+                                  - {payment.payment_method}
+                                </div>
+                                <div className="text-sm text-blue-600">
+                                  {new Date(
+                                    payment.payment_date
+                                  ).toLocaleDateString()}
+                                  {payment.payment_reference &&
+                                    ` • Ref: ${payment.payment_reference}`}
+                                </div>
+                              </div>
+                              <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
+                                {payment.payment_status}
+                              </span>
+                            </div>
+                          )
+                        )}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-blue-200">
+                        <div className="flex justify-between items-center font-semibold text-blue-800">
+                          <span>Total Reserved Amount:</span>
+                          <span>
+                            {formatCurrency(
+                              reservedPaymentData.reservedPaymentTotal
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
               {/* Additional Notes */}
               {eventDetails.notes && (
@@ -3642,6 +3866,7 @@ export default function EventBuilderPage() {
           totalBudget={calculateEventSummaryTotal()}
           onUpdate={handlePaymentDataUpdate}
           onComplete={handleComplete}
+          reservedPaymentData={reservedPaymentData}
         />
       ),
     },
@@ -4209,7 +4434,7 @@ export default function EventBuilderPage() {
                           </p>
                         </div>
                         <Button
-                          onClick={() => loadBookingData(booking)}
+                          onClick={async () => await loadBookingData(booking)}
                           disabled={booking.booking_status !== "confirmed"}
                           className="bg-[#028A75] hover:bg-[#028A75]/80"
                         >

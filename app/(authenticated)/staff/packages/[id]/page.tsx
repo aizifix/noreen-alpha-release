@@ -26,6 +26,8 @@ import { toast } from "sonner";
 import { BudgetBreakdown } from "../package-builder/budget-breakdown";
 import Image from "next/image";
 import { parsePrice, formatPrice } from "@/app/libs/utils";
+import { getUserRole, canEdit, canDelete } from "@/app/utils/permissions";
+import { secureStorage } from "@/app/utils/encryption";
 import {
   Accordion,
   AccordionItem,
@@ -164,6 +166,7 @@ export default function PackageDetailsPage() {
     null
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
   const [selectedImageModal, setSelectedImageModal] = useState<string | null>(
     null
   );
@@ -283,6 +286,16 @@ export default function PackageDetailsPage() {
   } | null>(null);
 
   useEffect(() => {
+    // Get user data for permissions
+    try {
+      const userData = secureStorage.getItem("user");
+      if (userData) {
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Error getting user data:", error);
+    }
+
     if (params.id) {
       fetchPackageDetails();
       fetchAvailableVenues();
@@ -376,7 +389,7 @@ export default function PackageDetailsPage() {
           response.data?.message
         );
         toast.error("Failed to fetch package details");
-        router.push("/admin/packages");
+        router.push("/staff/packages");
       }
     } catch (error: any) {
       console.error("Error fetching package details:", error);
@@ -392,7 +405,7 @@ export default function PackageDetailsPage() {
       }
 
       toast.error(errorMessage);
-      router.push("/admin/packages");
+      router.push("/staff/packages");
     } finally {
       setIsLoading(false);
     }
@@ -512,7 +525,7 @@ export default function PackageDetailsPage() {
 
           if (response.data.status === "success") {
             toast.success("Package deleted successfully");
-            router.push("/admin/packages");
+            router.push("/staff/packages");
           } else {
             toast.error("Failed to delete package");
           }
@@ -546,7 +559,7 @@ export default function PackageDetailsPage() {
 
           if (response.data.status === "success") {
             toast.success("Package duplicated successfully");
-            router.push("/admin/packages");
+            router.push("/staff/packages");
           } else {
             toast.error("Failed to duplicate package");
           }
@@ -1448,7 +1461,7 @@ export default function PackageDetailsPage() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <button
-                onClick={() => router.push("/admin/packages")}
+                onClick={() => router.push("/staff/packages")}
                 className="flex items-center text-gray-600 hover:text-gray-900"
               >
                 <ArrowLeft className="h-5 w-5 mr-2" />
@@ -1456,48 +1469,45 @@ export default function PackageDetailsPage() {
               </button>
             </div>
             <div className="flex items-center space-x-4">
-              {!isEditing ? (
+              {!isEditing
+                ? canEdit("packages", getUserRole(user)) && (
+                    <button
+                      onClick={handleEditPackage}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit Package
+                    </button>
+                  )
+                : canEdit("packages", getUserRole(user)) && (
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={handleSavePackage}
+                        disabled={isSaving}
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#028A75] hover:bg-[#027A6B] disabled:opacity-50"
+                      >
+                        <Save className="h-4 w-4 mr-2" />
+                        {isSaving ? "Saving..." : "Save Changes"}
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        disabled={isSaving}
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+                      >
+                        <X className="h-4 w-4 mr-2" />
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+              {canDelete("packages", getUserRole(user)) && (
                 <button
-                  onClick={handleEditPackage}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                  onClick={handleDeletePackage}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
                 >
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit Package
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Package
                 </button>
-              ) : (
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={handleSavePackage}
-                    disabled={isSaving}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#028A75] hover:bg-[#027A6B] disabled:opacity-50"
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    {isSaving ? "Saving..." : "Save Changes"}
-                  </button>
-                  <button
-                    onClick={handleCancelEdit}
-                    disabled={isSaving}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-                  >
-                    <X className="h-4 w-4 mr-2" />
-                    Cancel
-                  </button>
-                </div>
               )}
-              <button
-                onClick={handleDuplicatePackage}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                Duplicate Package
-              </button>
-              <button
-                onClick={handleDeletePackage}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete Package
-              </button>
             </div>
           </div>
         </div>

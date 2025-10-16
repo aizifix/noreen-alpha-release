@@ -648,6 +648,85 @@ function createBooking($data) {
                     error_log('createBooking: admin notification fallback failed: ' . $efb->getMessage());
                 }
             }
+
+            // Notify all staff
+            try {
+                // Fetch staff recipients
+                $staffStmt = $pdo->query("SELECT user_id FROM tbl_users WHERE user_role = 'staff' AND user_status = 'active'");
+                $staffIds = $staffStmt->fetchAll(PDO::FETCH_COLUMN);
+
+                if ($staffIds) {
+                    $staffNotif = $pdo->prepare("CALL CreateNotification(
+                        :p_user_id,
+                        :p_type,
+                        :p_title,
+                        :p_message,
+                        :p_priority,
+                        :p_icon,
+                        :p_url,
+                        :p_event_id,
+                        :p_booking_id,
+                        :p_venue_id,
+                        :p_store_id,
+                        :p_budget_id,
+                        :p_feedback_id,
+                        :p_expires_at
+                    )");
+
+                    foreach ($staffIds as $staffId) {
+                        $staffNotif->execute([
+                            ':p_user_id' => (int)$staffId,
+                            ':p_type' => 'booking_created',
+                            ':p_title' => 'New Booking Created',
+                            ':p_message' => 'New booking ' . $bookingReference . ' created by ' . $ownerFullName . '.',
+                            ':p_priority' => 'medium',
+                            ':p_icon' => 'calendar-plus',
+                            ':p_url' => '/staff/bookings',
+                            ':p_event_id' => null,
+                            ':p_booking_id' => (int)$bookingId,
+                            ':p_venue_id' => $venueId,
+                            ':p_store_id' => null,
+                            ':p_budget_id' => null,
+                            ':p_feedback_id' => null,
+                            ':p_expires_at' => date('Y-m-d H:i:s', strtotime('+72 hours'))
+                        ]);
+                    }
+                }
+            } catch (PDOException $eNotifStaff) {
+                error_log('createBooking: staff notification failed: ' . $eNotifStaff->getMessage());
+                // Fallback for staff notifications
+                try {
+                    $staffFallback = $pdo->prepare("INSERT INTO tbl_notifications (
+                        user_id, notification_type, notification_title, notification_message,
+                        notification_priority, notification_icon, notification_url,
+                        event_id, booking_id, venue_id, store_id, budget_id, feedback_id, expires_at
+                    ) VALUES (
+                        :user_id, :type, :title, :message,
+                        :priority, :icon, :url,
+                        :event_id, :booking_id, :venue_id, :store_id, :budget_id, :feedback_id, :expires_at
+                    )");
+                    foreach ($staffIds as $staffId) {
+                        $staffFallback->execute([
+                            ':user_id' => (int)$staffId,
+                            ':type' => 'booking_created',
+                            ':title' => 'New Booking Created',
+                            ':message' => 'New booking ' . $bookingReference . ' created by ' . $ownerFullName . '.',
+                            ':priority' => 'medium',
+                            ':icon' => 'calendar-plus',
+                            ':url' => '/staff/bookings',
+                            ':event_id' => null,
+                            ':booking_id' => (int)$bookingId,
+                            ':venue_id' => $venueId,
+                            ':store_id' => null,
+                            ':budget_id' => null,
+                            ':feedback_id' => null,
+                            ':expires_at' => date('Y-m-d H:i:s', strtotime('+72 hours'))
+                        ]);
+                    }
+                } catch (PDOException $efb) {
+                    error_log('createBooking: staff notification fallback failed: ' . $efb->getMessage());
+                }
+            }
         } catch (Exception $notifWrapperError) {
             error_log('createBooking: notification wrapper error: ' . $notifWrapperError->getMessage());
         }
@@ -741,6 +820,35 @@ function getClientBookings($userId) {
         $stmt->bindParam(':user_id', $userId, PDO::PARAM_INT);
         $stmt->execute();
         $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Add payment information for each booking
+        foreach ($bookings as &$booking) {
+            // Get payments for this booking
+            $paymentStmt = $pdo->prepare("
+                SELECT
+                    payment_id,
+                    payment_amount,
+                    payment_method,
+                    payment_date,
+                    payment_status,
+                    payment_reference,
+                    payment_notes,
+                    created_at
+                FROM tbl_payments
+                WHERE booking_id = ? AND payment_status != 'cancelled'
+                ORDER BY payment_date DESC
+            ");
+            $paymentStmt->execute([$booking['booking_id']]);
+            $booking['payments'] = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Calculate total reserved payment amount
+            $booking['reserved_payment_total'] = 0;
+            foreach ($booking['payments'] as $payment) {
+                if ($payment['payment_status'] === 'completed') {
+                    $booking['reserved_payment_total'] += floatval($payment['payment_amount']);
+                }
+            }
+        }
 
         // Debug: Log converted bookings and their event linkage
         foreach ($bookings as $booking) {
@@ -946,6 +1054,29 @@ function getClientEventDetails($userId, $eventId) {
         ");
         $stmt->execute([$eventId]);
         $event['payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Reserved payments from original booking (if event was created from a booking)
+        if (!empty($event['original_booking_reference'])) {
+            $stmt = $pdo->prepare("
+                SELECT
+                    p.*,
+                    'reserved' as payment_type
+                FROM tbl_payments p
+                JOIN tbl_bookings b ON p.booking_id = b.booking_id
+                WHERE b.booking_reference = ? AND p.payment_status != 'cancelled'
+                ORDER BY p.payment_date DESC
+            ");
+            $stmt->execute([$event['original_booking_reference']]);
+            $reservedPayments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Add reserved payments to the main payments array
+            $event['payments'] = array_merge($event['payments'], $reservedPayments);
+
+            // Sort all payments by date (most recent first)
+            usort($event['payments'], function($a, $b) {
+                return strtotime($b['payment_date']) - strtotime($a['payment_date']);
+            });
+        }
 
         // Parse JSON fields if present
         if (!empty($event['event_attachments'])) {
@@ -2300,6 +2431,10 @@ switch ($method) {
                 echo json_encode(getDuplicateBookings());
                 break;
 
+            case 'getPaymentSettings':
+                echo json_encode(getPaymentSettings());
+                break;
+
             default:
                 echo json_encode([
                     "status" => "error",
@@ -2439,6 +2574,17 @@ switch ($method) {
                 }
                 break;
 
+            case 'cancelBooking':
+                $bookingId = (int)($data['booking_id'] ?? 0);
+                $userId = (int)($data['user_id'] ?? 0);
+
+                if ($bookingId <= 0 || $userId <= 0) {
+                    echo json_encode(["status" => "error", "message" => "Valid booking ID and user ID required"]);
+                } else {
+                    echo json_encode(cancelBooking($bookingId, $userId));
+                }
+                break;
+
             default:
                 echo json_encode([
                     "status" => "error",
@@ -2520,4 +2666,238 @@ switch ($method) {
             }
         }
         break;
+
+    case "createReservationPayment":
+        $bookingId = (int)($data['booking_id'] ?? 0);
+        if ($bookingId <= 0) {
+            echo json_encode(["status" => "error", "message" => "Valid booking ID required"]);
+        } else {
+            echo json_encode(createReservationPayment($bookingId, $data));
+        }
+        break;
+}
+
+// Function to create reservation payment for a booking
+function createReservationPayment($bookingId, $paymentData) {
+    global $pdo;
+
+    try {
+        $pdo->beginTransaction();
+
+        // Validate booking exists and belongs to user
+        $bookingStmt = $pdo->prepare("SELECT booking_id, user_id, booking_reference, booking_status FROM tbl_bookings WHERE booking_id = ? AND user_id = ?");
+        $bookingStmt->execute([$bookingId, $paymentData['user_id']]);
+        $booking = $bookingStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$booking) {
+            return ["status" => "error", "message" => "Booking not found or access denied"];
+        }
+
+        if ($booking['booking_status'] !== 'pending') {
+            return ["status" => "error", "message" => "Booking is not in pending status"];
+        }
+
+        // Validate payment data
+        $requiredFields = ['payment_method', 'payment_amount', 'payment_reference'];
+        foreach ($requiredFields as $field) {
+            if (!isset($paymentData[$field]) || $paymentData[$field] === '') {
+                return ["status" => "error", "message" => "Missing required field: " . $field];
+            }
+        }
+
+        // Create payment record
+        $paymentSql = "INSERT INTO tbl_payments (
+            booking_id, client_id, payment_date, payment_amount, payment_method,
+            payment_status, payment_reference, payment_notes, payment_percentage
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        $paymentStmt = $pdo->prepare($paymentSql);
+        $paymentDate = $paymentData['payment_date'] ?? date('Y-m-d');
+        $paymentStatus = $paymentData['payment_status'] ?? 'completed';
+        $paymentNotes = $paymentData['payment_notes'] ?? '';
+        $paymentPercentage = null; // Will be calculated if needed
+
+        $paymentResult = $paymentStmt->execute([
+            $bookingId,
+            $paymentData['user_id'],
+            $paymentDate,
+            $paymentData['payment_amount'],
+            $paymentData['payment_method'],
+            $paymentStatus,
+            $paymentData['payment_reference'],
+            $paymentNotes,
+            $paymentPercentage
+        ]);
+
+        if (!$paymentResult) {
+            throw new Exception("Failed to create payment record");
+        }
+
+        $paymentId = $pdo->lastInsertId();
+
+        // Update booking status to 'reserved'
+        $updateBookingSql = "UPDATE tbl_bookings SET booking_status = 'reserved' WHERE booking_id = ?";
+        $updateStmt = $pdo->prepare($updateBookingSql);
+        $updateStmt->execute([$bookingId]);
+
+        // Notify all admins and staff about payment made
+        try {
+            // Get admin IDs
+            $adminStmt = $pdo->query("SELECT user_id FROM tbl_users WHERE user_role = 'admin'");
+            $adminIds = $adminStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Get staff IDs
+            $staffStmt = $pdo->query("SELECT user_id FROM tbl_users WHERE user_role = 'staff' AND user_status = 'active'");
+            $staffIds = $staffStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Get client name
+            $clientStmt = $pdo->prepare("SELECT user_firstName, user_lastName FROM tbl_users WHERE user_id = ?");
+            $clientStmt->execute([$paymentData['user_id']]);
+            $client = $clientStmt->fetch(PDO::FETCH_ASSOC);
+            $clientName = trim(($client['user_firstName'] ?? 'User') . ' ' . ($client['user_lastName'] ?? ''));
+
+            $allRecipients = array_merge($adminIds, $staffIds);
+
+            foreach ($allRecipients as $recipientId) {
+                $notifStmt = $pdo->prepare("INSERT INTO tbl_notifications (
+                    user_id, notification_type, notification_title, notification_message,
+                    notification_priority, notification_icon, notification_url,
+                    event_id, booking_id, venue_id, store_id, budget_id, feedback_id, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+                $notifStmt->execute([
+                    $recipientId,
+                    'booking_payment_made',
+                    'Reservation Payment Received',
+                    "Client {$clientName} made a reservation payment of ₱{$paymentData['payment_amount']} for booking {$booking['booking_reference']}",
+                    'high',
+                    'credit-card',
+                    '/admin/bookings',
+                    null,
+                    $bookingId,
+                    null,
+                    null,
+                    null,
+                    null,
+                    date('Y-m-d H:i:s', strtotime('+72 hours'))
+                ]);
+            }
+        } catch (Exception $e) {
+            error_log('createReservationPayment: notification failed: ' . $e->getMessage());
+        }
+
+        $pdo->commit();
+
+        return [
+            "status" => "success",
+            "payment_id" => $paymentId,
+            "message" => "Reservation payment created successfully",
+            "booking_status" => "reserved"
+        ];
+
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
+    }
+}
+
+// Function to cancel a booking
+function cancelBooking($bookingId, $userId) {
+    global $pdo;
+
+    try {
+        $pdo->beginTransaction();
+
+        // Verify the booking exists and belongs to the user
+        $verifyStmt = $pdo->prepare("SELECT booking_id, booking_reference, booking_status FROM tbl_bookings WHERE booking_id = ? AND user_id = ?");
+        $verifyStmt->execute([$bookingId, $userId]);
+        $booking = $verifyStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$booking) {
+            return ["status" => "error", "message" => "Booking not found or access denied"];
+        }
+
+        // Check if booking can be cancelled
+        if ($booking['booking_status'] === 'cancelled') {
+            return ["status" => "error", "message" => "Booking is already cancelled"];
+        }
+
+        if ($booking['booking_status'] === 'completed') {
+            return ["status" => "error", "message" => "Cannot cancel a completed booking"];
+        }
+
+        if ($booking['booking_status'] === 'converted') {
+            return ["status" => "error", "message" => "Cannot cancel a converted booking. Please contact admin."];
+        }
+
+        // Update booking status to cancelled
+        $updateStmt = $pdo->prepare("UPDATE tbl_bookings SET booking_status = 'cancelled', updated_at = NOW() WHERE booking_id = ?");
+        $updateStmt->execute([$bookingId]);
+
+        // Log the cancellation activity
+        global $logger;
+        if ($logger) {
+            $logger->logBooking(
+                $userId,
+                $bookingId,
+                'cancelled',
+                "Booking {$booking['booking_reference']} was cancelled by client",
+                null,
+                'cancelled',
+                [
+                    'booking_reference' => $booking['booking_reference'],
+                    'previous_status' => $booking['booking_status']
+                ]
+            );
+        }
+
+        $pdo->commit();
+
+        return [
+            "status" => "success",
+            "message" => "Booking cancelled successfully",
+            "booking_reference" => $booking['booking_reference']
+        ];
+
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
+    }
+}
+
+// Function to get payment settings for clients
+function getPaymentSettings() {
+    global $pdo;
+
+    try {
+        $sql = "SELECT gcash_name, gcash_number, bank_name, bank_account_name,
+                       bank_account_number, payment_instructions
+                FROM tbl_website_settings
+                ORDER BY setting_id DESC LIMIT 1";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute();
+        $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($settings) {
+            return [
+                "status" => "success",
+                "payment_settings" => $settings
+            ];
+        } else {
+            return [
+                "status" => "success",
+                "payment_settings" => [
+                    "gcash_name" => "",
+                    "gcash_number" => "",
+                    "bank_name" => "",
+                    "bank_account_name" => "",
+                    "bank_account_number" => "",
+                    "payment_instructions" => ""
+                ]
+            ];
+        }
+    } catch (PDOException $e) {
+        return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
+    }
 }

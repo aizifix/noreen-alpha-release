@@ -173,6 +173,29 @@ class Organizer {
             $stmt->execute([$eventId]);
             $event['payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Reserved payments from original booking (if event was created from a booking)
+            if (!empty($event['original_booking_reference'])) {
+                $stmt = $this->conn->prepare("
+                    SELECT
+                        p.*,
+                        'reserved' as payment_type
+                    FROM tbl_payments p
+                    JOIN tbl_bookings b ON p.booking_id = b.booking_id
+                    WHERE b.booking_reference = ? AND p.payment_status != 'cancelled'
+                    ORDER BY p.payment_date DESC
+                ");
+                $stmt->execute([$event['original_booking_reference']]);
+                $reservedPayments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Add reserved payments to the main payments array
+                $event['payments'] = array_merge($event['payments'], $reservedPayments);
+
+                // Sort all payments by date (most recent first)
+                usort($event['payments'], function($a, $b) {
+                    return strtotime($b['payment_date']) - strtotime($a['payment_date']);
+                });
+            }
+
             // Get wedding details if this is a wedding event
             if ($event['event_type_id'] == 1) {
                 $weddingDetails = $this->getWeddingDetails($eventId, $event['organizer_id'] ?? null);

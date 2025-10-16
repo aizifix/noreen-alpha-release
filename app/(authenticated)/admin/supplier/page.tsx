@@ -310,34 +310,20 @@ export default function SupplierPage() {
   // Bulk actions
   const handleBulkDelete = () => {
     if (selectedSuppliers.length === 0) {
-      toast({
-        title: "No suppliers selected",
-        description: "Please select suppliers to delete",
-        variant: "destructive",
-      });
+      toast.error("No suppliers selected - Please select suppliers to delete");
       return;
     }
     // Implement bulk delete logic here
-    toast({
-      title: "Bulk delete",
-      description: `Deleting ${selectedSuppliers.length} suppliers...`,
-    });
+    toast.success(`Deleting ${selectedSuppliers.length} suppliers...`);
   };
 
   const handleBulkExport = () => {
     if (selectedSuppliers.length === 0) {
-      toast({
-        title: "No suppliers selected",
-        description: "Please select suppliers to export",
-        variant: "destructive",
-      });
+      toast.error("No suppliers selected - Please select suppliers to export");
       return;
     }
     // Implement bulk export logic here
-    toast({
-      title: "Bulk export",
-      description: `Exporting ${selectedSuppliers.length} suppliers...`,
-    });
+    toast.success(`Exporting ${selectedSuppliers.length} suppliers...`);
   };
 
   // Handle supplier actions
@@ -372,24 +358,13 @@ export default function SupplierPage() {
 
       if (data.status === "success") {
         fetchSuppliers();
-        toast({
-          title: "Success!",
-          description: "Supplier deleted successfully",
-        });
+        toast.success("Supplier deleted successfully");
       } else {
-        toast({
-          title: "Error",
-          description: data.message || "Failed to delete supplier",
-          variant: "destructive",
-        });
+        toast.error(data.message || "Failed to delete supplier");
       }
     } catch (error) {
       console.error("Error deleting supplier:", error);
-      toast({
-        title: "Error",
-        description: "Failed to delete supplier",
-        variant: "destructive",
-      });
+      toast.error("Failed to delete supplier");
     }
   };
 

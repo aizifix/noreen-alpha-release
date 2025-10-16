@@ -36,6 +36,14 @@ import {
   Gift,
   Package,
   CheckCircle,
+  Sparkles,
+  Award,
+  Clock,
+  Phone,
+  Mail,
+  Facebook,
+  Instagram,
+  Twitter,
 } from "lucide-react";
 
 interface PackageData {
@@ -216,75 +224,65 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white">
       {/* Navigation */}
-      <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b">
+      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex justify-between items-center h-20">
             {/* Logo */}
             <div className="flex-shrink-0">
-              <Link href="/" className="text-2xl font-bold text-[#334746]">
-                <Image src={Logo} alt="Noreen Logo" width={100} height={100} />
+              <Link
+                href="/"
+                className="text-2xl font-bold text-[#334746] group"
+              >
+                <Image
+                  src={Logo}
+                  alt="Noreen Logo"
+                  width={120}
+                  height={120}
+                  className="transition-transform duration-300 group-hover:scale-105"
+                />
               </Link>
             </div>
 
             {/* Desktop Navigation */}
             <div className="hidden md:block">
               <div className="ml-10 flex items-baseline space-x-8">
-                <Link
-                  href="#features"
-                  onClick={(e) => handleSmoothScroll(e, "features")}
-                  className="text-gray-700 hover:text-brand-500 transition-colors"
-                >
-                  Features
-                </Link>
-                <Link
-                  href="#services"
-                  onClick={(e) => handleSmoothScroll(e, "services")}
-                  className="text-gray-700 hover:text-brand-500 transition-colors"
-                >
-                  Services
-                </Link>
-                <Link
-                  href="#gallery"
-                  onClick={(e) => handleSmoothScroll(e, "gallery")}
-                  className="text-gray-700 hover:text-brand-500 transition-colors"
-                >
-                  Gallery
-                </Link>
-                <Link
-                  href="#location"
-                  onClick={(e) => handleSmoothScroll(e, "location")}
-                  className="text-gray-700 hover:text-brand-500 transition-colors"
-                >
-                  Location
-                </Link>
-                <Link
-                  href="#about"
-                  onClick={(e) => handleSmoothScroll(e, "about")}
-                  className="text-gray-700 hover:text-brand-500 transition-colors"
-                >
-                  About
-                </Link>
-                <Link
-                  href="#contact"
-                  onClick={(e) => handleSmoothScroll(e, "contact")}
-                  className="text-gray-700 hover:text-brand-500 transition-colors"
-                >
-                  Contact
-                </Link>
+                {[
+                  { href: "#features", label: "Features" },
+                  { href: "#services", label: "Services" },
+                  { href: "#gallery", label: "Gallery" },
+                  { href: "#location", label: "Location" },
+                  { href: "#about", label: "About" },
+                  { href: "#contact", label: "Contact" },
+                ].map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={(e) =>
+                      handleSmoothScroll(e, item.href.replace("#", ""))
+                    }
+                    className="relative text-gray-700 hover:text-[#334746] transition-all duration-300 font-medium group"
+                  >
+                    {item.label}
+                    <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#334746] transition-all duration-300 group-hover:w-full"></span>
+                  </Link>
+                ))}
               </div>
             </div>
 
             {/* CTA Buttons */}
-            <div className="hidden md:flex items-center space-x-4">
+            <div className="hidden md:flex items-center space-x-3">
               <Link href="/auth/login">
-                <Button className="border border-[#334746] text-[#334746] hover:bg-[#334746] hover:text-white bg-white">
+                <Button
+                  variant="outline"
+                  className="border-[#334746] text-[#334746] hover:bg-[#334746] hover:text-white bg-white transition-all duration-300 hover:shadow-md"
+                >
                   Login
                 </Button>
               </Link>
               <Link href="/auth/signup">
-                <Button className="bg-brand-500 hover:bg-brand-600 text-white">
+                <Button className="bg-gradient-to-r from-[#334746] to-[#2a3a3a] hover:from-[#2a3a3a] hover:to-[#334746] text-white shadow-lg hover:shadow-xl transition-all duration-300">
                   Get Started
                 </Button>
               </Link>
@@ -293,7 +291,9 @@ export default function LandingPage() {
             {/* Mobile menu button */}
             <div className="md:hidden">
               <Button
-                className="bg-transparent hover:bg-gray-100 p-2"
+                variant="ghost"
+                size="sm"
+                className="p-2 hover:bg-gray-100 transition-colors"
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
                 aria-expanded={isMenuOpen}
                 aria-label={isMenuOpen ? "Close menu" : "Open menu"}
@@ -320,58 +320,38 @@ export default function LandingPage() {
 
           {/* Mobile Navigation */}
           {isMenuOpen && (
-            <div className="md:hidden">
-              <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-                <Link
-                  href="#features"
-                  onClick={(e) => handleSmoothScroll(e, "features")}
-                  className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
-                >
-                  Features
-                </Link>
-                <Link
-                  href="#services"
-                  onClick={(e) => handleSmoothScroll(e, "services")}
-                  className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
-                >
-                  Services
-                </Link>
-                <Link
-                  href="#gallery"
-                  onClick={(e) => handleSmoothScroll(e, "gallery")}
-                  className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
-                >
-                  Gallery
-                </Link>
-                <Link
-                  href="#location"
-                  onClick={(e) => handleSmoothScroll(e, "location")}
-                  className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
-                >
-                  Location
-                </Link>
-                <Link
-                  href="#about"
-                  onClick={(e) => handleSmoothScroll(e, "about")}
-                  className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
-                >
-                  About
-                </Link>
-                <Link
-                  href="#contact"
-                  onClick={(e) => handleSmoothScroll(e, "contact")}
-                  className="block px-3 py-2 text-gray-700 hover:text-[#334746]"
-                >
-                  Contact
-                </Link>
-                <div className="flex flex-col space-y-2 px-3 pt-4">
+            <div className="md:hidden border-t border-gray-100 bg-white/95 backdrop-blur-md">
+              <div className="px-2 pt-4 pb-6 space-y-2 sm:px-3">
+                {[
+                  { href: "#features", label: "Features" },
+                  { href: "#services", label: "Services" },
+                  { href: "#gallery", label: "Gallery" },
+                  { href: "#location", label: "Location" },
+                  { href: "#about", label: "About" },
+                  { href: "#contact", label: "Contact" },
+                ].map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={(e) =>
+                      handleSmoothScroll(e, item.href.replace("#", ""))
+                    }
+                    className="block px-4 py-3 text-gray-700 hover:text-[#334746] hover:bg-gray-50 rounded-lg transition-all duration-200 font-medium"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+                <div className="flex flex-col space-y-3 px-4 pt-4 border-t border-gray-100">
                   <Link href="/auth/login">
-                    <Button className="w-full border border-[#334746] text-[#334746] bg-white hover:bg-[#334746] hover:text-white">
+                    <Button
+                      variant="outline"
+                      className="w-full border-[#334746] text-[#334746] bg-white hover:bg-[#334746] hover:text-white transition-all duration-300"
+                    >
                       Login
                     </Button>
                   </Link>
                   <Link href="/auth/signup">
-                    <Button className="w-full bg-[#334746] text-white hover:bg-gray-800">
+                    <Button className="w-full bg-gradient-to-r from-[#334746] to-[#2a3a3a] text-white hover:from-[#2a3a3a] hover:to-[#334746] transition-all duration-300">
                       Get Started
                     </Button>
                   </Link>
@@ -384,7 +364,7 @@ export default function LandingPage() {
 
       {/* Hero Section */}
       <section
-        className={`relative overflow-hidden ${isMounted ? "opacity-100" : "opacity-0"} transition-opacity duration-700`}
+        className={`relative overflow-hidden min-h-screen flex items-center ${isMounted ? "opacity-100" : "opacity-0"} transition-opacity duration-700`}
       >
         <div className="absolute inset-0 w-full h-full">
           <video
@@ -397,35 +377,75 @@ export default function LandingPage() {
             <source src="/noreen.mp4" type="video/mp4" />
             Your browser does not support the video tag.
           </video>
-          <div className="absolute inset-0 bg-black/50" />
-          {/* Darker overlay for better text visibility */}
+          <div className="absolute inset-0 bg-gradient-to-br from-black/60 via-black/40 to-black/60" />
         </div>
+
+        {/* Floating Elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-10 w-20 h-20 bg-white/10 rounded-full blur-xl animate-pulse"></div>
+          <div className="absolute top-40 right-20 w-32 h-32 bg-[#334746]/20 rounded-full blur-2xl animate-pulse delay-1000"></div>
+          <div className="absolute bottom-40 left-1/4 w-16 h-16 bg-white/5 rounded-full blur-lg animate-pulse delay-2000"></div>
+        </div>
+
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
           <div
-            className={`text-center ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+            className={`text-center ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"} transition-all duration-1000 delay-200`}
           >
-            <h1 className="text-4xl md:text-6xl font-bold text-white mb-6">
-              Plan Your Perfect Event
+            {/* Badge */}
+            <div className="inline-flex items-center px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-white text-sm font-medium mb-8">
+              <Sparkles className="w-4 h-4 mr-2" />
+              Trusted by 1000+ Event Planners
+            </div>
+
+            <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold text-white mb-8 leading-tight">
+              Plan Your
+              <span className="block bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                Perfect Event
+              </span>
             </h1>
-            <p className="text-xl text-gray-200 mb-8 max-w-3xl mx-auto">
+
+            <p className="text-xl md:text-2xl text-gray-200 mb-12 max-w-4xl mx-auto leading-relaxed">
               From intimate gatherings to grand celebrations, our comprehensive
               event coordination system helps you plan, manage, and execute
-              unforgettable experiences.
+              unforgettable experiences with ease.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+
+            <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
               <Link href="/auth/signup">
-                <Button className="bg-brand-500 hover:bg-brand-600 px-8 py-3 text-lg">
-                  Start Planning <ArrowRight className="ml-2 h-4 w-4" />
+                <Button className="bg-gradient-to-r from-[#334746] to-[#2a3a3a] hover:from-[#2a3a3a] hover:to-[#334746] text-white px-10 py-4 text-lg font-semibold shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-105">
+                  Start Planning <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </Link>
               <Link
                 href="#features"
                 onClick={(e) => handleSmoothScroll(e, "features")}
               >
-                <Button className="text-white border-white border-2 bg-transparent hover:bg-white hover:text-black px-8 py-3 text-lg">
+                <Button className="text-white border-2 border-white/30 bg-white/10 backdrop-blur-sm hover:bg-white hover:text-[#334746] px-10 py-4 text-lg font-semibold transition-all duration-300 transform hover:scale-105">
                   Learn More
                 </Button>
               </Link>
+            </div>
+
+            {/* Stats */}
+            <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+              <div className="text-center">
+                <div className="text-4xl md:text-5xl font-bold text-white mb-2">
+                  1000+
+                </div>
+                <div className="text-gray-300">Events Planned</div>
+              </div>
+              <div className="text-center">
+                <div className="text-4xl md:text-5xl font-bold text-white mb-2">
+                  50+
+                </div>
+                <div className="text-gray-300">Premium Venues</div>
+              </div>
+              <div className="text-center">
+                <div className="text-4xl md:text-5xl font-bold text-white mb-2">
+                  24/7
+                </div>
+                <div className="text-gray-300">Support</div>
+              </div>
             </div>
           </div>
         </div>
@@ -434,79 +454,88 @@ export default function LandingPage() {
       {/* Features Section */}
       <section
         id="features"
-        className={`py-24 bg-white ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+        className={`py-32 bg-gradient-to-br from-white to-gray-50 ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"} transition-all duration-1000`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Everything You Need to Plan Events
+          <div className="text-center mb-20">
+            <div className="inline-flex items-center px-4 py-2 rounded-full bg-[#334746]/10 text-[#334746] text-sm font-medium mb-6">
+              <Award className="w-4 h-4 mr-2" />
+              Why Choose Us
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+              Everything You Need to
+              <span className="block bg-gradient-to-r from-[#334746] to-[#2a3a3a] bg-clip-text text-transparent">
+                Plan Perfect Events
+              </span>
             </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Our platform provides all the tools and features you need to
-              create memorable events
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
+              Our comprehensive platform provides all the tools and features you
+              need to create memorable events that exceed expectations
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            <Card className="border border-gray-200">
-              <CardHeader className="text-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Calendar className="h-8 w-8 text-[#334746]" />
-                </div>
-                <CardTitle className="text-xl">Event Planning</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-center">
-                  Comprehensive planning tools to organize every aspect of your
-                  event from start to finish
-                </CardDescription>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-gray-200">
-              <CardHeader className="text-center">
-                <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <MapPin className="h-8 w-8 text-brand-500" />
-                </div>
-                <CardTitle className="text-xl">Venue Management</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-center">
-                  Browse and book from our curated selection of premium venues
-                  for any occasion
-                </CardDescription>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-gray-200">
-              <CardHeader className="text-center">
-                <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Users className="h-8 w-8 text-brand-500" />
-                </div>
-                <CardTitle className="text-xl">Guest Management</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-center">
-                  Easily manage guest lists, invitations, and RSVPs all in one
-                  place
-                </CardDescription>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-gray-200">
-              <CardHeader className="text-center">
-                <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Star className="h-8 w-8 text-brand-500" />
-                </div>
-                <CardTitle className="text-xl">Premium Packages</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-center">
-                  Choose from carefully crafted packages or customize your own
-                  perfect event
-                </CardDescription>
-              </CardContent>
-            </Card>
+            {[
+              {
+                icon: Calendar,
+                title: "Event Planning",
+                description:
+                  "Comprehensive planning tools to organize every aspect of your event from start to finish",
+                color: "from-blue-500 to-blue-600",
+                bgColor: "bg-blue-50",
+                iconColor: "text-blue-600",
+              },
+              {
+                icon: MapPin,
+                title: "Venue Management",
+                description:
+                  "Browse and book from our curated selection of premium venues for any occasion",
+                color: "from-green-500 to-green-600",
+                bgColor: "bg-green-50",
+                iconColor: "text-green-600",
+              },
+              {
+                icon: Users,
+                title: "Guest Management",
+                description:
+                  "Easily manage guest lists, invitations, and RSVPs all in one place",
+                color: "from-purple-500 to-purple-600",
+                bgColor: "bg-purple-50",
+                iconColor: "text-purple-600",
+              },
+              {
+                icon: Star,
+                title: "Premium Packages",
+                description:
+                  "Choose from carefully crafted packages or customize your own perfect event",
+                color: "from-orange-500 to-orange-600",
+                bgColor: "bg-orange-50",
+                iconColor: "text-orange-600",
+              },
+            ].map((feature, index) => (
+              <Card
+                key={index}
+                className="group border-0 shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 bg-white/80 backdrop-blur-sm"
+              >
+                <CardHeader className="text-center pb-4">
+                  <div
+                    className={`w-20 h-20 ${feature.bgColor} rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300`}
+                  >
+                    <feature.icon
+                      className={`h-10 w-10 ${feature.iconColor}`}
+                    />
+                  </div>
+                  <CardTitle className="text-xl font-bold text-gray-900 group-hover:text-[#334746] transition-colors duration-300">
+                    {feature.title}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <CardDescription className="text-center text-gray-600 leading-relaxed">
+                    {feature.description}
+                  </CardDescription>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       </section>
@@ -514,29 +543,39 @@ export default function LandingPage() {
       {/* Packages Section */}
       <section
         id="packages"
-        className={`py-24 bg-white ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+        className={`py-32 bg-gradient-to-br from-gray-50 to-white ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"} transition-all duration-1000`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Our Featured Packages
+          <div className="text-center mb-20">
+            <div className="inline-flex items-center px-4 py-2 rounded-full bg-[#334746]/10 text-[#334746] text-sm font-medium mb-6">
+              <Package className="w-4 h-4 mr-2" />
+              Featured Packages
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+              Our Carefully Curated
+              <span className="block bg-gradient-to-r from-[#334746] to-[#2a3a3a] bg-clip-text text-transparent">
+                Event Packages
+              </span>
             </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
               Discover our carefully curated event packages designed to make
-              your special day unforgettable
+              your special day unforgettable with premium venues and services
             </p>
           </div>
 
           {isLoading ? (
             <div className="flex justify-center items-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#334746]"></div>
+              <div className="relative">
+                <div className="animate-spin rounded-full h-16 w-16 border-4 border-gray-200"></div>
+                <div className="animate-spin rounded-full h-16 w-16 border-4 border-[#334746] border-t-transparent absolute top-0 left-0"></div>
+              </div>
             </div>
           ) : packages.length > 0 ? (
             <div className="relative">
               {/* Carousel Container */}
-              <div className="overflow-hidden rounded-xl">
+              <div className="overflow-hidden rounded-3xl shadow-2xl">
                 <div
-                  className="flex transition-transform duration-500 ease-in-out"
+                  className="flex transition-transform duration-700 ease-in-out"
                   style={{
                     transform: `translateX(-${currentPackageIndex * 100}%)`,
                   }}
@@ -546,67 +585,80 @@ export default function LandingPage() {
                       key={pkg.package_id}
                       className="w-full flex-shrink-0 px-4"
                     >
-                      <Card className="mx-auto max-w-2xl bg-white border border-gray-200">
-                        <div className="p-8">
-                          {/* Package Header */}
-                          <div className="text-center space-y-4">
-                            <div className="flex items-center justify-between mb-4">
-                              <Badge
-                                style={{
-                                  backgroundColor: "#334746",
-                                  color: "white",
-                                }}
-                              >
-                                Featured Package
-                              </Badge>
-                              <div className="flex items-center text-yellow-500">
-                                {[...Array(5)].map((_, i) => (
-                                  <Star
-                                    key={i}
-                                    className="h-4 w-4 fill-current"
-                                  />
-                                ))}
-                              </div>
-                            </div>
+                      <div className="mx-auto max-w-4xl bg-white rounded-xl border border-gray-200 p-8">
+                        {/* Package Header */}
+                        <div className="text-center mb-8">
+                          <div className="flex items-center justify-center mb-4">
+                            <Badge className="bg-[#334746] text-white px-4 py-2 text-sm font-medium">
+                              <Sparkles className="w-4 h-4 mr-2" />
+                              Featured Package
+                            </Badge>
+                          </div>
+                          <h3 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+                            {pkg.package_title}
+                          </h3>
+                          <p className="text-gray-600 text-lg leading-relaxed max-w-2xl mx-auto">
+                            {pkg.package_description}
+                          </p>
+                        </div>
 
-                            <h3 className="text-3xl font-bold text-gray-900">
-                              {pkg.package_title}
-                            </h3>
-
-                            <p className="text-gray-600 text-lg leading-relaxed">
-                              {pkg.package_description}
-                            </p>
-
-                            {/* Price */}
-                            <div className="text-4xl font-bold text-[#334746] py-4">
-                              ₱
-                              {new Intl.NumberFormat("en-PH", {
-                                maximumFractionDigits: 0,
-                              }).format(pkg.package_price)}
-                            </div>
-
-                            {/* Action Buttons */}
-                            <div className="flex flex-col sm:flex-row gap-4 pt-4">
-                              <Button
-                                className="flex-1 border-[#334746] text-[#334746] hover:bg-[#334746] hover:text-white border-2 bg-transparent"
-                                onClick={() =>
-                                  fetchPackageDetails(pkg.package_id)
-                                }
-                                disabled={isPackageLoading}
-                              >
-                                <Eye className="h-4 w-4 mr-2" />
-                                View Details
-                              </Button>
-                              <Link href="/auth/signup" className="flex-1">
-                                <Button className="w-full bg-[#334746] hover:bg-gray-800">
-                                  <Heart className="h-4 w-4 mr-2" />
-                                  Book Now
-                                </Button>
-                              </Link>
-                            </div>
+                        {/* Price */}
+                        <div className="text-center mb-8">
+                          <div className="text-5xl md:text-6xl font-bold text-[#334746] mb-2">
+                            ₱
+                            {new Intl.NumberFormat("en-PH", {
+                              maximumFractionDigits: 0,
+                            }).format(pkg.package_price)}
+                          </div>
+                          <div className="text-gray-500 text-lg">
+                            Starting Price
                           </div>
                         </div>
-                      </Card>
+
+                        {/* Package Stats */}
+                        <div className="grid grid-cols-3 gap-6 mb-8 py-6 border-y border-gray-200">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-[#334746]">
+                              {pkg.guest_capacity}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              Max Guests
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-[#334746]">
+                              {pkg.component_count}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              Components
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-[#334746]">
+                              {pkg.venue_count}
+                            </div>
+                            <div className="text-sm text-gray-600">Venues</div>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex flex-col sm:flex-row gap-4">
+                          <Button
+                            className="flex-1 border border-[#334746] text-[#334746] hover:bg-[#334746] hover:text-white bg-transparent px-6 py-3 text-lg font-medium transition-all duration-300"
+                            onClick={() => fetchPackageDetails(pkg.package_id)}
+                            disabled={isPackageLoading}
+                          >
+                            <Eye className="h-5 w-5 mr-2" />
+                            View Details
+                          </Button>
+                          <Link href="/auth/signup" className="flex-1">
+                            <Button className="w-full bg-[#334746] hover:bg-gray-800 text-white px-6 py-3 text-lg font-medium transition-all duration-300">
+                              <Heart className="h-5 w-5 mr-2" />
+                              Book Now
+                            </Button>
+                          </Link>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -615,29 +667,29 @@ export default function LandingPage() {
               {/* Navigation Arrows */}
               <button
                 onClick={prevPackage}
-                className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white shadow-lg rounded-full p-3 hover:bg-gray-50 transition-colors z-10"
+                className="absolute left-6 top-1/2 transform -translate-y-1/2 bg-white/90 backdrop-blur-sm shadow-xl rounded-full p-4 hover:bg-white hover:shadow-2xl transition-all duration-300 z-10 group"
                 aria-label="Previous package"
               >
-                <ChevronLeft className="h-6 w-6 text-gray-600" />
+                <ChevronLeft className="h-6 w-6 text-gray-600 group-hover:text-[#334746] transition-colors" />
               </button>
               <button
                 onClick={nextPackage}
-                className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white shadow-lg rounded-full p-3 hover:bg-gray-50 transition-colors z-10"
+                className="absolute right-6 top-1/2 transform -translate-y-1/2 bg-white/90 backdrop-blur-sm shadow-xl rounded-full p-4 hover:bg-white hover:shadow-2xl transition-all duration-300 z-10 group"
                 aria-label="Next package"
               >
-                <ChevronRight className="h-6 w-6 text-gray-600" />
+                <ChevronRight className="h-6 w-6 text-gray-600 group-hover:text-[#334746] transition-colors" />
               </button>
 
               {/* Dots Indicator */}
-              <div className="flex justify-center mt-8 space-x-2">
+              <div className="flex justify-center mt-12 space-x-3">
                 {packages.map((_: PackageData, index: number) => (
                   <button
                     key={`landing-package-dot-${index}`}
                     onClick={() => goToPackage(index)}
-                    className={`w-3 h-3 rounded-full transition-colors ${
+                    className={`w-4 h-4 rounded-full transition-all duration-300 ${
                       index === currentPackageIndex
-                        ? "bg-[#334746]"
-                        : "bg-gray-300 hover:bg-gray-400"
+                        ? "bg-[#334746] scale-125"
+                        : "bg-gray-300 hover:bg-gray-400 hover:scale-110"
                     }`}
                     aria-label={`Go to package ${index + 1}`}
                   />
@@ -645,9 +697,16 @@ export default function LandingPage() {
               </div>
             </div>
           ) : (
-            <div className="text-center py-12">
+            <div className="text-center py-16">
+              <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Package className="w-12 h-12 text-gray-400" />
+              </div>
+              <h3 className="text-2xl font-semibold text-gray-900 mb-2">
+                No Packages Available
+              </h3>
               <p className="text-gray-500 text-lg">
-                No packages available at the moment.
+                We're working on adding amazing packages for you. Check back
+                soon!
               </p>
             </div>
           )}
@@ -682,76 +741,123 @@ export default function LandingPage() {
       {/* Services Section */}
       <section
         id="services"
-        className={`py-24 bg-gray-50 ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
+        className={`py-32 bg-gradient-to-br from-white to-gray-50 ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"} transition-all duration-1000`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+          <div className="text-center mb-20">
+            <div className="inline-flex items-center px-4 py-2 rounded-full bg-[#334746]/10 text-[#334746] text-sm font-medium mb-6">
+              <Award className="w-4 h-4 mr-2" />
               Our Services
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+              We Specialize in Creating
+              <span className="block bg-gradient-to-r from-[#334746] to-[#2a3a3a] bg-clip-text text-transparent">
+                Unforgettable Experiences
+              </span>
             </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              We specialize in creating unforgettable experiences for every type
-              of celebration
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
+              From intimate gatherings to grand celebrations, we bring expertise
+              and passion to every type of event
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center">
-              <div className="bg-white rounded-lg p-8 shadow-lg hover:shadow-xl transition-shadow">
-                <h3 className="text-2xl font-semibold text-gray-900 mb-4">
-                  Weddings
-                </h3>
-                <p className="text-gray-600 mb-6">
-                  Make your special day perfect with our comprehensive wedding
-                  planning services
-                </p>
-                <ul className="text-left text-gray-600 space-y-2">
-                  <li>• Venue selection and booking</li>
-                  <li>• Catering and menu planning</li>
-                  <li>• Photography and videography</li>
-                  <li>• Floral arrangements</li>
-                  <li>• Day-of coordination</li>
-                </ul>
-              </div>
-            </div>
+            {[
+              {
+                title: "Weddings",
+                description:
+                  "Make your special day perfect with our comprehensive wedding planning services",
+                icon: Heart,
+                color: "from-pink-500 to-rose-600",
+                bgColor: "bg-pink-50",
+                iconColor: "text-pink-600",
+                features: [
+                  "Venue selection and booking",
+                  "Catering and menu planning",
+                  "Photography and videography",
+                  "Floral arrangements",
+                  "Day-of coordination",
+                ],
+              },
+              {
+                title: "Corporate Events",
+                description:
+                  "Professional event planning for conferences, meetings, and corporate celebrations",
+                icon: Users,
+                color: "from-blue-500 to-indigo-600",
+                bgColor: "bg-blue-50",
+                iconColor: "text-blue-600",
+                features: [
+                  "Conference planning",
+                  "Team building events",
+                  "Product launches",
+                  "Awards ceremonies",
+                  "Networking events",
+                ],
+              },
+              {
+                title: "Private Parties",
+                description:
+                  "Celebrate life's special moments with personalized party planning",
+                icon: Gift,
+                color: "from-purple-500 to-violet-600",
+                bgColor: "bg-purple-50",
+                iconColor: "text-purple-600",
+                features: [
+                  "Birthday celebrations",
+                  "Anniversary parties",
+                  "Graduation parties",
+                  "Holiday celebrations",
+                  "Themed parties",
+                ],
+              },
+            ].map((service, index) => (
+              <div key={index} className="group">
+                <div className="bg-white/80 backdrop-blur-sm rounded-3xl p-10 shadow-xl hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 border border-gray-100 h-full">
+                  <div className="text-center mb-8">
+                    <div
+                      className={`w-20 h-20 ${service.bgColor} rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300`}
+                    >
+                      <service.icon
+                        className={`h-10 w-10 ${service.iconColor}`}
+                      />
+                    </div>
+                    <h3 className="text-3xl font-bold text-gray-900 mb-4 group-hover:text-[#334746] transition-colors duration-300">
+                      {service.title}
+                    </h3>
+                    <p className="text-gray-600 text-lg leading-relaxed mb-8">
+                      {service.description}
+                    </p>
+                  </div>
 
-            <div className="text-center">
-              <div className="bg-white rounded-lg p-8 shadow-lg hover:shadow-xl transition-shadow">
-                <h3 className="text-2xl font-semibold text-gray-900 mb-4">
-                  Corporate Events
-                </h3>
-                <p className="text-gray-600 mb-6">
-                  Professional event planning for conferences, meetings, and
-                  corporate celebrations
-                </p>
-                <ul className="text-left text-gray-600 space-y-2">
-                  <li>• Conference planning</li>
-                  <li>• Team building events</li>
-                  <li>• Product launches</li>
-                  <li>• Awards ceremonies</li>
-                  <li>• Networking events</li>
-                </ul>
-              </div>
-            </div>
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                      What's Included:
+                    </h4>
+                    <ul className="space-y-3">
+                      {service.features.map((feature, featureIndex) => (
+                        <li
+                          key={featureIndex}
+                          className="flex items-start text-gray-600"
+                        >
+                          <CheckCircle className="h-5 w-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                          <span className="leading-relaxed">{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
 
-            <div className="text-center">
-              <div className="bg-white rounded-lg p-8 shadow-lg hover:shadow-xl transition-shadow">
-                <h3 className="text-2xl font-semibold text-gray-900 mb-4">
-                  Private Parties
-                </h3>
-                <p className="text-gray-600 mb-6">
-                  Celebrate life's special moments with personalized party
-                  planning
-                </p>
-                <ul className="text-left text-gray-600 space-y-2">
-                  <li>• Birthday celebrations</li>
-                  <li>• Anniversary parties</li>
-                  <li>• Graduation parties</li>
-                  <li>• Holiday celebrations</li>
-                  <li>• Themed parties</li>
-                </ul>
+                  <div className="mt-8 pt-6 border-t border-gray-200">
+                    <Link href="/auth/signup">
+                      <Button className="w-full bg-gradient-to-r from-[#334746] to-[#2a3a3a] hover:from-[#2a3a3a] hover:to-[#334746] text-white py-3 font-semibold transition-all duration-300 transform hover:scale-105">
+                        Get Started
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
               </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
@@ -835,94 +941,157 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-900 text-white py-16">
+      <footer className="bg-gradient-to-br from-gray-900 via-[#334746] to-gray-900 text-white py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-            <div>
-              <h3 className="text-2xl font-bold text-brand-400 mb-4">Noreen</h3>
-              <p className="text-gray-400">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
+            {/* Company Info */}
+            <div className="lg:col-span-1">
+              <div className="flex items-center mb-6">
+                <Image
+                  src={Logo}
+                  alt="Noreen Logo"
+                  width={60}
+                  height={60}
+                  className="mr-3"
+                />
+                <h3 className="text-2xl font-bold text-white">Noreen</h3>
+              </div>
+              <p className="text-gray-300 leading-relaxed mb-6">
                 Your trusted partner in creating unforgettable events and
-                celebrations.
+                celebrations. We bring your vision to life with passion and
+                precision.
               </p>
+              <div className="flex space-x-4">
+                <Link
+                  href="#"
+                  className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20 transition-colors"
+                >
+                  <Facebook className="h-5 w-5" />
+                </Link>
+                <Link
+                  href="#"
+                  className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20 transition-colors"
+                >
+                  <Instagram className="h-5 w-5" />
+                </Link>
+                <Link
+                  href="#"
+                  className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20 transition-colors"
+                >
+                  <Twitter className="h-5 w-5" />
+                </Link>
+              </div>
             </div>
+
+            {/* Services */}
             <div>
-              <h4 className="text-lg font-semibold mb-4">Services</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Wedding Planning
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Corporate Events
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Private Parties
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Venue Booking
-                  </Link>
-                </li>
+              <h4 className="text-xl font-bold mb-6 text-white">Services</h4>
+              <ul className="space-y-3">
+                {[
+                  "Wedding Planning",
+                  "Corporate Events",
+                  "Private Parties",
+                  "Venue Booking",
+                  "Event Coordination",
+                ].map((service, index) => (
+                  <li key={index}>
+                    <Link
+                      href="#"
+                      className="text-gray-300 hover:text-white transition-colors duration-200 flex items-center group"
+                    >
+                      <ArrowRight className="h-4 w-4 mr-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      {service}
+                    </Link>
+                  </li>
+                ))}
               </ul>
             </div>
+
+            {/* Company */}
             <div>
-              <h4 className="text-lg font-semibold mb-4">Company</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    About Us
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Our Team
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Careers
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Contact
-                  </Link>
-                </li>
+              <h4 className="text-xl font-bold mb-6 text-white">Company</h4>
+              <ul className="space-y-3">
+                {["About Us", "Our Team", "Careers", "Contact", "Blog"].map(
+                  (item, index) => (
+                    <li key={index}>
+                      <Link
+                        href="#"
+                        className="text-gray-300 hover:text-white transition-colors duration-200 flex items-center group"
+                      >
+                        <ArrowRight className="h-4 w-4 mr-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        {item}
+                      </Link>
+                    </li>
+                  )
+                )}
               </ul>
             </div>
+
+            {/* Contact Info */}
             <div>
-              <h4 className="text-lg font-semibold mb-4">Support</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Help Center
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Privacy Policy
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Terms of Service
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    FAQ
-                  </Link>
-                </li>
-              </ul>
+              <h4 className="text-xl font-bold mb-6 text-white">
+                Get In Touch
+              </h4>
+              <div className="space-y-4">
+                <div className="flex items-start space-x-3">
+                  <Phone className="h-5 w-5 text-[#334746] mt-1 flex-shrink-0" />
+                  <div>
+                    <p className="text-gray-300">+63 123 456 7890</p>
+                    <p className="text-sm text-gray-400">
+                      Mon - Sat, 9AM - 6PM
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <Mail className="h-5 w-5 text-[#334746] mt-1 flex-shrink-0" />
+                  <div>
+                    <p className="text-gray-300">info@noreen.com</p>
+                    <p className="text-sm text-gray-400">
+                      We'll respond within 24h
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <MapPin className="h-5 w-5 text-[#334746] mt-1 flex-shrink-0" />
+                  <div>
+                    <p className="text-gray-300">Metro Manila</p>
+                    <p className="text-sm text-gray-400">Philippines</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="mt-12 pt-8 border-t border-gray-800 text-center text-gray-400">
-            <p>&copy; 2024 EventCo. All rights reserved.</p>
+
+          {/* Bottom Section */}
+          <div className="mt-16 pt-8 border-t border-white/10">
+            <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+              <div className="text-gray-400 text-center md:text-left">
+                <p>&copy; 2024 Noreen Events. All rights reserved.</p>
+                <p className="text-sm mt-1">
+                  Crafting memories, one event at a time.
+                </p>
+              </div>
+              <div className="flex space-x-6 text-sm">
+                <Link
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Privacy Policy
+                </Link>
+                <Link
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Terms of Service
+                </Link>
+                <Link
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Cookie Policy
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </footer>

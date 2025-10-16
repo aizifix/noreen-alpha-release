@@ -25,6 +25,11 @@ interface PaymentStepProps {
   selectedPackage?: any;
   selectedVenue?: any;
   selectedComponents?: any[];
+  reservedPaymentData?: {
+    reservedPayments: any[];
+    reservedPaymentTotal: number;
+    adjustedTotal: number;
+  };
 }
 
 export default function PaymentStep({
@@ -34,6 +39,7 @@ export default function PaymentStep({
   selectedPackage,
   selectedVenue,
   selectedComponents = [],
+  reservedPaymentData,
 }: PaymentStepProps) {
   const [paymentMethod, setPaymentMethod] = useState("gcash");
   const [referenceNumber, setReferenceNumber] = useState("");
@@ -70,13 +76,19 @@ export default function PaymentStep({
     },
   ];
 
-  const downPaymentAmount = (totalBudget * downPaymentPercentage) / 100;
-  const remainingAmount = totalBudget - downPaymentAmount;
+  // Calculate adjusted total (package total - reserved payments)
+  const reservedTotal = reservedPaymentData?.reservedPaymentTotal || 0;
+  const adjustedTotal = totalBudget - reservedTotal;
+
+  const downPaymentAmount = (adjustedTotal * downPaymentPercentage) / 100;
+  const remainingAmount = adjustedTotal - downPaymentAmount;
 
   // Auto-update parent whenever payment data changes
   useEffect(() => {
     const paymentData = {
       totalBudget,
+      reservedPaymentTotal: reservedTotal,
+      adjustedTotal,
       downPaymentMethod: paymentMethod,
       referenceNumber,
       downPaymentPercentage,
@@ -91,6 +103,8 @@ export default function PaymentStep({
     onUpdate(paymentData);
   }, [
     totalBudget,
+    reservedTotal,
+    adjustedTotal,
     paymentMethod,
     referenceNumber,
     downPaymentPercentage,
@@ -102,6 +116,8 @@ export default function PaymentStep({
   const handleComplete = () => {
     const paymentData = {
       totalBudget,
+      reservedPaymentTotal: reservedTotal,
+      adjustedTotal,
       downPaymentMethod: paymentMethod,
       referenceNumber,
       downPaymentPercentage,
@@ -283,11 +299,31 @@ export default function PaymentStep({
               <h3 className="text-lg font-semibold mb-4">Payment Summary</h3>
               <div className="space-y-3">
                 <div className="flex justify-between">
-                  <span>Total Budget:</span>
+                  <span>Total Package Price:</span>
                   <span className="font-semibold">
                     ₱{totalBudget.toLocaleString()}
                   </span>
                 </div>
+
+                {/* Reserved Payments Section */}
+                {reservedTotal > 0 && (
+                  <>
+                    <div className="flex justify-between text-blue-600">
+                      <span>Reserved Payments (from booking):</span>
+                      <span className="font-semibold">
+                        -₱{reservedTotal.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t pt-2">
+                      <span className="font-medium">Adjusted Total:</span>
+                      <span className="font-semibold text-lg">
+                        ₱{adjustedTotal.toLocaleString()}
+                      </span>
+                    </div>
+                    <Separator />
+                  </>
+                )}
+
                 <div className="flex justify-between">
                   <span>Down Payment ({downPaymentPercentage}%):</span>
                   <span className="font-semibold text-green-600">
@@ -322,6 +358,48 @@ export default function PaymentStep({
               </div>
             </CardContent>
           </Card>
+
+          {/* Reserved Payment Details */}
+          {reservedPaymentData?.reservedPayments &&
+            reservedPaymentData.reservedPayments.length > 0 && (
+              <Card className="bg-blue-50 border-blue-200">
+                <CardContent className="pt-6">
+                  <h3 className="text-lg font-semibold mb-4 text-blue-800">
+                    Reserved Payments from Booking
+                  </h3>
+                  <div className="space-y-2">
+                    {reservedPaymentData.reservedPayments.map(
+                      (payment, index) => (
+                        <div
+                          key={index}
+                          className="flex justify-between items-center p-3 bg-white rounded-lg border"
+                        >
+                          <div>
+                            <div className="font-medium text-blue-800">
+                              ₱
+                              {parseFloat(
+                                payment.payment_amount
+                              ).toLocaleString()}{" "}
+                              - {payment.payment_method}
+                            </div>
+                            <div className="text-sm text-blue-600">
+                              {new Date(
+                                payment.payment_date
+                              ).toLocaleDateString()}
+                              {payment.payment_reference &&
+                                ` • Ref: ${payment.payment_reference}`}
+                            </div>
+                          </div>
+                          <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
+                            {payment.payment_status}
+                          </span>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
           {/* No local action buttons; wizard controls handle navigation */}
         </CardContent>

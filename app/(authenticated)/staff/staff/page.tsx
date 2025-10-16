@@ -258,7 +258,7 @@ export default function StaffPage() {
 
   const copyToClipboard = (text: string, type: string) => {
     navigator.clipboard.writeText(text);
-    toast({ title: "Copied!", description: `${type} copied to clipboard` });
+    toast.success(`${type} copied to clipboard`);
   };
 
   const uploadProfile = async (file: File): Promise<string> => {
@@ -278,11 +278,7 @@ export default function StaffPage() {
     const file = files[0];
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
-      toast({
-        title: "File too large",
-        description: "Please select a file smaller than 5MB",
-        variant: "destructive",
-      });
+      toast.error("File too large - Please select a file smaller than 5MB");
       return;
     }
     setProfilePictureFile({
@@ -298,16 +294,9 @@ export default function StaffPage() {
       setProfilePictureFile((prev) =>
         prev ? { ...prev, uploaded: true, url: filePath } : null
       );
-      toast({
-        title: "Upload successful",
-        description: "Profile uploaded successfully",
-      });
+      toast.success("Profile uploaded successfully");
     } catch (e) {
-      toast({
-        title: "Upload failed",
-        description: "Failed to upload file",
-        variant: "destructive",
-      });
+      toast.error("Failed to upload file");
     }
   };
 
@@ -316,9 +305,9 @@ export default function StaffPage() {
     setIsSubmitting(true);
     try {
       setIsModalOpen(false);
-      toast({
-        title: modalMode === "add" ? "Creating staff..." : "Updating staff...",
-      });
+      toast.success(
+        modalMode === "add" ? "Creating staff..." : "Updating staff..."
+      );
       const payload = {
         ...formData,
         profile_picture: profilePictureFile?.url || currentProfilePicture,
@@ -332,32 +321,22 @@ export default function StaffPage() {
       });
       const data = response.data;
       if (data.status === "success") {
-        toast({
-          title: "Success!",
-          description:
-            modalMode === "add"
-              ? "Staff added successfully"
-              : "Staff updated successfully",
-          className: "border-green-200 bg-green-50 text-green-800",
-        });
+        toast.success(
+          modalMode === "add"
+            ? "Staff added successfully"
+            : "Staff updated successfully"
+        );
         await fetchStaff();
       } else {
-        toast({
-          title: "Error",
-          description: data.message || data.debug?.error || "Operation failed",
-          variant: "destructive",
-        });
+        toast.error(data.message || data.debug?.error || "Operation failed");
         await fetchStaff();
       }
     } catch (err: any) {
       const apiMessage = err?.response?.data?.message;
       const apiDebug = err?.response?.data?.debug?.error;
-      toast({
-        title: "Error",
-        description:
-          apiMessage || apiDebug || "An error occurred. Please try again.",
-        variant: "destructive",
-      });
+      toast.error(
+        apiMessage || apiDebug || "An error occurred. Please try again."
+      );
       await fetchStaff();
     } finally {
       setIsSubmitting(false);
@@ -373,21 +352,13 @@ export default function StaffPage() {
       );
       const data = response.data;
       if (data.status === "success") {
-        toast({ title: "Success!", description: "Staff deleted successfully" });
+        toast.success("Staff deleted successfully");
         fetchStaff();
       } else {
-        toast({
-          title: "Error",
-          description: data.message || "Delete failed",
-          variant: "destructive",
-        });
+        toast.error(data.message || "Delete failed");
       }
     } catch (err) {
-      toast({
-        title: "Error",
-        description: "An error occurred. Please try again.",
-        variant: "destructive",
-      });
+      toast.error("An error occurred. Please try again.");
     }
   };
 

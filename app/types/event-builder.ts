@@ -146,6 +146,9 @@ export interface PaymentData {
   payment_attachments?: PaymentAttachment[];
   paymentAttachments?: PaymentAttachment[]; // Keep for backward compatibility
   paymentSchedule?: PaymentScheduleItem[];
+  // Reserved payment properties
+  adjustedTotal?: number;
+  reservedPaymentTotal?: number;
 }
 
 export interface ClientDetailsStepProps {

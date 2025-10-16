@@ -600,34 +600,24 @@ export default function OrganizersPage() {
       const data = response.data;
 
       if (data.status === "success") {
-        toast({
-          title: "Success!",
-          description:
-            modalMode === "add"
-              ? "Organizer added successfully"
-              : "Organizer updated successfully",
-          className: "border-green-200 bg-green-50 text-green-800",
-        });
+        toast.success(
+          modalMode === "add"
+            ? "Organizer added successfully"
+            : "Organizer updated successfully"
+        );
         resetForm();
         await fetchOrganizers();
       } else {
-        toast({
-          title: "Error",
-          description: data.message || data.debug?.error || "Operation failed",
-          variant: "destructive",
-        });
+        toast.error(data.message || data.debug?.error || "Operation failed");
         await fetchOrganizers();
       }
     } catch (error) {
       console.error("Submit error:", error);
       const apiMessage = (error as any)?.response?.data?.message;
       const apiDebug = (error as any)?.response?.data?.debug?.error;
-      toast({
-        title: "Error",
-        description:
-          apiMessage || apiDebug || "An error occurred. Please try again.",
-        variant: "destructive",
-      });
+      toast.error(
+        apiMessage || apiDebug || "An error occurred. Please try again."
+      );
       await fetchOrganizers();
     } finally {
       setIsSubmitting(false);
@@ -650,11 +640,7 @@ export default function OrganizersPage() {
         toast.success("Success! - Organizer deleted successfully");
         fetchOrganizers();
       } else {
-        toast({
-          title: "Error",
-          description: data.message || "Delete failed",
-          variant: "destructive",
-        });
+        toast.error(data.message || "Delete failed");
       }
     } catch (error) {
       console.error("Delete error:", error);

@@ -187,6 +187,7 @@ interface PaymentHistoryItem {
   payment_reference?: string;
   installment_number?: number;
   description?: string;
+  payment_type?: string;
 }
 
 // Confirmation Modal Component
@@ -3510,12 +3511,31 @@ function PaymentHistoryTab({
       )}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
         <h4 className="font-semibold text-blue-900 mb-2">Payment Summary</h4>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
           <div>
             <div className="text-blue-700">Total Budget</div>
             <div className="font-semibold text-blue-900">
               ₱
               {Number(event.total_budget || 0).toLocaleString("en-PH", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </div>
+          </div>
+          <div>
+            <div className="text-blue-700">Reserved Fee</div>
+            <div className="font-semibold text-blue-900">
+              ₱
+              {Number(
+                paymentHistory?.reduce(
+                  (sum, p) =>
+                    p.payment_status === "completed" &&
+                    p.payment_type === "reserved"
+                      ? sum + p.payment_amount
+                      : sum,
+                  0
+                ) || 0
+              ).toLocaleString("en-PH", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}
@@ -3594,11 +3614,19 @@ function PaymentHistoryTab({
                         "en-PH",
                         { minimumFractionDigits: 2, maximumFractionDigits: 2 }
                       )}
+                      {payment.payment_type === "reserved" && (
+                        <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                          Reserved Fee
+                        </span>
+                      )}
                     </h5>
                     <p className="text-sm text-gray-600 capitalize">
                       {payment.payment_method || "N/A"}
                       {payment.installment_number &&
                         ` • Installment ${payment.installment_number}`}
+                      {payment.payment_type === "reserved" && (
+                        <span className="text-blue-600"> • From Booking</span>
+                      )}
                     </p>
                   </div>
                 </div>

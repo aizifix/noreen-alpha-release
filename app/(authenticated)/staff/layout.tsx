@@ -119,7 +119,7 @@ export default function StaffLayout({
             label: "Dashboard",
             href: "/staff/dashboard",
           },
-          { icon: BarChart3, label: "Reports", href: "/staff/reports" },
+          // Reports removed - Staff have no access to reports
         ],
       },
       {
@@ -147,6 +147,7 @@ export default function StaffLayout({
           { icon: Users, label: "Clients", href: "/staff/clients" },
           { icon: UserCheck, label: "Organizers", href: "/staff/organizers" },
           { icon: Truck, label: "Suppliers", href: "/staff/supplier" },
+          // Staff Management removed - Staff cannot manage other staff
         ],
       },
       {

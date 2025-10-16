@@ -160,6 +160,34 @@ export default function ClientDashboard() {
     new Date()
   );
   const [currentVenueIndex, setCurrentVenueIndex] = useState(0);
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
+
+  // Touch handlers for carousel
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+    const maxIndex = (selectedPackage?.venue_previews?.length || 1) - 1;
+
+    if (isLeftSwipe && currentVenueIndex < maxIndex) {
+      setCurrentVenueIndex((prev) => prev + 1);
+    }
+    if (isRightSwipe && currentVenueIndex > 0) {
+      setCurrentVenueIndex((prev) => prev - 1);
+    }
+  };
   const [showAllPackages, setShowAllPackages] = useState(false);
   const [packageDisplayLimit, setPackageDisplayLimit] = useState(6); // Default limit
   const [screenSize, setScreenSize] = useState<"mobile" | "tablet" | "desktop">(
@@ -252,8 +280,12 @@ export default function ClientDashboard() {
 
   useEffect(() => {
     if (selectedEventType) {
-      const filtered = packages.filter((pkg) =>
-        pkg.event_type_names.includes(selectedEventType)
+      const filtered = packages.filter(
+        (pkg) =>
+          Array.isArray(pkg.event_type_names) &&
+          pkg.event_type_names.some(
+            (name) => name.toLowerCase() === selectedEventType.toLowerCase()
+          )
       );
       setFilteredPackages(filtered);
     } else {
@@ -998,6 +1030,9 @@ export default function ClientDashboard() {
                                 display: "flex",
                                 width: `${selectedPackage?.venue_previews?.length * 100}%`,
                               }}
+                              onTouchStart={handleTouchStart}
+                              onTouchMove={handleTouchMove}
+                              onTouchEnd={handleTouchEnd}
                             >
                               {selectedPackage?.venue_previews?.map(
                                 (venue, idx) => (

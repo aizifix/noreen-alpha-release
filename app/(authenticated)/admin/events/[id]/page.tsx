@@ -246,45 +246,56 @@ function ConfirmationModal({
 
 // Budget Progress Component with fixed formatting
 function BudgetProgress({ event }: { event: Event }) {
-  // Calculate total paid from payments and down payment
-  const paymentsTotal =
+  // Calculate total paid from all payments (including reserved payments)
+  const totalPaid =
     event.payments?.reduce((sum, payment: any) => {
-      // Include completed, partial, and paid statuses
+      // Include completed, partial, and paid statuses for all payment types
       if (["completed", "partial", "paid"].includes(payment.payment_status)) {
-        return sum + Number(payment.payment_amount || 0);
+        const amount = Number(payment.payment_amount) || 0;
+        return sum + amount;
       }
       return sum;
     }, 0) || 0;
 
-  // Include down payment if it exists and hasn't been included in payments
-  const downPayment = Number(event.down_payment || 0);
+  // Calculate reserved payments separately for display
+  const reservedPaymentsTotal =
+    event.payments?.reduce((sum, payment: any) => {
+      if (
+        payment.payment_type === "reserved" &&
+        ["completed", "partial", "paid"].includes(payment.payment_status)
+      ) {
+        const amount = Number(payment.payment_amount) || 0;
+        return sum + amount;
+      }
+      return sum;
+    }, 0) || 0;
 
-  // Check if down payment is already included in payments to avoid double counting
-  const downPaymentIncluded =
-    event.payments?.some(
-      (payment: any) =>
-        payment.payment_type === "down_payment" ||
-        payment.payment_notes?.toLowerCase().includes("down payment")
-    ) || false;
-
-  const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+  // Calculate non-reserved payments (regular event payments)
+  const eventPaymentsTotal =
+    event.payments?.reduce((sum, payment: any) => {
+      if (
+        payment.payment_type !== "reserved" &&
+        ["completed", "partial", "paid"].includes(payment.payment_status)
+      ) {
+        const amount = Number(payment.payment_amount) || 0;
+        return sum + amount;
+      }
+      return sum;
+    }, 0) || 0;
 
   // Ensure remaining amount is never negative
-  const remaining = Math.max(0, event.total_budget - totalPaid);
+  const totalBudget = Number(event.total_budget) || 0;
+  const remaining = Math.max(0, totalBudget - totalPaid);
   const progressPercentage = Math.min(
     100,
-    Math.max(
-      0,
-      event.total_budget > 0 ? (totalPaid / event.total_budget) * 100 : 0
-    )
+    Math.max(0, totalBudget > 0 ? (totalPaid / totalBudget) * 100 : 0)
   );
 
   // Debug logging
   console.log("Budget Progress Debug:", {
-    totalBudget: event.total_budget,
-    downPayment: downPayment,
-    downPaymentIncluded: downPaymentIncluded,
-    paymentsTotal: paymentsTotal,
+    totalBudget: totalBudget,
+    reservedPaymentsTotal: reservedPaymentsTotal,
+    eventPaymentsTotal: eventPaymentsTotal,
     totalPaid: totalPaid,
     remaining: remaining,
     payments: event.payments,
@@ -305,6 +316,15 @@ function BudgetProgress({ event }: { event: Event }) {
             ₱{formatCurrency(event.total_budget)}
           </span>
         </div>
+
+        {reservedPaymentsTotal > 0 && (
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-blue-600">Reserved Fee</span>
+            <span className="font-semibold text-lg text-blue-600">
+              ₱{formatCurrency(reservedPaymentsTotal)}
+            </span>
+          </div>
+        )}
 
         <div className="w-full bg-gray-200 rounded-full h-3">
           <div
@@ -3214,7 +3234,8 @@ function PaymentHistoryTab({ event }: { event: Event }) {
           p.payment_status === "confirmed" ||
           p.payment_status === "processed" ||
           p.payment_status === "successful";
-        return isPaid ? sum + p.payment_amount : sum;
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
       }, 0);
       console.log("Using payment history - paid amount:", paid);
       return paid;
@@ -3229,7 +3250,8 @@ function PaymentHistoryTab({ event }: { event: Event }) {
           p.payment_status === "confirmed" ||
           p.payment_status === "processed" ||
           p.payment_status === "successful";
-        return isPaid ? sum + p.payment_amount : sum;
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
       }, 0);
       console.log("Using event payments - paid amount:", paid);
       return paid;
@@ -3719,13 +3741,38 @@ function PaymentHistoryTab({ event }: { event: Event }) {
       </Dialog>
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
         <h4 className="font-semibold text-blue-900 mb-2">Payment Summary</h4>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
           <div>
             <div className="text-blue-700">Total Budget</div>
             <div className="font-semibold text-blue-900">
               ₱{formatCurrency(Number(event.total_budget || 0))}
             </div>
           </div>
+          {paymentHistory &&
+            paymentHistory.some((p: any) => p.payment_type === "reserved") && (
+              <div>
+                <div className="text-blue-700">Reserved Fee</div>
+                <div className="font-semibold text-blue-900">
+                  ₱
+                  {formatCurrency(
+                    Number(
+                      paymentHistory
+                        .filter(
+                          (p: any) =>
+                            p.payment_type === "reserved" &&
+                            (p.payment_status === "completed" ||
+                              p.payment_status === "paid")
+                        )
+                        .reduce(
+                          (sum: number, p: any) =>
+                            sum + Number(p.payment_amount || 0),
+                          0
+                        )
+                    )
+                  )}
+                </div>
+              </div>
+            )}
           <div>
             <div className="text-blue-700">Down Payment</div>
             <div className="font-semibold text-blue-900">
@@ -3737,36 +3784,22 @@ function PaymentHistoryTab({ event }: { event: Event }) {
             <div className="font-semibold text-blue-900">
               ₱
               {formatCurrency(
-                Number(
-                  (() => {
-                    const paid =
-                      paymentHistory?.reduce((sum, p) => {
-                        console.log("Main summary - Payment item:", p);
-                        console.log(
-                          "Main summary - Payment status:",
-                          p.payment_status
-                        );
-                        console.log(
-                          "Main summary - Payment amount:",
-                          p.payment_amount
-                        );
-                        const isPaid =
-                          p.payment_status === "completed" ||
-                          p.payment_status === "paid" ||
-                          p.payment_status === "confirmed" ||
-                          p.payment_status === "processed" ||
-                          p.payment_status === "successful";
-                        console.log("Main summary - Is paid:", isPaid);
-                        return isPaid ? sum + p.payment_amount : sum;
-                      }, 0) || 0;
-                    console.log("Main summary - Total paid amount:", paid);
-                    console.log(
-                      "Main summary - Payment history:",
-                      paymentHistory
-                    );
-                    return paid;
-                  })()
-                )
+                (() => {
+                  if (!paymentHistory || !Array.isArray(paymentHistory)) {
+                    return 0;
+                  }
+                  const paid = paymentHistory.reduce((sum, p) => {
+                    const isPaid =
+                      p.payment_status === "completed" ||
+                      p.payment_status === "paid" ||
+                      p.payment_status === "confirmed" ||
+                      p.payment_status === "processed" ||
+                      p.payment_status === "successful";
+                    const amount = Number(p.payment_amount) || 0;
+                    return isPaid ? sum + amount : sum;
+                  }, 0);
+                  return paid;
+                })()
               )}
             </div>
           </div>
@@ -3775,26 +3808,23 @@ function PaymentHistoryTab({ event }: { event: Event }) {
             <div className="font-semibold text-blue-900">
               ₱
               {formatCurrency(
-                Number(
-                  event.total_budget -
-                    (() => {
-                      const paid =
-                        paymentHistory?.reduce((sum, p) => {
-                          const isPaid =
-                            p.payment_status === "completed" ||
-                            p.payment_status === "paid" ||
-                            p.payment_status === "confirmed" ||
-                            p.payment_status === "processed" ||
-                            p.payment_status === "successful";
-                          return isPaid ? sum + p.payment_amount : sum;
-                        }, 0) || 0;
-                      console.log(
-                        "Remaining balance calculation - Paid amount:",
-                        paid
-                      );
-                      return paid;
-                    })()
-                )
+                (() => {
+                  const totalBudget = Number(event.total_budget) || 0;
+                  if (!paymentHistory || !Array.isArray(paymentHistory)) {
+                    return totalBudget;
+                  }
+                  const paid = paymentHistory.reduce((sum, p) => {
+                    const isPaid =
+                      p.payment_status === "completed" ||
+                      p.payment_status === "paid" ||
+                      p.payment_status === "confirmed" ||
+                      p.payment_status === "processed" ||
+                      p.payment_status === "successful";
+                    const amount = Number(p.payment_amount) || 0;
+                    return isPaid ? sum + amount : sum;
+                  }, 0);
+                  return Math.max(0, totalBudget - paid);
+                })()
               )}
             </div>
           </div>
@@ -3826,6 +3856,11 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                   <div>
                     <h5 className="font-bold text-lg text-gray-900">
                       ₱{formatCurrency(Number(payment.payment_amount || 0))}
+                      {payment.payment_type === "reserved" && (
+                        <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                          Reserved Fee
+                        </span>
+                      )}
                     </h5>
                     <p className="text-sm text-gray-600 capitalize font-medium flex items-center gap-1">
                       {payment.payment_method === "cash" ? (
@@ -3848,6 +3883,9 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                       )}
                       {payment.installment_number &&
                         ` • Installment ${payment.installment_number}`}
+                      {payment.payment_type === "reserved" && (
+                        <span className="text-blue-600"> • From Booking</span>
+                      )}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       {new Date(payment.payment_date).toLocaleDateString(

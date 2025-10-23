@@ -1357,9 +1357,9 @@ class Staff {
 
             // Add components to the package
             foreach ($data['components'] as $index => $component) {
-                $componentSql = "INSERT INTO tbl_package_components (
-                                    package_id, component_name, component_description,
-                                    component_price, display_order
+                $componentSql = "INSERT INTO tbl_package_inclusions (
+                                    package_id, inclusion_name, components_list,
+                                    inclusion_price, display_order
                                 ) VALUES (?, ?, ?, ?, ?)";
 
                 $componentStmt = $this->conn->prepare($componentSql);
@@ -3416,7 +3416,7 @@ This is an automated message. Please do not reply.
             if (!empty($data['components']) && is_array($data['components'])) {
                 foreach ($data['components'] as $index => $component) {
                     if (!empty($component['component_name'])) {
-                        $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
+                        $componentSql = "INSERT INTO tbl_package_inclusions (package_id, inclusion_name, components_list, inclusion_price, display_order)
                                         VALUES (:package_id, :name, :description, :price, :order)";
                         $componentStmt = $this->conn->prepare($componentSql);
                         $componentStmt->execute([
@@ -3514,7 +3514,7 @@ This is an automated message. Please do not reply.
                         COUNT(DISTINCT pv.venue_id) as venue_count
                     FROM tbl_packages p
                     LEFT JOIN tbl_users u ON p.created_by = u.user_id
-                    LEFT JOIN tbl_package_components pc ON p.package_id = pc.package_id
+                    LEFT JOIN tbl_package_inclusions pc ON p.package_id = pc.package_id
                     LEFT JOIN tbl_package_freebies pf ON p.package_id = pf.package_id
                     LEFT JOIN tbl_package_venues pv ON p.package_id = pv.package_id
                     WHERE p.is_active = 1
@@ -3528,7 +3528,7 @@ This is an automated message. Please do not reply.
             // For each package, get components, freebies, and event types
             foreach ($packages as &$package) {
                 // Get components for inclusions preview
-                $componentsSql = "SELECT component_name FROM tbl_package_components WHERE package_id = ? ORDER BY display_order LIMIT 5";
+                $componentsSql = "SELECT inclusion_name as component_name FROM tbl_package_inclusions WHERE package_id = ? ORDER BY display_order LIMIT 5";
                 $componentsStmt = $this->conn->prepare($componentsSql);
                 $componentsStmt->execute([$package['package_id']]);
                 $components = $componentsStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -3578,7 +3578,7 @@ This is an automated message. Please do not reply.
             }
 
             // Get package components
-            $componentsSql = "SELECT * FROM tbl_package_components WHERE package_id = :package_id ORDER BY display_order";
+            $componentsSql = "SELECT inclusion_id as component_id, inclusion_name as component_name, components_list as component_description, inclusion_price as component_price, display_order, supplier_id, offer_id FROM tbl_package_inclusions WHERE package_id = :package_id ORDER BY display_order";
             $componentsStmt = $this->conn->prepare($componentsSql);
             $componentsStmt->execute([':package_id' => $packageId]);
             $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -3691,18 +3691,18 @@ This is an automated message. Please do not reply.
             error_log("getPackageDetails: Package found: " . $package['package_title']);
 
             // Get package components/inclusions with supplier information (if columns exist)
-            $hasSupplierColumns = $this->checkColumnExists('tbl_package_components', 'supplier_id');
+            $hasSupplierColumns = $this->checkColumnExists('tbl_package_inclusions', 'supplier_id');
 
             if ($hasSupplierColumns) {
                 $componentsSql = "SELECT DISTINCT pc.*, s.business_name as supplier_name, so.tier_level
-                                  FROM tbl_package_components pc
+                                  FROM tbl_package_inclusions pc
                                   LEFT JOIN tbl_suppliers s ON pc.supplier_id = s.supplier_id
                                   LEFT JOIN tbl_supplier_offers so ON pc.offer_id = so.offer_id
                                   WHERE pc.package_id = :package_id
                                   ORDER BY pc.display_order";
             } else {
                 $componentsSql = "SELECT DISTINCT pc.*
-                                  FROM tbl_package_components pc
+                                  FROM tbl_package_inclusions pc
                                   WHERE pc.package_id = :package_id
                                   ORDER BY pc.display_order";
             }
@@ -3995,7 +3995,7 @@ This is an automated message. Please do not reply.
             if (isset($data['components'])) {
                 error_log("Updating components: " . json_encode($data['components']));
                 // Delete existing components
-                $deleteComponentsSql = "DELETE FROM tbl_package_components WHERE package_id = :package_id";
+                $deleteComponentsSql = "DELETE FROM tbl_package_inclusions WHERE package_id = :package_id";
                 $deleteStmt = $this->conn->prepare($deleteComponentsSql);
                 $deleteResult = $deleteStmt->execute([':package_id' => $data['package_id']]);
                 error_log("Delete components result: " . ($deleteResult ? "success" : "failed"));
@@ -4003,7 +4003,7 @@ This is an automated message. Please do not reply.
                 // Insert new components
                 if (is_array($data['components'])) {
                     // Check if supplier_id and offer_id columns exist
-                    $hasSupplierColumns = $this->checkColumnExists('tbl_package_components', 'supplier_id');
+                    $hasSupplierColumns = $this->checkColumnExists('tbl_package_inclusions', 'supplier_id');
                     error_log("Has supplier columns: " . ($hasSupplierColumns ? "true" : "false"));
 
                     foreach ($data['components'] as $index => $component) {
@@ -4035,7 +4035,7 @@ This is an automated message. Please do not reply.
 
                                 error_log("Final supplier_id: $supplierId, offer_id: $offerId");
 
-                                $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order, supplier_id, offer_id)
+                                $componentSql = "INSERT INTO tbl_package_inclusions (package_id, inclusion_name, components_list, inclusion_price, display_order, supplier_id, offer_id)
                                                 VALUES (:package_id, :name, :description, :price, :order, :supplier_id, :offer_id)";
                                 $componentStmt = $this->conn->prepare($componentSql);
                                 $componentResult = $componentStmt->execute([
@@ -4048,7 +4048,7 @@ This is an automated message. Please do not reply.
                                     ':offer_id' => $offerId
                                 ]);
                             } else {
-                                $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
+                                $componentSql = "INSERT INTO tbl_package_inclusions (package_id, inclusion_name, components_list, inclusion_price, display_order)
                                                 VALUES (:package_id, :name, :description, :price, :order)";
                                 $componentStmt = $this->conn->prepare($componentSql);
                                 $componentResult = $componentStmt->execute([
@@ -4225,7 +4225,7 @@ This is an automated message. Please do not reply.
                 $this->conn->beginTransaction();
 
                 // Delete related records first
-                $deleteComponentsSql = "DELETE FROM tbl_package_components WHERE package_id = :package_id";
+                $deleteComponentsSql = "DELETE FROM tbl_package_inclusions WHERE package_id = :package_id";
                 $deleteStmt = $this->conn->prepare($deleteComponentsSql);
                 $deleteStmt->execute([':package_id' => $packageId]);
 
@@ -4373,7 +4373,7 @@ This is an automated message. Please do not reply.
                         COUNT(DISTINCT pv.venue_id) as venue_count
                     FROM tbl_packages p
                     LEFT JOIN tbl_package_event_types pet ON p.package_id = pet.package_id
-                    LEFT JOIN tbl_package_components pc ON p.package_id = pc.package_id
+                    LEFT JOIN tbl_package_inclusions pc ON p.package_id = pc.package_id
                     LEFT JOIN tbl_package_freebies pf ON p.package_id = pf.package_id
                     LEFT JOIN tbl_package_venues pv ON p.package_id = pv.package_id
                     WHERE p.is_active = 1
@@ -4394,7 +4394,7 @@ This is an automated message. Please do not reply.
                 $packageId = $package['package_id'];
 
                 // Get component names for inclusions preview
-                $componentsSql = "SELECT component_name FROM tbl_package_components WHERE package_id = ? ORDER BY display_order LIMIT 10";
+                $componentsSql = "SELECT inclusion_name as component_name FROM tbl_package_inclusions WHERE package_id = ? ORDER BY display_order LIMIT 10";
                 $componentsStmt = $this->conn->prepare($componentsSql);
                 $componentsStmt->execute([$packageId]);
                 $componentNames = $componentsStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -5041,7 +5041,7 @@ This is an automated message. Please do not reply.
                     pc.component_name as original_component_name,
                     pc.component_description as original_component_description
                 FROM tbl_event_components ec
-                LEFT JOIN tbl_package_components pc ON ec.original_package_component_id = pc.component_id
+                LEFT JOIN tbl_package_inclusions pc ON ec.original_package_component_id = pc.inclusion_id
                 WHERE ec.event_id = ?
                 ORDER BY ec.display_order
             ");
@@ -6297,7 +6297,7 @@ This is an automated message. Please do not reply.
                             $description = "Venue Fee Buffer - Options: " . $venueOptions;
                         }
 
-                        $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
+                        $componentSql = "INSERT INTO tbl_package_inclusions (package_id, inclusion_name, components_list, inclusion_price, display_order)
                                         VALUES (:package_id, :name, :description, :price, :order)";
                         $componentStmt = $this->conn->prepare($componentSql);
                         $componentStmt->execute([
@@ -8850,25 +8850,25 @@ This is an automated message. Please do not reply.
             $newPackageId = $this->conn->lastInsertId();
 
             // Get and duplicate package components
-            $componentsSql = "SELECT * FROM tbl_package_components WHERE package_id = :package_id ORDER BY display_order";
+            $componentsSql = "SELECT inclusion_id as component_id, inclusion_name as component_name, components_list as component_description, inclusion_price as component_price, display_order, supplier_id, offer_id FROM tbl_package_inclusions WHERE package_id = :package_id ORDER BY display_order";
             $componentsStmt = $this->conn->prepare($componentsSql);
             $componentsStmt->execute([':package_id' => $packageId]);
             $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
             if (!empty($components)) {
                 foreach ($components as $index => $component) {
-                    $componentSql = "INSERT INTO tbl_package_components (
-                        package_id, component_name, component_description, component_price, display_order
+                    $componentSql = "INSERT INTO tbl_package_inclusions (
+                        package_id, inclusion_name, components_list, inclusion_price, display_order
                     ) VALUES (
-                        :package_id, :component_name, :component_description, :component_price, :display_order
+                        :package_id, :inclusion_name, :components_list, :inclusion_price, :display_order
                     )";
 
                     $componentStmt = $this->conn->prepare($componentSql);
                     $componentStmt->execute([
                         'package_id' => $newPackageId,
-                        'component_name' => $component['component_name'],
-                        'component_description' => $component['component_description'] ?? '',
-                        'component_price' => $component['component_price'] ?? 0,
+                        'inclusion_name' => $component['component_name'],
+                        'components_list' => $component['component_description'] ?? '',
+                        'inclusion_price' => $component['component_price'] ?? 0,
                         'display_order' => $component['display_order'] ?? $index
                     ]);
                 }
@@ -9148,7 +9148,7 @@ This is an automated message. Please do not reply.
 
             // If not custom, enforce no downgrade
             if (!$eventComponent['is_custom'] && $eventComponent['original_package_component_id']) {
-                $sql = "SELECT component_price FROM tbl_package_components WHERE component_id = :original_id";
+                $sql = "SELECT inclusion_price as component_price FROM tbl_package_inclusions WHERE inclusion_id = :original_id";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->execute([':original_id' => $eventComponent['original_package_component_id']]);
                 $original = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -9727,7 +9727,7 @@ This is an automated message. Please do not reply.
             }
 
             // Get components total
-            $componentsSql = "SELECT COALESCE(SUM(component_price), 0) as total_cost FROM tbl_package_components WHERE package_id = :package_id";
+            $componentsSql = "SELECT COALESCE(SUM(inclusion_price), 0) as total_cost FROM tbl_package_inclusions WHERE package_id = :package_id";
             $componentsStmt = $this->conn->prepare($componentsSql);
             $componentsStmt->execute([':package_id' => $packageId]);
             $componentsTotal = floatval($componentsStmt->fetchColumn());

@@ -715,12 +715,12 @@ class Organizer {
                 ]);
             }
 
-            // Check if component exists
-            $checkComponentStmt = $this->conn->prepare("SELECT component_id FROM tbl_event_components WHERE component_id = ?");
+            // Check if component exists and get its details
+            $checkComponentStmt = $this->conn->prepare("SELECT component_id, component_name, event_id FROM tbl_event_components WHERE component_id = ?");
             $checkComponentStmt->execute([$componentId]);
-            $componentExists = $checkComponentStmt->fetch();
+            $componentData = $checkComponentStmt->fetch();
 
-            if (!$componentExists) {
+            if (!$componentData) {
                 error_log("updateComponentDeliveryStatus - component $componentId does not exist");
                 return json_encode([
                     "status" => "error",
@@ -728,18 +728,26 @@ class Organizer {
                 ]);
             }
 
+            error_log("updateComponentDeliveryStatus - component found: " . json_encode($componentData));
+
             // Update delivery status
             $updateSql = "UPDATE tbl_event_components
                          SET supplier_status = ?,
                              delivery_date = ?,
-                             supplier_notes = ?,
-                             updated_at = NOW()
+                             supplier_notes = ?
                          WHERE component_id = ?";
 
             $updateStmt = $this->conn->prepare($updateSql);
+
+            // Convert datetime to date format for delivery_date column
+            $formattedDeliveryDate = null;
+            if ($deliveryDate) {
+                $formattedDeliveryDate = date('Y-m-d', strtotime($deliveryDate));
+            }
+
             $result = $updateStmt->execute([
                 $deliveryStatus,
-                $deliveryDate ?: null,
+                $formattedDeliveryDate,
                 $deliveryNotes,
                 $componentId
             ]);
@@ -748,7 +756,7 @@ class Organizer {
             error_log("updateComponentDeliveryStatus - SQL: $updateSql");
             error_log("updateComponentDeliveryStatus - Params: " . json_encode([
                 $deliveryStatus,
-                $deliveryDate ?: null,
+                $formattedDeliveryDate,
                 $deliveryNotes,
                 $componentId
             ]));
@@ -757,12 +765,17 @@ class Organizer {
             if (!$result) {
                 $errorInfo = $updateStmt->errorInfo();
                 error_log("updateComponentDeliveryStatus - PDO Error: " . json_encode($errorInfo));
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Database update failed: " . $errorInfo[2],
+                    "debug" => $errorInfo
+                ]);
             }
 
             $rowsAffected = $updateStmt->rowCount();
             error_log("updateComponentDeliveryStatus - rows affected: $rowsAffected");
 
-            if ($result) {
+            if ($result && $rowsAffected > 0) {
                 // Log activity
                 $this->logOrganizerActivity(
                     $organizerId,
@@ -780,6 +793,10 @@ class Organizer {
                     $eventData = $eventStmt->fetch(PDO::FETCH_ASSOC);
 
                     if ($eventData) {
+                        // Define constant to prevent admin.php from executing its request handling
+                        if (!defined('ADMIN_PHP_INCLUDED')) {
+                            define('ADMIN_PHP_INCLUDED', true);
+                        }
                         // Include the notification function from admin.php
                         include_once __DIR__ . '/admin.php';
                         sendDeliveryStatusNotification(
@@ -796,15 +813,21 @@ class Organizer {
 
                 return json_encode([
                     "status" => "success",
-                    "message" => $rowsAffected > 0 ? "Delivery status updated successfully" : "No changes were needed (already up to date)"
+                    "message" => $rowsAffected > 0 ? "Delivery status updated successfully" : "No changes were needed (already up to date)",
+                    "rows_affected" => $rowsAffected
                 ]);
             } else {
-                $errorMsg = "Failed to update delivery status";
-                // If execute failed, include PDO error info (already logged above)
+                $errorMsg = "Failed to update delivery status - no rows affected";
                 error_log("updateComponentDeliveryStatus - final error: $errorMsg");
                 return json_encode([
                     "status" => "error",
-                    "message" => $errorMsg
+                    "message" => $errorMsg,
+                    "debug" => [
+                        "component_id" => $componentId,
+                        "delivery_status" => $deliveryStatus,
+                        "organizer_id" => $organizerId,
+                        "rows_affected" => $rowsAffected
+                    ]
                 ]);
             }
         } catch (Exception $e) {
@@ -1023,11 +1046,8 @@ $data = json_decode($rawInput, true);
 
 // Handle JSON parsing errors
 if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-    echo json_encode([
-        "status" => "error",
-        "message" => "Invalid JSON data: " . json_last_error_msg()
-    ]);
-    exit;
+    // If JSON parsing fails, try to get data from $_POST
+    $data = $_POST;
 }
 
 // Ensure $data is an array
@@ -1037,6 +1057,17 @@ if (!is_array($data)) {
 
 // Check if operation is provided via GET or POST
 $operation = $_POST['operation'] ?? ($_GET['operation'] ?? ($data['operation'] ?? ''));
+
+// Debug logging
+error_log("=== ORGANIZER.PHP REQUEST START ===");
+error_log("Organizer.php - Request Method: " . $_SERVER['REQUEST_METHOD']);
+error_log("Organizer.php - Content-Type: " . ($_SERVER['CONTENT_TYPE'] ?? 'not set'));
+error_log("Organizer.php - Operation: $operation");
+error_log("Organizer.php - Raw Input: " . $rawInput);
+error_log("Organizer.php - Data received: " . json_encode($data));
+error_log("Organizer.php - POST data: " . json_encode($_POST));
+error_log("Organizer.php - GET data: " . json_encode($_GET));
+error_log("=== ORGANIZER.PHP REQUEST END ===");
 
 $organizer = new Organizer($pdo);
 
@@ -1144,13 +1175,20 @@ try {
     }
 } catch (Exception $e) {
     error_log("Organizer.php - Uncaught exception: " . $e->getMessage());
+    error_log("Organizer.php - Stack trace: " . $e->getTraceAsString());
+
+    // Ensure proper HTTP status and headers
+    http_response_code(500);
+    header('Content-Type: application/json');
+
     echo json_encode([
         "status" => "error",
         "message" => "Server error occurred",
         "debug" => [
             "error" => $e->getMessage(),
             "file" => basename($e->getFile()),
-            "line" => $e->getLine()
+            "line" => $e->getLine(),
+            "trace" => $e->getTraceAsString()
         ]
     ]);
 }

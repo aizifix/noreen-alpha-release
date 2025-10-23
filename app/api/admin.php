@@ -1,49 +1,103 @@
 <?php
-// Start output buffering to prevent any accidental output
-ob_start();
+// Check if this file is being included by another script
+if (!defined('ADMIN_PHP_INCLUDED')) {
+    // Start output buffering to prevent any accidental output
+    ob_start();
 
-// Suppress all error output to prevent interference with JSON responses
-ini_set('display_errors', 0);
-ini_set('log_errors', 1);
+    // Suppress all error output to prevent interference with JSON responses
+    ini_set('display_errors', 0);
+    ini_set('log_errors', 1);
+
+    // Add CORS headers for API access
+    header("Access-Control-Allow-Origin: *");
+    header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+    header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+    header("Access-Control-Allow-Credentials: true");
+
+    // Handle preflight requests
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        exit(0);
+    }
+
+    // Set content type to JSON
+    header("Content-Type: application/json");
+
+    // Error reporting for debugging
+    error_reporting(E_ALL);
+    ini_set('display_errors', 0); // Don't display errors directly, return them as JSON
+    ini_set('log_errors', 1);
+    ini_set('error_log', 'php_errors.log');
+
+    // Custom error handler to return JSON errors
+    set_error_handler(function($errno, $errstr, $errfile, $errline) {
+        error_log("PHP Error [$errno]: $errstr in $errfile on line $errline");
+
+        // Don't exit for warnings and notices - let the script continue
+        if ($errno === E_WARNING || $errno === E_NOTICE || $errno === E_USER_WARNING || $errno === E_USER_NOTICE) {
+            return false; // Let PHP handle it normally
+        }
+
+        // For fatal errors, return JSON and exit
+        if (ob_get_level() > 0) {
+            ob_clean();
+        }
+        header('Content-Type: application/json');
+        echo json_encode([
+            "status" => "error",
+            "message" => "Server error occurred",
+            "debug" => [
+                "error" => $errstr,
+                "file" => basename($errfile),
+                "line" => $errline
+            ]
+        ]);
+        exit;
+    });
+
+    // Register shutdown function to catch fatal errors
+    register_shutdown_function(function() {
+        $error = error_get_last();
+        if ($error !== null && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR])) {
+            error_log("=== FATAL ERROR CAUGHT ===");
+            error_log("Error type: " . $error['type']);
+            error_log("Error message: " . $error['message']);
+            error_log("Error file: " . $error['file']);
+            error_log("Error line: " . $error['line']);
+
+            // Clean all output buffers
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+
+            // Start a new buffer
+            ob_start();
+
+            // Set headers
+            if (!headers_sent()) {
+                header('HTTP/1.1 500 Internal Server Error');
+                header('Content-Type: application/json');
+            }
+
+            $response = json_encode([
+                "status" => "error",
+                "message" => "Fatal server error occurred",
+                "debug" => [
+                    "error" => $error['message'],
+                    "file" => basename($error['file']),
+                    "line" => $error['line'],
+                    "type" => $error['type']
+                ]
+            ]);
+
+            error_log("Shutdown handler response: " . $response);
+            echo $response;
+            ob_end_flush();
+        }
+    });
+}
 
 require 'db_connect.php';
 require_once 'ActivityLogger.php';
-
-// Add CORS headers for API access
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
-header("Access-Control-Allow-Credentials: true");
-
-// Handle preflight requests
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    exit(0);
-}
-
-// Set content type to JSON
-header("Content-Type: application/json");
-
-// Error reporting for debugging
-error_reporting(E_ALL);
-ini_set('display_errors', 0); // Don't display errors directly, return them as JSON
-ini_set('log_errors', 1);
-ini_set('error_log', 'php_errors.log');
-
-// Custom error handler to return JSON errors
-set_error_handler(function($errno, $errstr, $errfile, $errline) {
-    error_log("PHP Error: $errstr in $errfile on line $errline");
-    header('Content-Type: application/json');
-    echo json_encode([
-        "status" => "error",
-        "message" => "Server error occurred",
-        "debug" => [
-            "error" => $errstr,
-            "file" => basename($errfile),
-            "line" => $errline
-        ]
-    ]);
-    exit;
-});
 
 class Admin {
     private $conn;
@@ -1304,9 +1358,9 @@ class Admin {
 
             // Add components to the package
             foreach ($data['components'] as $index => $component) {
-                $componentSql = "INSERT INTO tbl_package_components (
-                                    package_id, component_name, component_description,
-                                    component_price, display_order
+                $componentSql = "INSERT INTO tbl_package_inclusions (
+                                    package_id, inclusion_name, components_list,
+                                    inclusion_price, display_order
                                 ) VALUES (?, ?, ?, ?, ?)";
 
                 $componentStmt = $this->conn->prepare($componentSql);
@@ -1780,6 +1834,38 @@ class Admin {
 
             if ($booking) {
                 error_log("getBookingByReference: Found confirmed booking for reference: " . $reference);
+
+                // Get payments for this booking
+                error_log("getBookingByReference: Looking for payments with booking_id: " . $booking['booking_id']);
+                $paymentStmt = $this->conn->prepare("
+                    SELECT
+                        payment_id,
+                        payment_amount,
+                        payment_method,
+                        payment_date,
+                        payment_status,
+                        payment_reference,
+                        payment_notes,
+                        created_at
+                    FROM tbl_payments
+                    WHERE booking_id = ? AND payment_status != 'cancelled'
+                    ORDER BY payment_date DESC
+                ");
+                $paymentStmt->execute([$booking['booking_id']]);
+                $booking['payments'] = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                error_log("getBookingByReference: Found " . count($booking['payments']) . " payments");
+
+                // Calculate total reserved payment amount (only completed/paid payments)
+                $booking['reserved_payment_total'] = 0;
+                foreach ($booking['payments'] as $payment) {
+                    if ($payment['payment_status'] === 'completed' || $payment['payment_status'] === 'paid') {
+                        $booking['reserved_payment_total'] += floatval($payment['payment_amount']);
+                    }
+                }
+
+                error_log("getBookingByReference: Calculated reserved_payment_total: " . $booking['reserved_payment_total']);
+
                 return json_encode(["status" => "success", "booking" => $booking]);
             } else {
                 // If no confirmed booking found, try to find any booking with this reference
@@ -1869,10 +1955,10 @@ class Admin {
 
                 error_log("getBookingById: Found " . count($booking['payments']) . " payments: " . json_encode($booking['payments']));
 
-                // Calculate total reserved payment amount
+                // Calculate total reserved payment amount (only completed/paid payments)
                 $booking['reserved_payment_total'] = 0;
                 foreach ($booking['payments'] as $payment) {
-                    if ($payment['payment_status'] === 'completed') {
+                    if ($payment['payment_status'] === 'completed' || $payment['payment_status'] === 'paid') {
                         $booking['reserved_payment_total'] += floatval($payment['payment_amount']);
                     }
                 }
@@ -1956,13 +2042,19 @@ class Admin {
                 $userId = $this->conn->lastInsertId();
             }
 
+            // Handle profile picture upload if provided
+            $profilePicturePath = null;
+            if (isset($_FILES['supplier_pfp']) && $_FILES['supplier_pfp']['error'] === UPLOAD_ERR_OK) {
+                $profilePicturePath = $this->uploadSupplierProfilePicture($_FILES['supplier_pfp'], $data['business_name']);
+            }
+
             // Insert supplier with existing table structure
             $sql = "INSERT INTO tbl_suppliers (
                         user_id, supplier_type, business_name, contact_number, contact_email,
                         contact_person, business_address, agreement_signed, registration_docs,
-                        business_description, specialty_category, is_active, is_verified,
+                        business_description, specialty_category, supplier_pfp, is_active, is_verified,
                         created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW())";
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW())";
 
             $stmt = $this->conn->prepare($sql);
 
@@ -1982,6 +2074,7 @@ class Admin {
                 $registrationDocs,
                 $data['business_description'] ?? null,
                 $data['specialty_category'] ?? null,
+                $profilePicturePath,
                 $isVerified
             ]);
 
@@ -2996,15 +3089,54 @@ This is an automated message. Please do not reply.
     // Update supplier (Admin only)
     public function updateSupplier($supplierId, $data) {
         try {
+            // Check database connection
+            if (!$this->conn) {
+                throw new Exception("Database connection failed");
+            }
+
             $this->conn->beginTransaction();
 
-            // Check if supplier exists
-            $checkStmt = $this->conn->prepare("SELECT user_id FROM tbl_suppliers WHERE supplier_id = ? AND is_active = 1");
+            // Check if supplier exists and get current data
+            $checkStmt = $this->conn->prepare("SELECT user_id, business_name, supplier_pfp FROM tbl_suppliers WHERE supplier_id = ? AND is_active = 1");
             $checkStmt->execute([$supplierId]);
             $supplierData = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$supplierData) {
+                error_log("Supplier not found with ID: " . $supplierId);
                 throw new Exception("Supplier not found");
+            }
+
+            error_log("Supplier found, updating with data keys: " . json_encode(array_keys($data)));
+
+            // Handle profile picture upload if provided
+            if (isset($data['_upload_profile_picture']) && $data['_upload_profile_picture'] === true && isset($data['_profile_picture_file'])) {
+                error_log("Handling profile picture upload inside updateSupplier");
+                try {
+                    $file = $data['_profile_picture_file'];
+
+                    // Delete old profile picture if exists
+                    if ($supplierData['supplier_pfp'] && file_exists($supplierData['supplier_pfp'])) {
+                        @unlink($supplierData['supplier_pfp']);
+                        error_log("Deleted old profile picture: " . $supplierData['supplier_pfp']);
+                    }
+
+                    // Use business name from POST data, or fallback to current business name
+                    $businessName = $data['business_name'] ?? $supplierData['business_name'];
+                    error_log("Using business name for upload: " . $businessName);
+
+                    // Upload new profile picture
+                    $profilePicturePath = $this->uploadSupplierProfilePicture($file, $businessName);
+                    $data['supplier_pfp'] = $profilePicturePath;
+                    error_log("Profile picture uploaded successfully: " . $profilePicturePath);
+                } catch (Exception $e) {
+                    error_log("Profile picture upload error inside updateSupplier: " . $e->getMessage());
+                    $this->conn->rollBack();
+                    throw new Exception("Profile picture upload failed: " . $e->getMessage());
+                }
+
+                // Remove the temporary flags
+                unset($data['_upload_profile_picture']);
+                unset($data['_profile_picture_file']);
             }
 
             // Update user account if exists and email is being changed
@@ -3013,6 +3145,7 @@ This is an automated message. Please do not reply.
                 $userUpdateStmt->execute([$data['contact_email'], $supplierData['user_id']]);
             }
 
+
             // Build update query dynamically
             $updateFields = [];
             $params = [];
@@ -3020,7 +3153,7 @@ This is an automated message. Please do not reply.
             $allowedFields = [
                 'business_name', 'contact_number', 'contact_email', 'contact_person',
                 'business_address', 'agreement_signed', 'business_description',
-                'specialty_category', 'is_verified'
+                'specialty_category', 'is_verified', 'supplier_pfp'
             ];
 
             foreach ($allowedFields as $field) {
@@ -3081,6 +3214,8 @@ This is an automated message. Please do not reply.
             }
 
             $this->conn->commit();
+
+            error_log("Supplier update completed successfully");
 
             return json_encode([
                 "status" => "success",
@@ -3431,7 +3566,7 @@ This is an automated message. Please do not reply.
             if (!empty($data['components']) && is_array($data['components'])) {
                 foreach ($data['components'] as $index => $component) {
                     if (!empty($component['component_name'])) {
-                        $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
+                        $componentSql = "INSERT INTO tbl_package_inclusions (package_id, inclusion_name, components_list, inclusion_price, display_order)
                                         VALUES (:package_id, :name, :description, :price, :order)";
                         $componentStmt = $this->conn->prepare($componentSql);
                         $componentStmt->execute([
@@ -3524,12 +3659,12 @@ This is an automated message. Please do not reply.
                         CONCAT(u.user_firstName COLLATE utf8mb4_unicode_ci, ' ', u.user_lastName COLLATE utf8mb4_unicode_ci) as created_by_name,
                         u.user_firstName,
                         u.user_lastName,
-                        COUNT(DISTINCT pc.component_id) as component_count,
+                        COUNT(DISTINCT pc.inclusion_id) as component_count,
                         COUNT(DISTINCT pf.freebie_id) as freebie_count,
                         COUNT(DISTINCT pv.venue_id) as venue_count
                     FROM tbl_packages p
                     LEFT JOIN tbl_users u ON p.created_by = u.user_id
-                    LEFT JOIN tbl_package_components pc ON p.package_id = pc.package_id
+                    LEFT JOIN tbl_package_inclusions pc ON p.package_id = pc.package_id
                     LEFT JOIN tbl_package_freebies pf ON p.package_id = pf.package_id
                     LEFT JOIN tbl_package_venues pv ON p.package_id = pv.package_id
                     WHERE p.is_active = 1
@@ -3543,7 +3678,7 @@ This is an automated message. Please do not reply.
             // For each package, get components, freebies, and event types
             foreach ($packages as &$package) {
                 // Get components for inclusions preview
-                $componentsSql = "SELECT component_name FROM tbl_package_components WHERE package_id = ? ORDER BY display_order LIMIT 5";
+                $componentsSql = "SELECT inclusion_name as component_name FROM tbl_package_inclusions WHERE package_id = ? ORDER BY display_order LIMIT 5";
                 $componentsStmt = $this->conn->prepare($componentsSql);
                 $componentsStmt->execute([$package['package_id']]);
                 $components = $componentsStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -3593,7 +3728,7 @@ This is an automated message. Please do not reply.
             }
 
             // Get package components
-            $componentsSql = "SELECT * FROM tbl_package_components WHERE package_id = :package_id ORDER BY display_order";
+            $componentsSql = "SELECT inclusion_id as component_id, inclusion_name as component_name, components_list as component_description, inclusion_price as component_price, display_order, supplier_id, offer_id FROM tbl_package_inclusions WHERE package_id = :package_id ORDER BY display_order";
             $componentsStmt = $this->conn->prepare($componentsSql);
             $componentsStmt->execute([':package_id' => $packageId]);
             $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -3706,18 +3841,18 @@ This is an automated message. Please do not reply.
             error_log("getPackageDetails: Package found: " . $package['package_title']);
 
             // Get package components/inclusions with supplier information (if columns exist)
-            $hasSupplierColumns = $this->checkColumnExists('tbl_package_components', 'supplier_id');
+            $hasSupplierColumns = $this->checkColumnExists('tbl_package_inclusions', 'supplier_id');
 
             if ($hasSupplierColumns) {
                 $componentsSql = "SELECT DISTINCT pc.*, s.business_name as supplier_name, so.tier_level
-                                  FROM tbl_package_components pc
+                                  FROM tbl_package_inclusions pc
                                   LEFT JOIN tbl_suppliers s ON pc.supplier_id = s.supplier_id
                                   LEFT JOIN tbl_supplier_offers so ON pc.offer_id = so.offer_id
                                   WHERE pc.package_id = :package_id
                                   ORDER BY pc.display_order";
             } else {
                 $componentsSql = "SELECT DISTINCT pc.*
-                                  FROM tbl_package_components pc
+                                  FROM tbl_package_inclusions pc
                                   WHERE pc.package_id = :package_id
                                   ORDER BY pc.display_order";
             }
@@ -3732,7 +3867,7 @@ This is an automated message. Please do not reply.
             $inclusions = [];
             foreach ($components as $component) {
                 $childComponents = [];
-                $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
+                $rawDescription = isset($component['components_list']) ? trim((string)$component['components_list']) : '';
 
                 if ($rawDescription !== '') {
                     // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
@@ -3751,8 +3886,8 @@ This is an automated message. Please do not reply.
                 }
 
                 $inclusion = [
-                    'name' => $component['component_name'],
-                    'price' => (float)$component['component_price'],
+                    'name' => $component['inclusion_name'],
+                    'price' => (float)$component['inclusion_price'],
                     'components' => $childComponents,
                 ];
 
@@ -3970,6 +4105,7 @@ This is an automated message. Please do not reply.
                         package_description = :description,
                         package_price = :price,
                         guest_capacity = :capacity,
+                        venue_fee_buffer = :venue_fee_buffer,
                         is_price_locked = 1,
                         price_lock_date = CASE
                             WHEN is_price_locked = 0 THEN CURRENT_TIMESTAMP
@@ -3992,6 +4128,7 @@ This is an automated message. Please do not reply.
                 ':description' => $data['package_description'] ?? '',
                 ':price' => $newPrice,
                 ':capacity' => $data['guest_capacity'],
+                ':venue_fee_buffer' => $data['venue_fee_buffer'] ?? 0.00,
                 ':package_id' => $data['package_id']
             ]);
 
@@ -4010,7 +4147,7 @@ This is an automated message. Please do not reply.
             if (isset($data['components'])) {
                 error_log("Updating components: " . json_encode($data['components']));
                 // Delete existing components
-                $deleteComponentsSql = "DELETE FROM tbl_package_components WHERE package_id = :package_id";
+                $deleteComponentsSql = "DELETE FROM tbl_package_inclusions WHERE package_id = :package_id";
                 $deleteStmt = $this->conn->prepare($deleteComponentsSql);
                 $deleteResult = $deleteStmt->execute([':package_id' => $data['package_id']]);
                 error_log("Delete components result: " . ($deleteResult ? "success" : "failed"));
@@ -4018,7 +4155,7 @@ This is an automated message. Please do not reply.
                 // Insert new components
                 if (is_array($data['components'])) {
                     // Check if supplier_id and offer_id columns exist
-                    $hasSupplierColumns = $this->checkColumnExists('tbl_package_components', 'supplier_id');
+                    $hasSupplierColumns = $this->checkColumnExists('tbl_package_inclusions', 'supplier_id');
                     error_log("Has supplier columns: " . ($hasSupplierColumns ? "true" : "false"));
 
                     foreach ($data['components'] as $index => $component) {
@@ -4050,7 +4187,7 @@ This is an automated message. Please do not reply.
 
                                 error_log("Final supplier_id: $supplierId, offer_id: $offerId");
 
-                                $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order, supplier_id, offer_id)
+                                $componentSql = "INSERT INTO tbl_package_inclusions (package_id, inclusion_name, components_list, inclusion_price, display_order, supplier_id, offer_id)
                                                 VALUES (:package_id, :name, :description, :price, :order, :supplier_id, :offer_id)";
                                 $componentStmt = $this->conn->prepare($componentSql);
                                 $componentResult = $componentStmt->execute([
@@ -4063,7 +4200,7 @@ This is an automated message. Please do not reply.
                                     ':offer_id' => $offerId
                                 ]);
                             } else {
-                                $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
+                                $componentSql = "INSERT INTO tbl_package_inclusions (package_id, inclusion_name, components_list, inclusion_price, display_order)
                                                 VALUES (:package_id, :name, :description, :price, :order)";
                                 $componentStmt = $this->conn->prepare($componentSql);
                                 $componentResult = $componentStmt->execute([
@@ -4240,7 +4377,7 @@ This is an automated message. Please do not reply.
                 $this->conn->beginTransaction();
 
                 // Delete related records first
-                $deleteComponentsSql = "DELETE FROM tbl_package_components WHERE package_id = :package_id";
+                $deleteComponentsSql = "DELETE FROM tbl_package_inclusions WHERE package_id = :package_id";
                 $deleteStmt = $this->conn->prepare($deleteComponentsSql);
                 $deleteStmt->execute([':package_id' => $packageId]);
 
@@ -4383,12 +4520,12 @@ This is an automated message. Please do not reply.
                         p.guest_capacity,
                         p.created_at,
                         p.is_active,
-                        COUNT(DISTINCT pc.component_id) as component_count,
+                        COUNT(DISTINCT pc.inclusion_id) as component_count,
                         COUNT(DISTINCT pf.freebie_id) as freebie_count,
                         COUNT(DISTINCT pv.venue_id) as venue_count
                     FROM tbl_packages p
                     LEFT JOIN tbl_package_event_types pet ON p.package_id = pet.package_id
-                    LEFT JOIN tbl_package_components pc ON p.package_id = pc.package_id
+                    LEFT JOIN tbl_package_inclusions pc ON p.package_id = pc.package_id
                     LEFT JOIN tbl_package_freebies pf ON p.package_id = pf.package_id
                     LEFT JOIN tbl_package_venues pv ON p.package_id = pv.package_id
                     WHERE p.is_active = 1
@@ -4409,7 +4546,7 @@ This is an automated message. Please do not reply.
                 $packageId = $package['package_id'];
 
                 // Get component names for inclusions preview
-                $componentsSql = "SELECT component_name FROM tbl_package_components WHERE package_id = ? ORDER BY display_order LIMIT 10";
+                $componentsSql = "SELECT inclusion_name as component_name FROM tbl_package_inclusions WHERE package_id = ? ORDER BY display_order LIMIT 10";
                 $componentsStmt = $this->conn->prepare($componentsSql);
                 $componentsStmt->execute([$packageId]);
                 $componentNames = $componentsStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -4887,7 +5024,31 @@ This is an automated message. Please do not reply.
                     ORDER BY display_order
                 ");
                 $stmt->execute([$eventId]);
-                $event['components'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $eventComponents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Parse component_description into subComponents array for each component
+                foreach ($eventComponents as &$component) {
+                    $subComponents = [];
+                    $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
+
+                    if ($rawDescription !== '') {
+                        // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
+                        $normalized = preg_replace('/[\r\n;•]+/u', ',', $rawDescription);
+                        $parts = array_filter(array_map('trim', explode(',', (string)$normalized)), function($p) { return $p !== ''; });
+
+                        foreach ($parts as $part) {
+                            $subComponents[] = [
+                                'name' => $part,
+                                'price' => 0
+                            ];
+                        }
+                    }
+
+                    $component['subComponents'] = $subComponents;
+                }
+                unset($component); // Break reference
+
+                $event['components'] = $eventComponents;
 
                 // Get event timeline
                 $stmt = $this->pdo->prepare("
@@ -5051,12 +5212,36 @@ This is an automated message. Please do not reply.
                     pc.component_name as original_component_name,
                     pc.component_description as original_component_description
                 FROM tbl_event_components ec
-                LEFT JOIN tbl_package_components pc ON ec.original_package_component_id = pc.component_id
+                LEFT JOIN tbl_package_inclusions pc ON ec.original_package_component_id = pc.component_id
                 WHERE ec.event_id = ?
                 ORDER BY ec.display_order
             ");
             $stmt->execute([$eventId]);
-            $event['components'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $eventComponents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Parse component_description into subComponents array for each component
+            foreach ($eventComponents as &$component) {
+                $subComponents = [];
+                $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
+
+                if ($rawDescription !== '') {
+                    // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
+                    $normalized = preg_replace('/[\r\n;•]+/u', ',', $rawDescription);
+                    $parts = array_filter(array_map('trim', explode(',', (string)$normalized)), function($p) { return $p !== ''; });
+
+                    foreach ($parts as $part) {
+                        $subComponents[] = [
+                            'name' => $part,
+                            'price' => 0
+                        ];
+                    }
+                }
+
+                $component['subComponents'] = $subComponents;
+            }
+            unset($component); // Break reference
+
+            $event['components'] = $eventComponents;
 
             // Get event timeline
             $stmt = $this->pdo->prepare("
@@ -5574,10 +5759,10 @@ This is an automated message. Please do not reply.
                 $paymentStmt->execute([$booking['booking_id']]);
                 $booking['payments'] = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
 
-                // Calculate total reserved payment amount
+                // Calculate total reserved payment amount (only completed/paid payments)
                 $booking['reserved_payment_total'] = 0;
                 foreach ($booking['payments'] as $payment) {
-                    if ($payment['payment_status'] === 'completed') {
+                    if ($payment['payment_status'] === 'completed' || $payment['payment_status'] === 'paid') {
                         $booking['reserved_payment_total'] += floatval($payment['payment_amount']);
                     }
                 }
@@ -6330,7 +6515,7 @@ This is an automated message. Please do not reply.
                             $description = "Venue Fee Buffer - Options: " . $venueOptions;
                         }
 
-                        $componentSql = "INSERT INTO tbl_package_components (package_id, component_name, component_description, component_price, display_order)
+                        $componentSql = "INSERT INTO tbl_package_inclusions (package_id, inclusion_name, components_list, inclusion_price, display_order)
                                         VALUES (:package_id, :name, :description, :price, :order)";
                         $componentStmt = $this->conn->prepare($componentSql);
                         $componentStmt->execute([
@@ -6399,6 +6584,152 @@ This is an automated message. Please do not reply.
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
         }
     }
+    public function cancelEvent($data) {
+        try {
+            $this->conn->beginTransaction();
+
+            $eventId = $data['event_id'];
+            $reason = $data['cancellation_reason'];
+            $adminId = $data['admin_id'];
+
+            // Validate event exists and belongs to admin
+            $validateSql = "SELECT event_id, event_status, total_budget, down_payment, payment_status
+                          FROM tbl_events
+                          WHERE event_id = ? AND admin_id = ?";
+            $stmt = $this->conn->prepare($validateSql);
+            $stmt->execute([$eventId, $adminId]);
+            $event = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$event) {
+                return json_encode(["status" => "error", "message" => "Event not found or access denied"]);
+            }
+
+            // Check if event is already cancelled
+            if ($event['event_status'] === 'cancelled') {
+                return json_encode(["status" => "error", "message" => "Event is already cancelled"]);
+            }
+
+            // Apply cancellation business rules
+            $cancellationEligibility = $this->checkCancellationEligibility($event, $reason);
+
+            if (!$cancellationEligibility['can_cancel']) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => $cancellationEligibility['reason']
+                ]);
+            }
+
+            // Update event status to cancelled
+            $updateSql = "UPDATE tbl_events SET
+                         event_status = 'cancelled',
+                         cancellation_reason = ?,
+                         updated_at = CURRENT_TIMESTAMP,
+                         updated_by = ?
+                         WHERE event_id = ?";
+
+            $stmt = $this->conn->prepare($updateSql);
+            $result = $stmt->execute([$reason, $adminId, $eventId]);
+
+            if (!$result) {
+                $this->conn->rollback();
+                return json_encode(["status" => "error", "message" => "Failed to cancel event"]);
+            }
+
+            // Create cancellation record
+            $cancellationSql = "INSERT INTO tbl_event_cancellations
+                               (event_id, cancelled_by, cancellation_reason, cancellation_date, refund_amount)
+                               VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)";
+
+            $refundAmount = $this->calculateRefundAmount($event);
+            $stmt = $this->conn->prepare($cancellationSql);
+            $stmt->execute([$eventId, $adminId, $reason, $refundAmount]);
+
+            // Update payment status if applicable
+            if ($event['payment_status'] !== 'unpaid') {
+                $paymentUpdateSql = "UPDATE tbl_payments SET
+                                   payment_status = 'cancelled',
+                                   updated_at = CURRENT_TIMESTAMP
+                                   WHERE event_id = ?";
+                $stmt = $this->conn->prepare($paymentUpdateSql);
+                $stmt->execute([$eventId]);
+            }
+
+            // Log the cancellation
+            $logSql = "INSERT INTO tbl_event_activity_logs
+                      (event_id, action, description, performed_by, created_at)
+                      VALUES (?, 'cancelled', ?, ?, CURRENT_TIMESTAMP)";
+            $stmt = $this->conn->prepare($logSql);
+            $stmt->execute([$eventId, "Event cancelled: " . $reason, $adminId]);
+
+            $this->conn->commit();
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Event cancelled successfully",
+                "refund_amount" => $refundAmount,
+                "cancellation_fee" => $event['down_payment'] - $refundAmount
+            ]);
+
+        } catch (Exception $e) {
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollback();
+            }
+            error_log("cancelEvent error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
+    private function checkCancellationEligibility($event, $reason) {
+        $today = new Date();
+        $eventDate = new Date($event['event_date']);
+        $daysUntilEvent = ceil(($eventDate->getTimestamp() - $today->getTimestamp()) / (24 * 60 * 60));
+
+        // Business rules from terms and conditions
+        $isClientFault = stripos($reason, 'client') !== false ||
+                        stripos($reason, 'customer') !== false ||
+                        stripos($reason, 'personal') !== false;
+
+        $isRecentBooking = $event['created_at'] ?
+            (time() - strtotime($event['created_at'])) / (24 * 60 * 60) < 1 : false;
+
+        if ($isRecentBooking) {
+            return [
+                'can_cancel' => false,
+                'reason' => 'Cancellation not honored for bookings made within 24 hours'
+            ];
+        }
+
+        if ($isClientFault) {
+            return [
+                'can_cancel' => false,
+                'reason' => 'Cancellation not honored if it\'s client fault that the booking was made'
+            ];
+        }
+
+        if ($daysUntilEvent <= 7) {
+            return [
+                'can_cancel' => false,
+                'reason' => 'Cancellation not honored within 7 days of event'
+            ];
+        }
+
+        return [
+            'can_cancel' => true,
+            'reason' => 'Cancellation approved'
+        ];
+    }
+
+    private function calculateRefundAmount($event) {
+        $downPayment = $event['down_payment'];
+        $totalBudget = $event['total_budget'];
+
+        // Apply 10% cancellation fee
+        $cancellationFee = $totalBudget * 0.1;
+        $refundAmount = max(0, $downPayment - $cancellationFee);
+
+        return $refundAmount;
+    }
+
     public function getDashboardMetrics($adminId) {
         try {
             $metrics = [];
@@ -7139,6 +7470,303 @@ This is an automated message. Please do not reply.
         }
     }
 
+    public function getClientStats($userId) {
+        try {
+            // Get comprehensive client statistics
+            $sql = "SELECT
+                        -- Event counts by status
+                        COUNT(CASE WHEN e.event_status = 'done' THEN 1 END) as completed_events,
+                        COUNT(CASE WHEN e.event_status = 'confirmed' THEN 1 END) as confirmed_events,
+                        COUNT(CASE WHEN e.event_status = 'on_going' THEN 1 END) as ongoing_events,
+                        COUNT(CASE WHEN e.event_status = 'cancelled' THEN 1 END) as cancelled_events,
+                        COUNT(e.event_id) as total_events,
+
+                        -- Financial statistics
+                        COALESCE(SUM(e.total_budget), 0) as total_contract_value,
+                        COALESCE(SUM(e.down_payment), 0) as total_down_payments,
+                        COALESCE(SUM(pay.payment_amount), 0) as total_paid,
+                        COALESCE(SUM(CASE WHEN pay.payment_status = 'completed' THEN pay.payment_amount ELSE 0 END), 0) as total_completed_payments,
+                        COALESCE(SUM(CASE WHEN pay.payment_status = 'pending' THEN pay.payment_amount ELSE 0 END), 0) as total_pending_payments,
+
+                        -- Booking statistics
+                        COUNT(b.booking_id) as total_bookings,
+                        COUNT(CASE WHEN b.booking_status = 'confirmed' THEN 1 END) as confirmed_bookings,
+                        COUNT(CASE WHEN b.booking_status = 'converted' THEN 1 END) as converted_bookings,
+                        COUNT(CASE WHEN b.booking_status = 'cancelled' THEN 1 END) as cancelled_bookings,
+
+                        -- Date statistics
+                        MIN(e.created_at) as first_event_date,
+                        MAX(e.created_at) as last_event_date,
+                        MIN(b.created_at) as first_booking_date,
+                        MAX(b.created_at) as last_booking_date
+
+                    FROM tbl_events e
+                    LEFT JOIN tbl_payments pay ON e.event_id = pay.event_id
+                    LEFT JOIN tbl_bookings b ON e.user_id = b.user_id
+                    WHERE e.user_id = ?";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$userId]);
+            $stats = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Calculate additional metrics
+            $totalRevenue = (float)$stats['total_completed_payments'];
+            $totalEvents = (int)$stats['total_events'];
+            $totalBookings = (int)$stats['total_bookings'];
+            $totalContractValue = (float)$stats['total_contract_value'];
+            $remainingBalance = max(0, $totalContractValue - $totalRevenue);
+            $paymentPercentage = $totalContractValue > 0 ? round(($totalRevenue / $totalContractValue) * 100, 2) : 0;
+
+            return json_encode([
+                "status" => "success",
+                "totalEvents" => $totalEvents,
+                "totalRevenue" => $totalRevenue,
+                "totalBookings" => $totalBookings,
+                "totalContractValue" => $totalContractValue,
+                "remainingBalance" => $remainingBalance,
+                "paymentPercentage" => $paymentPercentage,
+                "eventBreakdown" => [
+                    "completed" => (int)$stats['completed_events'],
+                    "confirmed" => (int)$stats['confirmed_events'],
+                    "ongoing" => (int)$stats['ongoing_events'],
+                    "cancelled" => (int)$stats['cancelled_events']
+                ],
+                "bookingBreakdown" => [
+                    "confirmed" => (int)$stats['confirmed_bookings'],
+                    "converted" => (int)$stats['converted_bookings'],
+                    "cancelled" => (int)$stats['cancelled_bookings']
+                ],
+                "paymentBreakdown" => [
+                    "completed" => (float)$stats['total_completed_payments'],
+                    "pending" => (float)$stats['total_pending_payments'],
+                    "totalPaid" => (float)$stats['total_paid']
+                ],
+                "dates" => [
+                    "firstEvent" => $stats['first_event_date'],
+                    "lastEvent" => $stats['last_event_date'],
+                    "firstBooking" => $stats['first_booking_date'],
+                    "lastBooking" => $stats['last_booking_date']
+                ]
+            ]);
+        } catch (Exception $e) {
+            error_log("getClientStats error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Error fetching client stats: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function getClientEventHistory($userId) {
+        try {
+            // Add debugging
+            error_log("getClientEventHistory called with user_id: " . $userId);
+
+            // Use a simpler approach first - just get basic event data
+            $eventsSql = "SELECT
+                        e.event_id,
+                        e.event_title,
+                        e.event_date,
+                        e.event_status,
+                        e.total_budget,
+                        e.created_at,
+                        et.event_name as event_type_name,
+                        v.venue_title as venue_name,
+                        p.package_title as package_name
+                    FROM tbl_events e
+                    LEFT JOIN tbl_event_type et ON e.event_type_id = et.event_type_id
+                    LEFT JOIN tbl_packages p ON e.package_id = p.package_id
+                    LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
+                    WHERE e.user_id = ?
+                    ORDER BY e.created_at DESC";
+
+            $stmt = $this->conn->prepare($eventsSql);
+            $stmt->execute([$userId]);
+            $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Add debugging
+            error_log("Found " . count($events) . " events for user_id: " . $userId);
+            if (count($events) > 0) {
+                error_log("First event ID: " . $events[0]['event_id']);
+            }
+
+            // Get payment information for each event
+            $eventIds = array_column($events, 'event_id');
+            $paymentData = [];
+
+            if (!empty($eventIds)) {
+                $placeholders = str_repeat('?,', count($eventIds) - 1) . '?';
+                $paymentSql = "SELECT
+                                event_id,
+                                SUM(CASE WHEN payment_status = 'completed' THEN payment_amount ELSE 0 END) as total_paid,
+                                SUM(CASE WHEN payment_status = 'pending' THEN payment_amount ELSE 0 END) as total_pending,
+                                COUNT(payment_id) as payment_count
+                              FROM tbl_payments
+                              WHERE event_id IN ($placeholders)
+                              GROUP BY event_id";
+
+                $paymentStmt = $this->conn->prepare($paymentSql);
+                $paymentStmt->execute($eventIds);
+                $paymentResults = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Create a lookup array for payment data
+                foreach ($paymentResults as $payment) {
+                    $paymentData[$payment['event_id']] = $payment;
+                }
+            }
+
+            // Merge payment data with events
+            foreach ($events as &$event) {
+                $eventId = $event['event_id'];
+                $paymentInfo = $paymentData[$eventId] ?? [
+                    'total_paid' => 0,
+                    'total_pending' => 0,
+                    'payment_count' => 0
+                ];
+
+                // Add payment information
+                $event['total_paid'] = (float)$paymentInfo['total_paid'];
+                $event['total_pending'] = (float)$paymentInfo['total_pending'];
+                $event['payment_count'] = (int)$paymentInfo['payment_count'];
+
+                // Calculate remaining balance
+                $event['remaining_balance'] = max(0, $event['total_budget'] - $event['total_paid']);
+
+                // Calculate payment percentage
+                $event['payment_percentage'] = $event['total_budget'] > 0
+                    ? round(($event['total_paid'] / $event['total_budget']) * 100, 2)
+                    : 0;
+
+                // Format dates
+                $event['event_date_formatted'] = $event['event_date']
+                    ? date('M d, Y', strtotime($event['event_date']))
+                    : null;
+                $event['created_at_formatted'] = $event['created_at']
+                    ? date('M d, Y H:i', strtotime($event['created_at']))
+                    : null;
+
+                // Determine event status color and label
+                $event['status_info'] = $this->getEventStatusInfo($event['event_status']);
+
+                // Format currency values
+                $event['total_budget_formatted'] = number_format($event['total_budget'], 2);
+                $event['total_paid_formatted'] = number_format($event['total_paid'], 2);
+                $event['remaining_balance_formatted'] = number_format($event['remaining_balance'], 2);
+            }
+
+            $result = [
+                "status" => "success",
+                "events" => $events,
+                "total_events" => count($events),
+                "debug_info" => [
+                    "user_id" => $userId,
+                    "events_found" => count($events),
+                    "event_ids" => array_column($events, 'event_id')
+                ]
+            ];
+
+            // Add debugging
+            error_log("Returning " . count($events) . " events for user_id: " . $userId);
+
+            return json_encode($result);
+        } catch (Exception $e) {
+            error_log("getClientEventHistory error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Error fetching client event history: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    private function getEventStatusInfo($status) {
+        $statusMap = [
+            'done' => ['label' => 'Completed', 'color' => 'green', 'class' => 'bg-green-100 text-green-800'],
+            'confirmed' => ['label' => 'Confirmed', 'color' => 'blue', 'class' => 'bg-blue-100 text-blue-800'],
+            'on_going' => ['label' => 'In Progress', 'color' => 'yellow', 'class' => 'bg-yellow-100 text-yellow-800'],
+            'cancelled' => ['label' => 'Cancelled', 'color' => 'red', 'class' => 'bg-red-100 text-red-800']
+        ];
+
+        return $statusMap[$status] ?? ['label' => 'Unknown', 'color' => 'gray', 'class' => 'bg-gray-100 text-gray-800'];
+    }
+
+    public function getClientEventCount($userId) {
+        try {
+            $sql = "SELECT
+                        COUNT(*) as total_events,
+                        COUNT(CASE WHEN event_status = 'done' THEN 1 END) as completed_events,
+                        COUNT(CASE WHEN event_status = 'confirmed' THEN 1 END) as confirmed_events,
+                        COUNT(CASE WHEN event_status = 'on_going' THEN 1 END) as ongoing_events,
+                        COUNT(CASE WHEN event_status = 'cancelled' THEN 1 END) as cancelled_events
+                    FROM tbl_events
+                    WHERE user_id = ?";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$userId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "count" => $result
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Error fetching event count: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function testClientEvents($userId) {
+        try {
+            // Simple test query to get basic event info
+            $sql = "SELECT event_id, event_title, event_date, event_status, created_at
+                    FROM tbl_events
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 10";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$userId]);
+            $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "events" => $events,
+                "total_found" => count($events),
+                "user_id" => $userId
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Error testing events: " . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function simpleClientEvents($userId) {
+        try {
+            // Ultra simple query - just get all events for user
+            $sql = "SELECT * FROM tbl_events WHERE user_id = ? ORDER BY created_at DESC";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$userId]);
+            $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "events" => $events,
+                "total_found" => count($events),
+                "user_id" => $userId,
+                "raw_query" => "SELECT * FROM tbl_events WHERE user_id = " . $userId
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                "status" => "error",
+                "message" => "Error in simple query: " . $e->getMessage()
+            ]);
+        }
+    }
+
     public function updateUserProfile($data) {
         try {
             // Build dynamic update query to handle optional profile picture
@@ -7563,6 +8191,92 @@ This is an automated message. Please do not reply.
                 "status" => "error",
                 "message" => "Error uploading profile picture: " . $e->getMessage()
             ]);
+        }
+    }
+
+    public function uploadSupplierProfilePicture($file, $businessName) {
+        try {
+            // Validate file array structure
+            if (!isset($file['tmp_name']) || !isset($file['name']) || !isset($file['size'])) {
+                throw new Exception("Invalid file upload structure");
+            }
+
+            // Check if temp file exists
+            if (!file_exists($file['tmp_name'])) {
+                throw new Exception("Temporary file not found");
+            }
+
+            $uploadDir = "uploads/suppliers/";
+
+            // Create directory if it doesn't exist
+            if (!file_exists($uploadDir)) {
+                if (!mkdir($uploadDir, 0777, true)) {
+                    throw new Exception("Failed to create upload directory");
+                }
+            }
+
+            // Validate file type - try multiple methods
+            $fileType = null;
+            if (!empty($file['type'])) {
+                $fileType = $file['type'];
+            } elseif (function_exists('mime_content_type')) {
+                $fileType = mime_content_type($file['tmp_name']);
+            }
+
+            // Fallback: check file extension
+            $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            if (empty($fileType) || $fileType === 'application/octet-stream') {
+                // Map extension to MIME type
+                $extensionMap = [
+                    'jpg' => 'image/jpeg',
+                    'jpeg' => 'image/jpeg',
+                    'png' => 'image/png',
+                    'gif' => 'image/gif',
+                    'webp' => 'image/webp'
+                ];
+                if (isset($extensionMap[$fileExtension])) {
+                    $fileType = $extensionMap[$fileExtension];
+                }
+            }
+
+            // Validate file type
+            $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+            if (!$fileType || !in_array($fileType, $allowedTypes)) {
+                throw new Exception("Invalid file type: " . ($fileType ?? 'unknown') . ". Only images (JPG, PNG, GIF, WEBP) are allowed.");
+            }
+
+            // Set extension if not already set
+            if (empty($fileExtension)) {
+                $fileExtension = 'jpg'; // Default for blob uploads
+            }
+
+            // Clean business name for filename
+            $cleanBusinessName = preg_replace('/[^a-zA-Z0-9_-]/', '', $businessName);
+            if (empty($cleanBusinessName)) {
+                $cleanBusinessName = 'supplier';
+            }
+            $fileName = 'supplier_' . $cleanBusinessName . '_' . time() . '.' . $fileExtension;
+            $filePath = $uploadDir . $fileName;
+
+            // Debug logging
+            error_log("Uploading supplier profile picture: " . $fileName);
+            error_log("File size: " . $file['size']);
+            error_log("File type: " . $fileType);
+            error_log("Temp file: " . $file['tmp_name']);
+            error_log("Target path: " . $filePath);
+
+            // Move uploaded file
+            if (move_uploaded_file($file['tmp_name'], $filePath)) {
+                error_log("Profile picture uploaded successfully: " . $filePath);
+                return $filePath;
+            } else {
+                $uploadError = error_get_last();
+                error_log("Failed to move uploaded file. Last error: " . json_encode($uploadError));
+                throw new Exception("Failed to move uploaded file to destination");
+            }
+        } catch (Exception $e) {
+            error_log("Profile picture upload error: " . $e->getMessage());
+            throw new Exception("Error uploading supplier profile picture: " . $e->getMessage());
         }
     }
 
@@ -8931,25 +9645,25 @@ This is an automated message. Please do not reply.
             $newPackageId = $this->conn->lastInsertId();
 
             // Get and duplicate package components
-            $componentsSql = "SELECT * FROM tbl_package_components WHERE package_id = :package_id ORDER BY display_order";
+            $componentsSql = "SELECT inclusion_id as component_id, inclusion_name as component_name, components_list as component_description, inclusion_price as component_price, display_order, supplier_id, offer_id FROM tbl_package_inclusions WHERE package_id = :package_id ORDER BY display_order";
             $componentsStmt = $this->conn->prepare($componentsSql);
             $componentsStmt->execute([':package_id' => $packageId]);
             $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
             if (!empty($components)) {
                 foreach ($components as $index => $component) {
-                    $componentSql = "INSERT INTO tbl_package_components (
-                        package_id, component_name, component_description, component_price, display_order
+                    $componentSql = "INSERT INTO tbl_package_inclusions (
+                        package_id, inclusion_name, components_list, inclusion_price, display_order
                     ) VALUES (
-                        :package_id, :component_name, :component_description, :component_price, :display_order
+                        :package_id, :inclusion_name, :components_list, :inclusion_price, :display_order
                     )";
 
                     $componentStmt = $this->conn->prepare($componentSql);
                     $componentStmt->execute([
                         'package_id' => $newPackageId,
-                        'component_name' => $component['component_name'],
-                        'component_description' => $component['component_description'] ?? '',
-                        'component_price' => $component['component_price'] ?? 0,
+                        'inclusion_name' => $component['component_name'],
+                        'components_list' => $component['component_description'] ?? '',
+                        'inclusion_price' => $component['component_price'] ?? 0,
                         'display_order' => $component['display_order'] ?? $index
                     ]);
                 }
@@ -9229,7 +9943,7 @@ This is an automated message. Please do not reply.
 
             // If not custom, enforce no downgrade
             if (!$eventComponent['is_custom'] && $eventComponent['original_package_component_id']) {
-                $sql = "SELECT component_price FROM tbl_package_components WHERE component_id = :original_id";
+                $sql = "SELECT inclusion_price as component_price FROM tbl_package_inclusions WHERE inclusion_id = :original_id";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->execute([':original_id' => $eventComponent['original_package_component_id']]);
                 $original = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -9808,7 +10522,7 @@ This is an automated message. Please do not reply.
             }
 
             // Get components total
-            $componentsSql = "SELECT COALESCE(SUM(component_price), 0) as total_cost FROM tbl_package_components WHERE package_id = :package_id";
+            $componentsSql = "SELECT COALESCE(SUM(inclusion_price), 0) as total_cost FROM tbl_package_inclusions WHERE package_id = :package_id";
             $componentsStmt = $this->conn->prepare($componentsSql);
             $componentsStmt->execute([':package_id' => $packageId]);
             $componentsTotal = floatval($componentsStmt->fetchColumn());
@@ -12358,9 +13072,7 @@ error_log("Admin.php - Final data: " . json_encode($data));
 // error_log("Admin.php - POST: " . json_encode($_POST));
 // error_log("Admin.php - GET: " . json_encode($_GET));
 
-$admin = new Admin($pdo);
-
-// Function to send delivery status notifications
+// Function to send delivery status notifications (defined before request handling so it can be included by other files)
 function sendDeliveryStatusNotification($eventId, $componentId, $status, $deliveryDate = null, $notes = null) {
     global $pdo;
 
@@ -12459,10 +13171,14 @@ function sendDeliveryStatusNotification($eventId, $componentId, $status, $delive
     }
 }
 
-// Wrap entire execution in try-catch to handle any uncaught exceptions
-try {
-    // Handle API actions
-    switch ($operation) {
+// Only execute request handling if this file is being accessed directly (not included)
+if (!defined('ADMIN_PHP_INCLUDED')) {
+    $admin = new Admin($pdo);
+
+    // Wrap entire execution in try-catch to handle any uncaught exceptions
+    try {
+        // Handle API actions
+        switch ($operation) {
     case "test":
         // Test database connection
         try {
@@ -12780,6 +13496,9 @@ try {
         $adminId = $_GET['admin_id'] ?? ($data['admin_id'] ?? 0);
         echo $admin->getDashboardMetrics($adminId);
         break;
+    case "cancelEvent":
+        echo $admin->cancelEvent($data);
+        break;
     case "getUpcomingEvents":
         $adminId = $_GET['admin_id'] ?? ($data['admin_id'] ?? 0);
         $limit = $_GET['limit'] ?? ($data['limit'] ?? 5);
@@ -12909,6 +13628,26 @@ try {
     case "getUserProfile":
         $userId = $_GET['user_id'] ?? ($data['user_id'] ?? 0);
         echo $admin->getUserProfile($userId);
+        break;
+    case "getClientStats":
+        $userId = $_GET['user_id'] ?? ($data['user_id'] ?? 0);
+        echo $admin->getClientStats($userId);
+        break;
+    case "getClientEventHistory":
+        $userId = $_GET['user_id'] ?? ($data['user_id'] ?? 0);
+        echo $admin->getClientEventHistory($userId);
+        break;
+    case "getClientEventCount":
+        $userId = $_GET['user_id'] ?? ($data['user_id'] ?? 0);
+        echo $admin->getClientEventCount($userId);
+        break;
+    case "testClientEvents":
+        $userId = $_GET['user_id'] ?? ($data['user_id'] ?? 0);
+        echo $admin->testClientEvents($userId);
+        break;
+    case "simpleClientEvents":
+        $userId = $_GET['user_id'] ?? ($data['user_id'] ?? 0);
+        echo $admin->simpleClientEvents($userId);
         break;
     case "updateUserProfile":
         echo $admin->updateUserProfile($data);
@@ -13220,12 +13959,35 @@ try {
         }
         break;
     case "updateSupplier":
-        $supplierId = (int)($_GET['supplier_id'] ?? 0);
-        if ($supplierId <= 0) {
-            echo json_encode(["status" => "error", "message" => "Valid supplier ID required"]);
-        } else {
+        try {
+            // Get supplier ID from POST data (FormData)
+            $supplierId = (int)($_POST['supplier_id'] ?? 0);
+            error_log("=== UPDATE SUPPLIER REQUEST ===");
+            error_log("Received supplier ID: " . $supplierId);
+            error_log("POST data keys: " . json_encode(array_keys($_POST)));
+            error_log("FILES data keys: " . json_encode(array_keys($_FILES)));
+
+            if (!empty($_FILES)) {
+                foreach ($_FILES as $key => $file) {
+                    error_log("FILE[$key]: name=" . ($file['name'] ?? 'none') .
+                             ", size=" . ($file['size'] ?? 0) .
+                             ", error=" . ($file['error'] ?? 'none') .
+                             ", type=" . ($file['type'] ?? 'none'));
+                }
+            }
+
+            if ($supplierId <= 0) {
+                error_log("Invalid supplier ID: " . $supplierId);
+                echo json_encode(["status" => "error", "message" => "Valid supplier ID required"]);
+                exit;
+            }
+
             // Handle FormData for file uploads
             $supplierData = $_POST;
+
+            // Remove supplier_id and operation from data
+            unset($supplierData['supplier_id']);
+            unset($supplierData['operation']);
 
             // Convert string booleans to actual booleans
             if (isset($supplierData['agreement_signed'])) {
@@ -13235,7 +13997,64 @@ try {
                 $supplierData['is_verified'] = ($supplierData['is_verified'] === 'true' || $supplierData['is_verified'] === '1');
             }
 
-            echo $admin->updateSupplier($supplierId, $supplierData);
+            // Handle registration_docs tiers from FormData
+            // FormData sends as: registration_docs[tiers][0][name], etc.
+            if (isset($supplierData['registration_docs']) && is_array($supplierData['registration_docs'])) {
+                error_log("Processing registration_docs: " . json_encode($supplierData['registration_docs']));
+                // The tiers are already in the correct format from FormData
+            } else {
+                error_log("No registration_docs in POST data");
+            }
+
+            // Handle profile picture upload if provided
+            if (isset($_FILES['supplier_pfp']) && $_FILES['supplier_pfp']['error'] === UPLOAD_ERR_OK) {
+                error_log("Processing supplier profile picture upload for supplier ID: " . $supplierId);
+                try {
+                    // Pass the file info and supplier ID to updateSupplier
+                    // The method will handle the upload internally where it has access to $this->conn
+                    $supplierData['_upload_profile_picture'] = true;
+                    $supplierData['_profile_picture_file'] = $_FILES['supplier_pfp'];
+                    error_log("Profile picture file prepared for upload");
+                } catch (Exception $e) {
+                    error_log("Profile picture preparation error: " . $e->getMessage());
+                    echo json_encode(["status" => "error", "message" => "Profile picture preparation failed: " . $e->getMessage()]);
+                    exit;
+                }
+            } else {
+                if (isset($_FILES['supplier_pfp'])) {
+                    $fileError = $_FILES['supplier_pfp']['error'];
+                    error_log("File upload error code: " . $fileError);
+                    if ($fileError !== UPLOAD_ERR_NO_FILE) {
+                        $errorMessages = [
+                            UPLOAD_ERR_INI_SIZE => 'File exceeds upload_max_filesize',
+                            UPLOAD_ERR_FORM_SIZE => 'File exceeds MAX_FILE_SIZE',
+                            UPLOAD_ERR_PARTIAL => 'File was only partially uploaded',
+                            UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder',
+                            UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
+                            UPLOAD_ERR_EXTENSION => 'File upload stopped by extension'
+                        ];
+                        $errorMsg = $errorMessages[$fileError] ?? 'Unknown upload error';
+                        error_log("File upload error: " . $errorMsg);
+                    }
+                }
+            }
+
+            // Debug logging
+            error_log("Calling updateSupplier with ID: " . $supplierId);
+            error_log("Supplier data keys: " . json_encode(array_keys($supplierData)));
+
+            $result = $admin->updateSupplier($supplierId, $supplierData);
+            error_log("UpdateSupplier completed");
+
+            echo $result;
+        } catch (Exception $e) {
+            error_log("UpdateSupplier case error: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
+            echo json_encode(["status" => "error", "message" => "Update failed: " . $e->getMessage()]);
+        } catch (Throwable $e) {
+            error_log("UpdateSupplier fatal error: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
+            echo json_encode(["status" => "error", "message" => "Fatal error: " . $e->getMessage()]);
         }
         break;
     case "deleteSupplier":
@@ -13509,6 +14328,7 @@ try {
         ]
     ]);
 }
+} // End of if (!defined('ADMIN_PHP_INCLUDED')) block
 
 // Function to create reservation payment for a booking
 function createReservationPayment($bookingId, $paymentData) {
@@ -13634,10 +14454,12 @@ function createReservationPayment($bookingId, $paymentData) {
     }
 }
 
-// End output buffering and flush
-// Only flush if there's content to flush
-if (ob_get_length() > 0) {
-    ob_end_flush();
-} else {
-    ob_end_clean();
+// End output buffering and flush (only when running as main script)
+if (!defined('ADMIN_PHP_INCLUDED')) {
+    // Only flush if there's content to flush
+    if (ob_get_length() > 0) {
+        ob_end_flush();
+    } else {
+        ob_end_clean();
+    }
 }

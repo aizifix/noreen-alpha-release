@@ -227,7 +227,7 @@ export default function LandingPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white">
       {/* Navigation */}
       <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto max-w-[1400px]">
           <div className="flex justify-between items-center h-20">
             {/* Logo */}
             <div className="flex-shrink-0">
@@ -456,7 +456,7 @@ export default function LandingPage() {
         id="features"
         className={`py-32 bg-gradient-to-br from-white to-gray-50 ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"} transition-all duration-1000`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto max-w-[1400px]">
           <div className="text-center mb-20">
             <div className="inline-flex items-center px-4 py-2 rounded-full bg-[#334746]/10 text-[#334746] text-sm font-medium mb-6">
               <Award className="w-4 h-4 mr-2" />
@@ -545,7 +545,7 @@ export default function LandingPage() {
         id="packages"
         className={`py-32 bg-gradient-to-br from-gray-50 to-white ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"} transition-all duration-1000`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto max-w-[1400px]">
           <div className="text-center mb-20">
             <div className="inline-flex items-center px-4 py-2 rounded-full bg-[#334746]/10 text-[#334746] text-sm font-medium mb-6">
               <Package className="w-4 h-4 mr-2" />
@@ -718,7 +718,7 @@ export default function LandingPage() {
         id="gallery"
         className={`py-24 bg-gray-50 ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto max-w-[1400px]">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
               Gallery
@@ -743,7 +743,7 @@ export default function LandingPage() {
         id="services"
         className={`py-32 bg-gradient-to-br from-white to-gray-50 ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"} transition-all duration-1000`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto max-w-[1400px]">
           <div className="text-center mb-20">
             <div className="inline-flex items-center px-4 py-2 rounded-full bg-[#334746]/10 text-[#334746] text-sm font-medium mb-6">
               <Award className="w-4 h-4 mr-2" />
@@ -867,7 +867,7 @@ export default function LandingPage() {
         id="location"
         className={`py-24 bg-white ${isMounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"} transition-all duration-700`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto max-w-[1400px]">
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
               Visit Us
@@ -942,7 +942,7 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="bg-gradient-to-br from-gray-900 via-[#334746] to-gray-900 text-white py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto max-w-[1400px]">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
             {/* Company Info */}
             <div className="lg:col-span-1">

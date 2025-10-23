@@ -337,7 +337,7 @@ function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
     <Card className="border-0 bg-white shadow-sm">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold text-gray-900">
+          <CardTitle className="text-base font-semibold text-gray-900">
             Event Calendar
           </CardTitle>
           <div className="flex items-center gap-2">
@@ -359,13 +359,13 @@ function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="p-4">
+      <CardContent className="p-3">
         {/* Heat Map Guide */}
-        <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="mb-3 p-2.5 bg-gray-50 rounded-lg border border-gray-200">
           <h4 className="text-xs font-medium text-gray-700 mb-2">
             Event Heat Map:
           </h4>
-          <div className="flex items-center gap-3 text-xs flex-wrap">
+          <div className="flex items-center gap-2.5 text-xs flex-wrap">
             <div className="flex items-center gap-1">
               <div className="w-3 h-3 bg-white border rounded"></div>
               <span>Available</span>
@@ -526,11 +526,11 @@ function AnalyticsContent() {
   const chartData = processRevenueData(analyticsData?.monthlyRevenue || []);
 
   return (
-    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-5 animate-in slide-in-from-bottom-4 duration-500">
       {/* Revenue Trend Chart - Using Real Data */}
       <Card className="border-0 bg-white shadow-sm">
         <CardHeader>
-          <CardTitle className="text-lg font-semibold text-gray-900">
+          <CardTitle className="text-base font-semibold text-gray-900">
             Revenue Trend
           </CardTitle>
           <p className="text-sm text-gray-500">
@@ -588,8 +588,8 @@ function AnalyticsContent() {
 
       {/* Event Types Distribution */}
       <Card className="border-0 bg-white shadow-sm">
-        <CardContent className="p-6">
-          <h3 className="text-lg font-semibold mb-4">
+        <CardContent className="p-5">
+          <h3 className="text-base font-semibold mb-3">
             Event Types Distribution
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -599,9 +599,7 @@ function AnalyticsContent() {
                 className="bg-gray-50 p-4 rounded-lg border border-gray-100 hover:shadow-md transition-shadow"
               >
                 <h4 className="font-medium">{type.event_name}</h4>
-                <p className="text-2xl font-bold text-[#028A75]">
-                  {type.count}
-                </p>
+                <p className="text-xl font-bold text-[#028A75]">{type.count}</p>
                 <p className="text-sm text-gray-500">
                   {formatCurrency(parseFloat(type.total_budget))}
                 </p>
@@ -613,8 +611,8 @@ function AnalyticsContent() {
 
       {/* Payment Status Breakdown */}
       <Card className="border-0 bg-white shadow-sm">
-        <CardContent className="p-6">
-          <h3 className="text-lg font-semibold mb-4">
+        <CardContent className="p-5">
+          <h3 className="text-base font-semibold mb-3">
             Payment Status Overview
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -626,7 +624,7 @@ function AnalyticsContent() {
                 <h4 className="font-medium capitalize">
                   {status.payment_status}
                 </h4>
-                <p className="text-2xl font-bold text-[#028A75]">
+                <p className="text-xl font-bold text-[#028A75]">
                   {status.count}
                 </p>
                 <p className="text-sm text-gray-500">
@@ -641,8 +639,8 @@ function AnalyticsContent() {
       {/* Top Venues and Packages */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Card className="border-0 bg-white shadow-sm">
-          <CardContent className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Top Venues</h3>
+          <CardContent className="p-5">
+            <h3 className="text-base font-semibold mb-3">Top Venues</h3>
             <div className="space-y-3">
               {analyticsData?.topVenues
                 ?.slice(0, 5)
@@ -667,8 +665,8 @@ function AnalyticsContent() {
         </Card>
 
         <Card className="border-0 bg-white shadow-sm">
-          <CardContent className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Top Packages</h3>
+          <CardContent className="p-5">
+            <h3 className="text-base font-semibold mb-3">Top Packages</h3>
             <div className="space-y-3">
               {analyticsData?.topPackages
                 ?.slice(0, 5)
@@ -777,7 +775,7 @@ function ReportsContent() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Total Events</p>
-                <p className="text-2xl font-bold text-[#028A75]">
+                <p className="text-xl font-bold text-[#028A75]">
                   {summary.total_events || 0}
                 </p>
               </div>
@@ -813,7 +811,7 @@ function ReportsContent() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Total Revenue</p>
-                <p className="text-2xl font-bold text-[#028A75]">
+                <p className="text-xl font-bold text-[#028A75]">
                   {formatCurrency(
                     parseFloat(summary.total_revenue_collected || 0)
                   )}
@@ -1279,7 +1277,7 @@ function ReportsContent() {
 
       {reportsData && !isLoading && (
         <Card className="border-0 bg-white shadow-sm">
-          <CardContent className="p-6">
+          <CardContent className="p-5">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-semibold">
                 {selectedReportType.charAt(0).toUpperCase() +
@@ -1694,7 +1692,7 @@ export default function AdminDashboard() {
             {/* Quick Actions Section - Enhanced Responsive */}
             <Card className="border-0 bg-white shadow-sm">
               <CardHeader>
-                <CardTitle className="text-lg font-semibold text-gray-900">
+                <CardTitle className="text-base font-semibold text-gray-900">
                   Quick Actions
                 </CardTitle>
                 <p className="text-sm text-gray-500">
@@ -1771,7 +1769,7 @@ export default function AdminDashboard() {
             {/* System Status Section */}
             <Card className="border-0 bg-white shadow-sm">
               <CardHeader>
-                <CardTitle className="text-lg font-semibold text-gray-900">
+                <CardTitle className="text-base font-semibold text-gray-900">
                   System Status
                 </CardTitle>
                 <p className="text-sm text-gray-500">
@@ -1825,7 +1823,7 @@ export default function AdminDashboard() {
                 <Card className="border-0 bg-white shadow-sm h-full">
                   <CardHeader>
                     <div className="flex justify-between items-center">
-                      <CardTitle className="text-lg font-semibold text-gray-900">
+                      <CardTitle className="text-base font-semibold text-gray-900">
                         Upcoming Events
                       </CardTitle>
                       <button
@@ -1840,7 +1838,7 @@ export default function AdminDashboard() {
                       You have {upcomingEvents.length} upcoming events
                     </p>
                   </CardHeader>
-                  <CardContent className="p-4">
+                  <CardContent className="p-3">
                     <div className="space-y-4">
                       {upcomingEvents.map((event, index) => (
                         <div
@@ -1889,7 +1887,7 @@ export default function AdminDashboard() {
             <Card className="border-0 bg-white shadow-sm">
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg font-semibold text-gray-900">
+                  <CardTitle className="text-base font-semibold text-gray-900">
                     Available Bookings
                   </CardTitle>
                   <button
@@ -1904,7 +1902,7 @@ export default function AdminDashboard() {
                   Confirmed bookings not yet converted to events
                 </p>
               </CardHeader>
-              <CardContent className="p-4">
+              <CardContent className="p-3">
                 {loadingAvailableBookings ? (
                   <div className="flex items-center justify-center py-6">
                     <Loader2 className="h-5 w-5 animate-spin mr-2" />
@@ -1971,7 +1969,7 @@ export default function AdminDashboard() {
             <Card className="border-0 bg-white shadow-sm">
               <CardHeader>
                 <div className="flex justify-between items-center">
-                  <CardTitle className="text-lg font-semibold text-gray-900">
+                  <CardTitle className="text-base font-semibold text-gray-900">
                     Recent Payments
                   </CardTitle>
                   <button
@@ -1986,7 +1984,7 @@ export default function AdminDashboard() {
                   Latest payment transactions
                 </p>
               </CardHeader>
-              <CardContent className="p-6">
+              <CardContent className="p-5">
                 <div className="space-y-4">
                   {recentPayments.map((payment) => (
                     <div
@@ -2031,7 +2029,7 @@ export default function AdminDashboard() {
             {/* Revenue Trend Chart - Overview */}
             <Card className="border-0 bg-white shadow-sm">
               <CardHeader>
-                <CardTitle className="text-lg font-semibold text-gray-900">
+                <CardTitle className="text-base font-semibold text-gray-900">
                   Revenue Trend
                 </CardTitle>
                 <p className="text-sm text-gray-500">

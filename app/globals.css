@@ -49,7 +49,11 @@
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
+    --radius: 0.4rem;
+    --icon-size-sm: 14px; /* was 16px */
+    --icon-size-md: 20px; /* was 24px */
+    --icon-size-lg: 28px; /* was 32px */
+    --icon-size-xl: 40px; /* was 48px */
   }
   .dark {
     --background: 0 0% 3.9%;

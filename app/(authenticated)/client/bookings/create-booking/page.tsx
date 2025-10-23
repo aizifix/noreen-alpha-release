@@ -60,6 +60,7 @@ import {
   ListPlus,
   Layers,
   CreditCard,
+  Calculator,
 } from "lucide-react";
 
 // Types for the booking process
@@ -113,6 +114,7 @@ interface Package {
   package_price: number;
   guest_capacity: number;
   event_type_names: string[];
+  venue_fee_buffer?: number; // Added venue buffer fee field
   components: Array<{
     component_name: string;
     component_price: number;
@@ -299,6 +301,7 @@ export default function EnhancedCreateBookingPage() {
   const [guestCountInput, setGuestCountInput] = useState<string>(
     formData.guestCount.toString()
   );
+  const [isCalculating, setIsCalculating] = useState(false);
 
   // Edit mode state
   const [editBookingData, setEditBookingData] = useState<any>(null);
@@ -404,6 +407,9 @@ export default function EnhancedCreateBookingPage() {
   const [packageDetailsModalOpen, setPackageDetailsModalOpen] = useState(false);
   const [modalPackage, setModalPackage] = useState<Package | null>(null);
 
+  // Venue buffer fee state (same as event builder)
+  const [venueBufferFee, setVenueBufferFee] = useState<number | null>(null);
+
   // Helper function to format price with proper formatting (handles string or number)
   const formatPrice = (amount: number | string): string => {
     const numericValue =
@@ -431,6 +437,8 @@ export default function EnhancedCreateBookingPage() {
   };
 
   // Calculate total with venue-specific extra pax rate when guests > 100
+  // NOTE: When venue buffer is set, this should only return base package price
+  // because venue excess is calculated separately via computeVenueEstimatedPrice
   const calculateTotalPackagePrice = (
     packagePrice?: number,
     guestCount?: number,
@@ -438,6 +446,14 @@ export default function EnhancedCreateBookingPage() {
   ): number => {
     const baseRaw = packagePrice ?? selectedPackage?.package_price ?? 0;
     const basePrice = typeof baseRaw === "string" ? Number(baseRaw) : baseRaw;
+
+    // If venue buffer is set, return only base package price
+    // The venue excess will be calculated separately
+    if (venueBufferFee !== null && venueBufferFee > 0) {
+      return Number(basePrice) || 0;
+    }
+
+    // Legacy calculation for packages without venue buffer
     const guests = Number.isFinite(guestCount as number)
       ? (guestCount as number)
       : formData.guestCount;
@@ -447,11 +463,38 @@ export default function EnhancedCreateBookingPage() {
     return Number.isFinite(totalPrice) && totalPrice > 0 ? totalPrice : 0;
   };
 
-  // Estimate venue-specific price with extra pax
+  // Estimate venue-specific price with event buffer calculation (same as event builder)
   const computeVenueEstimatedPrice = (
     venue: { venue_price: number | string; extra_pax_rate?: number | string },
     guests: number
   ): number => {
+    // Use the same calculation as event builder
+    if (selectedPackage && venueBufferFee !== null) {
+      // Use the venue's per-pax rate (extra_pax_rate) as the VenueRate
+      const venueRate = getExtraPaxRate(venue);
+      const clientPax = guests;
+
+      // Calculate actual venue cost: VenueRate × ClientPax
+      const actualVenueCost = venueRate * clientPax;
+
+      // Calculate excess payment: MAX(0, ActualVenueCost - VenueBuffer)
+      const excessPayment = Math.max(0, actualVenueCost - venueBufferFee);
+
+      console.log(`🏢 Venue pricing calculation (EVENT BUFFER FORMULA):
+        - Venue: ${(venue as any).venue_title || "Unknown"}
+        - Venue Rate: ₱${venueRate.toLocaleString()} per pax
+        - Client Pax: ${clientPax}
+        - Package Base Pax: ${selectedPackage.guest_capacity}
+        - Actual Venue Cost: ₱${venueRate.toLocaleString()} × ${clientPax} = ₱${actualVenueCost.toLocaleString()}
+        - Venue Buffer: ₱${venueBufferFee.toLocaleString()} (included in package)
+        - Excess Payment: MAX(0, ₱${actualVenueCost.toLocaleString()} - ₱${venueBufferFee.toLocaleString()}) = ₱${excessPayment.toLocaleString()}
+        - Logic: ${excessPayment > 0 ? `Additional fee of ₱${excessPayment.toLocaleString()} added to package price` : "No additional fee, venue buffer covers actual cost"}
+      `);
+
+      return Number.isFinite(excessPayment) ? excessPayment : 0;
+    }
+
+    // Fallback to old calculation if no package or buffer fee
     const base =
       typeof venue.venue_price === "string"
         ? Number(venue.venue_price)
@@ -463,17 +506,29 @@ export default function EnhancedCreateBookingPage() {
     return Number.isFinite(total) ? total : 0;
   };
 
-  // Overall estimate: package total (with extra pax) + venue total (with extra pax)
+  // Overall estimate: package total + venue excess payment (if any)
   const computeOverallEstimate = (): number => {
-    const packageTotal = calculateTotalPackagePrice(
-      selectedPackage?.package_price,
-      formData.guestCount,
-      selectedVenue
-    );
-    const venueTotal = selectedVenue
+    // Ensure package price is converted to number to prevent string concatenation
+    const packagePriceRaw = selectedPackage ? selectedPackage.package_price : 0;
+    const packageTotal =
+      typeof packagePriceRaw === "string"
+        ? Number(packagePriceRaw)
+        : packagePriceRaw;
+    const venueExcess = selectedVenue
       ? computeVenueEstimatedPrice(selectedVenue, formData.guestCount)
       : 0;
-    return packageTotal + venueTotal;
+
+    console.log("🎯 computeOverallEstimate Debug:", {
+      packageTotal,
+      venueExcess,
+      total: packageTotal + venueExcess,
+      selectedPackage: selectedPackage?.package_title,
+      selectedVenue: selectedVenue?.venue_title,
+      guestCount: formData.guestCount,
+      venueBufferFee,
+    });
+
+    return packageTotal + venueExcess;
   };
 
   // Steps configuration - with venue selection before inclusions
@@ -719,7 +774,7 @@ export default function EnhancedCreateBookingPage() {
     }
   };
 
-  // Fetch packages
+  // Fetch packages with venue buffer
   const fetchPackages = async () => {
     try {
       const response = await axios.get(`${endpoints.client}`, {
@@ -727,11 +782,67 @@ export default function EnhancedCreateBookingPage() {
       });
 
       if (response.data.status === "success") {
-        setPackages(response.data.packages || []);
+        const packagesData = response.data.packages || [];
+
+        // Log venue buffer for each package to verify it's being fetched
+        packagesData.forEach((pkg: Package) => {
+          console.log(
+            `📦 Package: ${pkg.package_title} - Venue Buffer: ₱${pkg.venue_fee_buffer || 0}`
+          );
+        });
+
+        setPackages(packagesData);
       }
     } catch (err) {
       console.error("Error fetching packages:", err);
       setError("Failed to load packages");
+    }
+  };
+
+  // Fetch venue buffer for a specific package via axios
+  const fetchPackageVenueBuffer = async (packageId: number) => {
+    try {
+      console.log(`🔍 Fetching venue buffer for package ID: ${packageId}`);
+
+      const response = await axios.get(`${endpoints.client}`, {
+        params: {
+          operation: "getPackageById",
+          package_id: packageId,
+        },
+      });
+
+      if (response.data.status === "success" && response.data.package) {
+        const packageData = response.data.package;
+        const bufferFee = parseFloat(packageData.venue_fee_buffer || 0);
+
+        setVenueBufferFee(bufferFee);
+
+        console.log(
+          `🏢 Venue Buffer Fee fetched via axios for package "${packageData.package_title}":`,
+          {
+            packageId: packageData.package_id,
+            packageTitle: packageData.package_title,
+            venueBufferFee: bufferFee,
+            formattedFee: `₱${bufferFee.toLocaleString()}`,
+          }
+        );
+
+        toast({
+          title: "Package Details Loaded",
+          description: `Venue buffer: ₱${bufferFee.toLocaleString()}`,
+        });
+      } else {
+        console.warn("⚠️ No venue buffer found in package data");
+        setVenueBufferFee(0);
+      }
+    } catch (err) {
+      console.error("❌ Error fetching venue buffer:", err);
+      setVenueBufferFee(0);
+      toast({
+        title: "Warning",
+        description: "Could not fetch venue buffer fee. Using default value.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -903,8 +1014,10 @@ export default function EnhancedCreateBookingPage() {
   }, [formData.eventDate]);
 
   // Recalculate total price when relevant factors change
+  // Formula: EstimatedTotal = PackagePrice + VenueExcess - RemovedInclusions + CustomInclusions + SupplierServices + ExternalCustomizations
+  // Where VenueExcess = MAX(0, (VenueRate × TotalGuests) - VenueBuffer)
   useEffect(() => {
-    // Calculate base package price
+    // Calculate base package price (without extra pax when venue buffer is set)
     let calculatedPrice = calculateTotalPackagePrice();
 
     // Subtract removed inclusions
@@ -913,11 +1026,10 @@ export default function EnhancedCreateBookingPage() {
       0
     );
 
-    // Add custom inclusion prices
-    const customInclusionsTotal = formData.customInclusions.reduce(
-      (sum, inc) => sum + parseFloat(inc.inclusion_price as any),
-      0
-    );
+    // Add custom inclusion prices (exclude venue inclusions to avoid double-counting)
+    const customInclusionsTotal = formData.customInclusions
+      .filter((inc) => !inc.is_venue_inclusion) // Exclude venue inclusions
+      .reduce((sum, inc) => sum + parseFloat(inc.inclusion_price as any), 0);
 
     // Add supplier service prices
     const supplierServicesTotal = formData.supplierServices.reduce(
@@ -931,13 +1043,49 @@ export default function EnhancedCreateBookingPage() {
       0
     );
 
+    // Calculate venue excess payment using venue buffer formula
+    // VenueExcess = MAX(0, (VenueRate × TotalGuests) - VenueBuffer)
+    const venueExcess = selectedVenue
+      ? computeVenueEstimatedPrice(selectedVenue, formData.guestCount)
+      : 0;
+
+    console.log("🏢 Venue Excess Calculation:", {
+      selectedVenue: selectedVenue?.venue_title,
+      venueRate: selectedVenue ? getExtraPaxRate(selectedVenue) : 0,
+      guestCount: formData.guestCount,
+      actualVenueCost: selectedVenue
+        ? getExtraPaxRate(selectedVenue) * formData.guestCount
+        : 0,
+      venueBufferFee,
+      venueExcess,
+      formula: `MAX(0, (${selectedVenue ? getExtraPaxRate(selectedVenue) : 0} × ${formData.guestCount}) - ${venueBufferFee || 0}) = ${venueExcess}`,
+      hasSelectedVenue: !!selectedVenue,
+      hasVenueBufferFee: venueBufferFee !== null,
+    });
+
     // Calculate final price
+    // EstimatedTotal = PackagePrice - RemovedInclusions + CustomInclusions + SupplierServices + ExternalCustomizations + VenueExcess
     calculatedPrice =
       calculatedPrice -
       removedInclusionsTotal +
       customInclusionsTotal +
       supplierServicesTotal +
-      externalCustomizationsTotal;
+      externalCustomizationsTotal +
+      venueExcess;
+
+    console.log("💰 Total Price Calculation Debug:", {
+      basePackagePrice: calculateTotalPackagePrice(),
+      removedInclusionsTotal: `-${removedInclusionsTotal}`,
+      customInclusionsTotal: `+${customInclusionsTotal}`,
+      supplierServicesTotal: `+${supplierServicesTotal}`,
+      externalCustomizationsTotal: `+${externalCustomizationsTotal}`,
+      venueExcess: `+${venueExcess}`,
+      finalCalculatedPrice: calculatedPrice,
+      formula: `${calculateTotalPackagePrice()} - ${removedInclusionsTotal} + ${customInclusionsTotal} + ${supplierServicesTotal} + ${externalCustomizationsTotal} + ${venueExcess} = ${calculatedPrice}`,
+      selectedVenue: selectedVenue?.venue_title,
+      venueBufferFee,
+      guestCount: formData.guestCount,
+    });
 
     setTotalPrice(calculatedPrice);
   }, [
@@ -946,7 +1094,9 @@ export default function EnhancedCreateBookingPage() {
     formData.removedInclusions,
     formData.supplierServices,
     formData.externalCustomizations,
-    selectedPackage,
+    selectedPackage?.package_id,
+    selectedVenue?.venue_id,
+    venueBufferFee,
   ]);
 
   // Handle date selection
@@ -1002,84 +1152,29 @@ export default function EnhancedCreateBookingPage() {
     return "bg-transparent text-gray-900 hover:bg-gray-50";
   };
 
-  // Update inclusions when venue changes - following admin implementation
-  useEffect(() => {
-    // When a venue is selected, check if it has inclusions
-    if (selectedVenue) {
-      console.log(
-        "Updating inclusions with venue-specific data:",
-        selectedVenue.venue_title
-      );
+  // NOTE: Venue cost is now calculated separately via computeVenueEstimatedPrice()
+  // We no longer add venue to customInclusions to avoid double-counting
+  // The venue excess (based on venue buffer formula) is added in the total price calculation
 
-      // Add the venue itself as a component
-      const venuePrice = parseFloat(String(selectedVenue.venue_price)) || 0;
-      const extraPaxRate = parseFloat(
-        String(selectedVenue.extra_pax_rate || 0)
-      );
-      const guestCount = formData.guestCount || 100;
+  // Manual calculation trigger
+  const handleCalculate = () => {
+    setIsCalculating(true);
 
-      // Calculate venue price including overflow charges (matching admin implementation)
-      let calculatedVenuePrice = venuePrice;
-      if (extraPaxRate > 0 && guestCount > 100) {
-        const extraGuests = guestCount - 100;
-        const overflowCharge = extraGuests * extraPaxRate;
-        calculatedVenuePrice += overflowCharge;
-        console.log(
-          `Venue overflow calculation: ${extraGuests} extra guests × ${extraPaxRate} = ${overflowCharge}`
-        );
-      }
+    // Update guest count from input
+    const parsed = parseInt(guestCountInput, 10);
+    const val = isNaN(parsed) || parsed < 1 ? 1 : Math.min(1000, parsed);
 
-      // Add venue as a main component
-      const venueComponent = {
-        inclusion_id: `venue-${selectedVenue.venue_id}`,
-        inclusion_name:
-          selectedVenue.venue_title ||
-          selectedVenue.venue_name ||
-          "Selected Venue",
-        inclusion_description: `Venue: ${selectedVenue.venue_title || selectedVenue.venue_name}${extraPaxRate > 0 && guestCount > 100 ? " (includes overflow for " + (guestCount - 100) + " extra guests)" : ""}`,
-        inclusion_price: calculatedVenuePrice,
-        display_order: 0,
-        category: "venue",
-        is_venue_inclusion: true,
-        included: true,
-        isRemovable: false,
-      };
+    setFormData((prev) => ({
+      ...prev,
+      guestCount: val,
+    }));
+    setGuestCountInput(val.toString());
 
-      // Add venue component to custom inclusions
-      let hasVenueComponent = false;
-      setFormData((prev) => {
-        // Check if venue already exists
-        const existingVenue = prev.customInclusions.find(
-          (inc) =>
-            inc.inclusion_id.toString().startsWith("venue-") &&
-            inc.is_venue_inclusion === true
-        );
-
-        if (existingVenue) {
-          hasVenueComponent = true;
-          // Update existing venue component
-          const updatedCustomInclusions = prev.customInclusions.map((inc) =>
-            inc.inclusion_id === existingVenue.inclusion_id
-              ? venueComponent
-              : inc
-          );
-          return {
-            ...prev,
-            customInclusions: updatedCustomInclusions,
-          };
-        } else {
-          // Add new venue component
-          return {
-            ...prev,
-            customInclusions: [...prev.customInclusions, venueComponent],
-          };
-        }
-      });
-
-      // Do not import venue inclusions into event inclusions
-    }
-    // Only depend on selectedVenue and guestCount, not on the data we're updating
-  }, [selectedVenue, formData.guestCount]);
+    // Simulate a brief delay for UX (calculation happens automatically via useEffect)
+    setTimeout(() => {
+      setIsCalculating(false);
+    }, 500);
+  };
 
   // Handle form submission
   const handleSubmit = async () => {
@@ -1242,6 +1337,10 @@ export default function EnhancedCreateBookingPage() {
     fetchVenues(pkg.package_id);
     // Fetch package inclusions
     fetchPackageInclusions(pkg.package_id);
+
+    // Fetch venue buffer fee from package via axios (same as event builder)
+    fetchPackageVenueBuffer(pkg.package_id);
+
     console.log("Selected package and auto-populated:", {
       packageId: pkg.package_id,
       eventType: pkg.event_type_names[0],
@@ -1984,65 +2083,20 @@ export default function EnhancedCreateBookingPage() {
                                 : "Select event date"}
                             </Button>
                           </DialogTrigger>
-                          <DialogContent className="max-w-4xl p-0">
-                            <div className="p-6">
-                              <DialogHeader className="mb-6">
-                                <DialogTitle className="text-xl font-semibold">
+                          <DialogContent className="max-w-[95vw] sm:max-w-2xl lg:max-w-3xl p-0 overflow-hidden">
+                            <div className="p-3 sm:p-4 lg:p-6 max-w-full overflow-hidden">
+                              <DialogHeader className="mb-4 sm:mb-6">
+                                <DialogTitle className="text-base sm:text-lg lg:text-xl font-semibold">
                                   Select Event Date
                                 </DialogTitle>
                               </DialogHeader>
 
-                              {/* Heat Map Guide */}
-                              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                                <h4 className="text-sm font-medium mb-3 text-gray-800">
-                                  Availability Guide:
-                                </h4>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 bg-white border-2 border-gray-200 rounded"></div>
-                                    <span className="text-gray-700">
-                                      Available
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 bg-yellow-200 border-2 border-gray-200 rounded"></div>
-                                    <span className="text-gray-700">
-                                      1 Event
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 bg-orange-300 border-2 border-gray-200 rounded"></div>
-                                    <span className="text-gray-700">
-                                      2 Events
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 bg-red-300 border-2 border-gray-200 rounded"></div>
-                                    <span className="text-gray-700">
-                                      3+ Events
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 bg-red-500 border-2 border-gray-200 rounded"></div>
-                                    <span className="text-gray-700">
-                                      Wedding (Blocked)
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 bg-gray-100 border-2 border-gray-200 rounded opacity-50"></div>
-                                    <span className="text-gray-700">
-                                      Past Date
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="w-full">
+                              <div className="w-full max-w-full overflow-hidden">
                                 <ResponsiveCalendar
                                   selectedDate={selectedDate}
                                   onDateSelect={handleDateSelect}
                                   calendarConflictData={calendarConflictData}
-                                  className="w-full"
+                                  className="w-full max-w-full"
                                 />
                               </div>
                             </div>
@@ -2108,7 +2162,7 @@ export default function EnhancedCreateBookingPage() {
                           <Label htmlFor="venue-guest-count">
                             Selected Guest Count
                           </Label>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
                             <Input
                               id="venue-guest-count"
                               type="number"
@@ -2122,43 +2176,37 @@ export default function EnhancedCreateBookingPage() {
                                 );
                                 setGuestCountInput(value);
                               }}
-                              onBlur={() => {
-                                const parsed = parseInt(guestCountInput, 10);
-                                const val =
-                                  isNaN(parsed) || parsed < 1
-                                    ? 1
-                                    : Math.min(1000, parsed);
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  guestCount: val,
-                                }));
-                                setGuestCountInput(val.toString());
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  handleCalculate();
+                                }
                               }}
                               className="w-28"
                             />
+                            <Button
+                              type="button"
+                              onClick={handleCalculate}
+                              disabled={isCalculating}
+                              variant="outline"
+                              size="sm"
+                              className="flex items-center gap-1 min-w-[100px]"
+                            >
+                              {isCalculating ? (
+                                <>
+                                  <RefreshCw className="h-3 w-3 animate-spin" />
+                                  Calculating...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="h-3 w-3" />
+                                  Calculate
+                                </>
+                              )}
+                            </Button>
                             <span className="text-[#028A75] font-medium">
                               {formData.guestCount} guests
                             </span>
                           </div>
-                        </div>
-                        <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                          <p className="text-sm text-gray-600">
-                            Venues will be filtered based on your guest count of{" "}
-                            {formData.guestCount} guests.
-                            {formData.guestCount > 100 && (
-                              <span className="block mt-2 text-amber-600">
-                                Note: Additional cost of{" "}
-                                {formatPrice(getExtraPaxRate(selectedVenue))}{" "}
-                                per guest over 100 applies (
-                                {formData.guestCount - 100} extra guests ={" "}
-                                {formatPrice(
-                                  (formData.guestCount - 100) *
-                                    getExtraPaxRate(selectedVenue)
-                                )}
-                                )
-                              </span>
-                            )}
-                          </p>
                         </div>
                       </div>
 
@@ -2256,12 +2304,8 @@ export default function EnhancedCreateBookingPage() {
                               <CardContent className="flex-1 flex flex-col">
                                 <div className="mb-2">
                                   <span className="text-lg font-bold text-[#028A75]">
-                                    {formatPrice(
-                                      computeVenueEstimatedPrice(
-                                        venue,
-                                        formData.guestCount
-                                      )
-                                    )}
+                                    ₱{getExtraPaxRate(venue).toLocaleString()}{" "}
+                                    per guest
                                   </span>
                                 </div>
                                 <div className="flex justify-between items-center mb-3">
@@ -2284,13 +2328,6 @@ export default function EnhancedCreateBookingPage() {
                                     View Details
                                   </Button>
                                 </div>
-                                {typeof venue.extra_pax_rate === "number" && (
-                                  <div className="text-xs text-gray-600 mt-1">
-                                    Extra pax rate:{" "}
-                                    {formatPrice(venue.extra_pax_rate)} per
-                                    guest
-                                  </div>
-                                )}
                                 {formData.guestCount > venue.venue_capacity && (
                                   <div className="text-xs text-red-600 flex items-center">
                                     <AlertTriangle className="h-3 w-3 mr-1" />
@@ -2562,16 +2599,44 @@ export default function EnhancedCreateBookingPage() {
                                       Total Estimate
                                     </span>
                                     <span className="text-xl font-bold text-emerald-600">
-                                      {formatPrice(
-                                        (selectedPackage ? totalPrice : 0) +
-                                          (selectedVenue
-                                            ? computeVenueEstimatedPrice(
-                                                selectedVenue,
-                                                formData.guestCount
-                                              )
-                                            : 0) || 0
-                                      )}
+                                      {formatPrice(computeOverallEstimate())}
                                     </span>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                      {(() => {
+                                        const packagePriceRaw =
+                                          selectedPackage?.package_price || 0;
+                                        const packagePrice =
+                                          typeof packagePriceRaw === "string"
+                                            ? Number(packagePriceRaw)
+                                            : packagePriceRaw;
+                                        const venueExcess = selectedVenue
+                                          ? computeVenueEstimatedPrice(
+                                              selectedVenue,
+                                              formData.guestCount
+                                            )
+                                          : 0;
+                                        return (
+                                          <>
+                                            Package: ₱
+                                            {packagePrice.toLocaleString()}
+                                            {venueExcess > 0 && (
+                                              <>
+                                                {" "}
+                                                + Venue: ₱
+                                                {venueExcess.toLocaleString()}
+                                              </>
+                                            )}
+                                            {venueExcess === 0 &&
+                                              selectedVenue && (
+                                                <>
+                                                  {" "}
+                                                  (Venue included in package)
+                                                </>
+                                              )}
+                                          </>
+                                        );
+                                      })()}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -2914,15 +2979,28 @@ export default function EnhancedCreateBookingPage() {
                     <p className="font-medium">
                       {formData.inclusions.length -
                         formData.removedInclusions.length +
-                        formData.customInclusions.length +
+                        formData.customInclusions.filter(
+                          (inc) => !inc.is_venue_inclusion
+                        ).length +
                         formData.supplierServices.length +
                         formData.externalCustomizations.length}{" "}
                       total inclusions
                     </p>
-                    {formData.customInclusions.length > 0 && (
+                    {formData.customInclusions.filter(
+                      (inc) => !inc.is_venue_inclusion
+                    ).length > 0 && (
                       <p className="text-xs text-[#028A75]">
-                        {formData.customInclusions.length} custom inclusion
-                        {formData.customInclusions.length !== 1 ? "s" : ""}
+                        {
+                          formData.customInclusions.filter(
+                            (inc) => !inc.is_venue_inclusion
+                          ).length
+                        }{" "}
+                        custom inclusion
+                        {formData.customInclusions.filter(
+                          (inc) => !inc.is_venue_inclusion
+                        ).length !== 1
+                          ? "s"
+                          : ""}
                       </p>
                     )}
                     {formData.supplierServices.length > 0 && (
@@ -2966,38 +3044,71 @@ export default function EnhancedCreateBookingPage() {
                       </p>
                     </div>
                   )}
-                  {selectedVenue && (
-                    <div>
-                      <p className="text-sm text-gray-600">Venue</p>
-                      <p className="font-medium">{selectedVenue.venue_title}</p>
-                      <p className="text-sm text-[#028A75]">
-                        {formatPrice(
-                          computeVenueEstimatedPrice(
-                            selectedVenue,
-                            formData.guestCount
-                          )
-                        )}
-                      </p>
-                    </div>
-                  )}
+
+                  {selectedVenue &&
+                    (!selectedPackage || !(formData.guestCount > 0)) && (
+                      <div>
+                        <p className="text-sm text-gray-600">Venue</p>
+                        <p className="font-medium">
+                          {selectedVenue.venue_title}
+                        </p>
+                      </div>
+                    )}
                   {(selectedPackage || decideLater) && selectedVenue && (
-                    <div className="border-t pt-4">
-                      <p className="text-sm text-gray-600">Estimated Total</p>
-                      <p className="text-xl font-bold text-[#028A75]">
-                        {formatPrice(
-                          (selectedPackage ? totalPrice : 0) +
-                            (selectedVenue
-                              ? computeVenueEstimatedPrice(
-                                  selectedVenue,
-                                  formData.guestCount
-                                )
-                              : 0) || 0
-                        )}
+                    <div className="border-t-2 border-[#028A75] pt-4 bg-gradient-to-br from-[#028A75]/5 to-transparent -mx-4 px-4 pb-2 rounded-b-lg">
+                      <p className="text-sm font-semibold text-gray-700 mb-2">
+                        Final Estimated Total
                       </p>
+                      <p className="text-2xl font-bold text-[#028A75] mb-2">
+                        {formatPrice(totalPrice)}
+                      </p>
+
                       {decideLater && (
                         <p className="text-xs text-gray-500 mt-1">
                           Package cost not included
                         </p>
+                      )}
+                      {/* Show breakdown if there are additions/removals */}
+                      {(formData.removedInclusions.length > 0 ||
+                        formData.customInclusions.filter(
+                          (inc) => !inc.is_venue_inclusion
+                        ).length > 0 ||
+                        formData.supplierServices.length > 0 ||
+                        formData.externalCustomizations.length > 0) && (
+                        <div className="text-xs text-gray-600 mt-2 space-y-1 bg-white/80 p-2 rounded">
+                          <p className="font-semibold mb-1">Modifications:</p>
+                          {formData.removedInclusions.length > 0 && (
+                            <p className="text-red-600">
+                              - {formData.removedInclusions.length} inclusion(s)
+                              removed
+                            </p>
+                          )}
+                          {formData.customInclusions.filter(
+                            (inc) => !inc.is_venue_inclusion
+                          ).length > 0 && (
+                            <p className="text-green-600">
+                              +{" "}
+                              {
+                                formData.customInclusions.filter(
+                                  (inc) => !inc.is_venue_inclusion
+                                ).length
+                              }{" "}
+                              custom inclusion(s)
+                            </p>
+                          )}
+                          {formData.supplierServices.length > 0 && (
+                            <p className="text-blue-600">
+                              + {formData.supplierServices.length} supplier
+                              service(s)
+                            </p>
+                          )}
+                          {formData.externalCustomizations.length > 0 && (
+                            <p className="text-purple-600">
+                              + {formData.externalCustomizations.length}{" "}
+                              external customization(s)
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}

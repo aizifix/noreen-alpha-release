@@ -70,7 +70,7 @@ export const eventPackages: EventPackage[] = [
     basePrice: 250000,
     maxGuests: 200,
     eventType: "wedding",
-    imageUrl: "/placeholder.svg?height=200&width=400",
+    imageUrl: "/placeholder.svg?height=170&width=340",
     components: [
       {
         id: "comp-001",
@@ -236,7 +236,7 @@ export const eventPackages: EventPackage[] = [
     basePrice: 150000,
     maxGuests: 150,
     eventType: "wedding",
-    imageUrl: "/placeholder.svg?height=200&width=400",
+    imageUrl: "/placeholder.svg?height=170&width=340",
     components: [
       {
         id: "comp-010",
@@ -379,7 +379,7 @@ export const eventPackages: EventPackage[] = [
     basePrice: 100000,
     maxGuests: 100,
     eventType: "birthday",
-    imageUrl: "/placeholder.svg?height=200&width=400",
+    imageUrl: "/placeholder.svg?height=170&width=340",
     components: [
       {
         id: "comp-017",
@@ -500,7 +500,7 @@ export const eventPackages: EventPackage[] = [
     basePrice: 60000,
     maxGuests: 50,
     eventType: "birthday",
-    imageUrl: "/placeholder.svg?height=200&width=400",
+    imageUrl: "/placeholder.svg?height=170&width=340",
     components: [
       {
         id: "comp-023",
@@ -613,7 +613,7 @@ export const eventPackages: EventPackage[] = [
     basePrice: 150000,
     maxGuests: 100,
     eventType: "corporate",
-    imageUrl: "/placeholder.svg?height=200&width=400",
+    imageUrl: "/placeholder.svg?height=170&width=340",
     components: [
       {
         id: "comp-028",
@@ -734,7 +734,7 @@ export const eventPackages: EventPackage[] = [
     basePrice: 80000,
     maxGuests: 50,
     eventType: "corporate",
-    imageUrl: "/placeholder.svg?height=200&width=400",
+    imageUrl: "/placeholder.svg?height=170&width=340",
     components: [
       {
         id: "comp-034",
@@ -818,7 +818,7 @@ export const eventPackages: EventPackage[] = [
     basePrice: 250000,
     maxGuests: 200,
     eventType: "wedding",
-    imageUrl: "/placeholder.svg?height=200&width=400",
+    imageUrl: "/placeholder.svg?height=170&width=340",
     components: [
       {
         id: "comp-039",

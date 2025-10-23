@@ -22,34 +22,40 @@ export default function ClientRouteProtection({
 
   useEffect(() => {
     // Only run on client-side
-    const userData = secureStorage.getItem("user");
+    try {
+      const userData = secureStorage.getItem("user");
 
-    if (authRequired) {
-      // Route requires authentication
-      if (!userData?.user_role) {
-        // Not authenticated, redirect to login
-        router.replace("/auth/login");
-      } else {
-        // Authenticated, prevent back button to auth pages
-        window.history.pushState(null, "", window.location.href);
-        window.onpopstate = function () {
+      if (authRequired) {
+        // Route requires authentication
+        if (!userData?.user_role) {
+          // Not authenticated, redirect to login
+          router.replace("/auth/login");
+        } else {
+          // Authenticated, prevent back button to auth pages
           window.history.pushState(null, "", window.location.href);
-        };
-      }
-    } else {
-      // Auth pages - redirect if already logged in
-      if (userData?.user_role) {
-        const role = userData.user_role.toLowerCase();
-        if (role === "admin") {
-          router.replace("/admin/dashboard");
-        } else if (role === "staff") {
-          router.replace("/staff/dashboard");
-        } else if (role === "vendor" || role === "organizer") {
-          router.replace("/organizer/dashboard");
-        } else if (role === "client") {
-          router.replace("/client/dashboard");
+          window.onpopstate = function () {
+            window.history.pushState(null, "", window.location.href);
+          };
+        }
+      } else {
+        // Auth pages - redirect if already logged in
+        if (userData?.user_role) {
+          const role = userData.user_role.toLowerCase();
+          if (role === "admin") {
+            router.replace("/admin/dashboard");
+          } else if (role === "staff") {
+            router.replace("/staff/dashboard");
+          } else if (role === "vendor" || role === "organizer") {
+            router.replace("/organizer/dashboard");
+          } else if (role === "client") {
+            router.replace("/client/dashboard");
+          }
         }
       }
+    } catch (error) {
+      console.error("ClientRouteProtection: Error accessing user data:", error);
+      // If there's an error accessing user data, clear corrupted data and redirect to login
+      secureStorage.clearCorruptedData();
     }
   }, [authRequired, router, pathname]);
 

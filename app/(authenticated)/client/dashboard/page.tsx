@@ -25,6 +25,7 @@ import {
   X,
   Filter,
   RefreshCw,
+  Check,
 } from "lucide-react";
 import {
   format,
@@ -35,7 +36,7 @@ import {
   getDay,
 } from "date-fns";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -214,6 +215,10 @@ export default function ClientDashboard() {
       setIsLoading(true);
 
       // Fetch events, payments, and packages in parallel using client.php
+      console.log(
+        "Dashboard: Fetching packages from:",
+        `${endpoints.client}?operation=getAllPackages`
+      );
       const [eventsResponse, paymentsResponse, packagesResponse] =
         await Promise.all([
           axios.get(
@@ -225,6 +230,8 @@ export default function ClientDashboard() {
           axios.get(`${endpoints.client}?operation=getAllPackages`),
         ]);
 
+      console.log("Dashboard: Packages response:", packagesResponse.data);
+
       if (eventsResponse.data.status === "success") {
         setEvents(eventsResponse.data.events || []);
       }
@@ -234,7 +241,19 @@ export default function ClientDashboard() {
       }
 
       if (packagesResponse.data.status === "success") {
+        console.log(
+          "Dashboard: Packages received:",
+          packagesResponse.data.packages
+        );
+        console.log(
+          "Dashboard: Packages count:",
+          packagesResponse.data.packages?.length || 0
+        );
         setPackages(packagesResponse.data.packages || []);
+      } else {
+        console.error("Dashboard: Packages API error:", packagesResponse.data);
+        // Set empty packages array to prevent errors
+        setPackages([]);
       }
     } catch (error: any) {
       console.error("Dashboard: Error fetching data:", error);

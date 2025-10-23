@@ -448,13 +448,13 @@ export default function ClientLayout({
       {/* Main Content Area */}
       <div className="flex-1 min-w-0">
         {/* Desktop Navbar - Hidden on mobile */}
-        <header className="hidden lg:flex fixed top-0 right-0 left-64 z-10 bg-white border-b px-6 py-4 h-16 justify-end items-center">
+        <header className="hidden lg:flex fixed top-0 right-0 left-64 z-10 bg-white border-b px-5 py-3 h-14 justify-end items-center">
           {/* User Info on the Right */}
           <div className="flex items-center gap-3">
             {/* Theme Toggle */}
             <button
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="p-2 rounded-full hover:bg-gray-100"
+              className="p-1.5 rounded-full hover:bg-gray-100"
               aria-label="Toggle theme"
             >
               {mounted && theme === "dark" ? (
@@ -465,7 +465,7 @@ export default function ClientLayout({
             </button>
 
             <div className="relative cursor-pointer">
-              <Calendar className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
+              <Calendar className="h-7 w-7 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
             </div>
             <div
               className="relative cursor-pointer"
@@ -479,7 +479,7 @@ export default function ClientLayout({
                 }
               }}
             >
-              <Bell className="h-8 w-8 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
+              <Bell className="h-7 w-7 text-gray-600 border border-[#a1a1a1] p-1 rounded-md" />
               {unreadNotifCount > 0 && (
                 <span className="absolute -top-2 -right-2 min-w-[1.25rem] h-5 px-1 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
                   {unreadNotifCount > 99 ? "99+" : unreadNotifCount}
@@ -911,8 +911,8 @@ export default function ClientLayout({
         </header>
 
         {/* Page Content - Adjusted for Navbar */}
-        <main className="pt-0 lg:pt-24 lg:p-6 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 min-w-0 max-w-full">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+        <main className="pt-0 lg:pt-14 lg:p-6 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 min-w-0 max-w-full">
+          <div className="container mx-auto max-w-[1400px] w-full">
             {children}
           </div>
         </main>

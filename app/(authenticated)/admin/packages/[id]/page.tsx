@@ -194,14 +194,21 @@ export default function PackageDetailsPage() {
     package_description: string;
     package_price: string;
     guest_capacity: number;
+    venue_fee_buffer: string;
   }>({
     package_title: "",
     package_description: "",
     package_price: "",
     guest_capacity: 0,
+    venue_fee_buffer: "",
   });
   const [draggedItem, setDraggedItem] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showNavigationModal, setShowNavigationModal] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<
+    (() => void) | null
+  >(null);
 
   // Modal states
   const [confirmationModal, setConfirmationModal] = useState<{
@@ -291,6 +298,32 @@ export default function PackageDetailsPage() {
     }
   }, [params.id]);
 
+  // Navigation guard for unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges && isEditing) {
+        e.preventDefault();
+        e.returnValue =
+          "You have unsaved changes. Are you sure you want to leave?";
+        return "You have unsaved changes. Are you sure you want to leave?";
+      }
+    };
+
+    const handleRouteChange = () => {
+      if (hasUnsavedChanges && isEditing) {
+        setShowNavigationModal(true);
+        return false;
+      }
+      return true;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges, isEditing]);
+
   const fetchPackageDetails = async () => {
     try {
       setIsLoading(true);
@@ -347,6 +380,7 @@ export default function PackageDetailsPage() {
           package_description: safePackage.package_description || "",
           package_price: safePackage.package_price.toString(),
           guest_capacity: safePackage.guest_capacity,
+          venue_fee_buffer: (safePackage.venue_fee_buffer ?? 0).toString(),
         });
         // Initialize selected venues, freebies, and event types
         setSelectedVenues(safePackage.venues.map((v: Venue) => v.venue_id));
@@ -566,6 +600,12 @@ export default function PackageDetailsPage() {
     return api.getServeImageUrl(imagePath);
   };
 
+  const markAsChanged = () => {
+    if (isEditing) {
+      setHasUnsavedChanges(true);
+    }
+  };
+
   const handleEditPackage = () => {
     setIsEditing(true);
     setEditedInclusions([...(packageDetails!.inclusions || [])]);
@@ -587,10 +627,16 @@ export default function PackageDetailsPage() {
         ? packageDetails!.venues.map((v: Venue) => v.venue_id)
         : []
     );
+
+    toast.success("Edit mode activated", {
+      description: "You can now modify package details",
+      duration: 3000,
+    });
   };
 
   const handleCancelEdit = () => {
     setIsEditing(false);
+    setHasUnsavedChanges(false);
     setEditedInclusions([...(packageDetails!.inclusions || [])]);
 
     // Reset separated inclusions
@@ -615,6 +661,7 @@ export default function PackageDetailsPage() {
       package_description: packageDetails!.package_description || "",
       package_price: packageDetails!.package_price.toString(),
       guest_capacity: packageDetails!.guest_capacity,
+      venue_fee_buffer: (packageDetails!.venue_fee_buffer ?? 0).toString(),
     });
 
     // Preserve supplier selections from existing inclusions
@@ -625,6 +672,11 @@ export default function PackageDetailsPage() {
       }
     });
     setSelectedTiers(existingSelections);
+
+    toast.info("Changes discarded", {
+      description: "All unsaved changes have been reverted",
+      duration: 3000,
+    });
   };
 
   const handleSavePackage = async () => {
@@ -668,6 +720,8 @@ export default function PackageDetailsPage() {
         package_description: editedPackage.package_description.trim(),
         package_price: packagePriceValue,
         guest_capacity: editedPackage.guest_capacity,
+        venue_fee_buffer:
+          parsePrice(editedPackage.venue_fee_buffer.replace(/,/g, "")) || 0,
         components: [
           ...editedInHouseInclusions,
           ...editedSupplierInclusions,
@@ -749,6 +803,10 @@ export default function PackageDetailsPage() {
                 package_description: editedPackage.package_description,
                 package_price: packagePriceValue,
                 guest_capacity: editedPackage.guest_capacity,
+                venue_fee_buffer:
+                  parsePrice(
+                    editedPackage.venue_fee_buffer.replace(/,/g, "")
+                  ) || 0,
                 inclusions: [
                   ...editedInHouseInclusions,
                   ...editedSupplierInclusions,
@@ -768,6 +826,7 @@ export default function PackageDetailsPage() {
             : null
         );
         setIsEditing(false);
+        setHasUnsavedChanges(false);
         toast.success("✅ Package updated successfully!", {
           description: "All changes have been saved.",
           duration: 5000,
@@ -810,6 +869,10 @@ export default function PackageDetailsPage() {
                       package_description: editedPackage.package_description,
                       package_price: packagePriceValue,
                       guest_capacity: editedPackage.guest_capacity,
+                      venue_fee_buffer:
+                        parsePrice(
+                          editedPackage.venue_fee_buffer.replace(/,/g, "")
+                        ) || 0,
                       inclusions: [
                         ...editedInHouseInclusions,
                         ...editedSupplierInclusions,
@@ -831,6 +894,7 @@ export default function PackageDetailsPage() {
                   : null
               );
               setIsEditing(false);
+              setHasUnsavedChanges(false);
               toast.success("✅ Package updated successfully!");
             } else {
               toast.error(
@@ -933,6 +997,11 @@ export default function PackageDetailsPage() {
       updated[index] = { ...updated[index], name: newName };
       setEditedInHouseInclusions(updated);
     }
+    markAsChanged();
+    toast.info("Inclusion updated", {
+      description: `Name changed to "${newName}"`,
+      duration: 2000,
+    });
   };
 
   const handleInclusionPriceChange = (
@@ -949,12 +1018,21 @@ export default function PackageDetailsPage() {
       updated[index] = { ...updated[index], price: newPrice };
       setEditedInHouseInclusions(updated);
     }
+    markAsChanged();
+    toast.info("Price updated", {
+      description: `New price: ₱${newPrice.toLocaleString()}`,
+      duration: 2000,
+    });
   };
 
   const handleRemoveInclusion = (
     index: number,
     isSupplier: boolean = false
   ) => {
+    const inclusionName = isSupplier
+      ? editedSupplierInclusions[index]?.name
+      : editedInHouseInclusions[index]?.name;
+
     if (isSupplier) {
       const updated = editedSupplierInclusions.filter((_, i) => i !== index);
       setEditedSupplierInclusions(updated);
@@ -962,6 +1040,11 @@ export default function PackageDetailsPage() {
       const updated = editedInHouseInclusions.filter((_, i) => i !== index);
       setEditedInHouseInclusions(updated);
     }
+    markAsChanged();
+    toast.warning("Inclusion removed", {
+      description: `"${inclusionName}" has been removed`,
+      duration: 3000,
+    });
   };
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -1001,19 +1084,43 @@ export default function PackageDetailsPage() {
 
   // New handlers for comprehensive editing
   const handleVenueToggle = (venueId: number) => {
+    const venue = availableVenues.find((v) => v.venue_id === venueId);
+    const isSelected = selectedVenues.includes(venueId);
+
     setSelectedVenues((prev) =>
       prev.includes(venueId)
         ? prev.filter((id) => id !== venueId)
         : [...prev, venueId]
     );
+
+    markAsChanged();
+    toast.info(isSelected ? "Venue removed" : "Venue added", {
+      description: isSelected
+        ? `"${venue?.venue_title}" removed from package`
+        : `"${venue?.venue_title}" added to package`,
+      duration: 3000,
+    });
   };
 
   const handleEventTypeToggle = (eventTypeId: number) => {
+    const eventType = availableEventTypes.find(
+      (et) => et.event_type_id === eventTypeId
+    );
+    const isSelected = editedEventTypes.includes(eventTypeId);
+
     setEditedEventTypes((prev) =>
       prev.includes(eventTypeId)
         ? prev.filter((id) => id !== eventTypeId)
         : [...prev, eventTypeId]
     );
+
+    markAsChanged();
+    toast.info(isSelected ? "Event type removed" : "Event type added", {
+      description: isSelected
+        ? `"${eventType?.event_name}" removed from package`
+        : `"${eventType?.event_name}" added to package`,
+      duration: 3000,
+    });
   };
 
   const handleAddInclusion = () => {
@@ -1034,17 +1141,34 @@ export default function PackageDetailsPage() {
         components: [{ name: "", price: 0, subComponents: [] }],
       });
       setShowAddInclusion(false);
+
+      markAsChanged();
+      toast.success("Inclusion added", {
+        description: `"${newInclusion.name}" has been added to the package`,
+        duration: 3000,
+      });
     }
   };
 
   const handleAddFreebie = (freebie: string) => {
     if (freebie.trim()) {
       setEditedFreebies((prev) => [...prev, freebie.trim()]);
+      markAsChanged();
+      toast.success("Freebie added", {
+        description: `"${freebie.trim()}" has been added to the package`,
+        duration: 3000,
+      });
     }
   };
 
   const handleRemoveFreebie = (index: number) => {
+    const freebieName = editedFreebies[index];
     setEditedFreebies((prev) => prev.filter((_, i) => i !== index));
+    markAsChanged();
+    toast.warning("Freebie removed", {
+      description: `"${freebieName}" has been removed from the package`,
+      duration: 3000,
+    });
   };
 
   const handleAddComponent = (
@@ -1335,6 +1459,31 @@ export default function PackageDetailsPage() {
     }
   };
 
+  // Navigation guard handlers
+  const handleNavigationAttempt = (navigationFn: () => void) => {
+    if (hasUnsavedChanges && isEditing) {
+      setPendingNavigation(() => navigationFn);
+      setShowNavigationModal(true);
+    } else {
+      navigationFn();
+    }
+  };
+
+  const handleConfirmNavigation = () => {
+    if (pendingNavigation) {
+      setHasUnsavedChanges(false);
+      setIsEditing(false);
+      pendingNavigation();
+      setPendingNavigation(null);
+    }
+    setShowNavigationModal(false);
+  };
+
+  const handleCancelNavigation = () => {
+    setPendingNavigation(null);
+    setShowNavigationModal(false);
+  };
+
   // Handle adding supplier service (using client booking logic as reference)
   const handleAddSupplierService = (service: any, supplier: Supplier) => {
     console.log("=== handleAddSupplierService called ===");
@@ -1448,12 +1597,22 @@ export default function PackageDetailsPage() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <button
-                onClick={() => router.push("/admin/packages")}
+                onClick={() =>
+                  handleNavigationAttempt(() => router.push("/admin/packages"))
+                }
                 className="flex items-center text-gray-600 hover:text-gray-900"
               >
                 <ArrowLeft className="h-5 w-5 mr-2" />
                 Back to Packages
               </button>
+              {hasUnsavedChanges && isEditing && (
+                <div className="ml-4 flex items-center gap-2">
+                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                  <span className="text-sm text-yellow-600 font-medium">
+                    Unsaved changes
+                  </span>
+                </div>
+              )}
             </div>
             <div className="flex items-center space-x-4">
               {!isEditing ? (
@@ -1516,12 +1675,17 @@ export default function PackageDetailsPage() {
                     <input
                       type="text"
                       value={editedPackage.package_title}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setEditedPackage((prev) => ({
                           ...prev,
                           package_title: e.target.value,
-                        }))
-                      }
+                        }));
+                        markAsChanged();
+                        toast.info("Package title updated", {
+                          description: `Title changed to "${e.target.value}"`,
+                          duration: 2000,
+                        });
+                      }}
                       className="text-3xl font-bold text-gray-900 bg-white border border-gray-300 rounded px-3 py-2 w-full"
                       placeholder="Package Title"
                     />
@@ -1530,12 +1694,17 @@ export default function PackageDetailsPage() {
                     <Edit className="h-4 w-4 text-gray-400 mt-2" />
                     <textarea
                       value={editedPackage.package_description}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setEditedPackage((prev) => ({
                           ...prev,
                           package_description: e.target.value,
-                        }))
-                      }
+                        }));
+                        markAsChanged();
+                        toast.info("Package description updated", {
+                          description: "Description has been modified",
+                          duration: 2000,
+                        });
+                      }}
                       className="text-gray-600 bg-white border border-gray-300 rounded px-3 py-2 w-full resize-none"
                       placeholder="Package Description"
                       rows={3}
@@ -1587,6 +1756,11 @@ export default function PackageDetailsPage() {
                               ...prev,
                               package_price: formattedValue,
                             }));
+                            markAsChanged();
+                            toast.info("Package price updated", {
+                              description: `New price: ₱${formattedValue}`,
+                              duration: 2000,
+                            });
                             return;
                           }
                         }
@@ -1595,6 +1769,7 @@ export default function PackageDetailsPage() {
                           ...prev,
                           package_price: value,
                         }));
+                        markAsChanged();
                       }}
                       onFocus={(e) => {
                         // Remove commas on focus for easier editing
@@ -1614,12 +1789,18 @@ export default function PackageDetailsPage() {
                     <input
                       type="number"
                       value={editedPackage.guest_capacity}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const newCapacity = parseInt(e.target.value) || 0;
                         setEditedPackage((prev) => ({
                           ...prev,
-                          guest_capacity: parseInt(e.target.value) || 0,
-                        }))
-                      }
+                          guest_capacity: newCapacity,
+                        }));
+                        markAsChanged();
+                        toast.info("Guest capacity updated", {
+                          description: `New capacity: ${newCapacity} guests`,
+                          duration: 2000,
+                        });
+                      }}
                       className="text-sm bg-white border border-gray-300 rounded px-2 py-1 w-20 text-right"
                       placeholder="Capacity"
                     />
@@ -1747,15 +1928,80 @@ export default function PackageDetailsPage() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-3xl font-bold text-blue-600">
-                        ₱
-                        {(
-                          packageDetails.venue_fee_buffer || 0
-                        ).toLocaleString()}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Client pays additional if venue costs exceed this buffer
-                      </p>
+                      {isEditing ? (
+                        <div className="flex items-center space-x-2">
+                          <Edit className="h-4 w-4 text-gray-400" />
+                          <span className="text-sm text-gray-500">₱</span>
+                          <input
+                            type="text"
+                            value={editedPackage.venue_fee_buffer}
+                            onChange={(e) => {
+                              // Remove non-numeric characters except decimal point
+                              let value = e.target.value.replace(/[^\d.]/g, "");
+
+                              // Ensure only one decimal point
+                              const parts = value.split(".");
+                              if (parts.length > 2) {
+                                value =
+                                  parts[0] + "." + parts.slice(1).join("");
+                              }
+
+                              // Format with commas automatically as user types
+                              if (value && value !== ".") {
+                                const numericValue = parseFloat(value);
+                                if (!isNaN(numericValue)) {
+                                  const formattedValue =
+                                    numericValue.toLocaleString("en-US", {
+                                      minimumFractionDigits: 0,
+                                      maximumFractionDigits: 2,
+                                    });
+                                  setEditedPackage((prev) => ({
+                                    ...prev,
+                                    venue_fee_buffer: formattedValue,
+                                  }));
+                                  markAsChanged();
+                                  toast.info("Venue fee buffer updated", {
+                                    description: `New buffer: ₱${formattedValue}`,
+                                    duration: 2000,
+                                  });
+                                  return;
+                                }
+                              }
+
+                              setEditedPackage((prev) => ({
+                                ...prev,
+                                venue_fee_buffer: value,
+                              }));
+                              markAsChanged();
+                            }}
+                            onFocus={(e) => {
+                              // Remove commas on focus for easier editing
+                              const numericValue =
+                                parseFloat(e.target.value.replace(/,/g, "")) ||
+                                0;
+                              setEditedPackage((prev) => ({
+                                ...prev,
+                                venue_fee_buffer: numericValue.toString(),
+                              }));
+                            }}
+                            className="text-3xl font-bold text-blue-600 bg-white border border-gray-300 rounded px-3 py-2 w-48 text-right"
+                            placeholder="0"
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-3xl font-bold text-blue-600">
+                            ₱
+                            {(
+                              packageDetails.venue_fee_buffer || 0
+                            ).toLocaleString()}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Client pays additional if venue costs exceed this
+                            buffer
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2676,7 +2922,7 @@ export default function PackageDetailsPage() {
                   ? editedFreebies || []
                   : packageDetails?.freebies || []
               }
-              venueFeeBuffer={packageDetails?.venue_fee_buffer || null}
+              venueFeeBuffer={packageDetails?.venue_fee_buffer ?? 0}
             />
           </div>
         </div>
@@ -2743,15 +2989,15 @@ export default function PackageDetailsPage() {
 
       {/* Add New Inclusion Modal */}
       <Dialog open={showAddInclusion} onOpenChange={setShowAddInclusion}>
-        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-4">
             <DialogTitle>Add New Inclusion</DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 flex gap-6 min-h-0">
+          <div className="flex-1 flex gap-6 min-h-0 px-6 overflow-hidden">
             {/* Left Side - Form */}
             <div className="flex-1 flex flex-col min-h-0">
-              <div className="space-y-4 overflow-y-auto pr-2">
+              <div className="space-y-4 overflow-y-auto pr-2 pb-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
                 <div className="grid gap-2">
                   <Label htmlFor="inclusion-name">Inclusion Name</Label>
                   <Input
@@ -2915,9 +3161,9 @@ export default function PackageDetailsPage() {
             </div>
 
             {/* Right Side - Budget Breakdown */}
-            <div className="w-80 border-l border-gray-200 bg-gray-50 flex flex-col min-h-0">
+            <div className="w-80 border-l border-gray-200 bg-gray-50 flex flex-col min-h-0 -mr-6">
               {/* Scrollable Budget Section */}
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
                 <div className="p-4 border-b border-gray-200 bg-white">
                   <h4 className="text-base font-semibold text-gray-900 mb-3">
                     Budget Preview
@@ -2954,12 +3200,12 @@ export default function PackageDetailsPage() {
                         ? editedFreebies || []
                         : packageDetails?.freebies || []
                     }
-                    venueFeeBuffer={packageDetails?.venue_fee_buffer || null}
+                    venueFeeBuffer={packageDetails?.venue_fee_buffer ?? 0}
                   />
                 </div>
 
                 {/* Additional Info */}
-                <div className="p-4">
+                <div className="p-4 pb-6">
                   <div className="space-y-3">
                     <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
                       <h5 className="font-medium text-blue-900 mb-2 text-xs">
@@ -3033,16 +3279,18 @@ export default function PackageDetailsPage() {
             </div>
           </div>
 
-          <DialogFooter className="mt-4 border-t border-gray-200 bg-white px-6 py-4 -mx-6 -mb-6">
+          <DialogFooter className="border-t border-gray-200 bg-white px-6 py-4 flex items-center justify-end gap-3 flex-shrink-0">
             <Button
               variant="outline"
               onClick={() => setShowAddInclusion(false)}
+              className="border-gray-300 hover:bg-gray-50"
             >
               Cancel
             </Button>
             <Button
               onClick={handleAddInclusion}
-              className="bg-[#028A75] hover:bg-[#027A6B] text-white"
+              disabled={!newInclusion.name.trim() || newInclusion.price <= 0}
+              className="bg-[#028A75] hover:bg-[#027A6B] text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Add Inclusion
             </Button>
@@ -3679,7 +3927,7 @@ export default function PackageDetailsPage() {
                           ? editedFreebies || []
                           : packageDetails?.freebies || []
                       }
-                      venueFeeBuffer={packageDetails?.venue_fee_buffer || null}
+                      venueFeeBuffer={packageDetails?.venue_fee_buffer ?? 0}
                     />
                   </div>
 
@@ -4164,6 +4412,47 @@ export default function PackageDetailsPage() {
           </div>
         </div>
       )}
+
+      {/* Navigation Guard Modal */}
+      <Dialog open={showNavigationModal} onOpenChange={setShowNavigationModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <AlertTriangle className="h-6 w-6 text-yellow-600" />
+              Unsaved Changes
+            </DialogTitle>
+            <DialogDescription className="text-gray-600 mt-2">
+              You have unsaved changes to this package. What would you like to
+              do?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-4">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-sm text-yellow-800">
+                <strong>Warning:</strong> If you leave now, all your unsaved
+                changes will be lost.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 mt-6">
+            <Button
+              variant="outline"
+              onClick={handleCancelNavigation}
+              className="border-gray-300 hover:bg-gray-50"
+            >
+              Stay and Continue Editing
+            </Button>
+            <Button
+              onClick={handleConfirmNavigation}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Leave Without Saving
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 import { adminApi } from "@/app/utils/api";
 import { endpoints } from "@/app/config/api";
+import { CancellationModal } from "./cancellation-modal";
 
 // Enhanced interface to match updated tbl_events structure
 interface Event {
@@ -110,6 +111,12 @@ export default function EventsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("");
   const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
+
+  // Cancellation modal state
+  const [showCancellationModal, setShowCancellationModal] = useState(false);
+  const [selectedEventForCancellation, setSelectedEventForCancellation] =
+    useState<Event | null>(null);
+  const [cancellationLoading, setCancellationLoading] = useState(false);
 
   useEffect(() => {
     try {
@@ -225,6 +232,68 @@ export default function EventsPage() {
   const handleViewDetails = (eventId: number) => {
     console.log("🎯 Navigating to event details for event:", eventId);
     router.push(`/admin/events/${eventId}`);
+  };
+
+  // Cancellation functions
+  const handleCancelEvent = (event: Event) => {
+    setSelectedEventForCancellation(event);
+    setShowCancellationModal(true);
+  };
+
+  const handleConfirmCancellation = async (
+    reason: string,
+    termsAccepted: boolean
+  ) => {
+    if (!selectedEventForCancellation) return;
+
+    setCancellationLoading(true);
+    try {
+      const userData = secureStorage.getItem("user");
+      const adminId = userData?.user_id;
+
+      if (!adminId) {
+        toast({
+          title: "Error",
+          description: "Admin ID not found. Please log in again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const response = await adminApi.post(endpoints.admin, {
+        operation: "cancelEvent",
+        event_id: selectedEventForCancellation.event_id,
+        cancellation_reason: reason,
+        admin_id: adminId,
+      } as any);
+
+      if (response.data.status === "success") {
+        toast({
+          title: "Success",
+          description: `Event cancelled successfully. Refund amount: ₱${response.data.refund_amount}`,
+        });
+
+        // Refresh events list
+        fetchEvents();
+        setShowCancellationModal(false);
+        setSelectedEventForCancellation(null);
+      } else {
+        toast({
+          title: "Error",
+          description: response.data.message || "Failed to cancel event",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error cancelling event:", error);
+      toast({
+        title: "Error",
+        description: "Failed to cancel event. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setCancellationLoading(false);
+    }
   };
 
   // Clear all filters
@@ -449,18 +518,30 @@ export default function EventsPage() {
       const isSelected =
         selectedDate && date.toDateString() === selectedDate.toDateString();
 
+      // Check if date is in the past (before today, not including today)
+      const isPastDate = date < today;
+      const isClickable = true; // Make all dates clickable
+
       // Display events with their actual status colors per legend; no auto overrides
 
       calendarDays.push(
         <div
           key={day}
-          className={`min-h-[120px] p-2 border cursor-pointer hover:bg-gray-50 transition-colors duration-200 ${
+          className={`min-h-[120px] p-2 border transition-colors duration-200 ${
+            isPastDate ? "opacity-75 bg-gray-50 border-gray-200" : ""
+          } ${
             isToday ? "bg-blue-50 border-blue-200" : "border-gray-200"
-          } ${isSelected ? "ring-2 ring-[#028A75]" : ""}`}
+          } ${isSelected ? "ring-2 ring-[#028A75]" : ""} cursor-pointer hover:bg-gray-50`}
           onClick={() => setSelectedDate(date)}
         >
           <div
-            className={`text-sm font-medium mb-1 ${isToday ? "text-blue-600" : "text-gray-900"}`}
+            className={`text-sm font-medium mb-1 ${
+              isPastDate
+                ? "text-gray-400"
+                : isToday
+                  ? "text-blue-600"
+                  : "text-gray-900"
+            }`}
           >
             {day}
           </div>
@@ -471,7 +552,9 @@ export default function EventsPage() {
               return (
                 <div
                   key={event.event_id}
-                  className={`text-xs p-1 rounded truncate ${colors.bg} ${colors.text} cursor-pointer hover:opacity-80 transition-opacity duration-200`}
+                  className={`text-xs p-1 rounded truncate ${colors.bg} ${colors.text} ${
+                    isPastDate ? "opacity-70" : "hover:opacity-80"
+                  } transition-opacity duration-200 cursor-pointer`}
                   title={`${event.event_title} - ${event.client_name || "Unknown Client"}${event.start_time && event.end_time ? ` (${format(new Date(`2000-01-01T${event.start_time}`), "h:mm a")} - ${format(new Date(`2000-01-01T${event.end_time}`), "h:mm a")})` : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -497,7 +580,9 @@ export default function EventsPage() {
               );
             })}
             {dayEvents.length > 3 && (
-              <div className="text-xs text-gray-500">
+              <div
+                className={`text-xs ${isPastDate ? "text-gray-400" : "text-gray-500"}`}
+              >
                 +{dayEvents.length - 3} more
               </div>
             )}
@@ -574,6 +659,8 @@ export default function EventsPage() {
     if (!selectedDate) return null;
 
     const dayEvents = getEventsForDate(selectedDate);
+    const today = new Date();
+    const isPastDate = selectedDate < today;
 
     return (
       <div className="bg-white rounded-lg border border-gray-200 p-6 animate-in slide-in-from-right-4 duration-500">
@@ -584,6 +671,9 @@ export default function EventsPage() {
             month: "long",
             day: "numeric",
           })}
+          {isPastDate && (
+            <span className="text-sm text-gray-500 ml-2">(Past Date)</span>
+          )}
         </h3>
 
         {dayEvents.length === 0 ? (
@@ -603,7 +693,9 @@ export default function EventsPage() {
               return (
                 <div
                   key={event.event_id}
-                  className={`p-4 rounded-lg border-l-4 ${colors.border} ${colors.bg} cursor-pointer hover:opacity-80 transition-all duration-200 animate-in slide-in-from-right-4 delay-${index * 100}`}
+                  className={`p-4 rounded-lg border-l-4 ${colors.border} ${colors.bg} ${
+                    isPastDate ? "opacity-80" : "hover:opacity-80"
+                  } transition-all duration-200 animate-in slide-in-from-right-4 delay-${index * 100} cursor-pointer`}
                   onClick={() => router.push(`/admin/events/${event.event_id}`)}
                 >
                   <div className="flex items-start space-x-3">
@@ -918,7 +1010,7 @@ export default function EventsPage() {
             return (
               <div
                 key={event.event_id}
-                className={`rounded-lg border border-gray-200 bg-white p-6 flex flex-col justify-between hover:shadow-lg transition-all duration-300 cursor-pointer animate-in slide-in-from-bottom-4  delay-${index * 50}`}
+                className="group relative bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer overflow-hidden"
                 onClick={() => {
                   console.log(
                     "🃏 Event card clicked, navigating to:",
@@ -927,55 +1019,61 @@ export default function EventsPage() {
                   router.push(`/admin/events/${event.event_id}`);
                 }}
               >
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="font-bold text-lg text-gray-900 truncate">
-                      {event.event_title}
-                    </h2>
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-semibold ${colors.bg} ${colors.text}`}
-                    >
-                      {formatEventStatusLabel(derivedStatus)}
-                    </span>
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-semibold ${paymentColors.bg} ${paymentColors.text}`}
-                    >
-                      {formatPaymentStatusLabel(event.payment_status)}
-                    </span>
-                  </div>
-
-                  {event.event_theme && (
-                    <div className="text-sm text-gray-500 mb-3 italic">
-                      Theme: {event.event_theme}
-                    </div>
-                  )}
-
-                  <div className="text-sm text-gray-600 mb-2">
-                    {new Date(event.event_date).toLocaleDateString("en-US", {
-                      weekday: "long",
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </div>
-
-                  {event.start_time && event.end_time && (
-                    <div className="text-sm text-gray-600 mb-4">
-                      {format(
-                        new Date(`2000-01-01T${event.start_time}`),
-                        "h:mm a"
-                      )}{" "}
-                      -{" "}
-                      {format(
-                        new Date(`2000-01-01T${event.end_time}`),
-                        "h:mm a"
+                {/* Card Header */}
+                <div className="p-6 pb-4">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1 min-w-0">
+                      <h2 className="font-bold text-lg text-gray-900 truncate mb-2">
+                        {event.event_title}
+                      </h2>
+                      {event.event_theme && (
+                        <p className="text-sm text-gray-500 italic">
+                          Theme: {event.event_theme}
+                        </p>
                       )}
                     </div>
-                  )}
+                    <div className="flex flex-col gap-2 ml-4">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-semibold ${colors.bg} ${colors.text}`}
+                      >
+                        {formatEventStatusLabel(derivedStatus)}
+                      </span>
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-semibold ${paymentColors.bg} ${paymentColors.text}`}
+                      >
+                        {formatPaymentStatusLabel(event.payment_status)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Event Date & Time */}
+                  <div className="mb-4">
+                    <div className="text-sm text-gray-600 mb-1">
+                      {new Date(event.event_date).toLocaleDateString("en-US", {
+                        weekday: "long",
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </div>
+                    {event.start_time && event.end_time && (
+                      <div className="text-sm text-gray-500">
+                        {format(
+                          new Date(`2000-01-01T${event.start_time}`),
+                          "h:mm a"
+                        )}{" "}
+                        -{" "}
+                        {format(
+                          new Date(`2000-01-01T${event.end_time}`),
+                          "h:mm a"
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Client Information Section */}
-                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-3 mb-3">
+                  <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center space-x-3">
                       {/* Client Profile Picture */}
                       <div className="relative flex-shrink-0">
                         {event.client_pfp &&
@@ -983,7 +1081,7 @@ export default function EventsPage() {
                             <img
                               src={getProfileImageUrl(event.client_pfp)}
                               alt={`${event.client_name}'s profile`}
-                              className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
+                              className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
                               onError={(e) => {
                                 console.log(
                                   "Profile image failed to load:",
@@ -1003,9 +1101,9 @@ export default function EventsPage() {
                             />
                           )}
                         <div
-                          className={`w-12 h-12 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full flex items-center justify-center ${event.client_pfp && getProfileImageUrl(event.client_pfp) ? "hidden" : ""}`}
+                          className={`w-10 h-10 bg-gradient-to-br from-[#028A75] to-[#027a65] rounded-full flex items-center justify-center ${event.client_pfp && getProfileImageUrl(event.client_pfp) ? "hidden" : ""}`}
                         >
-                          <span className="text-white font-medium text-sm">
+                          <span className="text-white font-medium text-xs">
                             {event.client_name
                               ? getClientInitials(event.client_name)
                               : "C"}
@@ -1030,104 +1128,129 @@ export default function EventsPage() {
                     </div>
                   </div>
 
-                  <div className="text-sm mb-4 space-y-2">
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Venue:</span>
-                      <span className="text-gray-600">
-                        {event.venue_name || "TBD"}
-                      </span>
+                  {/* Event Details */}
+                  <div className="mb-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="font-medium text-gray-700">
+                          Venue:
+                        </span>
+                        <p className="text-gray-600 truncate">
+                          {event.venue_name || "TBD"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Type:</span>
+                        <p className="text-gray-600 truncate">
+                          {event.event_type_name || "Unknown"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">
+                          Package:
+                        </span>
+                        <p className="text-gray-600 truncate">
+                          {event.package_title || "Custom"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">
+                          Guests:
+                        </span>
+                        <p className="text-gray-600">{event.guest_count}</p>
+                      </div>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Type:</span>
-                      <span className="text-gray-600">
-                        {event.event_type_name || "Unknown"}
-                      </span>
+
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="font-medium text-gray-700">
+                          Budget:
+                        </span>
+                        <p className="text-gray-600 font-semibold">
+                          ₱{event.total_budget?.toLocaleString() || "0"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">
+                          Down Payment:
+                        </span>
+                        <p className="text-gray-600 font-semibold">
+                          ₱{event.down_payment?.toLocaleString() || "0"}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">
-                        Package:
-                      </span>
-                      <span className="text-gray-600">
-                        {event.package_title || "Custom"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Guests:</span>
-                      <span className="text-gray-600">{event.guest_count}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">Budget:</span>
-                      <span className="text-gray-600">
-                        ₱{event.total_budget?.toLocaleString() || "0"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">
-                        Down Payment:
-                      </span>
-                      <span className="text-gray-600">
-                        ₱{event.down_payment?.toLocaleString() || "0"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium text-gray-700">
-                        Payment Status:
-                      </span>
-                      <span
-                        className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
-                      >
-                        {formatPaymentStatusLabel(event.payment_status)}
-                      </span>
-                    </div>
+
                     {event.original_booking_reference && (
-                      <div className="flex justify-between">
+                      <div className="text-sm">
                         <span className="font-medium text-gray-700">
                           Booking Ref:
                         </span>
-                        <span className="text-gray-600">
+                        <p className="text-gray-600 font-mono text-xs">
                           {event.original_booking_reference}
-                        </span>
+                        </p>
                       </div>
                     )}
                   </div>
 
                   {event.additional_notes && (
-                    <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg mb-4">
-                      <span className="font-semibold">Notes:</span>{" "}
-                      {event.additional_notes}
+                    <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                      <span className="font-semibold text-xs text-gray-700">
+                        Notes:
+                      </span>
+                      <p className="text-xs text-gray-600 mt-1">
+                        {event.additional_notes}
+                      </p>
                     </div>
                   )}
                 </div>
 
-                <div className="flex justify-between items-center pt-4 border-t border-gray-100">
-                  <button
-                    className="flex items-center gap-1 px-3 py-1 rounded border border-gray-300 bg-gray-50 text-gray-700 text-sm font-medium hover:bg-gray-100 transition-colors duration-200"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      router.push(`/admin/events/${event.event_id}/timeline`);
-                    }}
-                  >
-                    <span>⏱️</span> Timeline
-                  </button>
-                  <button
-                    className="flex items-center gap-1 px-3 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition-colors duration-200"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      router.push(`/admin/payments?event_id=${event.event_id}`);
-                    }}
-                  >
-                    <span>💳</span> Payments
-                  </button>
-                  <button
-                    className="px-4 py-1 rounded bg-[#028A75] text-white text-sm font-semibold hover:bg-[#027a65] transition-colors duration-200"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleViewDetails(event.event_id);
-                    }}
-                  >
-                    View Details
-                  </button>
+                {/* Action Buttons */}
+                <div className="p-6 pt-4 border-t border-gray-100 bg-gray-50">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="flex items-center gap-1 px-3 py-2 rounded-md border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors duration-200"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(`/admin/events/${event.event_id}/timeline`);
+                      }}
+                    >
+                      <span>⏱️</span> Timeline
+                    </button>
+                    <button
+                      className="flex items-center gap-1 px-3 py-2 rounded-md border border-blue-300 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition-colors duration-200"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(
+                          `/admin/payments?event_id=${event.event_id}`
+                        );
+                      }}
+                    >
+                      <span>💳</span> Payments
+                    </button>
+                    <button
+                      className="px-4 py-2 rounded-md bg-[#028A75] text-white text-sm font-semibold hover:bg-[#027a65] transition-colors duration-200"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleViewDetails(event.event_id);
+                      }}
+                    >
+                      View Details
+                    </button>
+                    {event.event_status !== "cancelled" &&
+                      event.event_status !== "done" && (
+                        <button
+                          className="px-4 py-2 rounded-md bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors duration-200"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleCancelEvent(event);
+                          }}
+                        >
+                          Cancel Event
+                        </button>
+                      )}
+                  </div>
                 </div>
               </div>
             );
@@ -1168,6 +1291,20 @@ export default function EventsPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Cancellation Modal */}
+      {selectedEventForCancellation && (
+        <CancellationModal
+          isOpen={showCancellationModal}
+          onClose={() => {
+            setShowCancellationModal(false);
+            setSelectedEventForCancellation(null);
+          }}
+          onConfirm={handleConfirmCancellation}
+          event={selectedEventForCancellation}
+          loading={cancellationLoading}
+        />
       )}
     </div>
   );

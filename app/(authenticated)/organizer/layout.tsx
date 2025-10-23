@@ -20,7 +20,6 @@ import {
   ChevronRight,
   Plus,
   Store,
-  BarChart3,
   Menu,
   X,
 } from "lucide-react";
@@ -95,14 +94,13 @@ export default function OrganizerLayout({
 
   const menuSections: MenuSection[] = [
     {
-      label: "Overview",
+      label: "Dashboard",
       items: [
         {
           icon: LayoutDashboard,
           label: "Dashboard",
           href: "/organizer/dashboard",
         },
-        { icon: BarChart3, label: "Overview", href: "/organizer/overview" },
       ],
     },
     {
@@ -117,7 +115,6 @@ export default function OrganizerLayout({
   // Mobile navigation items for bottom nav
   const mobileNavItems = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/organizer/dashboard" },
-    { icon: BarChart3, label: "Overview", href: "/organizer/overview" },
     { icon: Calendar, label: "Events", href: "/organizer/events" },
     { icon: Users, label: "Assignments", href: "/organizer/assignments" },
   ];
@@ -865,6 +862,13 @@ export default function OrganizerLayout({
                             <SidebarMenuButton asChild>
                               <Link
                                 href={item.href || "#"}
+                                onClick={(e) => {
+                                  // Ensure client-side navigation
+                                  if (item.href && item.href !== "#") {
+                                    e.preventDefault();
+                                    router.push(item.href);
+                                  }
+                                }}
                                 className={`
                                   flex items-center gap-3 px-3 py-2 rounded-md transition
                                   ml-2 text-sm
@@ -1383,7 +1387,7 @@ export default function OrganizerLayout({
 
         {/* Page Content - Adjusted for Navbar */}
         <main className="lg:pt-24 lg:p-6 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 min-w-0 max-w-full">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+          <div className="container mx-auto max-w-[1400px] w-full">
             {children}
           </div>
         </main>

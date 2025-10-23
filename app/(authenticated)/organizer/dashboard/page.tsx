@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { secureStorage } from "@/app/utils/encryption";
+import { endpoints } from "@/app/config/api";
 
 // Configure axios base URL
 axios.defaults.baseURL =
@@ -309,7 +310,7 @@ export default function OrganizerDashboard() {
       // Resolve organizer_id from profile first
       (async () => {
         try {
-          const resp = await axios.post("/organizer.php", {
+          const resp = await axios.post(endpoints.organizer, {
             operation: "getOrganizerProfile",
             user_id: userData.user_id,
           });
@@ -356,7 +357,7 @@ export default function OrganizerDashboard() {
 
   const fetchAndPopulateDashboard = async (oid: number) => {
     try {
-      const res = await axios.post("/organizer.php", {
+      const res = await axios.post(endpoints.organizer, {
         operation: "getOrganizerEvents",
         organizer_id: oid,
       });

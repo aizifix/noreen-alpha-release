@@ -6,7 +6,7 @@ export const venueList: Venue[] = [
     name: "Pearlmont Hotel",
     location: "Limketkai Drive, Cagayan de Oro City",
     description: "A premier hotel offering elegant venues for various events",
-    image: "/placeholder.svg?height=200&width=400&text=Pearlmont+Hotel",
+    image: "/placeholder.svg?height=170&width=340&text=Pearlmont+Hotel",
     packages: [
       {
         id: "pearlmont-debut-1",
@@ -158,7 +158,7 @@ export const venueList: Venue[] = [
     name: "Grand Riviera Hotel",
     location: "Makati City",
     description: "Luxury hotel with panoramic city views",
-    image: "/placeholder.svg?height=200&width=400&text=Grand+Riviera",
+    image: "/placeholder.svg?height=170&width=340&text=Grand+Riviera",
     packages: [
       {
         id: "riviera-basic",
@@ -208,7 +208,7 @@ export const venueList: Venue[] = [
     name: "Coconut Bay Resort",
     location: "Batangas",
     description: "Beachfront resort with tropical gardens",
-    image: "/placeholder.svg?height=200&width=400&text=Coconut+Bay",
+    image: "/placeholder.svg?height=170&width=340&text=Coconut+Bay",
     packages: [
       {
         id: "coconut-basic",
@@ -260,7 +260,7 @@ export const venueList: Venue[] = [
     name: "Seda Hotel",
     location: "Cagayan de Oro City",
     description: "Modern hotel with contemporary event spaces",
-    image: "/placeholder.svg?height=200&width=400&text=Seda+Hotel",
+    image: "/placeholder.svg?height=170&width=340&text=Seda+Hotel",
     packages: [
       {
         id: "seda-wedding",

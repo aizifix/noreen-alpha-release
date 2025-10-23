@@ -75,9 +75,29 @@ export const decryptData = (encryptedData: string): any => {
       return null;
     }
 
+    // Validate that the encrypted data looks like a valid encrypted string
+    if (typeof encryptedData !== 'string' || encryptedData.length === 0) {
+      console.error("Invalid encrypted data format");
+      return null;
+    }
+
     // First, try to decrypt the data
     const bytes = CryptoJS.AES.decrypt(encryptedData, ENCRYPTION_KEY);
-    const decryptedString = bytes.toString(CryptoJS.enc.Utf8);
+
+    // Check if decryption was successful by verifying we have valid bytes
+    if (!bytes || bytes.sigBytes <= 0) {
+      console.error("Decryption failed - invalid encrypted data or wrong key");
+      return null;
+    }
+
+    // Try to convert to UTF-8 string with better error handling
+    let decryptedString: string;
+    try {
+      decryptedString = bytes.toString(CryptoJS.enc.Utf8);
+    } catch (utf8Error) {
+      console.error("Malformed UTF-8 data - corrupted encrypted data:", utf8Error);
+      return null;
+    }
 
     // Verify the decrypted data is valid JSON
     if (!decryptedString || !isValidJSON(decryptedString)) {
@@ -168,16 +188,34 @@ export const secureStorage = {
       if (!encryptedData) {
         return null;
       }
+
       const decryptedData = decryptData(encryptedData);
       if (!decryptedData) {
         // If decryption fails, clean up the corrupted data
+        console.warn(`Corrupted data found for key "${key}", clearing localStorage`);
         localStorage.removeItem(key);
+
+        // If this is user data, also clear cookies
+        if (key === "user") {
+          document.cookie = "user=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+          document.cookie = "user_admin=; path=/admin; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+          document.cookie = "user_organizer=; path=/organizer; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+          document.cookie = "user_client=; path=/client; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+        }
       }
       return decryptedData;
     } catch (error) {
       console.error("Error retrieving encrypted data:", error);
       // Clean up potentially corrupted data
       localStorage.removeItem(key);
+
+      // If this is user data, also clear cookies
+      if (key === "user") {
+        document.cookie = "user=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+        document.cookie = "user_admin=; path=/admin; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+        document.cookie = "user_organizer=; path=/organizer; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+        document.cookie = "user_client=; path=/client; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+      }
       return null;
     }
   },
@@ -207,6 +245,29 @@ export const secureStorage = {
       localStorage.clear();
     } catch (error) {
       console.error("Error clearing storage:", error);
+    }
+  },
+
+  // Helper method to clear corrupted data and reset authentication
+  clearCorruptedData: () => {
+    try {
+      console.warn("Clearing corrupted data and resetting authentication");
+
+      // Clear all localStorage
+      localStorage.clear();
+
+      // Clear all authentication cookies
+      document.cookie = "user=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+      document.cookie = "user_admin=; path=/admin; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+      document.cookie = "user_organizer=; path=/organizer; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+      document.cookie = "user_client=; path=/client; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax";
+
+      // Redirect to login page
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/login';
+      }
+    } catch (error) {
+      console.error("Error clearing corrupted data:", error);
     }
   },
 };

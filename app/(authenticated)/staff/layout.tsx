@@ -588,7 +588,14 @@ export default function StaffLayout({
                             <SidebarMenuButton asChild>
                               <Link
                                 href={item.href || "#"}
-                                onClick={() => setIsMobileMenuOpen(false)}
+                                onClick={(e) => {
+                                  setIsMobileMenuOpen(false);
+                                  // Ensure client-side navigation
+                                  if (item.href && item.href !== "#") {
+                                    e.preventDefault();
+                                    router.push(item.href);
+                                  }
+                                }}
                                 className={`
                                   flex items-center gap-2 px-2 py-2 rounded-md transition
                                   ml-1 text-sm
@@ -839,7 +846,9 @@ export default function StaffLayout({
         </header>
 
         {/* Page Content - Adjusted for Navbar */}
-        <main className="flex-1 p-3 lg:p-6 overflow-auto">{children}</main>
+        <main className="flex-1 p-3 lg:p-6 overflow-auto">
+          <div className="container mx-auto max-w-[1400px]">{children}</div>
+        </main>
         {/* Global Toaster moved to root layout */}
       </div>
     </div>

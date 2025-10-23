@@ -22,6 +22,7 @@ import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 import axios from "axios";
 import { organizerApi } from "@/app/utils/api";
+import { endpoints } from "@/app/config/api";
 
 // Enhanced interface to match updated tbl_events structure
 interface Event {
@@ -235,7 +236,7 @@ export default function OrganizerEventsPage() {
 
       // Try to get the actual organizer_id from the profile first
       try {
-        const organizerResponse = await axios.post("/organizer.php", {
+        const organizerResponse = await axios.post(endpoints.organizer, {
           operation: "getOrganizerProfile",
           user_id: organizerUserId,
         });
@@ -260,7 +261,7 @@ export default function OrganizerEventsPage() {
       // Fetch events assigned to this organizer using the organizer_id
       let assignedEvents: Event[] = [];
       try {
-        const eventsResponse = await axios.post("/organizer.php", {
+        const eventsResponse = await axios.post(endpoints.organizer, {
           operation: "getOrganizerEvents",
           organizer_id: organizerId,
         });
@@ -376,7 +377,7 @@ export default function OrganizerEventsPage() {
         assignmentId,
         organizerId,
       });
-      await axios.post("/organizer.php", {
+      await axios.post(endpoints.organizer, {
         operation: "updateAssignmentStatus",
         ...(assignmentId ? { assignment_id: assignmentId } : {}),
         event_id: eventItem.event_id,
@@ -429,7 +430,7 @@ export default function OrganizerEventsPage() {
         assignmentId,
         organizerId,
       });
-      await axios.post("/organizer.php", {
+      await axios.post(endpoints.organizer, {
         operation: "updateAssignmentStatus",
         ...(assignmentId ? { assignment_id: assignmentId } : {}),
         event_id: eventItem.event_id,

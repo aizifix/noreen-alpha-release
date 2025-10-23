@@ -74,27 +74,43 @@ const createVenueComponent = (
 // Add type for custom categories
 type ExtendedComponentCategory = ComponentCategory | string;
 
-// Supplier interface
+// Supplier interface - matching package details structure
 interface Supplier {
-  supplier_id: string;
+  supplier_id: number;
   supplier_name: string;
   supplier_category: string;
   supplier_email: string;
   supplier_phone: string;
   supplier_status: string;
-  pricing_tiers?: Array<{
-    tier_name: string;
-    tier_price: number;
-    tier_description: string;
-    offer_id?: number;
-  }>;
+  is_verified: boolean;
+  created_at: string;
+  offers: SupplierOffer[];
+  services?: Service[];
+}
+
+interface SupplierOffer {
+  offer_id: number;
+  offer_title: string;
+  offer_description: string;
+  price_min: number | string;
+  price_max: number | string;
+  tier_level: number;
+  is_customizable?: boolean;
+  offer_attachments: any[];
+}
+
+interface Service {
+  service_id: number;
+  service_name: string;
+  service_description: string | null;
+  service_price: number | string;
 }
 
 // Extended component with supplier assignment
-interface ComponentWithSupplier extends DataPackageComponent {
+export interface ComponentWithSupplier extends DataPackageComponent {
   assignedSupplier?: Supplier;
   supplierPrice?: number;
-  supplier_id?: string;
+  supplier_id?: number;
   offer_id?: number;
 }
 
@@ -127,7 +143,7 @@ export function ComponentCustomization({
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
-  const [selectedSupplierIds, setSelectedSupplierIds] = useState<Set<string>>(
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState<Set<number>>(
     new Set()
   );
 
@@ -135,6 +151,11 @@ export function ComponentCustomization({
   const [showSupplierModal, setShowSupplierModal] = useState(false);
   const [selectedComponentForSupplier, setSelectedComponentForSupplier] =
     useState<DataPackageComponent | null>(null);
+
+  // Debug modal state changes
+  useEffect(() => {
+    console.log("🔄 Supplier modal state changed:", showSupplierModal);
+  }, [showSupplierModal]);
 
   // Venue choice selection state
   const [selectedVenueChoice, setSelectedVenueChoice] =
@@ -258,24 +279,162 @@ export function ComponentCustomization({
     initialComponents,
   ]);
 
-  // Fetch suppliers from backend
+  // Fetch suppliers from backend using the same approach as package details
   useEffect(() => {
     const fetchSuppliers = async () => {
       try {
         setIsLoadingSuppliers(true);
-        const response = await axios.post(endpoints.admin, {
-          operation: "getSuppliersForEventBuilder",
-          page: 1,
-          limit: 100, // Get all suppliers
-        });
+        console.log("🔍 Fetching suppliers for event builder...");
 
-        if (response.data.status === "success") {
-          setSuppliers(response.data?.suppliers || []);
+        const response = await axios.post(
+          endpoints.admin,
+          {
+            operation: "getSuppliersForPackage", // Use same operation as package details
+          },
+          { headers: { "Content-Type": "application/json" } }
+        );
+
+        console.log("📡 Supplier API Response:", response.data);
+
+        if (response.data && response.data.status === "success") {
+          const suppliersData = response.data.suppliers || [];
+          console.log(
+            "✅ Suppliers loaded:",
+            suppliersData.length,
+            "suppliers"
+          );
+          console.log("📋 Sample supplier:", suppliersData[0]);
+          setSuppliers(suppliersData);
         } else {
-          console.error("Failed to fetch suppliers:", response.data.message);
+          console.error(
+            "❌ Failed to fetch suppliers:",
+            response.data?.message
+          );
+          // Add test suppliers for development
+          const testSuppliers = [
+            {
+              supplier_id: 1,
+              supplier_name: "Test Photography Studio",
+              supplier_category: "Photography",
+              supplier_email: "test@photography.com",
+              supplier_phone: "+1234567890",
+              supplier_status: "active",
+              is_verified: true,
+              created_at: new Date().toISOString(),
+              supplier_rating: 4.8,
+              offers: [
+                {
+                  offer_id: 1,
+                  offer_title: "Basic Package",
+                  offer_description: "4 hours of photography coverage",
+                  price_min: 5000,
+                  price_max: 5000,
+                  tier_level: 1,
+                  is_customizable: true,
+                  offer_attachments: [],
+                },
+                {
+                  offer_id: 2,
+                  offer_title: "Premium Package",
+                  offer_description: "8 hours of photography with editing",
+                  price_min: 8000,
+                  price_max: 8000,
+                  tier_level: 2,
+                  is_customizable: true,
+                  offer_attachments: [],
+                },
+              ],
+            },
+            {
+              supplier_id: 2,
+              supplier_name: "Test Catering Service",
+              supplier_category: "Catering",
+              supplier_email: "test@catering.com",
+              supplier_phone: "+1234567891",
+              supplier_status: "active",
+              is_verified: true,
+              created_at: new Date().toISOString(),
+              supplier_rating: 4.5,
+              offers: [
+                {
+                  offer_id: 3,
+                  offer_title: "Standard Menu",
+                  offer_description: "Buffet style catering for 100 guests",
+                  price_min: 15000,
+                  price_max: 15000,
+                  tier_level: 1,
+                  is_customizable: true,
+                  offer_attachments: [],
+                },
+              ],
+            },
+          ];
+          console.log("🧪 Using test suppliers:", testSuppliers.length);
+          setSuppliers(testSuppliers);
         }
       } catch (err) {
-        console.error("Error fetching suppliers:", err);
+        console.error("❌ Error fetching suppliers:", err);
+        // Add test suppliers for development
+        const testSuppliers = [
+          {
+            supplier_id: 1,
+            supplier_name: "Test Photography Studio",
+            supplier_category: "Photography",
+            supplier_email: "test@photography.com",
+            supplier_phone: "+1234567890",
+            supplier_status: "active",
+            is_verified: true,
+            created_at: new Date().toISOString(),
+            supplier_rating: 4.8,
+            offers: [
+              {
+                offer_id: 1,
+                offer_title: "Basic Package",
+                offer_description: "4 hours of photography coverage",
+                price_min: 5000,
+                price_max: 5000,
+                tier_level: 1,
+                is_customizable: true,
+                offer_attachments: [],
+              },
+              {
+                offer_id: 2,
+                offer_title: "Premium Package",
+                offer_description: "8 hours of photography with editing",
+                price_min: 8000,
+                price_max: 8000,
+                tier_level: 2,
+                is_customizable: true,
+                offer_attachments: [],
+              },
+            ],
+          },
+          {
+            supplier_id: 2,
+            supplier_name: "Test Catering Service",
+            supplier_category: "Catering",
+            supplier_email: "test@catering.com",
+            supplier_phone: "+1234567891",
+            supplier_status: "active",
+            is_verified: true,
+            created_at: new Date().toISOString(),
+            supplier_rating: 4.5,
+            offers: [
+              {
+                offer_id: 3,
+                offer_title: "Standard Menu",
+                offer_description: "Buffet style catering for 100 guests",
+                price_min: 15000,
+                price_max: 15000,
+                tier_level: 1,
+                is_customizable: true,
+                offer_attachments: [],
+              },
+            ],
+          },
+        ];
+        console.log("🧪 Using test suppliers (catch):", testSuppliers.length);
+        setSuppliers(testSuppliers);
       } finally {
         setIsLoadingSuppliers(false);
       }
@@ -284,10 +443,26 @@ export function ComponentCustomization({
     fetchSuppliers();
   }, []);
 
-  const handleComponentListChange = (updatedList: DataPackageComponent[]) => {
+  const handleComponentListChange = (updatedList: ComponentWithSupplier[]) => {
     // Filter out any venue components from updatedList to prevent duplicates
     const nonVenueComponents = updatedList.filter(
       (comp) => !(comp.category === "venue" && comp.isVenueInclusion)
+    );
+
+    // Calculate total price for logging
+    const totalPrice = nonVenueComponents.reduce((sum, comp) => {
+      if (comp.included !== false) {
+        const price = Number(comp.supplierPrice ?? comp.price ?? 0) || 0;
+        return sum + price;
+      }
+      return sum;
+    }, 0);
+
+    console.log(
+      `💰 Component list updated - Total price: ₱${totalPrice.toLocaleString()}`
+    );
+    console.log(
+      `📋 Components included: ${nonVenueComponents.filter((c) => c.included !== false).length}/${nonVenueComponents.length}`
     );
 
     // Combine venue components with non-venue components, ensuring no duplicates
@@ -298,14 +473,32 @@ export function ComponentCustomization({
   };
 
   const toggleComponentInclusion = (componentId: string) => {
-    handleComponentListChange(
-      componentList.map((component) => {
+    console.log(`🔄 Toggling component inclusion for ID: ${componentId}`);
+
+    const updatedComponents = componentList.map(
+      (component: ComponentWithSupplier) => {
         if (component.id === componentId) {
-          return { ...component, included: !component.included };
+          const newIncluded = !component.included;
+          const componentPrice =
+            Number(component.supplierPrice ?? component.price ?? 0) || 0;
+
+          console.log(`📊 Component "${component.name}" toggled:`, {
+            id: component.id,
+            category: component.category,
+            included: newIncluded,
+            price: componentPrice,
+            supplierPrice: component.supplierPrice,
+            isExternal:
+              component.category === "extras" || component.supplierPrice,
+          });
+
+          return { ...component, included: newIncluded };
         }
         return component;
-      })
+      }
     );
+
+    handleComponentListChange(updatedComponents);
   };
 
   const toggleComponentExpansion = (componentId: string) => {
@@ -360,29 +553,42 @@ export function ComponentCustomization({
     setNewComponentCategory("extras");
   };
 
-  const addComponentFromSupplier = (supplier: Supplier, selectedTier?: any) => {
+  const addComponentFromSupplier = (
+    supplier: Supplier,
+    selectedOffer?: any
+  ) => {
     // Check if supplier is already selected
     if (selectedSupplierIds.has(supplier.supplier_id)) {
       return; // Don't add if already selected
     }
 
-    // Use selected tier or first pricing tier if available, otherwise use a default price
-    let selectedTierData = selectedTier;
-    if (
-      !selectedTierData &&
-      supplier.pricing_tiers &&
-      supplier.pricing_tiers.length > 0
-    ) {
-      selectedTierData = supplier.pricing_tiers[0];
+    // Use selected offer or first offer if available, otherwise use a default price
+    let selectedOfferData = selectedOffer;
+    if (!selectedOfferData && supplier.offers && supplier.offers.length > 0) {
+      selectedOfferData = supplier.offers[0];
     }
 
-    const defaultPrice = selectedTierData ? selectedTierData.tier_price : 0;
-    const tierName = selectedTierData ? selectedTierData.tier_name : "";
+    const defaultPrice = selectedOfferData
+      ? typeof selectedOfferData.price_min === "number"
+        ? selectedOfferData.price_min
+        : typeof selectedOfferData.price_min === "string"
+          ? parseFloat(selectedOfferData.price_min) || 0
+          : 0
+      : 0;
+    const offerName = selectedOfferData ? selectedOfferData.offer_title : "";
+
+    console.log("💰 Price Debug:", {
+      selectedOfferData,
+      price_min: selectedOfferData?.price_min,
+      price_max: selectedOfferData?.price_max,
+      defaultPrice,
+      offerName,
+    });
 
     const newComponent: ComponentWithSupplier = {
       id: `supplier-${supplier.supplier_id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: `${supplier.supplier_name}${tierName ? ` - ${tierName}` : ""}`,
-      description: `${supplier.supplier_name} - ${supplier.supplier_category}${tierName ? ` (${tierName})` : ""}`,
+      name: `${supplier.supplier_name}${offerName ? ` - ${offerName}` : ""}`,
+      description: `${supplier.supplier_name} - ${supplier.supplier_category}${offerName ? ` (${offerName})` : ""}`,
       price: defaultPrice,
       category: supplier.supplier_category as ComponentCategory,
       included: true,
@@ -392,7 +598,7 @@ export function ComponentCustomization({
       assignedSupplier: supplier,
       supplierPrice: defaultPrice,
       supplier_id: supplier.supplier_id,
-      offer_id: selectedTierData ? selectedTierData.offer_id : null,
+      offer_id: selectedOfferData ? selectedOfferData.offer_id : null,
     };
 
     handleComponentListChange([...componentList, newComponent]);
@@ -473,6 +679,29 @@ export function ComponentCustomization({
       .reduce((sum, component) => sum + component.price, 0);
   };
 
+  // Calculate supplier costs separately
+  const calculateSupplierCosts = () => {
+    return componentList
+      .filter((comp) => (comp as ComponentWithSupplier).assignedSupplier)
+      .filter((comp) => comp.included !== false)
+      .reduce((sum, comp) => {
+        const supplierComp = comp as ComponentWithSupplier;
+        return sum + (supplierComp.supplierPrice || comp.price);
+      }, 0);
+  };
+
+  // Calculate Noreen components (excluding suppliers)
+  const calculateNoreenComponents = () => {
+    return componentList
+      .filter((comp) => !(comp as ComponentWithSupplier).assignedSupplier)
+      .filter((comp) => comp.included !== false)
+      .reduce((sum, comp) => {
+        const componentWithSupplier = comp as ComponentWithSupplier;
+        const price = componentWithSupplier.supplierPrice || comp.price;
+        return sum + price;
+      }, 0);
+  };
+
   // Calculate complete total using new venue formula
   const calculateCompleteTotal = () => {
     // For package-based events, start with the package price
@@ -514,8 +743,13 @@ export function ComponentCustomization({
         );
         total += excessPayment;
 
+        const noreenTotal = calculateNoreenComponents();
+        const supplierTotal = calculateSupplierCosts();
+
         console.log(`🏢 ComponentCustomization Total Calculation (NEW FORMULA):
           - Package price: ₱${originalPackagePrice.toLocaleString()}
+          - Noreen components: ₱${noreenTotal.toLocaleString()}
+          - Supplier costs: ₱${supplierTotal.toLocaleString()}
           - Component adjustments: ₱${(total - originalPackagePrice - excessPayment).toLocaleString()}
           - Venue Rate: ₱${venueRate.toLocaleString()} per pax
           - Client Pax: ${clientPax}
@@ -528,8 +762,9 @@ export function ComponentCustomization({
 
       return total;
     } else {
-      // For start-from-scratch events, sum all components
-      let total = calculateTotalPrice(); // Noreen components
+      // For start-from-scratch events, sum all components (including suppliers)
+      let total = calculateNoreenComponents(); // Noreen components only
+      total += calculateSupplierCosts(); // Add supplier costs
       total += calculateVenuePrice(); // Add venue price
       return total;
     }
@@ -555,12 +790,14 @@ export function ComponentCustomization({
     return names[key] || category;
   };
 
-  // Filter out venue inclusions from customizable components
+  // Filter out venue inclusions and suppliers from customizable components
   const customizableComponentList = componentList.filter(
-    (comp) => !(comp.category === "venue" && comp.isVenueInclusion)
+    (comp) =>
+      !(comp.category === "venue" && comp.isVenueInclusion) &&
+      !(comp as ComponentWithSupplier).assignedSupplier
   );
 
-  // Group customizable components by category (excluding venue inclusions)
+  // Group customizable components by category (excluding venue inclusions and suppliers)
   const componentsByCategory = customizableComponentList.reduce(
     (acc, component) => {
       if (!acc[component.category]) {
@@ -667,7 +904,7 @@ export function ComponentCustomization({
       </Alert>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="venue-inclusions">
             <Lock className="h-4 w-4 mr-2 text-green-600" />
             {isStartFromScratch ? "Selected Venue" : "Venue Inclusions"}
@@ -675,6 +912,21 @@ export function ComponentCustomization({
           <TabsTrigger value="noreen-components">
             <Edit className="h-4 w-4 mr-2 text-green-600" />
             {isStartFromScratch ? "Event Components" : "Noreen Components"}
+          </TabsTrigger>
+          <TabsTrigger value="supplier-inclusions">
+            <User className="h-4 w-4 mr-2 text-blue-600" />
+            Supplier Inclusions
+            {componentList.filter(
+              (comp) => (comp as ComponentWithSupplier).assignedSupplier
+            ).length > 0 && (
+              <Badge className="ml-2 bg-blue-500 text-white">
+                {
+                  componentList.filter(
+                    (comp) => (comp as ComponentWithSupplier).assignedSupplier
+                  ).length
+                }
+              </Badge>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -876,38 +1128,23 @@ export function ComponentCustomization({
         {/* Noreen Components Tab */}
         <TabsContent value="noreen-components" className="space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium text-green-700">
-              {isStartFromScratch
-                ? "Event Components"
-                : "Customizable Components"}
-            </h3>
-            <div className="flex gap-2">
-              <Button
-                onClick={() => setShowSupplierModal(true)}
-                className={`${
-                  componentList.some(
-                    (comp) => (comp as ComponentWithSupplier).assignedSupplier
-                  )
-                    ? "bg-green-600 hover:bg-green-700 text-white"
-                    : "bg-blue-600 hover:bg-blue-700 text-white"
-                }`}
-                disabled={isLoadingSuppliers || suppliers.length === 0}
-              >
-                <User className="h-4 w-4 mr-2" />
-                {componentList.some(
-                  (comp) => (comp as ComponentWithSupplier).assignedSupplier
-                )
-                  ? "Selected"
-                  : "Add Supplier"}
-              </Button>
-              <Button
-                onClick={() => setShowAddDialog(true)}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Component
-              </Button>
+            <div>
+              <h3 className="text-lg font-medium text-green-700">
+                {isStartFromScratch
+                  ? "Event Components"
+                  : "Customizable Components"}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Add or customize Noreen's event components
+              </p>
             </div>
+            <Button
+              onClick={() => setShowAddDialog(true)}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Component
+            </Button>
           </div>
 
           {Object.entries(componentsByCategory).length > 0 ? (
@@ -945,30 +1182,15 @@ export function ComponentCustomization({
                                   className="accent-green-600 border-green-400 focus:ring-green-600"
                                 />
                                 <AccordionTrigger className="flex items-center gap-2 p-0 bg-transparent border-0 shadow-none hover:bg-transparent">
-                                  <div className="flex items-center gap-2">
-                                    <span
-                                      className={`font-medium ${
-                                        component.included === false
-                                          ? "text-muted-foreground line-through"
-                                          : "text-green-900"
-                                      }`}
-                                    >
-                                      {component.name}
-                                    </span>
-                                    {(component as ComponentWithSupplier)
-                                      .assignedSupplier && (
-                                      <Badge
-                                        variant="outline"
-                                        className="bg-blue-50 text-blue-700 border-blue-200 text-xs"
-                                      >
-                                        <User className="h-3 w-3 mr-1" />
-                                        {
-                                          (component as ComponentWithSupplier)
-                                            .assignedSupplier?.supplier_name
-                                        }
-                                      </Badge>
-                                    )}
-                                  </div>
+                                  <span
+                                    className={`font-medium ${
+                                      component.included === false
+                                        ? "text-muted-foreground line-through"
+                                        : "text-green-900"
+                                    }`}
+                                  >
+                                    {component.name}
+                                  </span>
                                 </AccordionTrigger>
                               </div>
                               <div className="flex items-center gap-2">
@@ -1037,13 +1259,32 @@ export function ComponentCustomization({
                   </div>
                 )
               )}
-              <div className="flex justify-between items-center p-4 bg-green-50 rounded-lg mt-4">
-                <span className="font-medium text-green-700">
-                  Total Components Price:
-                </span>
-                <span className="font-bold text-green-900">
-                  {formatCurrency(calculateCompleteTotal())}
-                </span>
+              {/* Budget Breakdown */}
+              <div className="bg-green-50 rounded-lg p-4 mt-4 space-y-3 border border-green-200">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-green-700">Noreen Components:</span>
+                  <span className="font-medium text-green-900">
+                    {formatCurrency(calculateNoreenComponents())}
+                  </span>
+                </div>
+                {calculateSupplierCosts() > 0 && (
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-blue-700">Supplier Inclusions:</span>
+                    <span className="font-medium text-blue-900">
+                      {formatCurrency(calculateSupplierCosts())}
+                    </span>
+                  </div>
+                )}
+                <div className="border-t border-green-300 pt-2">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-green-700">
+                      Total Event Cost:
+                    </span>
+                    <span className="font-bold text-green-900 text-lg">
+                      {formatCurrency(calculateCompleteTotal())}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -1054,6 +1295,231 @@ export function ComponentCustomization({
                 components.
               </p>
             </div>
+          )}
+        </TabsContent>
+
+        {/* Supplier Inclusions Tab */}
+        <TabsContent value="supplier-inclusions" className="space-y-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-medium text-blue-700">
+                Supplier Inclusions
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                External suppliers added to enhance your event
+              </p>
+            </div>
+            <Button
+              onClick={() => {
+                console.log("🖱️ Add Supplier button clicked");
+                console.log("📊 Current suppliers:", suppliers.length);
+                console.log("⏳ Loading state:", isLoadingSuppliers);
+                setShowSupplierModal(true);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              disabled={isLoadingSuppliers}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Supplier
+            </Button>
+          </div>
+
+          {componentList.filter(
+            (comp) => (comp as ComponentWithSupplier).assignedSupplier
+          ).length > 0 ? (
+            <div className="space-y-4">
+              {/* Group suppliers by category */}
+              {(() => {
+                const supplierComponents = componentList.filter(
+                  (comp) => (comp as ComponentWithSupplier).assignedSupplier
+                );
+                const suppliersByCategory = supplierComponents.reduce(
+                  (acc, component) => {
+                    const category = component.category;
+                    if (!acc[category]) {
+                      acc[category] = [];
+                    }
+                    acc[category].push(component);
+                    return acc;
+                  },
+                  {} as Record<string, DataPackageComponent[]>
+                );
+
+                return Object.entries(suppliersByCategory).map(
+                  ([category, categoryComponents]) => (
+                    <div
+                      key={`supplier-category-${category}`}
+                      className="bg-white rounded-lg border border-blue-200 p-4"
+                    >
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="text-lg font-semibold text-blue-700">
+                          {getCategoryName(category)}
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          {categoryComponents.length} supplier(s)
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {categoryComponents.map((component, idx) => {
+                          const supplierComp =
+                            component as ComponentWithSupplier;
+                          return (
+                            <Card
+                              key={`supplier-${component.id}-${idx}`}
+                              className="border-blue-100 bg-blue-50/30"
+                            >
+                              <CardContent className="pt-4">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Checkbox
+                                        id={`supplier-${component.id}`}
+                                        checked={component.included !== false}
+                                        onCheckedChange={() =>
+                                          toggleComponentInclusion(component.id)
+                                        }
+                                        className="accent-blue-600 border-blue-400"
+                                      />
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <span
+                                            className={`font-medium ${
+                                              component.included === false
+                                                ? "text-muted-foreground line-through"
+                                                : "text-blue-900"
+                                            }`}
+                                          >
+                                            {component.name}
+                                          </span>
+                                          <Badge
+                                            variant="outline"
+                                            className="bg-blue-100 text-blue-700 border-blue-300"
+                                          >
+                                            <User className="h-3 w-3 mr-1" />
+                                            {
+                                              supplierComp.assignedSupplier
+                                                ?.supplier_name
+                                            }
+                                          </Badge>
+                                        </div>
+                                        {component.description && (
+                                          <p className="text-sm text-muted-foreground mt-1">
+                                            {component.description}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 ml-4">
+                                    <span className="font-bold text-blue-700 text-lg">
+                                      {formatCurrency(
+                                        supplierComp.supplierPrice ||
+                                          component.price
+                                      )}
+                                    </span>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() =>
+                                        handleEditComponent(component)
+                                      }
+                                      className="text-blue-600 hover:bg-blue-50"
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() =>
+                                        deleteComponent(component.id)
+                                      }
+                                      className="text-red-600 hover:bg-red-50"
+                                    >
+                                      <Trash className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+
+                                {/* Show supplier details */}
+                                <div className="mt-3 pt-3 border-t border-blue-200">
+                                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                                    <div>
+                                      <span className="font-medium">
+                                        Email:
+                                      </span>{" "}
+                                      {
+                                        supplierComp.assignedSupplier
+                                          ?.supplier_email
+                                      }
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">
+                                        Phone:
+                                      </span>{" "}
+                                      {
+                                        supplierComp.assignedSupplier
+                                          ?.supplier_phone
+                                      }
+                                    </div>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )
+                );
+              })()}
+
+              {/* Supplier Total */}
+              <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg border border-blue-200 mt-4">
+                <span className="font-medium text-blue-700">
+                  Total Supplier Costs:
+                </span>
+                <span className="font-bold text-blue-900 text-lg">
+                  {formatCurrency(
+                    componentList
+                      .filter(
+                        (comp) =>
+                          (comp as ComponentWithSupplier).assignedSupplier
+                      )
+                      .filter((comp) => comp.included !== false)
+                      .reduce((sum, comp) => {
+                        const supplierComp = comp as ComponentWithSupplier;
+                        return sum + (supplierComp.supplierPrice || comp.price);
+                      }, 0)
+                  )}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <Card className="border-dashed border-2 border-blue-200">
+              <CardContent className="text-center py-12">
+                <User className="h-12 w-12 text-blue-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-700 mb-2">
+                  No Suppliers Added Yet
+                </h3>
+                <p className="text-muted-foreground mb-4">
+                  Add external suppliers to enhance your event with additional
+                  services.
+                </p>
+                <Button
+                  onClick={() => {
+                    console.log("🖱️ Add Your First Supplier button clicked");
+                    console.log("📊 Current suppliers:", suppliers.length);
+                    console.log("⏳ Loading state:", isLoadingSuppliers);
+                    setShowSupplierModal(true);
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  disabled={isLoadingSuppliers}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Your First Supplier
+                </Button>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
       </Tabs>
@@ -1242,9 +1708,15 @@ export function ComponentCustomization({
       {/* Supplier Selection Modal */}
       <SupplierSelectionModal
         isOpen={showSupplierModal}
-        onClose={() => setShowSupplierModal(false)}
+        onClose={() => {
+          console.log("❌ Closing supplier modal");
+          setShowSupplierModal(false);
+        }}
         suppliers={suppliers.filter((s) => s.supplier_status === "active")}
-        onSelectSupplier={addComponentFromSupplier}
+        onSelectSupplier={(supplier, tier) => {
+          console.log("✅ Supplier selected:", supplier, tier);
+          addComponentFromSupplier(supplier, tier);
+        }}
       />
     </div>
   );

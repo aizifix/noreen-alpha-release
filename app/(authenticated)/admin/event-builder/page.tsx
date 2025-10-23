@@ -34,6 +34,7 @@ import {
   ComponentCategory,
   type PackageComponent as DataPackageComponent,
 } from "@/data/packages";
+import type { ComponentWithSupplier } from "@/app/components/admin/event-builder/components-customization";
 // import { showConfetti } from "@/lib/confetti"; // TEMPORARILY DISABLED TO PREVENT LAG
 import { SuccessModal } from "@/app/components/admin/event-builder/success-modal";
 import { organizers } from "@/data/organizers";
@@ -537,7 +538,7 @@ export default function EventBuilderPage() {
   );
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
   const [selectedVenue, setSelectedVenue] = useState<any | null>(null);
-  const [components, setComponents] = useState<DataPackageComponent[]>([]);
+  const [components, setComponents] = useState<ComponentWithSupplier[]>([]);
   const [originalPackagePrice, setOriginalPackagePrice] = useState<
     number | null
   >(null);
@@ -574,12 +575,17 @@ export default function EventBuilderPage() {
     reservedPayments: [] as any[],
     reservedPaymentTotal: 0,
     adjustedTotal: 0,
+    clientFinalTotal: 0, // Store the client's final calculated total from booking
+    reservedGuestCount: 0, // Store the locked guest count from booking
   });
 
   const [showMissingRefDialog, setShowMissingRefDialog] = useState(false);
   const [showBookingLookupModal, setShowBookingLookupModal] = useState(false);
   const [bookingSearchResults, setBookingSearchResults] = useState<any[]>([]);
   const [bookingSearchLoading, setBookingSearchLoading] = useState(false);
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(
+    null
+  );
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showClearFormModal, setShowClearFormModal] = useState(false);
@@ -853,8 +859,23 @@ export default function EventBuilderPage() {
       console.log("🚀 Modal opened, loading all confirmed bookings...");
       // Try to load all confirmed bookings first
       loadAllConfirmedBookings();
+    } else {
+      // Clear search timeout when modal closes
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+        setSearchTimeout(null);
+      }
     }
-  }, [showBookingLookupModal]);
+  }, [showBookingLookupModal, searchTimeout]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+      }
+    };
+  }, [searchTimeout]);
 
   // Function to load all confirmed and not-converted bookings (previous working endpoint)
   const loadAllConfirmedBookings = async () => {
@@ -883,6 +904,7 @@ export default function EventBuilderPage() {
         );
         console.log("❌ Full getAvailableBookings response:", response.data);
         setBookingSearchResults([]);
+        toast.error("Failed to load bookings. Please try again.");
       }
     } catch (error: any) {
       console.error("💥 getAvailableBookings Network Error:", error);
@@ -893,6 +915,17 @@ export default function EventBuilderPage() {
         statusText: error.response?.statusText,
       });
       setBookingSearchResults([]);
+
+      // Show user-friendly error message
+      if (error.response?.status === 404) {
+        toast.error("Bookings service not available. Please try again later.");
+      } else if (error.response?.status >= 500) {
+        toast.error("Server error. Please try again later.");
+      } else {
+        toast.error(
+          "Failed to load bookings. Please check your connection and try again."
+        );
+      }
     } finally {
       setBookingSearchLoading(false);
     }
@@ -1000,123 +1033,146 @@ export default function EventBuilderPage() {
       - venueBufferFee: ${venueBufferFee}
       - selectedVenue: ${selectedVenue?.venue_title}
       - components.length: ${components.length}
+      - reservedPaymentTotal: ${reservedPaymentData.reservedPaymentTotal}
+      - clientFinalTotal: ${reservedPaymentData.clientFinalTotal}
+      - currentGuestCount: ${eventDetails.capacity}
     `);
+
+    // If we have a booking with reservation fee but no package data yet, return 0
+    // This prevents incorrect calculation during the loading phase
+    // Also wait for venueBufferFee if we have a package selected
+    if (
+      reservedPaymentData.reservedPaymentTotal > 0 &&
+      (!selectedPackageId ||
+        !originalPackagePrice ||
+        (selectedPackageId && venueBufferFee === null))
+    ) {
+      console.log(
+        `⏳ WAITING FOR PACKAGE DATA - Reservation fee detected but package not fully loaded yet (selectedPackageId: ${selectedPackageId}, originalPackagePrice: ${originalPackagePrice}, venueBufferFee: ${venueBufferFee})`
+      );
+      return 0;
+    }
+
+    let total = 0;
 
     // If we have a package and base price, start there and apply deltas
     if (selectedPackageId && originalPackagePrice != null) {
-      let total = Number(originalPackagePrice) || 0;
-      let packageComponentTotal = 0;
-      let venueNetCost = 0;
-      let customComponentTotal = 0;
+      total = Number(originalPackagePrice) || 0;
+      const currentGuestCount = eventDetails.capacity || 100;
 
-      console.log(`💰 Starting budget calculation:
-        - Package ID: ${selectedPackageId}
-        - Original package price: ₱${originalPackagePrice.toLocaleString()}
-        - Venue buffer fee: ₱${venueBufferFee?.toLocaleString() || "N/A"}
-        - Guest count: ${eventDetails.capacity || 100}
-        - Selected venue: ${selectedVenue?.venue_title || "None"}
-      `);
+      // Calculate venue excess using normal venue buffer formula
+      if (selectedVenue && venueBufferFee !== null) {
+        const venueRate = parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
+        const actualVenueCost = venueRate * currentGuestCount;
+        const venueExcess = Math.max(0, actualVenueCost - venueBufferFee);
 
-      // Apply component deltas
+        console.log(`🏢 Venue pricing calculation:
+          - Venue rate: ₱${venueRate}/guest
+          - Guest count: ${currentGuestCount}
+          - Actual venue cost: ₱${actualVenueCost.toLocaleString()}
+          - Venue buffer: ₱${venueBufferFee.toLocaleString()}
+          - Venue excess: MAX(0, ₱${actualVenueCost.toLocaleString()} - ₱${venueBufferFee.toLocaleString()}) = ₱${venueExcess.toLocaleString()}
+        `);
+
+        total += venueExcess;
+      } else {
+        console.log(
+          `🏢 No venue excess calculation - selectedVenue: ${!!selectedVenue}, venueBufferFee: ${venueBufferFee}`
+        );
+      }
+
+      // Handle package components: subtract if unchecked
+      let packageComponentsSubtracted = 0;
       components.forEach((component: any) => {
-        const componentPrice =
-          Number(component.supplierPrice ?? component.price ?? 0) || 0;
-
-        // Package components: subtract if unchecked
-        if (component.category === "package") {
-          if (component.included === false) {
-            total -= componentPrice;
-            packageComponentTotal -= componentPrice;
-            console.log(
-              `📦 Removed package component: ${component.name} (-₱${componentPrice.toLocaleString()})`
-            );
-          } else {
-            console.log(
-              `📦 Package component included: ${component.name} (₱${componentPrice.toLocaleString()})`
-            );
-          }
-          return;
-        }
-
-        // Venue components: handle venue buffer and overflow logic
-        if (component.category === "venue" && component.isVenueInclusion) {
-          // For package-based events, the venue component price should represent
-          // only the overflow charge for guests exceeding the base package capacity
-          // The venue buffer fee is already included in the package price
-
-          console.log(`🏢 Processing venue component: ${component.name}`, {
-            componentPrice: component.price,
-            selectedVenue: selectedVenue?.venue_title,
-            venueBufferFee,
-            guestCount: eventDetails.capacity,
-          });
-
-          if (selectedVenue && venueBufferFee !== null) {
-            // Use the venue's per-pax rate (extra_pax_rate) as the VenueRate
-            const venueRate =
-              parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
-            const clientPax = eventDetails.capacity || 100;
-
-            // Calculate actual venue cost: VenueRate × ClientPax
-            const actualVenueCost = venueRate * clientPax;
-
-            // Calculate excess payment: MAX(0, ActualVenueCost - VenueBuffer)
-            const excessPayment = Math.max(0, actualVenueCost - venueBufferFee);
-            venueNetCost = excessPayment;
-
-            console.log(`🏢 Venue pricing calculation (NEW FORMULA):
-              - Venue: ${selectedVenue.venue_title}
-              - Venue Rate: ₱${venueRate.toLocaleString()} per pax
-              - Client Pax: ${clientPax}
-              - Actual Venue Cost: ₱${venueRate.toLocaleString()} × ${clientPax} = ₱${actualVenueCost.toLocaleString()}
-              - Venue Buffer: ₱${venueBufferFee.toLocaleString()} (included in package)
-              - Excess Payment: MAX(0, ₱${actualVenueCost.toLocaleString()} - ₱${venueBufferFee.toLocaleString()}) = ₱${excessPayment.toLocaleString()}
-              - Logic: ${excessPayment > 0 ? `Additional fee of ₱${excessPayment.toLocaleString()} added to package price` : "No additional fee, venue buffer covers actual cost"}
-            `);
-
-            total += excessPayment;
-          }
-          return;
-        }
-
-        // Custom/supplier/extras: add if included
-        if (component.included !== false) {
-          total += componentPrice;
-          customComponentTotal += componentPrice;
+        if (component.category === "package" && component.included === false) {
+          const componentPrice =
+            Number(component.supplierPrice ?? component.price ?? 0) || 0;
+          packageComponentsSubtracted += componentPrice;
           console.log(
-            `➕ Added custom component: ${component.name} (₱${componentPrice.toLocaleString()})`
+            `➖ Subtracting unchecked package component: ${component.name} (₱${componentPrice.toLocaleString()})`
           );
         }
       });
 
-      console.log(`💰 Final budget breakdown:
-        - Base package price: ₱${originalPackagePrice.toLocaleString()}
-        - Package component adjustments: ₱${packageComponentTotal.toLocaleString()}
-        - Venue net cost: ₱${venueNetCost.toLocaleString()}
-        - Custom components: ₱${customComponentTotal.toLocaleString()}
-        - TOTAL: ₱${total.toLocaleString()}
-      `);
+      if (packageComponentsSubtracted > 0) {
+        console.log(
+          `📦 Subtracting unchecked package components: ₱${packageComponentsSubtracted.toLocaleString()}`
+        );
+        total -= packageComponentsSubtracted;
+      }
 
-      return total;
+      // Add any custom components (including external/supplier components)
+      let customComponentsAdded = 0;
+      let externalComponentsAdded = 0;
+      components.forEach((component: any) => {
+        if (
+          component.category !== "package" &&
+          component.category !== "venue" &&
+          component.included !== false
+        ) {
+          const componentPrice =
+            Number(component.supplierPrice ?? component.price ?? 0) || 0;
+          customComponentsAdded += componentPrice;
+
+          // Track external components separately
+          if (component.category === "extras" || component.supplierPrice) {
+            externalComponentsAdded += componentPrice;
+          }
+        }
+      });
+
+      if (customComponentsAdded > 0) {
+        console.log(
+          `Adding custom components: ₱${customComponentsAdded.toLocaleString()}`
+        );
+        if (externalComponentsAdded > 0) {
+          console.log(
+            `  - External/Supplier components: ₱${externalComponentsAdded.toLocaleString()}`
+          );
+        }
+        total += customComponentsAdded;
+      }
+
+      console.log(`✅ PACKAGE TOTAL: ₱${total.toLocaleString()}`);
     }
 
-    // Start-from-scratch mode: sum of included components plus venue
-    console.log(`🚨 FALLING BACK TO START-FROM-SCRATCH MODE!`);
-    console.log(`   - selectedPackageId: ${selectedPackageId}`);
-    console.log(`   - originalPackagePrice: ${originalPackagePrice}`);
+    // If no package selected, calculate from components (start-from-scratch mode)
+    if (total === 0) {
+      console.log(`🚨 START-FROM-SCRATCH MODE - Calculating from components`);
+      let externalComponentsTotal = 0;
+      components.forEach((component: any) => {
+        if (component.included !== false) {
+          const componentPrice =
+            Number(component.supplierPrice ?? component.price ?? 0) || 0;
+          total += componentPrice;
 
-    let total = 0;
-    components.forEach((component: any) => {
-      if (component.included !== false) {
-        const componentPrice = component.supplierPrice || component.price || 0;
-        total += componentPrice;
+          // Track external components
+          if (component.category === "extras" || component.supplierPrice) {
+            externalComponentsTotal += componentPrice;
+          }
+        }
+      });
+
+      if (externalComponentsTotal > 0) {
         console.log(
-          `   - Component: ${component.name} = ₱${componentPrice.toLocaleString()}`
+          `🔗 External components in start-from-scratch: ₱${externalComponentsTotal.toLocaleString()}`
         );
       }
-    });
+    }
 
-    console.log(`💰 Start-from-scratch total: ₱${total.toLocaleString()}`);
+    // Apply reservation fee adjustment if we have a booking
+    if (reservedPaymentData.reservedPaymentTotal > 0) {
+      console.log(
+        `💰 Subtracting reservation fee: ₱${reservedPaymentData.reservedPaymentTotal.toLocaleString()}`
+      );
+      total -= reservedPaymentData.reservedPaymentTotal;
+      console.log(
+        `✅ FINAL TOTAL (after reservation fee): ₱${total.toLocaleString()}`
+      );
+    } else {
+      console.log(`✅ FINAL TOTAL: ₱${total.toLocaleString()}`);
+    }
+
     return total;
   };
 
@@ -1130,10 +1186,10 @@ export default function EventBuilderPage() {
       if (selectedVenue && venueBufferFee !== null) {
         // Use the venue's per-pax rate (extra_pax_rate) as the VenueRate
         const venueRate = parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
-        const clientPax = eventDetails.capacity || 100;
+        const currentGuestCount = eventDetails.capacity || 100;
 
-        // Calculate actual venue cost: VenueRate × ClientPax
-        const actualVenueCost = venueRate * clientPax;
+        // Calculate actual venue cost: VenueRate × CurrentGuestCount
+        const actualVenueCost = venueRate * currentGuestCount;
 
         // Calculate excess payment: MAX(0, ActualVenueCost - VenueBuffer)
         const excessPayment = Math.max(0, actualVenueCost - venueBufferFee);
@@ -1161,41 +1217,85 @@ export default function EventBuilderPage() {
   // Calculate Noreen components total
   const calculateNoreenComponentsTotal = () => {
     let noreenTotal = 0;
+    let externalComponentsTotal = 0;
+    let packageComponentsTotal = 0;
+
+    console.log(`🧮 Calculating Noreen components total...`);
+    console.log(
+      `📦 Package ID: ${selectedPackageId}, Original Price: ₱${originalPackagePrice?.toLocaleString()}`
+    );
 
     // For package-based events, Noreen components = package price (venue buffer is included)
     if (selectedPackageId && originalPackagePrice != null) {
       // Start with the full package price (which includes venue buffer)
       noreenTotal = originalPackagePrice;
+      console.log(
+        `💰 Starting with package price: ₱${noreenTotal.toLocaleString()}`
+      );
 
       // Apply component deltas for package components
       components.forEach((component: any) => {
         const componentPrice =
           Number(component.supplierPrice ?? component.price ?? 0) || 0;
 
+        console.log(`🔍 Processing component: ${component.name}`, {
+          category: component.category,
+          included: component.included,
+          price: componentPrice,
+        });
+
         // Package components: subtract if unchecked
         if (component.category === "package") {
           if (component.included === false) {
+            console.log(
+              `➖ Subtracting unchecked package component: ${component.name} (₱${componentPrice.toLocaleString()})`
+            );
             noreenTotal -= componentPrice;
+            packageComponentsTotal -= componentPrice;
+          } else {
+            console.log(
+              `✅ Package component included: ${component.name} (₱${componentPrice.toLocaleString()})`
+            );
           }
           return;
         }
 
         // Custom/supplier/extras: add if included (but not venue inclusions)
         if (component.category !== "venue" && component.included !== false) {
+          console.log(
+            `➕ Adding custom component: ${component.name} (₱${componentPrice.toLocaleString()})`
+          );
           noreenTotal += componentPrice;
+          externalComponentsTotal += componentPrice;
         }
       });
     } else {
       // For start-from-scratch events, sum non-venue components
+      console.log(`🚨 START-FROM-SCRATCH MODE - Calculating from components`);
       components.forEach((component: any) => {
         if (component.category !== "venue" || !component.isVenueInclusion) {
           const componentPrice =
             Number(component.supplierPrice ?? component.price ?? 0) || 0;
           if (component.included !== false) {
             noreenTotal += componentPrice;
+            if (component.category === "extras" || component.supplierPrice) {
+              externalComponentsTotal += componentPrice;
+            }
           }
         }
       });
+    }
+
+    console.log(`🎯 Final Noreen total: ₱${noreenTotal.toLocaleString()}`);
+    console.log(
+      `📊 Package components total: ₱${packageComponentsTotal.toLocaleString()}`
+    );
+
+    // Log external components calculation
+    if (externalComponentsTotal > 0) {
+      console.log(
+        `🔗 External components total: ₱${externalComponentsTotal.toLocaleString()}`
+      );
     }
 
     return noreenTotal;
@@ -1203,44 +1303,7 @@ export default function EventBuilderPage() {
 
   // Calculate total budget with proper venue pricing logic
   const calculateEventSummaryTotal = () => {
-    // If we have a package and base price, use package-based pricing
-    if (selectedPackageId && originalPackagePrice != null) {
-      // Start with Noreen components total (which includes package price + custom components)
-      let total = calculateNoreenComponentsTotal();
-
-      // Add venue excess payment for package-based events
-      if (selectedVenue && venueBufferFee !== null) {
-        // Use the venue's per-pax rate (extra_pax_rate) as the VenueRate
-        const venueRate = parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
-        const clientPax = eventDetails.capacity || 100;
-
-        // Calculate actual venue cost: VenueRate × ClientPax
-        const actualVenueCost = venueRate * clientPax;
-
-        // Calculate excess payment: MAX(0, ActualVenueCost - VenueBuffer)
-        const excessPayment = Math.max(0, actualVenueCost - venueBufferFee);
-        total += excessPayment;
-
-        console.log(`🎯 Event Summary Package-Based Calculation (NEW FORMULA):
-          - Noreen components: ₱${(total - excessPayment).toLocaleString()} (includes package price ₱${originalPackagePrice.toLocaleString()})
-          - Venue Rate: ₱${venueRate.toLocaleString()} per pax
-          - Client Pax: ${clientPax}
-          - Actual Venue Cost: ₱${venueRate.toLocaleString()} × ${clientPax} = ₱${actualVenueCost.toLocaleString()}
-          - Excess Payment: MAX(0, ₱${actualVenueCost.toLocaleString()} - ₱${venueBufferFee.toLocaleString()}) = ₱${excessPayment.toLocaleString()}
-          - Final total: ₱${total.toLocaleString()}
-        `);
-      }
-
-      console.log(`🎯 Final Event Summary Total:
-        - Noreen components: ₱${(total - (selectedVenue && venueBufferFee !== null ? Math.max(0, parseFloat(selectedVenue.extra_pax_rate || 0) * (eventDetails.capacity || 100) - venueBufferFee) : 0)).toLocaleString()}
-        - Venue excess: ₱${(selectedVenue && venueBufferFee !== null ? Math.max(0, parseFloat(selectedVenue.extra_pax_rate || 0) * (eventDetails.capacity || 100) - venueBufferFee) : 0).toLocaleString()}
-        - Final total: ₱${total.toLocaleString()}
-      `);
-
-      return total;
-    }
-
-    // Fallback to getTotalBudget for start-from-scratch events
+    // Always use getTotalBudget for consistent calculation including reservation fee adjustments
     return getTotalBudget();
   };
 
@@ -1462,11 +1525,14 @@ export default function EventBuilderPage() {
           // Set original package price
           setOriginalPackagePrice(parseFloat(packageData.package_price));
 
-          // Update reserved payment data with adjusted total
+          // Update reserved payment data - don't subtract reservation fee here
+          // The reservation fee will be subtracted in getTotalBudget function
           setReservedPaymentData((prev) => ({
             ...prev,
             adjustedTotal:
-              parseFloat(packageData.package_price) - prev.reservedPaymentTotal,
+              prev.clientFinalTotal > 0
+                ? prev.clientFinalTotal
+                : parseFloat(packageData.package_price),
           }));
 
           // Set venue buffer fee from package
@@ -1474,11 +1540,33 @@ export default function EventBuilderPage() {
           setVenueBufferFee(bufferFee);
           console.log("🏢 Venue Buffer Fee fetched from package:", bufferFee);
 
-          // Update event details with package capacity
-          setEventDetails((prev: EventDetails) => ({
-            ...prev,
-            capacity: packageData.guest_capacity,
-          }));
+          // Update event details with package capacity (only if not already set from booking)
+          // IMPORTANT: When loading from a booking, the guest count should be preserved
+          // Only use package's default capacity if the current capacity is unset or is the default (100)
+          setEventDetails((prev: EventDetails) => {
+            // Preserve existing capacity if it's already been set (e.g., from booking with 200 guests)
+            // Only use package capacity if current capacity is the default (100) or not set
+            const shouldUsePackageCapacity =
+              !prev.capacity || prev.capacity === 100;
+            const finalCapacity = shouldUsePackageCapacity
+              ? packageData.guest_capacity
+              : prev.capacity;
+
+            console.log("🎯 Capacity handling:", {
+              previousCapacity: prev.capacity,
+              packageCapacity: packageData.guest_capacity,
+              shouldUsePackageCapacity,
+              finalCapacity,
+              source: shouldUsePackageCapacity
+                ? "package default"
+                : "preserved from booking/previous state",
+            });
+
+            return {
+              ...prev,
+              capacity: finalCapacity,
+            };
+          });
 
           // Don't automatically move to next step - user must click Next button
           console.log("Package selected, ready to proceed to next step");
@@ -1506,7 +1594,10 @@ export default function EventBuilderPage() {
       // Update reserved payment data with adjusted total
       setReservedPaymentData((prev) => ({
         ...prev,
-        adjustedTotal: packagePrice - prev.reservedPaymentTotal,
+        adjustedTotal:
+          prev.clientFinalTotal > 0
+            ? prev.clientFinalTotal - prev.reservedPaymentTotal
+            : packagePrice - prev.reservedPaymentTotal,
       }));
     } else if (eventPkg) {
       // Use basePrice for event packages
@@ -1514,7 +1605,10 @@ export default function EventBuilderPage() {
       // Update reserved payment data with adjusted total
       setReservedPaymentData((prev) => ({
         ...prev,
-        adjustedTotal: eventPkg.basePrice - prev.reservedPaymentTotal,
+        adjustedTotal:
+          prev.clientFinalTotal > 0
+            ? prev.clientFinalTotal - prev.reservedPaymentTotal
+            : eventPkg.basePrice - prev.reservedPaymentTotal,
       }));
     }
 
@@ -1530,15 +1624,30 @@ export default function EventBuilderPage() {
       console.log("Loaded wedding components:", weddingComponents.length);
       setComponents(weddingComponents);
 
-      // Update guest capacity based on package
+      // Update guest capacity based on package (only if not already set from booking)
       const selectedPackage = weddingPackages?.find(
         (pkg) => pkg.id === packageId
       );
       if (selectedPackage) {
-        setEventDetails((prev: EventDetails) => ({
-          ...prev,
-          capacity: selectedPackage.maxGuests,
-        }));
+        setEventDetails((prev: EventDetails) => {
+          // Preserve existing capacity if already set (e.g., from booking)
+          const shouldUsePackageCapacity =
+            !prev.capacity || prev.capacity === 100;
+          const finalCapacity = shouldUsePackageCapacity
+            ? selectedPackage.maxGuests
+            : prev.capacity;
+
+          console.log("🎯 Wedding package capacity handling:", {
+            previousCapacity: prev.capacity,
+            packageMaxGuests: selectedPackage.maxGuests,
+            finalCapacity,
+          });
+
+          return {
+            ...prev,
+            capacity: finalCapacity,
+          };
+        });
       }
     } else {
       // Fallback to event packages
@@ -1559,11 +1668,26 @@ export default function EventBuilderPage() {
         );
         setComponents(componentsWithSubComponents);
 
-        // Update guest capacity based on package
-        setEventDetails((prev: EventDetails) => ({
-          ...prev,
-          capacity: selectedPackage.maxGuests,
-        }));
+        // Update guest capacity based on package (only if not already set from booking)
+        setEventDetails((prev: EventDetails) => {
+          // Preserve existing capacity if already set (e.g., from booking)
+          const shouldUsePackageCapacity =
+            !prev.capacity || prev.capacity === 100;
+          const finalCapacity = shouldUsePackageCapacity
+            ? selectedPackage.maxGuests
+            : prev.capacity;
+
+          console.log("🎯 Event package capacity handling:", {
+            previousCapacity: prev.capacity,
+            packageMaxGuests: selectedPackage.maxGuests,
+            finalCapacity,
+          });
+
+          return {
+            ...prev,
+            capacity: finalCapacity,
+          };
+        });
       } else {
         console.log("No package found with ID:", packageId);
       }
@@ -1773,17 +1897,42 @@ export default function EventBuilderPage() {
 
   // Handle component updates
   const handleComponentsUpdate = useCallback(
-    (updatedComponents: DataPackageComponent[]) => {
+    (updatedComponents: ComponentWithSupplier[]) => {
       // Only update if the components have actually changed
       if (JSON.stringify(updatedComponents) !== JSON.stringify(components)) {
         setComponents(updatedComponents);
 
-        // Note: We keep the originalPackagePrice for budget breakdown display
-        // The getTotalBudget() function already handles component modifications
-        // by applying deltas to the original package price
-        console.log(
-          "✅ Components updated - keeping original package price for budget tracking"
+        // Calculate and log component totals for debugging
+        const includedComponents = updatedComponents.filter(
+          (c) => c.included !== false
         );
+        const totalComponentPrice = includedComponents.reduce((sum, comp) => {
+          const price = Number(comp.supplierPrice ?? comp.price ?? 0) || 0;
+          return sum + price;
+        }, 0);
+
+        console.log("✅ Components updated - Budget recalculation triggered");
+        console.log(
+          `📊 Included components: ${includedComponents.length}/${updatedComponents.length}`
+        );
+        console.log(
+          `💰 Total component price: ₱${totalComponentPrice.toLocaleString()}`
+        );
+
+        // Log external/supplier components specifically
+        const externalComponents = includedComponents.filter(
+          (c) => c.category === "extras" || c.supplierPrice
+        );
+        if (externalComponents.length > 0) {
+          console.log(
+            `🔗 External components included: ${externalComponents.length}`
+          );
+          externalComponents.forEach((comp) => {
+            console.log(
+              `  - ${comp.name}: ₱${Number(comp.supplierPrice ?? comp.price ?? 0).toLocaleString()}`
+            );
+          });
+        }
       }
     },
     [components]
@@ -2070,18 +2219,6 @@ export default function EventBuilderPage() {
     }
     console.log("✅ Event date validation passed");
 
-    if (!eventDetails.capacity || eventDetails.capacity <= 0) {
-      console.log(
-        "❌ Event capacity validation failed - capacity is:",
-        eventDetails.capacity
-      );
-      toast.error("Guest count must be greater than 0");
-      setLoading(false);
-      submitLockRef.current = false;
-      return;
-    }
-    console.log("✅ Event capacity validation passed");
-
     if (!eventDetails.theme || eventDetails.theme.trim() === "") {
       console.log(
         "❌ Event theme validation failed - theme is:",
@@ -2182,6 +2319,8 @@ export default function EventBuilderPage() {
         end_time: "23:59:59", // All events are whole day events
         package_id: selectedPackageId ? parseInt(selectedPackageId) : null, // No package for start from scratch events
         venue_id: selectedVenueId ? parseInt(selectedVenueId) : null,
+        // calculateEventSummaryTotal() already has reservation fee subtracted via getTotalBudget()
+        // So we don't subtract it again here
         total_budget: Number(
           (parseFloat(calculateEventSummaryTotal()?.toString()) || 0).toFixed(2)
         ),
@@ -2192,9 +2331,7 @@ export default function EventBuilderPage() {
           ).toFixed(2)
         ),
         adjusted_total: Number(
-          (
-            parseFloat(reservedPaymentData?.adjustedTotal?.toString()) || 0
-          ).toFixed(2)
+          (parseFloat(calculateEventSummaryTotal()?.toString()) || 0).toFixed(2)
         ),
         down_payment: Number(
           (parseFloat(paymentData?.downPayment?.toString()) || 0).toFixed(2)
@@ -2280,8 +2417,17 @@ export default function EventBuilderPage() {
         "Event creation mode:",
         isStartFromScratch ? "Start from Scratch" : "Package-based"
       );
+      console.log("💰 Budget Calculation Debug:", {
+        originalPackageTotal: calculateEventSummaryTotal(),
+        reservedPaymentTotal: reservedPaymentData.reservedPaymentTotal,
+        finalTotalBudget: eventData.total_budget,
+        note: "calculateEventSummaryTotal() already includes reservation fee subtraction via getTotalBudget()",
+        formula: `Final budget = ${eventData.total_budget} (reservation fee already deducted in getTotalBudget())`,
+      });
       console.log("Payment data being sent:", {
         total_budget: eventData.total_budget,
+        reserved_payment_total: eventData.reserved_payment_total,
+        adjusted_total: eventData.adjusted_total,
         down_payment: eventData.down_payment,
         payment_method: eventData.payment_method,
         reference_number: eventData.reference_number,
@@ -2671,36 +2817,7 @@ export default function EventBuilderPage() {
     }
   };
 
-  // Helper function to convert event type name to ID
-  const getEventTypeIdFromName = (typeName: string): number => {
-    if (!typeName || typeof typeName !== "string") {
-      console.warn("Invalid event type provided:", typeName);
-      return 5; // Default to "Others"
-    }
-
-    const eventTypeMap: Record<string, number> = {
-      wedding: 1,
-      anniversary: 2,
-      birthday: 3,
-      corporate: 4,
-      other: 5,
-      others: 5,
-      baptism: 10,
-      "baby-shower": 11,
-      reunion: 12,
-      festival: 13,
-      engagement: 14,
-      christmas: 15,
-      "new-year": 16,
-    };
-
-    const normalizedType = typeName.toLowerCase().trim();
-    const eventTypeId = eventTypeMap[normalizedType] || 5; // Default to "Others" (5) if not found
-    console.log(
-      `Event type "${typeName}" (normalized: "${normalizedType}") mapped to ID: ${eventTypeId}`
-    );
-    return eventTypeId;
-  };
+  // Helper function to convert event type name to ID is now imported from utils
 
   // Function to look up a booking by reference
   const lookupBookingByReference = async (refOverride?: string) => {
@@ -2800,11 +2917,21 @@ export default function EventBuilderPage() {
           booking.event_type_name || booking.event_type
         );
 
+        // Parse guest count with defensive checks
+        const guestCountValue =
+          booking.guest_count || booking.guestCount || booking.guest_capacity;
+        const parsedGuestCount = parseInt(String(guestCountValue)) || 100;
+
+        console.log("🎯 Guest count from booking reference lookup:", {
+          "raw value": guestCountValue,
+          "parsed value": parsedGuestCount,
+        });
+
         setEventDetails({
           type: mappedEventType,
           title: booking.event_name || "",
           date: booking.event_date || "",
-          capacity: parseInt(booking.guest_count) || 100,
+          capacity: parsedGuestCount,
           notes: booking.notes || "",
           venue: booking.venue_name || "",
           package: booking.package_id ? String(booking.package_id) : "", // Use package ID, not name
@@ -2826,8 +2953,11 @@ export default function EventBuilderPage() {
         if (booking.package_id) {
           console.log("Setting package ID from booking:", booking.package_id);
           setSelectedPackageId(String(booking.package_id));
-          // This will trigger venue loading
+          // This will trigger venue loading and set venueBufferFee
           await handlePackageSelect(String(booking.package_id));
+          // Wait for React to flush state updates so venueBufferFee is available
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          console.log("✅ Package data loaded and state flushed");
         }
 
         // Debug logging
@@ -2846,7 +2976,7 @@ export default function EventBuilderPage() {
             type: mappedEventType,
             title: booking.event_name || "",
             date: booking.event_date || "",
-            capacity: parseInt(booking.guest_count) || 100,
+            capacity: parsedGuestCount,
             package: booking.package_id ? String(booking.package_id) : "",
             venueId: booking.venue_id ? String(booking.venue_id) : "",
           },
@@ -2923,6 +3053,30 @@ export default function EventBuilderPage() {
           // Ignore parsing errors; proceed with base data
         }
 
+        // Set reserved payment data from booking to lock guest count and track payments
+        const reservedPayments = booking.payments || [];
+        const reservedPaymentTotal = booking.reserved_payment_total || 0;
+        const clientFinalTotal = booking.total_price || 0;
+        const reservedGuestCount = parsedGuestCount; // Lock the guest count from booking
+
+        console.log("💰 Reserved payment data from booking reference lookup:", {
+          reservedPayments,
+          reservedPaymentTotal,
+          clientFinalTotal,
+          reservedGuestCount,
+          bookingId: booking.booking_id,
+          bookingReference: refToUse,
+          bookingStatus: booking.booking_status,
+        });
+
+        setReservedPaymentData({
+          reservedPayments,
+          reservedPaymentTotal,
+          adjustedTotal: 0, // Will be calculated when package is selected
+          clientFinalTotal,
+          reservedGuestCount, // Lock the guest count from booking
+        });
+
         toast.success(
           `Booking ${refToUse} found and form fields populated! Step 1 (Package) and Step 2 (Client Details) have been pre-filled. You can now create an event from this booking.`
         );
@@ -2960,6 +3114,27 @@ export default function EventBuilderPage() {
         setIsLoadingBookingData(false);
       }, 500);
     }
+  };
+
+  // Debounced search function
+  const debouncedSearch = (searchTerm: string) => {
+    // Clear existing timeout
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+
+    // Set new timeout
+    const timeout = setTimeout(() => {
+      if (searchTerm.length >= 2) {
+        searchBookings(searchTerm);
+      } else if (searchTerm.length === 0) {
+        loadAllConfirmedBookings();
+      } else {
+        setBookingSearchResults([]);
+      }
+    }, 300); // 300ms delay
+
+    setSearchTimeout(timeout);
   };
 
   const searchBookings = async (searchTerm: string) => {
@@ -3012,6 +3187,7 @@ export default function EventBuilderPage() {
         console.log("❌ API Error:", response.data?.message || "Unknown error");
         console.log("❌ Full response:", response.data);
         setBookingSearchResults([]);
+        toast.error("Failed to search bookings. Please try again.");
       }
     } catch (error: any) {
       console.error("💥 Network Error:", error);
@@ -3022,6 +3198,17 @@ export default function EventBuilderPage() {
         statusText: error.response?.statusText,
       });
       setBookingSearchResults([]);
+
+      // Show user-friendly error message
+      if (error.response?.status === 404) {
+        toast.error("Search service not available. Please try again later.");
+      } else if (error.response?.status >= 500) {
+        toast.error("Server error. Please try again later.");
+      } else {
+        toast.error(
+          "Failed to search bookings. Please check your connection and try again."
+        );
+      }
     } finally {
       setBookingSearchLoading(false);
     }
@@ -3038,6 +3225,12 @@ export default function EventBuilderPage() {
         booking_reference: booking.booking_reference,
         package_id: booking.package_id,
         venue_id: booking.venue_id,
+        guest_count: booking.guest_count,
+        guestCount: booking.guestCount,
+        event_name: booking.event_name,
+        event_date: booking.event_date,
+        user_firstName: booking.user_firstName,
+        user_lastName: booking.user_lastName,
       });
 
       // Fetch complete booking data with payment information
@@ -3069,6 +3262,30 @@ export default function EventBuilderPage() {
       console.error("Error fetching complete booking data:", error);
       console.log("Using original booking data as fallback");
     }
+
+    // 🔥 CRITICAL: Set reserved payment data FIRST before any other state updates
+    // This ensures the safety guard in getTotalBudget() works correctly
+    const reservedPayments = booking.payments || [];
+    const reservedPaymentTotal = booking.reserved_payment_total || 0;
+    const clientFinalTotal = booking.total_price || 0;
+    const reservedGuestCount = 0;
+
+    console.log("💰 Setting reserved payment data EARLY:", {
+      reservedPayments,
+      reservedPaymentTotal,
+      clientFinalTotal,
+      reservedGuestCount,
+      bookingId: booking.booking_id,
+      bookingReference: booking.booking_reference,
+    });
+
+    setReservedPaymentData({
+      reservedPayments,
+      reservedPaymentTotal,
+      adjustedTotal: 0,
+      clientFinalTotal,
+      reservedGuestCount,
+    });
 
     // Parse the booking data and populate the form
     const mapEventType = (eventTypeName: string): string => {
@@ -3109,12 +3326,27 @@ export default function EventBuilderPage() {
       address: booking.user_address || booking.client_address || "",
     });
 
+    // Debug guest count specifically
+    const guestCountValue =
+      booking.guest_count || booking.guestCount || booking.guest_capacity;
+    const parsedGuestCount = parseInt(String(guestCountValue)) || 100;
+
+    console.log("🎯 Guest count debugging:", {
+      "booking.guest_count": booking.guest_count,
+      "booking.guestCount": booking.guestCount,
+      "booking.guest_capacity": booking.guest_capacity,
+      "typeof guest_count": typeof booking.guest_count,
+      guestCountValue: guestCountValue,
+      parsedGuestCount: parsedGuestCount,
+      isNaN: isNaN(guestCountValue),
+    });
+
     // Populate event details - use correct field names from API
     setEventDetails({
       type: mappedEventType,
       title: booking.event_name || "",
       date: booking.event_date || "",
-      capacity: booking.guest_count || 100,
+      capacity: parsedGuestCount, // Properly parsed guest count
       notes: booking.notes || "",
       venue: booking.venue_name || "",
       package: booking.package_id?.toString() || "", // Use package ID, not name
@@ -3141,9 +3373,10 @@ export default function EventBuilderPage() {
       );
       setSelectedPackageId(booking.package_id.toString());
       // Trigger package selection to load venues and components
-      setTimeout(() => {
-        handlePackageSelect(booking.package_id.toString());
-      }, 100);
+      await handlePackageSelect(booking.package_id.toString());
+      // Wait for React to flush state updates so venueBufferFee is available for dynamic calculation
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      console.log("✅ Package selection completed and state flushed");
     }
     if (booking.venue_id) {
       console.log(
@@ -3169,7 +3402,7 @@ export default function EventBuilderPage() {
         type: mappedEventType,
         title: booking.event_name || "",
         date: booking.event_date || "",
-        capacity: booking.guest_count || 100,
+        capacity: parsedGuestCount, // Use parsed value
         package: booking.package_id?.toString() || "",
         venueId: booking.venue_id?.toString() || "",
       },
@@ -3177,22 +3410,8 @@ export default function EventBuilderPage() {
       venueId: booking.venue_id,
     });
 
-    // Set reserved payment data from booking
-    const reservedPayments = booking.payments || [];
-    const reservedPaymentTotal = booking.reserved_payment_total || 0;
-
-    console.log("💰 Reserved payment data from booking:", {
-      reservedPayments,
-      reservedPaymentTotal,
-      bookingId: booking.booking_id,
-      bookingReference: booking.booking_reference,
-    });
-
-    setReservedPaymentData({
-      reservedPayments,
-      reservedPaymentTotal,
-      adjustedTotal: 0, // Will be calculated when package is selected
-    });
+    // Reserved payment data was already set at the beginning of this function
+    // This ensures the safety guard works correctly during state updates
 
     // Set payment data with defaults since booking doesn't have payment info
     setPaymentData({
@@ -3393,11 +3612,6 @@ export default function EventBuilderPage() {
 
             if (!eventDetails.date) {
               toast.error("Event date is required");
-              return;
-            }
-
-            if (!eventDetails.capacity || eventDetails.capacity <= 0) {
-              toast.error("Guest count must be greater than 0");
               return;
             }
 
@@ -3759,25 +3973,46 @@ export default function EventBuilderPage() {
                     </div>
                   )}
 
-                  <div className="border-t pt-3">
-                    <div className="flex justify-between items-center text-lg font-bold">
-                      <span>Total Package Price</span>
-                      <span className="text-brand-600">
-                        {formatCurrency(totalBudget)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Adjusted Total Section */}
-                  {reservedPaymentData.reservedPaymentTotal > 0 && (
+                  {reservedPaymentData.reservedPaymentTotal > 0 ? (
+                    <>
+                      <div className="border-t pt-3">
+                        <div className="flex justify-between items-center text-lg font-bold">
+                          <span>Original Booking Total</span>
+                          <span className="text-gray-500 line-through">
+                            {formatCurrency(
+                              reservedPaymentData.clientFinalTotal ||
+                                totalBudget +
+                                  reservedPaymentData.reservedPaymentTotal
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="bg-blue-50 -mx-4 px-4 py-3">
+                        <div className="flex justify-between items-center text-sm font-semibold text-blue-700">
+                          <span>Less: Reservation Fee Paid</span>
+                          <span>
+                            -
+                            {formatCurrency(
+                              reservedPaymentData.reservedPaymentTotal
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="border-t pt-3">
+                        <div className="flex justify-between items-center text-xl font-bold">
+                          <span>Remaining Balance Due</span>
+                          <span className="text-green-600">
+                            {formatCurrency(totalBudget)}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
                     <div className="border-t pt-3">
                       <div className="flex justify-between items-center text-lg font-bold">
-                        <span>Adjusted Total (Remaining Balance):</span>
-                        <span className="text-orange-600">
-                          {formatCurrency(
-                            totalBudget -
-                              reservedPaymentData.reservedPaymentTotal
-                          )}
+                        <span>Total Package Price</span>
+                        <span className="text-brand-600">
+                          {formatCurrency(totalBudget)}
                         </span>
                       </div>
                     </div>
@@ -4051,8 +4286,7 @@ export default function EventBuilderPage() {
                       !!eventDetails.title &&
                       !!eventDetails.date &&
                       !!eventDetails.type &&
-                      !!eventDetails.theme &&
-                      (eventDetails.capacity || 0) > 0
+                      !!eventDetails.theme
                     );
                   case "venue-selection":
                     return !!selectedVenueId || !selectedPackageId; // Allow no venue for start from scratch
@@ -4138,12 +4372,6 @@ export default function EventBuilderPage() {
                     </p>
                   </div>
                 )}
-                {eventDetails.capacity > 0 && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">Guests</p>
-                    <p className="font-medium">{eventDetails.capacity}</p>
-                  </div>
-                )}
                 {/* Display organizers */}
                 <div>
                   <p className="text-sm text-muted-foreground">Organizers</p>
@@ -4184,11 +4412,33 @@ export default function EventBuilderPage() {
                 {totalBudget > 0 && (
                   <div>
                     <p className="text-sm text-muted-foreground">
-                      Total Budget
+                      {reservedPaymentData.reservedPaymentTotal > 0
+                        ? "Final Event Budget"
+                        : "Total Budget"}
                     </p>
-                    <p className="font-medium text-green-600">
-                      {formatCurrency(totalBudget)}
-                    </p>
+                    {reservedPaymentData.reservedPaymentTotal > 0 ? (
+                      <div className="space-y-1">
+                        <p className="font-medium text-gray-500 line-through text-sm">
+                          {formatCurrency(
+                            reservedPaymentData.clientFinalTotal ||
+                              totalBudget +
+                                reservedPaymentData.reservedPaymentTotal
+                          )}
+                        </p>
+                        <p className="font-bold text-2xl text-green-600">
+                          {formatCurrency(totalBudget)}
+                        </p>
+                        <p className="text-xs text-gray-600 bg-blue-50 px-2 py-1 rounded">
+                          ₱
+                          {reservedPaymentData.reservedPaymentTotal.toLocaleString()}{" "}
+                          reservation fee already paid
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="font-medium text-green-600">
+                        {formatCurrency(totalBudget)}
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -4199,6 +4449,70 @@ export default function EventBuilderPage() {
                       Budget Breakdown
                     </p>
                     <div className="space-y-2 text-sm">
+                      {reservedPaymentData.reservedPaymentTotal > 0 &&
+                        reservedPaymentData.clientFinalTotal > 0 && (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">
+                                Original Booking Total:
+                              </span>
+                              <span className="font-medium">
+                                {formatCurrency(
+                                  reservedPaymentData.clientFinalTotal
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex justify-between bg-blue-50 -mx-2 px-2 py-1.5 rounded">
+                              <span className="text-blue-700 font-medium">
+                                Reservation Fee Paid:
+                              </span>
+                              <span className="font-semibold text-blue-700">
+                                -
+                                {formatCurrency(
+                                  reservedPaymentData.reservedPaymentTotal
+                                )}
+                              </span>
+                            </div>
+                            {reservedPaymentData.reservedGuestCount > 0 && (
+                              <div className="flex justify-between bg-yellow-50 -mx-2 px-2 py-1.5 rounded border border-yellow-200">
+                                <span className="text-yellow-800 font-medium flex items-center gap-1">
+                                  🔒 Guest Count Locked:
+                                </span>
+                                <span className="font-semibold text-yellow-800">
+                                  {reservedPaymentData.reservedGuestCount}{" "}
+                                  guests
+                                </span>
+                              </div>
+                            )}
+                            {reservedPaymentData.reservedGuestCount > 0 &&
+                              eventDetails.capacity >
+                                reservedPaymentData.reservedGuestCount && (
+                                <div className="flex justify-between bg-orange-50 -mx-2 px-2 py-1.5 rounded border border-orange-200">
+                                  <span className="text-orange-800 font-medium">
+                                    ⚠️ Increased to:
+                                  </span>
+                                  <span className="font-semibold text-orange-800">
+                                    {eventDetails.capacity} guests (+
+                                    {eventDetails.capacity -
+                                      reservedPaymentData.reservedGuestCount}
+                                    )
+                                  </span>
+                                </div>
+                              )}
+                            <div className="flex justify-between font-semibold border-t pt-2">
+                              <span className="text-muted-foreground">
+                                Remaining Balance:
+                              </span>
+                              <span className="text-green-600">
+                                {formatCurrency(totalBudget)}
+                              </span>
+                            </div>
+                            <div className="h-px bg-gray-200 my-2"></div>
+                            <p className="text-xs text-gray-500 italic">
+                              Breakdown of original booking:
+                            </p>
+                          </>
+                        )}
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">
                           Package Price:
@@ -4222,8 +4536,29 @@ export default function EventBuilderPage() {
                         (() => {
                           const venueRate =
                             parseFloat(selectedVenue.extra_pax_rate || 0) || 0;
-                          const clientPax = eventDetails.capacity || 100;
-                          const actualVenueCost = venueRate * clientPax;
+                          const currentGuestCount =
+                            eventDetails.capacity || 100;
+                          const reservedGuestCount =
+                            reservedPaymentData.reservedGuestCount || 0;
+
+                          // Determine which guest count to use for calculation (same logic as getTotalBudget)
+                          let effectiveGuestCount = currentGuestCount;
+                          let isGuestCountLocked = false;
+
+                          if (reservedGuestCount > 0) {
+                            if (currentGuestCount <= reservedGuestCount) {
+                              // Guest count decreased or stayed same - lock at reserved count (no refund)
+                              effectiveGuestCount = reservedGuestCount;
+                              isGuestCountLocked = true;
+                            } else {
+                              // Guest count increased - use new count (recalculate with increase)
+                              effectiveGuestCount = currentGuestCount;
+                              isGuestCountLocked = false;
+                            }
+                          }
+
+                          const actualVenueCost =
+                            venueRate * effectiveGuestCount;
                           const excessPayment = Math.max(
                             0,
                             actualVenueCost - venueBufferFee
@@ -4233,10 +4568,16 @@ export default function EventBuilderPage() {
                             <>
                               <div className="flex justify-between">
                                 <span className="text-muted-foreground">
-                                  Actual Venue Cost:
+                                  Actual Venue Cost{" "}
+                                  {isGuestCountLocked ? "🔒" : ""}:
                                 </span>
                                 <span className="font-medium">
                                   {formatCurrency(actualVenueCost)}
+                                  {isGuestCountLocked && (
+                                    <span className="text-xs text-yellow-600 ml-1">
+                                      (@ {effectiveGuestCount})
+                                    </span>
+                                  )}
                                 </span>
                               </div>
                               {excessPayment > 0 && (
@@ -4357,115 +4698,199 @@ export default function EventBuilderPage() {
         open={showBookingLookupModal}
         onOpenChange={setShowBookingLookupModal}
       >
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle>Look Up Existing Booking</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-w-4xl w-[85vw] max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0 px-4 py-3 border-b">
+            <DialogTitle className="text-lg font-semibold text-gray-900">
+              Look Up Existing Booking
+            </DialogTitle>
+            <DialogDescription className="text-gray-600 text-sm">
               Search for an existing booking to load its data into the event
               builder.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="flex-1 flex flex-col min-h-0 px-4 py-4 gap-4">
             {/* Search Input */}
-            <div className="space-y-2">
-              <Label htmlFor="booking-search">
+            <div className="flex-shrink-0 space-y-2">
+              <Label
+                htmlFor="booking-search"
+                className="text-sm font-medium text-gray-700"
+              >
                 Search by client name, event title, or booking reference
               </Label>
-              <div className="flex gap-2">
-                <Input
-                  id="booking-search"
-                  placeholder="Enter search term..."
-                  onChange={(e) => {
-                    const searchTerm = e.target.value;
-                    if (searchTerm.length >= 2) {
-                      searchBookings(searchTerm);
-                    } else if (searchTerm.length === 0) {
-                      // Show all confirmed bookings when search is cleared
+              <div className="flex gap-2 items-center">
+                <div className="relative flex-1">
+                  <Input
+                    id="booking-search"
+                    placeholder="Enter search term..."
+                    className="pr-10 h-10 text-sm"
+                    onChange={(e) => {
+                      const searchTerm = e.target.value;
+                      debouncedSearch(searchTerm);
+                    }}
+                  />
+                  {bookingSearchLoading && (
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#028A75]"></div>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const input = document.getElementById(
+                      "booking-search"
+                    ) as HTMLInputElement;
+                    if (input) {
+                      input.value = "";
                       loadAllConfirmedBookings();
-                    } else {
-                      setBookingSearchResults([]);
                     }
                   }}
-                />
-                {bookingSearchLoading && (
-                  <div className="flex items-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
-                  </div>
-                )}
+                  className="whitespace-nowrap h-10 px-4 text-sm"
+                >
+                  Clear
+                </Button>
               </div>
             </div>
 
-            {/* Search Results */}
-            <div className="max-h-[400px] overflow-y-auto">
+            {/* Search Results - Scrollable Container */}
+            <div className="flex-1 min-h-0 overflow-auto border rounded-lg bg-gray-50">
               {bookingSearchResults.length > 0 ? (
-                <div className="space-y-3">
+                <div className="p-3 space-y-2">
                   {bookingSearchResults.map((booking) => (
                     <Card
                       key={booking.booking_id}
-                      className="p-4 hover:bg-gray-50 cursor-pointer"
+                      className="p-3 hover:bg-white transition-colors border-l-4 border-l-[#028A75] bg-white"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-1">
-                          <h4 className="font-medium">
-                            {booking.event_title || booking.event_name}
-                          </h4>
-                          <p className="text-sm text-gray-600">
-                            Client: {booking.client_name}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            Date: {booking.event_date} | Type:{" "}
-                            {booking.event_type_name}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            Reference: {booking.booking_reference}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            Status:{" "}
-                            <span
-                              className={`px-2 py-1 rounded text-xs ${
-                                booking.booking_status === "confirmed"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-yellow-100 text-yellow-800"
-                              }`}
-                            >
-                              {booking.booking_status}
-                            </span>
-                          </p>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          {/* Client Profile Picture */}
+                          <div className="flex-shrink-0">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#028A75] to-[#028A75]/80 flex items-center justify-center text-white font-bold text-sm">
+                              {booking.client_name
+                                ? booking.client_name.charAt(0).toUpperCase()
+                                : "C"}
+                            </div>
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <h4 className="font-semibold text-base text-gray-900 truncate">
+                                {booking.event_title ||
+                                  booking.event_name ||
+                                  "Untitled Event"}
+                              </h4>
+                              <span
+                                className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
+                                  booking.booking_status === "confirmed"
+                                    ? "bg-green-100 text-green-800"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}
+                              >
+                                {booking.booking_status}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                              <div className="truncate">
+                                <span className="font-medium">Client:</span>{" "}
+                                {booking.client_name || "N/A"}
+                              </div>
+                              <div className="truncate">
+                                <span className="font-medium">Date:</span>{" "}
+                                {booking.event_date || "N/A"}
+                              </div>
+                              <div className="truncate">
+                                <span className="font-medium">Type:</span>{" "}
+                                {booking.event_type_name || "N/A"}
+                              </div>
+                              <div className="truncate">
+                                <span className="font-medium">Ref:</span>{" "}
+                                {booking.booking_reference || "N/A"}
+                              </div>
+                              {booking.guest_count && (
+                                <div className="truncate">
+                                  <span className="font-medium">Guests:</span>{" "}
+                                  {booking.guest_count}
+                                </div>
+                              )}
+                              {booking.venue_name && (
+                                <div className="truncate col-span-2">
+                                  <span className="font-medium">Venue:</span>{" "}
+                                  {booking.venue_name}
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <Button
-                          onClick={async () => await loadBookingData(booking)}
-                          disabled={booking.booking_status !== "confirmed"}
-                          className="bg-[#028A75] hover:bg-[#028A75]/80"
-                        >
-                          Create an Event
-                        </Button>
+
+                        <div className="flex-shrink-0">
+                          <Button
+                            onClick={async () => await loadBookingData(booking)}
+                            disabled={
+                              booking.booking_status !== "confirmed" ||
+                              isLoadingBookingData
+                            }
+                            className="bg-[#028A75] hover:bg-[#028A75]/80 text-white min-w-[100px] h-8 text-sm"
+                          >
+                            {isLoadingBookingData ? (
+                              <div className="flex items-center gap-1">
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                                Loading...
+                              </div>
+                            ) : (
+                              "Create Event"
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     </Card>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8">
+                <div className="flex items-center justify-center h-full min-h-[300px] p-4">
                   {bookingSearchLoading ? (
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
-                      <span>Searching...</span>
+                    <div className="flex flex-col items-center space-y-2">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#028A75]"></div>
+                      <span className="text-gray-600 text-sm">
+                        Searching bookings...
+                      </span>
                     </div>
                   ) : (
-                    <p>
-                      No confirmed bookings found. Try a different search term
-                      or accept some bookings first.
-                    </p>
+                    <div className="text-center space-y-2">
+                      <div className="text-gray-400 text-4xl">🔍</div>
+                      <h3 className="text-base font-medium text-gray-700">
+                        No confirmed bookings found
+                      </h3>
+                      <p className="text-gray-500 text-sm">
+                        Try a different search term or check if bookings need to
+                        be confirmed first.
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
             </div>
           </div>
 
-          <DialogFooter>
-            <Button onClick={() => setShowBookingLookupModal(false)}>
-              Cancel
-            </Button>
+          <DialogFooter className="flex-shrink-0 border-t pt-3 px-4 pb-3">
+            <div className="flex justify-between items-center w-full">
+              <div className="text-xs text-gray-500">
+                {bookingSearchResults.length > 0 && (
+                  <span>
+                    {bookingSearchResults.length} booking
+                    {bookingSearchResults.length !== 1 ? "s" : ""} found
+                  </span>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => setShowBookingLookupModal(false)}
+                className="ml-auto h-8 px-4 text-sm"
+              >
+                Close
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

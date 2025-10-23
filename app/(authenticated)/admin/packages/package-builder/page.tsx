@@ -618,6 +618,13 @@ export default function PackageBuilderPage() {
     return freebies && freebies.some((f) => f.freebie_name.trim() !== "");
   };
 
+  const isVenueFeeValid = () => {
+    // Venue fee step is valid if:
+    // 1. At least one venue is selected (already validated in venue selection step)
+    // 2. Venue fee buffer is set (can be 0 or any positive number)
+    return selectedVenues.length > 0 && venueFeeBuffer !== null;
+  };
+
   const calculateTotalPrice = (): number => {
     const inclusionsTotal = (inclusions || []).reduce(
       (sum, inclusion) => sum + (Number(inclusion.price) || 0),
@@ -1544,6 +1551,8 @@ export default function PackageBuilderPage() {
                 return isPackageDetailsValid();
               case "venues":
                 return isVenueSelectionValid();
+              case "venue-fees":
+                return isVenueFeeValid();
               case "inclusions":
                 return areInclusionsValid();
               case "freebies":

@@ -70,7 +70,7 @@ function getPackagesByEventType($eventTypeId, $guestCount) {
         // For each package, get components, freebies, and venue previews
         foreach ($packages as &$package) {
             // Get package components (limited for preview)
-            $componentsSql = "SELECT * FROM tbl_package_components
+            $componentsSql = "SELECT inclusion_id as component_id, inclusion_name as component_name, components_list as component_description, inclusion_price as component_price, display_order, supplier_id, offer_id FROM tbl_package_inclusions
                              WHERE package_id = :package_id
                              ORDER BY display_order ASC
                              LIMIT 5";
@@ -202,7 +202,7 @@ function getPackageDetails($packageId) {
         }
 
         // Get all components
-        $componentsSql = "SELECT * FROM tbl_package_components
+        $componentsSql = "SELECT inclusion_id as component_id, inclusion_name as component_name, components_list as component_description, inclusion_price as component_price, display_order, supplier_id, offer_id FROM tbl_package_inclusions
                          WHERE package_id = :package_id
                          ORDER BY display_order ASC";
         $componentsStmt = $pdo->prepare($componentsSql);
@@ -944,7 +944,7 @@ function getClientEventInclusions($userId, $eventId) {
                     pc.component_name AS original_component_name,
                     pc.component_description AS original_component_description
                 FROM tbl_event_components ec
-                LEFT JOIN tbl_package_components pc ON ec.original_package_component_id = pc.component_id
+                LEFT JOIN tbl_package_inclusions pc ON ec.original_package_component_id = pc.inclusion_id
                 WHERE ec.event_id = :event_id
                 ORDER BY ec.display_order ASC, ec.component_id ASC";
 
@@ -1019,7 +1019,7 @@ function getClientEventDetails($userId, $eventId) {
                 pc.component_name as original_component_name,
                 pc.component_description as original_component_description
             FROM tbl_event_components ec
-            LEFT JOIN tbl_package_components pc ON ec.original_package_component_id = pc.component_id
+            LEFT JOIN tbl_package_inclusions pc ON ec.original_package_component_id = pc.component_id
             WHERE ec.event_id = ?
             ORDER BY ec.display_order
         ");
@@ -1315,17 +1315,13 @@ function getAllPackages() {
     global $pdo;
 
     try {
+
+        // Simplified query for remote database compatibility
         $sql = "SELECT p.*,
-                GROUP_CONCAT(DISTINCT et.event_name) as event_type_names,
-                COUNT(DISTINCT pv.venue_id) as venue_count,
-                COUNT(DISTINCT pc.component_id) as component_count,
-                COUNT(DISTINCT pf.freebie_id) as freebie_count
+                GROUP_CONCAT(DISTINCT et.event_name) as event_type_names
                 FROM tbl_packages p
                 LEFT JOIN tbl_package_event_types pet ON p.package_id = pet.package_id
                 LEFT JOIN tbl_event_type et ON pet.event_type_id = et.event_type_id
-                LEFT JOIN tbl_package_venues pv ON p.package_id = pv.package_id
-                LEFT JOIN tbl_package_components pc ON p.package_id = pc.package_id
-                LEFT JOIN tbl_package_freebies pf ON p.package_id = pf.package_id
                 WHERE p.is_active = 1
                 GROUP BY p.package_id
                 ORDER BY p.package_price ASC";
@@ -1334,11 +1330,27 @@ function getAllPackages() {
         $stmt->execute();
         $packages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // If no active packages found, get all packages (temporary fallback)
+        if (count($packages) === 0) {
+            $sql = "SELECT p.*,
+                    GROUP_CONCAT(DISTINCT et.event_name) as event_type_names
+                    FROM tbl_packages p
+                    LEFT JOIN tbl_package_event_types pet ON p.package_id = pet.package_id
+                    LEFT JOIN tbl_event_type et ON pet.event_type_id = et.event_type_id
+                    GROUP BY p.package_id
+                    ORDER BY p.package_price ASC";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute();
+            $packages = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+
         // For each package, get limited preview data
         foreach ($packages as &$package) {
             // Get package components (limited for preview)
-            $componentsSql = "SELECT component_name, component_price
-                             FROM tbl_package_components
+            $componentsSql = "SELECT inclusion_name as component_name, inclusion_price as component_price
+                             FROM tbl_package_inclusions
                              WHERE package_id = :package_id
                              ORDER BY display_order ASC
                              LIMIT 5";
@@ -1346,6 +1358,7 @@ function getAllPackages() {
             $componentsStmt->bindParam(':package_id', $package['package_id'], PDO::PARAM_INT);
             $componentsStmt->execute();
             $package['components'] = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+            $package['component_count'] = count($package['components']);
 
             // Get package freebies (limited for preview)
             $freebiesSql = "SELECT freebie_name, freebie_description, freebie_value
@@ -1357,6 +1370,10 @@ function getAllPackages() {
             $freebiesStmt->bindParam(':package_id', $package['package_id'], PDO::PARAM_INT);
             $freebiesStmt->execute();
             $package['freebies'] = $freebiesStmt->fetchAll(PDO::FETCH_ASSOC);
+            $package['freebie_count'] = count($package['freebies']);
+
+            // Set default venue count
+            $package['venue_count'] = 0;
 
             // Convert comma-separated values to arrays
             if ($package['event_type_names']) {
@@ -1377,6 +1394,44 @@ function getAllPackages() {
         }
 
         return ["status" => "success", "packages" => $packages];
+    } catch (PDOException $e) {
+        return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
+    }
+}
+
+// Function to get a specific package by ID with venue buffer
+function getPackageById($packageId) {
+    global $pdo;
+
+    try {
+        $sql = "SELECT p.*,
+                GROUP_CONCAT(DISTINCT et.event_name) as event_type_names
+                FROM tbl_packages p
+                LEFT JOIN tbl_package_event_types pet ON p.package_id = pet.package_id
+                LEFT JOIN tbl_event_type et ON pet.event_type_id = et.event_type_id
+                WHERE p.package_id = :package_id AND p.is_active = 1
+                GROUP BY p.package_id";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindParam(':package_id', $packageId, PDO::PARAM_INT);
+        $stmt->execute();
+        $package = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$package) {
+            return ["status" => "error", "message" => "Package not found"];
+        }
+
+        // Convert comma-separated event type names to array
+        if ($package['event_type_names']) {
+            $package['event_type_names'] = explode(',', $package['event_type_names']);
+        } else {
+            $package['event_type_names'] = [];
+        }
+
+        // Explicitly ensure venue_fee_buffer is included and properly formatted
+        $package['venue_fee_buffer'] = isset($package['venue_fee_buffer']) ? floatval($package['venue_fee_buffer']) : 0.00;
+
+        return ["status" => "success", "package" => $package];
     } catch (PDOException $e) {
         return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
     }
@@ -1562,7 +1617,7 @@ function getAllPackageComponents() {
                     pc.component_description,
                     pc.component_price,
                     pc.display_order
-                FROM tbl_package_components pc
+                FROM tbl_package_inclusions pc
                 GROUP BY pc.component_id
                 ORDER BY pc.component_name ASC";
 
@@ -1597,7 +1652,7 @@ function getPackageComponents($packageId) {
                     pc.component_description,
                     pc.component_price,
                     pc.display_order
-                FROM tbl_package_components pc
+                FROM tbl_package_inclusions pc
                 WHERE pc.package_id = ?
                 ORDER BY pc.display_order ASC, pc.component_name ASC";
 
@@ -2375,6 +2430,18 @@ switch ($method) {
 
             case 'getAllPackages':
                 echo json_encode(getAllPackages());
+                break;
+
+            case 'getPackageById':
+                $packageId = isset($_GET['package_id']) ? intval($_GET['package_id']) : 0;
+                if ($packageId > 0) {
+                    echo json_encode(getPackageById($packageId));
+                } else {
+                    echo json_encode([
+                        "status" => "error",
+                        "message" => "Package ID is required"
+                    ]);
+                }
                 break;
 
             case 'getAllPackageComponents':

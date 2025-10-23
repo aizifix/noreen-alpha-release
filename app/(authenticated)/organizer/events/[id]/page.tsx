@@ -34,7 +34,7 @@ import { apiClient } from "@/app/utils/apiClient";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 import axios from "axios";
-import { api } from "@/app/config/api";
+import { api, endpoints } from "@/app/config/api";
 
 // Feature flag: toggle delivery progress functionality for organizer
 const ENABLE_DELIVERY_PROGRESS = false;
@@ -132,7 +132,7 @@ export default function OrganizerEventDetailsPage() {
         }
         // Resolve organizer_id for accept/reject actions
         try {
-          const profile = await axios.post("/organizer.php", {
+          const profile = await axios.post(endpoints.organizer, {
             operation: "getOrganizerProfile",
             user_id: userData.user_id,
           });
@@ -217,7 +217,7 @@ export default function OrganizerEventDetailsPage() {
       setIsLoading(true);
       console.log("🔍 Fetching event details for ID:", eventId);
 
-      const response = await axios.post("/organizer.php", {
+      const response = await axios.post(endpoints.organizer, {
         operation: "getOrganizerEventDetails",
         event_id: parseInt(eventId),
       });
@@ -346,7 +346,7 @@ export default function OrganizerEventDetailsPage() {
         "event_id type:",
         typeof eventId
       );
-      const res = await axios.post("/organizer.php", {
+      const res = await axios.post(endpoints.organizer, {
         operation: "getWeddingDetails",
         event_id: parseInt(eventId),
         organizer_id: organizerId,
@@ -426,6 +426,109 @@ export default function OrganizerEventDetailsPage() {
     }
   };
 
+  const handleDeliveryConfirmation = async (
+    component: EventComponent,
+    isDelivered: boolean
+  ) => {
+    if (!event?.event_id || !organizerId) return;
+
+    try {
+      const newStatus = isDelivered ? "delivered" : "confirmed";
+
+      // Update component status in the event state
+      setEvent((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          components: prev.components?.map((comp) =>
+            comp.component_id === component.component_id
+              ? { ...comp, supplier_status: newStatus }
+              : comp
+          ),
+        };
+      });
+
+      // Send API request to update delivery status
+      const requestData = {
+        operation: "updateComponentDeliveryStatus",
+        event_id: event.event_id,
+        component_id: component.component_id,
+        organizer_id: organizerId,
+        delivery_status: newStatus,
+        delivery_date: isDelivered
+          ? new Date().toISOString().split("T")[0]
+          : null, // Send only date part
+      };
+
+      console.log("📤 Sending delivery status update to:", endpoints.organizer);
+      console.log("📦 Request data:", requestData);
+
+      const response = await axios.post(endpoints.organizer, requestData, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      console.log("API Response:", response.data);
+
+      if (response.data?.status === "success") {
+        console.log("✅ Delivery status updated successfully");
+        toast({
+          title: isDelivered ? "Delivery Confirmed" : "Delivery Status Updated",
+          description: isDelivered
+            ? `${component.component_name} has been marked as delivered.`
+            : `${component.component_name} delivery status has been updated.`,
+        });
+
+        // Send notification to admin
+        if (isDelivered) {
+          // Notify admin about delivery confirmation
+          await axios.post("/notifications.php", {
+            operation: "create",
+            user_id: "admin", // This would need to be the actual admin user ID
+            notification_title: "Component Delivered",
+            notification_message: `${component.component_name} has been delivered for event ${event.event_title}`,
+            notification_type: "delivery_confirmation",
+            event_id: event.event_id,
+          });
+        }
+      } else {
+        console.error("API Error Response:", response.data);
+        throw new Error(
+          response.data?.message || "Failed to update delivery status"
+        );
+      }
+    } catch (error: any) {
+      console.error("❌ Error updating delivery status:", error);
+      console.error("Error details:", {
+        message: error?.message,
+        response: error?.response?.data,
+        status: error?.response?.status,
+        url: error?.config?.url,
+      });
+      toast({
+        title: "Error",
+        description:
+          error?.response?.data?.message ||
+          "Failed to update delivery status. Please try again.",
+        variant: "destructive",
+      });
+
+      // Revert the state change on error
+      setEvent((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          components: prev.components?.map((comp) =>
+            comp.component_id === component.component_id
+              ? { ...comp, supplier_status: component.supplier_status }
+              : comp
+          ),
+        };
+      });
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case "confirmed":
@@ -490,7 +593,7 @@ export default function OrganizerEventDetailsPage() {
 
     try {
       setDeliveryError(null);
-      const response = await axios.post("/organizer.php", {
+      const response = await axios.post(endpoints.organizer, {
         operation: "getEventDeliveryProgress",
         event_id: parseInt(eventId),
         organizer_id: organizerId,
@@ -561,7 +664,7 @@ export default function OrganizerEventDetailsPage() {
 
     setUpdatingDelivery(componentId);
     try {
-      const response = await axios.post("/organizer.php", {
+      const response = await axios.post(endpoints.organizer, {
         operation: "updateComponentDeliveryStatus",
         component_id: componentId,
         delivery_status: status,
@@ -1476,17 +1579,65 @@ export default function OrganizerEventDetailsPage() {
 
                 {activeTab === "timeline" && (
                   <div>
-                    <div className="flex items-center justify-between mb-6">
+                    <div className="mb-6">
                       <h3 className="text-lg font-semibold text-gray-900">
                         Event Timeline & Components
                       </h3>
-                      <div className="text-sm text-gray-600">
-                        Event ID: #{eventId} • {event.event_status} •{" "}
-                        {event.payment_status}
-                      </div>
                     </div>
 
                     <div className="space-y-6">
+                      {/* Delivery Progress Section */}
+                      <div className="bg-white border border-gray-200 rounded-lg p-6">
+                        <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center">
+                          <TrendingUp className="h-4 w-4 mr-2 text-blue-600" />
+                          Delivery Progress
+                        </h4>
+                        {(() => {
+                          const includedComponents = (
+                            event.components || []
+                          ).filter((comp) => comp.is_included);
+                          const deliveredComponents = includedComponents.filter(
+                            (comp) => comp.supplier_status === "delivered"
+                          );
+                          const progressPercentage =
+                            includedComponents.length > 0
+                              ? (deliveredComponents.length /
+                                  includedComponents.length) *
+                                100
+                              : 0;
+
+                          return (
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium text-gray-700">
+                                  Items Delivered
+                                </span>
+                                <span className="text-sm text-gray-600">
+                                  {deliveredComponents.length} of{" "}
+                                  {includedComponents.length}
+                                </span>
+                              </div>
+
+                              <div className="w-full bg-gray-200 rounded-full h-3">
+                                <div
+                                  className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-in-out"
+                                  style={{ width: `${progressPercentage}%` }}
+                                ></div>
+                              </div>
+
+                              <div className="text-center">
+                                <span className="text-2xl font-bold text-blue-600">
+                                  {Math.round(progressPercentage)}%
+                                </span>
+                                <span className="text-sm text-gray-500 ml-1">
+                                  Complete
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
                       {/* Components Section */}
                       <div>
                         <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center">
@@ -1536,14 +1687,6 @@ export default function OrganizerEventDetailsPage() {
                                             : "Not Included"}
                                         </span>
                                       </div>
-                                      {component.component_price && (
-                                        <p className="text-sm text-gray-600">
-                                          ₱
-                                          {Number(
-                                            component.component_price
-                                          ).toLocaleString()}
-                                        </p>
-                                      )}
                                       {/* Payment Status */}
                                       {component.is_included && (
                                         <div className="flex items-center gap-2 mt-1">
@@ -1580,6 +1723,50 @@ export default function OrganizerEventDetailsPage() {
                                               </>
                                             )}
                                           </span>
+
+                                          {/* Delivery Confirmation Checkbox - Only show for paid components */}
+                                          {component.payment_status ===
+                                            "paid" && (
+                                            <div className="flex items-center gap-2">
+                                              <label className="flex items-center gap-1 text-xs text-gray-600">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={
+                                                    component.supplier_status ===
+                                                    "delivered"
+                                                  }
+                                                  onChange={(e) =>
+                                                    handleDeliveryConfirmation(
+                                                      component,
+                                                      e.target.checked
+                                                    )
+                                                  }
+                                                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                                />
+                                                <span>Delivered</span>
+                                              </label>
+                                              {component.supplier_status ===
+                                                "delivered" && (
+                                                <div className="flex items-center gap-2">
+                                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                                                    <CheckCircle className="h-3 w-3 inline mr-1" />
+                                                    Delivered
+                                                  </span>
+                                                  {component.delivery_date && (
+                                                    <span className="text-xs text-gray-500">
+                                                      {format(
+                                                        new Date(
+                                                          component.delivery_date +
+                                                            "T00:00:00"
+                                                        ),
+                                                        "MMM dd, yyyy"
+                                                      )}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
                                         </div>
                                       )}
                                     </div>
@@ -1692,6 +1879,62 @@ export default function OrganizerEventDetailsPage() {
                                                 </span>
                                                 <p className="text-sm text-gray-600 mt-1">
                                                   {component.payment_notes}
+                                                </p>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+
+                                      {/* Delivery Details */}
+                                      {component.is_included &&
+                                        component.supplier_status && (
+                                          <div className="pt-3 border-t border-gray-100">
+                                            <h5 className="text-sm font-medium text-gray-700 mb-2">
+                                              Delivery Details:
+                                            </h5>
+                                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                              <div>
+                                                <span className="font-medium text-gray-700">
+                                                  Status:
+                                                </span>
+                                                <span
+                                                  className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${
+                                                    component.supplier_status ===
+                                                    "delivered"
+                                                      ? "bg-blue-100 text-blue-700"
+                                                      : component.supplier_status ===
+                                                          "cancelled"
+                                                        ? "bg-red-100 text-red-700"
+                                                        : "bg-yellow-100 text-yellow-700"
+                                                  }`}
+                                                >
+                                                  {component.supplier_status}
+                                                </span>
+                                              </div>
+                                              {component.delivery_date && (
+                                                <div>
+                                                  <span className="font-medium text-gray-700">
+                                                    Delivered:
+                                                  </span>
+                                                  <span className="ml-2 text-gray-600">
+                                                    {format(
+                                                      new Date(
+                                                        component.delivery_date +
+                                                          "T00:00:00"
+                                                      ),
+                                                      "MMM dd, yyyy"
+                                                    )}
+                                                  </span>
+                                                </div>
+                                              )}
+                                            </div>
+                                            {component.supplier_notes && (
+                                              <div className="mt-2">
+                                                <span className="font-medium text-gray-700">
+                                                  Delivery Notes:
+                                                </span>
+                                                <p className="text-sm text-gray-600 mt-1">
+                                                  {component.supplier_notes}
                                                 </p>
                                               </div>
                                             )}
@@ -2528,77 +2771,6 @@ export default function OrganizerEventDetailsPage() {
               </div>
             </div>
 
-            {/* Payment Summary */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6 animate-in slide-in-from-right-2 duration-300">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Payment Summary
-              </h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">
-                    Total Budget:
-                  </span>
-                  <span className="text-sm font-semibold text-gray-900">
-                    ₱{event.total_budget.toLocaleString()}
-                  </span>
-                </div>
-                {event.payments &&
-                  event.payments.some(
-                    (p: any) => p.payment_type === "reserved"
-                  ) && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-blue-600">
-                        Reserved Fee:
-                      </span>
-                      <span className="text-sm font-semibold text-blue-600">
-                        ₱
-                        {event.payments
-                          .filter(
-                            (p: any) =>
-                              p.payment_type === "reserved" &&
-                              p.payment_status === "completed"
-                          )
-                          .reduce(
-                            (sum: number, p: any) =>
-                              sum + Number(p.payment_amount || 0),
-                            0
-                          )
-                          .toLocaleString()}
-                      </span>
-                    </div>
-                  )}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">
-                    Down Payment:
-                  </span>
-                  <span className="text-sm font-semibold text-gray-900">
-                    ₱{event.down_payment.toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">
-                    Remaining:
-                  </span>
-                  <span className="text-sm font-semibold text-gray-900">
-                    ₱
-                    {(event.total_budget - event.down_payment).toLocaleString()}
-                  </span>
-                </div>
-                <div className="pt-3 border-t border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700">
-                      Payment Status:
-                    </span>
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-medium ${getPaymentStatusColor(event.payment_status)}`}
-                    >
-                      {event.payment_status}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             {/* Quick Actions */}
             <div className="bg-white rounded-lg border border-gray-200 p-6 animate-in slide-in-from-right-2 duration-300">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -2738,11 +2910,6 @@ function DeliveryStatusModal({
             <p className="text-gray-900 font-medium">
               {component.component_name}
             </p>
-            {component.component_price && (
-              <p className="text-sm text-gray-600 mt-1">
-                Price: ₱{Number(component.component_price).toLocaleString()}
-              </p>
-            )}
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">

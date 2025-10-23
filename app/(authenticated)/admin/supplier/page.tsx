@@ -31,6 +31,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,6 +57,7 @@ interface Supplier {
   total_offers: number;
   registration_docs: any[];
   created_at: string;
+  supplier_pfp?: string;
   onboarding_status?:
     | "pending"
     | "documents_uploaded"
@@ -644,24 +646,59 @@ export default function SupplierPage() {
           <CardTitle>Suppliers ({suppliers.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto overflow-y-visible">
+            <style jsx>{`
+              div::-webkit-scrollbar {
+                height: 8px;
+              }
+              div::-webkit-scrollbar-track {
+                background: #f3f4f6;
+                border-radius: 4px;
+              }
+              div::-webkit-scrollbar-thumb {
+                background: #d1d5db;
+                border-radius: 4px;
+              }
+              div::-webkit-scrollbar-thumb:hover {
+                background: #9ca3af;
+              }
+            `}</style>
+            <table className="w-full text-sm" style={{ minWidth: "1200px" }}>
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-3 px-4">
+                  <th className="text-left py-3 px-4 w-12">
                     <Checkbox
                       checked={selectAll}
                       onCheckedChange={handleSelectAll}
                     />
                   </th>
-                  <th className="text-left py-3 px-4">Business Name</th>
-                  <th className="text-left py-3 px-4">Contact Person</th>
-                  <th className="text-left py-3 px-4">Type</th>
-                  <th className="text-left py-3 px-4">Category</th>
-                  <th className="text-left py-3 px-4">Verification</th>
-                  <th className="text-left py-3 px-4">Onboarding</th>
-                  <th className="text-left py-3 px-4">Rating</th>
-                  <th className="text-left py-3 px-4">Actions</th>
+                  <th className="text-left py-3 px-4 w-16 min-w-[64px]">
+                    Profile
+                  </th>
+                  <th className="text-left py-3 px-4 w-48 min-w-[192px]">
+                    Business Name
+                  </th>
+                  <th className="text-left py-3 px-4 w-40 min-w-[160px]">
+                    Contact Person
+                  </th>
+                  <th className="text-left py-3 px-4 w-32 min-w-[128px]">
+                    Type
+                  </th>
+                  <th className="text-left py-3 px-4 w-32 min-w-[128px]">
+                    Category
+                  </th>
+                  <th className="text-left py-3 px-4 w-32 min-w-[128px]">
+                    Verification
+                  </th>
+                  <th className="text-left py-3 px-4 w-32 min-w-[128px]">
+                    Onboarding
+                  </th>
+                  <th className="text-left py-3 px-4 w-24 min-w-[96px]">
+                    Rating
+                  </th>
+                  <th className="text-left py-3 px-4 w-24 min-w-[96px]">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -681,49 +718,76 @@ export default function SupplierPage() {
                       />
                     </td>
                     <td className="py-3 px-4">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage
+                          src={
+                            supplier.supplier_pfp
+                              ? `${endpoints.serveImage}?path=${supplier.supplier_pfp}`
+                              : undefined
+                          }
+                          alt={supplier.business_name}
+                        />
+                        <AvatarFallback>
+                          {supplier.business_name
+                            .split(" ")
+                            .map((word) => word.charAt(0))
+                            .join("")
+                            .toUpperCase()
+                            .substring(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                    </td>
+                    <td className="py-3 px-4">
                       <div>
-                        <div className="font-medium">
+                        <div className="font-medium whitespace-nowrap">
                           {String(supplier.business_name || "")}
                         </div>
-                        <div className="text-gray-500 text-xs">
+                        <div
+                          className="text-gray-500 text-xs truncate max-w-[180px]"
+                          title={supplier.contact_email}
+                        >
                           {String(supplier.contact_email || "")}
                         </div>
                       </div>
                     </td>
                     <td className="py-3 px-4">
                       <div>
-                        <div>{String(supplier.contact_person || "")}</div>
-                        <div className="text-gray-500 text-xs">
+                        <div className="whitespace-nowrap">
+                          {String(supplier.contact_person || "")}
+                        </div>
+                        <div className="text-gray-500 text-xs whitespace-nowrap">
                           {String(supplier.contact_number || "")}
                         </div>
                       </div>
                     </td>
                     <td className="py-3 px-4">
                       <span
-                        className={`px-2 py-1 rounded-full text-xs ${getSupplierTypeColor(supplier.supplier_type)}`}
+                        className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${getSupplierTypeColor(supplier.supplier_type)}`}
                       >
                         {String(supplier.supplier_type || "")}
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      {String(supplier.specialty_category || "")}
+                      <div className="whitespace-nowrap">
+                        {String(supplier.specialty_category || "")}
+                      </div>
                     </td>
                     <td className="py-3 px-4">
                       <span
-                        className={`px-2 py-1 rounded-full text-xs ${getVerificationColor(supplier.is_verified)}`}
+                        className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${getVerificationColor(supplier.is_verified)}`}
                       >
                         {supplier.is_verified ? "Verified" : "Pending"}
                       </span>
                     </td>
                     <td className="py-3 px-4">
                       <span
-                        className={`px-2 py-1 rounded-full text-xs ${getOnboardingStatusColor(supplier.onboarding_status || "pending")}`}
+                        className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${getOnboardingStatusColor(supplier.onboarding_status || "pending")}`}
                       >
                         {supplier.onboarding_status || "pending"}
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex items-center">
+                      <div className="flex items-center whitespace-nowrap">
                         <Star className="w-4 h-4 text-yellow-400 mr-1" />
                         <span>
                           {Number(supplier.rating_average || 0).toFixed(1)}
@@ -852,6 +916,11 @@ function EnhancedSupplierModal({
     create_user_account: false,
   });
 
+  const [profilePicture, setProfilePicture] = useState<File | null>(null);
+  const [profilePicturePreview, setProfilePicturePreview] = useState<
+    string | null
+  >(null);
+
   const [documents, setDocuments] = useState<{ [key: string]: File | null }>(
     {}
   );
@@ -913,6 +982,13 @@ function EnhancedSupplierModal({
         send_email: true,
         create_user_account: supplier.supplier_type === "internal",
       });
+
+      // Set profile picture preview if exists
+      if (supplier.supplier_pfp) {
+        setProfilePicturePreview(
+          `${endpoints.serveImage}?path=${supplier.supplier_pfp}`
+        );
+      }
 
       // Parse existing tiers from registration_docs if present
       try {
@@ -994,6 +1070,99 @@ function EnhancedSupplierModal({
     }));
   };
 
+  // Image compression utility
+  const compressImage = (
+    file: File,
+    maxWidth: number = 400,
+    quality: number = 0.8
+  ): Promise<File> => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const img = new Image();
+
+      img.onload = () => {
+        // Calculate new dimensions
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        // Draw and compress
+        ctx?.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const compressedFile = new File([blob], file.name, {
+                type: "image/jpeg",
+                lastModified: Date.now(),
+              });
+              resolve(compressedFile);
+            } else {
+              resolve(file);
+            }
+          },
+          "image/jpeg",
+          quality
+        );
+      };
+
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  const handleProfilePictureChange = async (file: File | null) => {
+    if (file) {
+      try {
+        // Show loading state
+        setProfilePicturePreview("loading");
+
+        // Compress the image
+        const compressedFile = await compressImage(file, 400, 0.8);
+
+        // Update state with compressed file
+        setProfilePicture(compressedFile);
+
+        // Create preview
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setProfilePicturePreview(e.target?.result as string);
+        };
+        reader.readAsDataURL(compressedFile);
+
+        // Show compression info
+        const originalSize = (file.size / 1024 / 1024).toFixed(2);
+        const compressedSize = (compressedFile.size / 1024 / 1024).toFixed(2);
+        const savings = (
+          ((file.size - compressedFile.size) / file.size) *
+          100
+        ).toFixed(1);
+
+        toast.success(
+          `Image compressed! Size reduced from ${originalSize}MB to ${compressedSize}MB (${savings}% savings)`
+        );
+      } catch (error) {
+        console.error("Error compressing image:", error);
+        toast.error("Failed to compress image. Using original file.");
+
+        // Fallback to original file
+        setProfilePicture(file);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setProfilePicturePreview(e.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
+    } else {
+      setProfilePicture(null);
+      setProfilePicturePreview(null);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -1042,11 +1211,19 @@ function EnhancedSupplierModal({
         }
       });
 
+      // Add profile picture
+      if (profilePicture) {
+        formDataToSend.append("supplier_pfp", profilePicture);
+      }
+
       // Build operation-specific request
       if (mode === "edit") {
         formDataToSend.append("operation", "updateSupplier");
         if (supplier?.supplier_id) {
           formDataToSend.append("supplier_id", String(supplier.supplier_id));
+          console.log("Sending supplier ID:", supplier.supplier_id);
+        } else {
+          console.error("No supplier ID found for edit mode");
         }
       } else {
         formDataToSend.append("operation", "createSupplier");
@@ -1057,6 +1234,18 @@ function EnhancedSupplierModal({
       });
 
       const data = response.data;
+
+      // Debug logging
+      console.log("API Response:", data);
+      console.log("Response status:", response.status);
+      console.log("Response headers:", response.headers);
+
+      // Check if response is empty or invalid
+      if (!data || typeof data !== "object" || Object.keys(data).length === 0) {
+        console.error("Empty or invalid API response:", data);
+        toast.error("Server returned an empty response. Please try again.");
+        return;
+      }
 
       if (data.status === "success") {
         if (mode === "add" && data.credentials) {
@@ -1074,6 +1263,7 @@ function EnhancedSupplierModal({
           onSuccess();
         }
       } else {
+        console.error("API Error:", data);
         toast.error(data.message || "Operation failed");
       }
     } catch (error) {
@@ -1178,8 +1368,9 @@ function EnhancedSupplierModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
+      <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] flex flex-col">
+        {/* Sticky Header */}
+        <div className="flex justify-between items-center p-6 border-b border-gray-200 bg-white rounded-t-lg sticky top-0 z-10">
           <h2 className="text-xl font-bold">
             {mode === "add"
               ? "Add New Supplier"
@@ -1195,431 +1386,282 @@ function EnhancedSupplierModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Basic Information */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-lg font-semibold mb-4">Basic Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Business Name *
-                </label>
-                <input
-                  type="text"
-                  value={formData.business_name}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      business_name: e.target.value,
-                    }))
-                  }
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                  required
-                  readOnly={isReadOnly}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Contact Person *
-                </label>
-                <input
-                  type="text"
-                  value={formData.contact_person}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      contact_person: e.target.value,
-                    }))
-                  }
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                  required
-                  readOnly={isReadOnly}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Contact Number *
-                </label>
-                <input
-                  type="text"
-                  value={formData.contact_number}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      contact_number: e.target.value,
-                    }))
-                  }
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                  required
-                  readOnly={isReadOnly}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  value={formData.contact_email}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      contact_email: e.target.value,
-                    }))
-                  }
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                  required
-                  readOnly={isReadOnly}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Supplier Type
-                </label>
-                <select
-                  value={formData.supplier_type}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      supplier_type: e.target.value as "internal" | "external",
-                    }))
-                  }
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                  disabled={isReadOnly}
-                >
-                  <option value="external">External</option>
-                  <option value="internal">Internal</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Specialty Category
-                </label>
-                <select
-                  value={formData.specialty_category}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      specialty_category: e.target.value,
-                    }))
-                  }
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                  disabled={isReadOnly}
-                >
-                  <option value="">Select Category</option>
-                  {categories.map((category, index) => (
-                    <option
-                      key={`modal-category-${index}-${category}`}
-                      value={String(category)}
-                    >
-                      {String(category)}
-                    </option>
-                  ))}
-                  <option value="Catering">Catering</option>
-                  <option value="Photography">Photography</option>
-                  <option value="Floral Design">Floral Design</option>
-                  <option value="Audio Visual">Audio Visual</option>
-                  <option value="Entertainment">Entertainment</option>
-                  <option value="Transportation">Transportation</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <label className="block text-sm font-medium mb-1">
-                Business Address
-              </label>
-              <textarea
-                value={formData.business_address}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    business_address: e.target.value,
-                  }))
-                }
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                rows={3}
-                readOnly={isReadOnly}
-              />
-            </div>
-
-            <div className="mt-4">
-              <label className="block text-sm font-medium mb-1">
-                Business Description
-              </label>
-              <textarea
-                value={formData.business_description}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    business_description: e.target.value,
-                  }))
-                }
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                rows={3}
-                readOnly={isReadOnly}
-                placeholder="Brief description of services and expertise..."
-              />
-            </div>
-          </div>
-
-          {/* Current Offers (View Mode) */}
-          {mode === "view" && supplierOffers.length > 0 && (
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Profile Picture Section */}
             <div className="bg-gray-50 rounded-lg p-4">
-              <h3 className="text-lg font-semibold mb-4">Current Offers</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {supplierOffers.map((offer, index) => (
-                  <div
-                    key={`supplier-offer-${index}`}
-                    className="bg-white p-4 rounded-lg border"
-                  >
-                    <div className="font-medium text-lg">
-                      {offer.offer_title}
-                    </div>
-                    <div className="text-sm text-gray-600 mb-2">
-                      {offer.offer_description}
-                    </div>
-                    <div className="text-lg font-bold text-green-600">
-                      ₱{Number(offer.price_min).toLocaleString()}
-                      {offer.price_max &&
-                        offer.price_max !== offer.price_min &&
-                        ` - ₱${Number(offer.price_max).toLocaleString()}`}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Tier Level: {offer.tier_level} | Category:{" "}
-                      {offer.service_category}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Pricing Tiers */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">
-                {mode === "view" ? "Pricing Tiers" : "Pricing Tiers"}
-              </h3>
-              {!isReadOnly && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTiers((prev) => [
-                      ...prev,
-                      { name: "", price: "", description: "" },
-                    ])
-                  }
-                  className="inline-flex items-center px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
-                >
-                  <Plus className="w-4 h-4 mr-1" /> Add Tier
-                </button>
-              )}
-            </div>
-
-            {tiers.length === 0 && (
-              <p className="text-sm text-gray-600">
-                No tiers yet.{" "}
-                {isReadOnly ? "" : "Click Add Tier to create one."}
-              </p>
-            )}
-
-            <div className="space-y-3">
-              {tiers.map((tier, index) => (
-                <div
-                  key={`supplier-tier-${index}`}
-                  className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-white p-3 border rounded-lg"
-                >
-                  <div className="md:col-span-4">
-                    <label className="block text-sm font-medium mb-1">
-                      Tier Name
+              <h3 className="text-lg font-semibold mb-4">Profile Picture</h3>
+              <div className="flex items-center space-x-4">
+                <div className="flex-shrink-0">
+                  <Avatar className="h-20 w-20">
+                    {profilePicturePreview === "loading" ? (
+                      <div className="flex items-center justify-center h-full w-full bg-gray-100">
+                        <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
+                      </div>
+                    ) : (
+                      <AvatarImage
+                        src={profilePicturePreview || undefined}
+                        alt={formData.business_name || "Supplier"}
+                      />
+                    )}
+                    <AvatarFallback className="text-lg">
+                      {formData.business_name
+                        ? formData.business_name
+                            .split(" ")
+                            .map((word) => word.charAt(0))
+                            .join("")
+                            .toUpperCase()
+                            .substring(0, 2)
+                        : "SP"}
+                    </AvatarFallback>
+                  </Avatar>
+                </div>
+                <div className="flex-1">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) =>
+                      handleProfilePictureChange(e.target.files?.[0] || null)
+                    }
+                    className="hidden"
+                    id="profile-picture-upload"
+                    disabled={isReadOnly}
+                  />
+                  <div className="flex items-center space-x-2">
+                    <label
+                      htmlFor="profile-picture-upload"
+                      className={`inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 ${
+                        isReadOnly ? "opacity-50 cursor-not-allowed" : ""
+                      }`}
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      {profilePicture ? "Change Picture" : "Upload Picture"}
                     </label>
-                    <input
-                      type="text"
-                      value={tier.name}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setTiers((prev) =>
-                          prev.map((t, i) =>
-                            i === index ? { ...t, name: value } : t
-                          )
-                        );
-                      }}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                      readOnly={isReadOnly}
-                      placeholder="e.g., Basic / Premium"
-                    />
-                  </div>
-                  <div className="md:col-span-3">
-                    <label className="block text-sm font-medium mb-1">
-                      Price
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={tier.price}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setTiers((prev) =>
-                          prev.map((t, i) =>
-                            i === index
-                              ? {
-                                  ...t,
-                                  price: value === "" ? "" : Number(value),
-                                }
-                              : t
-                          )
-                        );
-                      }}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                      readOnly={isReadOnly}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="md:col-span-4">
-                    <label className="block text-sm font-medium mb-1">
-                      Description
-                    </label>
-                    <input
-                      type="text"
-                      value={tier.description || ""}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setTiers((prev) =>
-                          prev.map((t, i) =>
-                            i === index ? { ...t, description: value } : t
-                          )
-                        );
-                      }}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                      readOnly={isReadOnly}
-                      placeholder="Short notes (optional)"
-                    />
-                  </div>
-                  {!isReadOnly && (
-                    <div className="md:col-span-1 flex items-end">
+                    {profilePicture && !isReadOnly && (
                       <button
                         type="button"
-                        onClick={() =>
-                          setTiers((prev) => prev.filter((_, i) => i !== index))
-                        }
-                        className="px-3 py-2 border rounded text-red-600 hover:bg-red-50 w-full"
-                        title="Remove tier"
+                        onClick={() => handleProfilePictureChange(null)}
+                        className="inline-flex items-center px-3 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50"
                       >
-                        <Trash2 className="w-4 h-4 mx-auto" />
+                        <X className="w-4 h-4 mr-1" />
+                        Remove
                       </button>
-                    </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Recommended: 200x200px, JPG/PNG format. Images will be
+                    automatically compressed.
+                  </p>
+                  {profilePicture && (
+                    <p className="text-xs text-green-600 mt-1">
+                      ✓ Image ready for upload (compressed)
+                    </p>
                   )}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Document Upload Section */}
-          {mode === "add" && (
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h3 className="text-lg font-semibold mb-4">Document Upload</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {documentTypes.map((docType) => (
-                  <div
-                    key={docType.type_code}
-                    className="border rounded-lg p-4 bg-white"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium">
-                        {docType.type_name}
-                        {docType.is_required && (
-                          <span className="text-red-500 ml-1">*</span>
-                        )}
-                      </label>
-                    </div>
-                    <p className="text-xs text-gray-600 mb-3">
-                      {docType.description}
-                    </p>
-
-                    <div className="relative">
-                      <input
-                        type="file"
-                        onChange={(e) =>
-                          handleFileChange(
-                            docType.type_code,
-                            e.target.files?.[0] || null
-                          )
-                        }
-                        className="hidden"
-                        id={`file-${docType.type_code}`}
-                        accept={docType.allowed_extensions
-                          .map((ext) => `.${ext}`)
-                          .join(",")}
-                      />
-                      <label
-                        htmlFor={`file-${docType.type_code}`}
-                        className="flex items-center justify-center w-full p-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-brand-500 hover:bg-brand-50"
-                      >
-                        <Upload className="w-5 h-5 text-gray-400 mr-2" />
-                        <span className="text-sm text-gray-600">
-                          {documents[docType.type_code]
-                            ? documents[docType.type_code]?.name
-                            : `Upload ${docType.type_name}`}
-                        </span>
-                      </label>
-                    </div>
-
-                    <p className="text-xs text-gray-500 mt-1">
-                      Max size: {docType.max_file_size_mb}MB | Formats:{" "}
-                      {docType.allowed_extensions.join(", ")}
-                    </p>
-                  </div>
-                ))}
               </div>
             </div>
-          )}
 
-          {/* Existing Documents (Edit/View Mode) */}
-          {(mode === "edit" || mode === "view") &&
-            uploadedDocuments.length > 0 && (
+            {/* Basic Information */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h3 className="text-lg font-semibold mb-4">Basic Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Business Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.business_name}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        business_name: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                    required
+                    readOnly={isReadOnly}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Contact Person *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.contact_person}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        contact_person: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                    required
+                    readOnly={isReadOnly}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Contact Number *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.contact_number}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        contact_number: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                    required
+                    readOnly={isReadOnly}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Email *
+                  </label>
+                  <input
+                    type="email"
+                    value={formData.contact_email}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        contact_email: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                    required
+                    readOnly={isReadOnly}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Supplier Type
+                  </label>
+                  <select
+                    value={formData.supplier_type}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        supplier_type: e.target.value as
+                          | "internal"
+                          | "external",
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                    disabled={isReadOnly}
+                  >
+                    <option value="external">External</option>
+                    <option value="internal">Internal</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Specialty Category
+                  </label>
+                  <select
+                    value={formData.specialty_category}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        specialty_category: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                    disabled={isReadOnly}
+                  >
+                    <option value="">Select Category</option>
+                    {categories.map((category, index) => (
+                      <option
+                        key={`modal-category-${index}-${category}`}
+                        value={String(category)}
+                      >
+                        {String(category)}
+                      </option>
+                    ))}
+                    <option value="Catering">Catering</option>
+                    <option value="Photography">Photography</option>
+                    <option value="Floral Design">Floral Design</option>
+                    <option value="Audio Visual">Audio Visual</option>
+                    <option value="Entertainment">Entertainment</option>
+                    <option value="Transportation">Transportation</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <label className="block text-sm font-medium mb-1">
+                  Business Address
+                </label>
+                <textarea
+                  value={formData.business_address}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      business_address: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  rows={3}
+                  readOnly={isReadOnly}
+                />
+              </div>
+
+              <div className="mt-4">
+                <label className="block text-sm font-medium mb-1">
+                  Business Description
+                </label>
+                <textarea
+                  value={formData.business_description}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      business_description: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                  rows={3}
+                  readOnly={isReadOnly}
+                  placeholder="Brief description of services and expertise..."
+                />
+              </div>
+            </div>
+
+            {/* Current Offers (View Mode) */}
+            {mode === "view" && supplierOffers.length > 0 && (
               <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="text-lg font-semibold mb-4">
-                  Uploaded Documents
-                </h3>
-                <div className="grid grid-cols-1 gap-3">
-                  {uploadedDocuments.map((doc) => (
+                <h3 className="text-lg font-semibold mb-4">Current Offers</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {supplierOffers.map((offer, index) => (
                     <div
-                      key={doc.document_id}
-                      className="flex items-center justify-between bg-white p-3 rounded-lg border"
+                      key={`supplier-offer-${index}`}
+                      className="bg-white p-4 rounded-lg border"
                     >
-                      <div className="flex items-center">
-                        <FileText className="w-5 h-5 text-gray-400 mr-3" />
-                        <div>
-                          <div className="font-medium">
-                            {doc.document_title}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {doc.file_name} •{" "}
-                            {(doc.file_size / 1024 / 1024).toFixed(2)} MB
-                          </div>
-                        </div>
+                      <div className="font-medium text-lg">
+                        {offer.offer_title}
                       </div>
-                      <div className="flex items-center space-x-2">
-                        {doc.is_verified ? (
-                          <CheckCircle className="w-5 h-5 text-green-500" />
-                        ) : (
-                          <AlertCircle className="w-5 h-5 text-yellow-500" />
-                        )}
-                        <button
-                          type="button"
-                          className="text-blue-600 hover:text-blue-800"
-                          title="Download"
-                        >
-                          <Download className="w-4 h-4" />
-                        </button>
+                      <div className="text-sm text-gray-600 mb-2">
+                        {offer.offer_description}
+                      </div>
+                      <div className="text-lg font-bold text-green-600">
+                        ₱{Number(offer.price_min).toLocaleString()}
+                        {offer.price_max &&
+                          offer.price_max !== offer.price_min &&
+                          ` - ₱${Number(offer.price_max).toLocaleString()}`}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Tier Level: {offer.tier_level} | Category:{" "}
+                        {offer.service_category}
                       </div>
                     </div>
                   ))}
@@ -1627,45 +1669,309 @@ function EnhancedSupplierModal({
               </div>
             )}
 
-          {/* Settings and Options */}
-          {mode === "add" && (
+            {/* Pricing Tiers */}
             <div className="bg-gray-50 rounded-lg p-4">
-              <h3 className="text-lg font-semibold mb-4">Options</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">
+                  {mode === "view" ? "Pricing Tiers" : "Pricing Tiers"}
+                </h3>
+                {!isReadOnly && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTiers((prev) => [
+                        ...prev,
+                        { name: "", price: "", description: "" },
+                      ])
+                    }
+                    className="inline-flex items-center px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                  >
+                    <Plus className="w-4 h-4 mr-1" /> Add Tier
+                  </button>
+                )}
+              </div>
+
+              {tiers.length === 0 && (
+                <p className="text-sm text-gray-600">
+                  No tiers yet.{" "}
+                  {isReadOnly ? "" : "Click Add Tier to create one."}
+                </p>
+              )}
+
               <div className="space-y-3">
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={formData.create_user_account}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        create_user_account: e.target.checked,
-                      }))
-                    }
-                    className="mr-2"
-                  />
-                  <span className="text-sm">
-                    Create user account (enables portal access)
-                  </span>
-                </label>
+                {tiers.map((tier, index) => (
+                  <div
+                    key={`supplier-tier-${index}`}
+                    className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-white p-3 border rounded-lg"
+                  >
+                    <div className="md:col-span-4">
+                      <label className="block text-sm font-medium mb-1">
+                        Tier Name
+                      </label>
+                      <input
+                        type="text"
+                        value={tier.name}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setTiers((prev) =>
+                            prev.map((t, i) =>
+                              i === index ? { ...t, name: value } : t
+                            )
+                          );
+                        }}
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                        readOnly={isReadOnly}
+                        placeholder="e.g., Basic / Premium"
+                      />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium mb-1">
+                        Price
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={tier.price}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setTiers((prev) =>
+                            prev.map((t, i) =>
+                              i === index
+                                ? {
+                                    ...t,
+                                    price: value === "" ? "" : Number(value),
+                                  }
+                                : t
+                            )
+                          );
+                        }}
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                        readOnly={isReadOnly}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div className="md:col-span-4">
+                      <label className="block text-sm font-medium mb-1">
+                        Description
+                      </label>
+                      <input
+                        type="text"
+                        value={tier.description || ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setTiers((prev) =>
+                            prev.map((t, i) =>
+                              i === index ? { ...t, description: value } : t
+                            )
+                          );
+                        }}
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                        readOnly={isReadOnly}
+                        placeholder="Short notes (optional)"
+                      />
+                    </div>
+                    {!isReadOnly && (
+                      <div className="md:col-span-1 flex items-end">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTiers((prev) =>
+                              prev.filter((_, i) => i !== index)
+                            )
+                          }
+                          className="px-3 py-2 border rounded text-red-600 hover:bg-red-50 w-full"
+                          title="Remove tier"
+                        >
+                          <Trash2 className="w-4 h-4 mx-auto" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
 
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={formData.send_email}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        send_email: e.target.checked,
-                      }))
-                    }
-                    className="mr-2"
-                  />
-                  <span className="text-sm">
-                    Send welcome email with credentials
-                  </span>
-                </label>
+            {/* Document Upload Section */}
+            {mode === "add" && (
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold mb-4">Document Upload</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {documentTypes.map((docType) => (
+                    <div
+                      key={docType.type_code}
+                      className="border rounded-lg p-4 bg-white"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-medium">
+                          {docType.type_name}
+                          {docType.is_required && (
+                            <span className="text-red-500 ml-1">*</span>
+                          )}
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-600 mb-3">
+                        {docType.description}
+                      </p>
 
+                      <div className="relative">
+                        <input
+                          type="file"
+                          onChange={(e) =>
+                            handleFileChange(
+                              docType.type_code,
+                              e.target.files?.[0] || null
+                            )
+                          }
+                          className="hidden"
+                          id={`file-${docType.type_code}`}
+                          accept={docType.allowed_extensions
+                            .map((ext) => `.${ext}`)
+                            .join(",")}
+                        />
+                        <label
+                          htmlFor={`file-${docType.type_code}`}
+                          className="flex items-center justify-center w-full p-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-brand-500 hover:bg-brand-50"
+                        >
+                          <Upload className="w-5 h-5 text-gray-400 mr-2" />
+                          <span className="text-sm text-gray-600">
+                            {documents[docType.type_code]
+                              ? documents[docType.type_code]?.name
+                              : `Upload ${docType.type_name}`}
+                          </span>
+                        </label>
+                      </div>
+
+                      <p className="text-xs text-gray-500 mt-1">
+                        Max size: {docType.max_file_size_mb}MB | Formats:{" "}
+                        {docType.allowed_extensions.join(", ")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Existing Documents (Edit/View Mode) */}
+            {(mode === "edit" || mode === "view") &&
+              uploadedDocuments.length > 0 && (
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="text-lg font-semibold mb-4">
+                    Uploaded Documents
+                  </h3>
+                  <div className="grid grid-cols-1 gap-3">
+                    {uploadedDocuments.map((doc) => (
+                      <div
+                        key={doc.document_id}
+                        className="flex items-center justify-between bg-white p-3 rounded-lg border"
+                      >
+                        <div className="flex items-center">
+                          <FileText className="w-5 h-5 text-gray-400 mr-3" />
+                          <div>
+                            <div className="font-medium">
+                              {doc.document_title}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {doc.file_name} •{" "}
+                              {(doc.file_size / 1024 / 1024).toFixed(2)} MB
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {doc.is_verified ? (
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                          ) : (
+                            <AlertCircle className="w-5 h-5 text-yellow-500" />
+                          )}
+                          <button
+                            type="button"
+                            className="text-blue-600 hover:text-blue-800"
+                            title="Download"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            {/* Settings and Options */}
+            {mode === "add" && (
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold mb-4">Options</h3>
+                <div className="space-y-3">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={formData.create_user_account}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          create_user_account: e.target.checked,
+                        }))
+                      }
+                      className="mr-2"
+                    />
+                    <span className="text-sm">
+                      Create user account (enables portal access)
+                    </span>
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={formData.send_email}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          send_email: e.target.checked,
+                        }))
+                      }
+                      className="mr-2"
+                    />
+                    <span className="text-sm">
+                      Send welcome email with credentials
+                    </span>
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={formData.agreement_signed}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          agreement_signed: e.target.checked,
+                        }))
+                      }
+                      className="mr-2"
+                    />
+                    <span className="text-sm">Agreement signed</span>
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_verified}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          is_verified: e.target.checked,
+                        }))
+                      }
+                      className="mr-2"
+                    />
+                    <span className="text-sm">Mark as verified</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Status Checkboxes for Edit Mode */}
+            {mode === "edit" && (
+              <div className="flex items-center space-x-4">
                 <label className="flex items-center">
                   <input
                     type="checkbox"
@@ -1677,8 +1983,9 @@ function EnhancedSupplierModal({
                       }))
                     }
                     className="mr-2"
+                    disabled={isReadOnly}
                   />
-                  <span className="text-sm">Agreement signed</span>
+                  Agreement Signed
                 </label>
 
                 <label className="flex items-center">
@@ -1692,88 +1999,53 @@ function EnhancedSupplierModal({
                       }))
                     }
                     className="mr-2"
+                    disabled={isReadOnly}
                   />
-                  <span className="text-sm">Mark as verified</span>
+                  Verified
                 </label>
               </div>
-            </div>
-          )}
+            )}
+          </form>
+        </div>
 
-          {/* Status Checkboxes for Edit Mode */}
-          {mode === "edit" && (
-            <div className="flex items-center space-x-4">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={formData.agreement_signed}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      agreement_signed: e.target.checked,
-                    }))
-                  }
-                  className="mr-2"
-                  disabled={isReadOnly}
-                />
-                Agreement Signed
-              </label>
+        {/* Sticky Footer */}
+        {!isReadOnly && (
+          <div className="flex justify-end space-x-3 p-6 border-t border-gray-200 bg-white rounded-b-lg sticky bottom-0 z-10">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleSubmit}
+              className="flex items-center px-6 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50"
+            >
+              {loading && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
+              {loading
+                ? "Processing..."
+                : mode === "edit"
+                  ? "Update Supplier"
+                  : "Create Supplier"}
+            </button>
+          </div>
+        )}
 
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={formData.is_verified}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      is_verified: e.target.checked,
-                    }))
-                  }
-                  className="mr-2"
-                  disabled={isReadOnly}
-                />
-                Verified
-              </label>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          {!isReadOnly && (
-            <div className="flex justify-end space-x-3 pt-4 border-t">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center px-6 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50"
-              >
-                {loading && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
-                {loading
-                  ? "Processing..."
-                  : mode === "edit"
-                    ? "Update Supplier"
-                    : "Create Supplier"}
-              </button>
-            </div>
-          )}
-
-          {/* View Mode Close Button */}
-          {isReadOnly && (
-            <div className="flex justify-end pt-4 border-t">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
-              >
-                Close
-              </button>
-            </div>
-          )}
-        </form>
+        {/* View Mode Close Button */}
+        {isReadOnly && (
+          <div className="flex justify-end p-6 border-t border-gray-200 bg-white rounded-b-lg sticky bottom-0 z-10">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+            >
+              Close
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

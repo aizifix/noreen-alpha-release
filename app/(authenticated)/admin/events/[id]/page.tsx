@@ -40,6 +40,9 @@ import {
   Building,
   Banknote,
   Search,
+  ChevronDown,
+  ChevronUp,
+  Info,
 } from "lucide-react";
 import axios from "axios";
 import { adminApi, notificationsApi } from "@/app/utils/api";
@@ -52,6 +55,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,6 +68,12 @@ import {
 } from "@/components/ui/select";
 import { format } from "date-fns";
 import ClientOnly from "@/app/components/client-only";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
 
 // Enhanced interface to match updated tbl_events structure
 interface Event {
@@ -160,6 +170,19 @@ interface EventComponent {
   payment_status?: "pending" | "paid" | "cancelled";
   payment_date?: string;
   payment_notes?: string;
+  // Additional fields from database
+  supplier_id?: number;
+  supplier_price?: number;
+  supplier_status?: "pending" | "confirmed" | "delivered" | "cancelled";
+  supplier_notes?: string;
+  delivery_date?: string;
+  is_rated?: boolean;
+  offer_id?: number;
+  // Sub-components parsed from component_description
+  subComponents?: Array<{
+    name: string;
+    price: number;
+  }>;
 }
 
 interface PaymentHistoryItem {
@@ -174,11 +197,12 @@ interface PaymentHistoryItem {
 }
 
 // Centralized currency formatting function
-const formatCurrency = (amount: number): string => {
-  return amount.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+const formatCurrency = (amount: any): string => {
+  const num = Number(amount) || 0;
+  const fixed = num.toFixed(2);
+  const [integer, decimal] = fixed.split(".");
+  const withCommas = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${withCommas}.${decimal}`;
 };
 
 // Confirmation Modal Component
@@ -245,17 +269,59 @@ function ConfirmationModal({
 }
 
 // Budget Progress Component with fixed formatting
-function BudgetProgress({ event }: { event: Event }) {
+function BudgetProgress({
+  event,
+  paymentHistory,
+}: {
+  event: Event;
+  paymentHistory?: any[];
+}) {
   // Calculate total paid from all payments (including reserved payments)
-  const totalPaid =
-    event.payments?.reduce((sum, payment: any) => {
+  // Use paymentHistory if available, otherwise fall back to event.payments
+  let paymentsTotal = 0;
+
+  if (paymentHistory && paymentHistory.length > 0) {
+    paymentsTotal = paymentHistory.reduce((sum, p) => {
+      const isPaid =
+        p.payment_status === "completed" ||
+        p.payment_status === "paid" ||
+        p.payment_status === "confirmed" ||
+        p.payment_status === "processed" ||
+        p.payment_status === "successful";
+      const amount = Number(p.payment_amount) || 0;
+      return isPaid ? sum + amount : sum;
+    }, 0);
+    console.log(
+      "BudgetProgress using paymentHistory - payments total:",
+      paymentsTotal
+    );
+  } else if (event.payments && Array.isArray(event.payments)) {
+    paymentsTotal = event.payments.reduce((sum, payment: any) => {
       // Include completed, partial, and paid statuses for all payment types
       if (["completed", "partial", "paid"].includes(payment.payment_status)) {
         const amount = Number(payment.payment_amount) || 0;
         return sum + amount;
       }
       return sum;
-    }, 0) || 0;
+    }, 0);
+    console.log(
+      "BudgetProgress using event.payments - payments total:",
+      paymentsTotal
+    );
+  }
+
+  // Include down payment (reservation fee) if not already included in payments
+  const downPayment = Number(event.down_payment || 0);
+  const downPaymentIncluded =
+    (paymentHistory || event.payments || []).some(
+      (payment: any) =>
+        payment.payment_type === "down_payment" ||
+        payment.payment_type === "reserved" ||
+        payment.payment_notes?.toLowerCase().includes("down payment") ||
+        payment.payment_notes?.toLowerCase().includes("reservation")
+    ) || false;
+
+  const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
 
   // Calculate reserved payments separately for display
   const reservedPaymentsTotal =
@@ -294,11 +360,15 @@ function BudgetProgress({ event }: { event: Event }) {
   // Debug logging
   console.log("Budget Progress Debug:", {
     totalBudget: totalBudget,
+    paymentsTotal: paymentsTotal,
+    downPayment: downPayment,
+    downPaymentIncluded: downPaymentIncluded,
     reservedPaymentsTotal: reservedPaymentsTotal,
     eventPaymentsTotal: eventPaymentsTotal,
     totalPaid: totalPaid,
     remaining: remaining,
-    payments: event.payments,
+    paymentHistory: paymentHistory?.length || 0,
+    eventPayments: event.payments?.length || 0,
     progressPercentage: progressPercentage,
   });
 
@@ -313,7 +383,7 @@ function BudgetProgress({ event }: { event: Event }) {
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-600">Total Budget</span>
           <span className="font-semibold text-lg">
-            ₱{formatCurrency(event.total_budget)}
+            P{formatCurrency(event.total_budget)}
           </span>
         </div>
 
@@ -321,7 +391,7 @@ function BudgetProgress({ event }: { event: Event }) {
           <div className="flex justify-between items-center">
             <span className="text-sm text-blue-600">Reserved Fee</span>
             <span className="font-semibold text-lg text-blue-600">
-              ₱{formatCurrency(reservedPaymentsTotal)}
+              P{formatCurrency(reservedPaymentsTotal)}
             </span>
           </div>
         )}
@@ -337,7 +407,7 @@ function BudgetProgress({ event }: { event: Event }) {
           <div className="bg-green-50 rounded-lg p-3">
             <div className="text-green-700 font-medium">Paid</div>
             <div className="text-green-900 font-semibold">
-              ₱{formatCurrency(totalPaid)}
+              P{formatCurrency(totalPaid)}
             </div>
             <div className="text-green-600 text-xs">
               {progressPercentage.toFixed(1)}%
@@ -346,7 +416,7 @@ function BudgetProgress({ event }: { event: Event }) {
           <div className="bg-orange-50 rounded-lg p-3">
             <div className="text-orange-700 font-medium">Remaining</div>
             <div className="text-orange-900 font-semibold">
-              ₱{formatCurrency(remaining)}
+              P{formatCurrency(remaining)}
             </div>
             <div className="text-orange-600 text-xs">
               {(100 - progressPercentage).toFixed(1)}%
@@ -1163,6 +1233,8 @@ function PackageInclusionsManagement({
   });
   const [loading, setLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [priceDisplay, setPriceDisplay] = useState("");
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     action: "save_changes" | "cancel";
@@ -1420,6 +1492,65 @@ function PackageInclusionsManagement({
     }
   };
 
+  // Price formatting functions
+  const formatNumberWithCommas = (value: string | number): string => {
+    if (!value || value === 0) return "";
+    const numValue = typeof value === "string" ? parseFloat(value) : value;
+    if (isNaN(numValue)) return "";
+    return numValue.toLocaleString("en-US", {
+      style: "decimal",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  const parseFormattedNumber = (formattedValue: string): number => {
+    if (!formattedValue) return 0;
+    const cleanValue = formattedValue.replace(/,/g, "");
+    const parsed = parseFloat(cleanValue);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const handlePriceChange = (value: string) => {
+    const cleanValue = value.replace(/,/g, "");
+
+    if (cleanValue === "" || cleanValue === "0") {
+      setNewComponent((p) => ({ ...p, component_price: 0 }));
+      setPriceDisplay("");
+      return;
+    }
+
+    // Allow decimal input
+    if (
+      cleanValue === "." ||
+      cleanValue.endsWith(".") ||
+      /^\d+\.$/.test(cleanValue) ||
+      /^\d+\.\d*$/.test(cleanValue)
+    ) {
+      setPriceDisplay(value);
+      const numericPart = cleanValue.replace(/\.$/, "");
+      const numericValue = parseFloat(numericPart);
+      if (!isNaN(numericValue) && numericValue >= 0) {
+        setNewComponent((p) => ({ ...p, component_price: numericValue }));
+      }
+      return;
+    }
+
+    const numericValue = parseFloat(cleanValue);
+    if (!isNaN(numericValue) && numericValue >= 0) {
+      setNewComponent((p) => ({ ...p, component_price: numericValue }));
+      setPriceDisplay(formatNumberWithCommas(numericValue));
+    }
+  };
+
+  const handlePriceBlur = () => {
+    if (newComponent.component_price > 0) {
+      setPriceDisplay(formatNumberWithCommas(newComponent.component_price));
+    } else {
+      setPriceDisplay("");
+    }
+  };
+
   const handleAddComponent = () => {
     // Validation
     const validationErrors = validateComponent(newComponent);
@@ -1454,12 +1585,19 @@ function PackageInclusionsManagement({
       component_description: "",
       component_price: 0,
     });
+    setPriceDisplay("");
     setShowAddForm(false);
+    setShowAddModal(false);
 
     // For "from scratch" events, automatically start editing mode when adding the first component
     if (!event.package_id && components.length === 0) {
       setIsEditing(true);
     }
+
+    toast({
+      title: "Inclusion Added",
+      description: `${newComp.component_name} has been added to the event. Remember to save changes to update the budget.`,
+    });
   };
 
   const handleEditComponent = (componentId: number) => {
@@ -1938,23 +2076,21 @@ function PackageInclusionsManagement({
           </div>
 
           {/* Add New Component Button */}
-          {!showAddForm && (
-            <div className="text-center">
-              <Button
-                onClick={() => setShowAddForm(true)}
-                variant="outline"
-                className="border-dashed border-green-300 text-green-700 hover:bg-green-50"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                {event.package_id
-                  ? "Add Custom Inclusion"
-                  : "Add Custom Component"}
-              </Button>
-            </div>
-          )}
+          <div className="text-center">
+            <Button
+              onClick={() => setShowAddModal(true)}
+              variant="outline"
+              className="border-dashed border-green-300 text-green-700 hover:bg-green-50"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              {event.package_id
+                ? "Add Custom Inclusion"
+                : "Add Custom Component"}
+            </Button>
+          </div>
 
-          {/* Add New Component Form */}
-          {showAddForm && (
+          {/* Old Add Form - Replaced with Modal */}
+          {false && showAddForm && (
             <div className="border-2 border-dashed border-green-300 rounded-lg p-4 bg-green-50">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium text-green-900">
@@ -2079,6 +2215,140 @@ function PackageInclusionsManagement({
           )}
         </div>
       </div>
+
+      {/* Add Inclusion Modal */}
+      <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold">
+              {event.package_id
+                ? "Add Custom Inclusion"
+                : "Add Custom Component"}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-gray-600">
+              Add a new {event.package_id ? "inclusion" : "component"} to this
+              event. The budget will be updated automatically when you save
+              changes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                {event.package_id ? "Inclusion" : "Component"} Name{" "}
+                <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={newComponent.component_name}
+                onChange={(e) =>
+                  setNewComponent({
+                    ...newComponent,
+                    component_name: e.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="e.g., Premium Sound System, Extra Lighting"
+                maxLength={100}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {newComponent.component_name.length}/100 characters
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                Description
+              </label>
+              <textarea
+                value={newComponent.component_description}
+                onChange={(e) =>
+                  setNewComponent({
+                    ...newComponent,
+                    component_description: e.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="Optional: Add details about this inclusion"
+                maxLength={500}
+                rows={3}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {newComponent.component_description.length}/500 characters
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                Price <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">
+                  ₱
+                </span>
+                <input
+                  type="text"
+                  value={priceDisplay}
+                  onChange={(e) => handlePriceChange(e.target.value)}
+                  onBlur={handlePriceBlur}
+                  className="w-full pl-8 pr-3 py-2.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 text-lg font-medium"
+                  placeholder="0"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1.5">
+                Type amount with commas (e.g., 100,000 or 1,500.50)
+              </p>
+              {newComponent.component_price > 0 && (
+                <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+                  <p className="text-xs text-blue-700">
+                    <strong>Preview:</strong>{" "}
+                    {formatCurrency(newComponent.component_price)}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              onClick={() => {
+                setNewComponent({
+                  component_name: "",
+                  component_description: "",
+                  component_price: 0,
+                });
+                setPriceDisplay("");
+                setShowAddModal(false);
+              }}
+              variant="outline"
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddComponent}
+              disabled={
+                !newComponent.component_name.trim() ||
+                newComponent.component_price <= 0 ||
+                loading
+              }
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add {event.package_id ? "Inclusion" : "Component"}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -2132,115 +2402,143 @@ function ComponentDisplay({
   };
 
   if (!isEditing) {
-    // Read-only display mode
+    // Read-only display mode with Accordion
     return (
-      <div>
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <h4 className="font-medium text-gray-900">
-              {component.component_name}
-              {component.is_custom && (
-                <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                  Custom
-                </span>
-              )}
-            </h4>
-            {component.component_description && (
-              <p className="text-sm text-gray-600 mt-1">
-                {component.component_description}
-              </p>
-            )}
-            <div className="flex items-center gap-4 mt-2">
-              <span className="text-lg font-semibold text-green-600">
-                ₱{formatCurrency(Number(component.component_price) || 0)}
-              </span>
+      <Accordion type="single" collapsible className="w-full">
+        <AccordionItem value="component-details" className="border-none">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <AccordionTrigger className="py-2 hover:no-underline">
+                <div className="flex items-center justify-between w-full pr-4">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium text-gray-900">
+                      {component.component_name}
+                      {component.is_custom && (
+                        <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                          Custom
+                        </span>
+                      )}
+                    </h4>
+                  </div>
+                  <span className="text-lg font-semibold text-green-600">
+                    ₱{formatCurrency(Number(component.component_price) || 0)}
+                  </span>
+                </div>
+              </AccordionTrigger>
+
               {!component.is_custom && component.original_component_name && (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 block mb-2">
                   Original: {component.original_component_name}
                 </span>
               )}
-            </div>
-            {/* Payment Status */}
-            {component.is_included && (
-              <div className="flex items-center gap-2 mt-3">
-                <div className="text-xs text-gray-500">Payment Status:</div>
-                <div className="relative">
-                  <button
-                    onClick={() => setShowStatusMenu((v) => !v)}
-                    className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer hover:scale-105 active:scale-95 ${
-                      component.payment_status === "paid"
-                        ? "bg-green-100 text-green-800 border border-green-300"
-                        : component.payment_status === "cancelled"
-                          ? "bg-red-100 text-red-800 border border-red-300"
-                          : "bg-yellow-100 text-yellow-800 border border-yellow-300"
-                    }`}
-                  >
-                    {component.payment_status === "paid" && (
-                      <>
-                        <CheckCircle className="h-3 w-3 mr-1" /> Paid
-                      </>
+
+              {/* Payment Status */}
+              {component.is_included && (
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="text-xs text-gray-500">Payment Status:</div>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowStatusMenu((v) => !v)}
+                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer hover:scale-105 active:scale-95 ${
+                        component.payment_status === "paid"
+                          ? "bg-green-100 text-green-800 border border-green-300"
+                          : component.payment_status === "cancelled"
+                            ? "bg-red-100 text-red-800 border border-red-300"
+                            : "bg-yellow-100 text-yellow-800 border border-yellow-300"
+                      }`}
+                    >
+                      {component.payment_status === "paid" && (
+                        <>
+                          <CheckCircle className="h-3 w-3 mr-1" /> Paid
+                        </>
+                      )}
+                      {component.payment_status === "pending" && (
+                        <>
+                          <Clock className="h-3 w-3 mr-1" /> Pending
+                        </>
+                      )}
+                      {component.payment_status === "cancelled" && (
+                        <>
+                          <X className="h-3 w-3 mr-1" /> Cancelled
+                        </>
+                      )}
+                    </button>
+                    {showStatusMenu && (
+                      <div className="absolute z-50 mt-2 w-40 bg-white border rounded-md shadow-lg p-1">
+                        <button
+                          className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
+                          onClick={() => {
+                            onSetPaymentStatus?.(
+                              component.component_id,
+                              "paid"
+                            );
+                            setShowStatusMenu(false);
+                          }}
+                        >
+                          Mark as Paid
+                        </button>
+                        <button
+                          className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
+                          onClick={() => {
+                            onSetPaymentStatus?.(
+                              component.component_id,
+                              "pending"
+                            );
+                            setShowStatusMenu(false);
+                          }}
+                        >
+                          Mark as Pending
+                        </button>
+                        <button
+                          className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                          onClick={() => {
+                            onSetPaymentStatus?.(
+                              component.component_id,
+                              "cancelled"
+                            );
+                            setShowStatusMenu(false);
+                          }}
+                        >
+                          Mark as Cancelled
+                        </button>
+                      </div>
                     )}
-                    {component.payment_status === "pending" && (
-                      <>
-                        <Clock className="h-3 w-3 mr-1" /> Pending
-                      </>
+                  </div>
+                  {component.payment_date &&
+                    component.payment_status === "paid" && (
+                      <span className="text-xs text-gray-500">
+                        Paid on{" "}
+                        {new Date(component.payment_date).toLocaleDateString()}
+                      </span>
                     )}
-                    {component.payment_status === "cancelled" && (
-                      <>
-                        <X className="h-3 w-3 mr-1" /> Cancelled
-                      </>
-                    )}
-                  </button>
-                  {showStatusMenu && (
-                    <div className="absolute z-50 mt-2 w-40 bg-white border rounded-md shadow-lg p-1">
-                      <button
-                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
-                        onClick={() => {
-                          onSetPaymentStatus?.(component.component_id, "paid");
-                          setShowStatusMenu(false);
-                        }}
+                </div>
+              )}
+
+              {/* Accordion Content - Component List */}
+              <AccordionContent>
+                <div className="ml-4 space-y-1">
+                  {component.subComponents &&
+                  component.subComponents.length > 0 ? (
+                    component.subComponents.map((subComp, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-start gap-2 text-sm text-gray-700 py-1"
                       >
-                        Mark as Paid
-                      </button>
-                      <button
-                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
-                        onClick={() => {
-                          onSetPaymentStatus?.(
-                            component.component_id,
-                            "pending"
-                          );
-                          setShowStatusMenu(false);
-                        }}
-                      >
-                        Mark as Pending
-                      </button>
-                      <button
-                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                        onClick={() => {
-                          onSetPaymentStatus?.(
-                            component.component_id,
-                            "cancelled"
-                          );
-                          setShowStatusMenu(false);
-                        }}
-                      >
-                        Mark as Cancelled
-                      </button>
+                        <span className="text-[#028A75] font-bold">•</span>
+                        <span>{subComp.name}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-gray-500 italic py-2">
+                      No component details available
                     </div>
                   )}
                 </div>
-                {component.payment_date &&
-                  component.payment_status === "paid" && (
-                    <span className="text-xs text-gray-500">
-                      Paid on{" "}
-                      {new Date(component.payment_date).toLocaleDateString()}
-                    </span>
-                  )}
-              </div>
-            )}
+              </AccordionContent>
+            </div>
           </div>
-        </div>
-      </div>
+        </AccordionItem>
+      </Accordion>
     );
   }
 
@@ -2364,136 +2662,170 @@ function ComponentDisplay({
     );
   }
 
-  // Edit mode (not inline editing)
+  // Edit mode (not inline editing) with Accordion
   return (
-    <div>
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <h4 className="font-medium text-gray-900">
-            {component.component_name}
-            {component.is_custom && (
-              <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                Custom
-              </span>
-            )}
-          </h4>
-          {component.component_description && (
-            <p className="text-sm text-gray-600 mt-1">
-              {component.component_description}
-            </p>
-          )}
-          <div className="flex items-center gap-4 mt-2">
-            <span className="text-lg font-semibold text-green-600">
-              ₱{formatCurrency(Number(component.component_price) || 0)}
-            </span>
+    <Accordion type="single" collapsible className="w-full">
+      <AccordionItem value="component-details-edit" className="border-none">
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <AccordionTrigger className="py-2 hover:no-underline">
+              <div className="flex items-center justify-between w-full pr-4">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-medium text-gray-900">
+                    {component.component_name}
+                    {component.is_custom && (
+                      <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                        Custom
+                      </span>
+                    )}
+                  </h4>
+                </div>
+                <span className="text-lg font-semibold text-green-600">
+                  ₱{formatCurrency(Number(component.component_price) || 0)}
+                </span>
+              </div>
+            </AccordionTrigger>
+
             {!component.is_custom && component.original_component_name && (
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-500 block mb-2">
                 Original: {component.original_component_name}
               </span>
             )}
-          </div>
-          {/* Payment Status in Edit Mode */}
-          {component.is_included && (
-            <div className="flex items-center gap-2 mt-3">
-              <div className="relative">
-                <button
-                  onClick={() => setShowStatusMenu((v) => !v)}
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity ${
-                    component.payment_status === "paid"
-                      ? "bg-green-100 text-green-800"
-                      : component.payment_status === "cancelled"
-                        ? "bg-red-100 text-red-800"
-                        : "bg-yellow-100 text-yellow-800"
-                  }`}
-                >
-                  {component.payment_status === "paid" && (
-                    <>
-                      <CheckCircle className="h-3 w-3 mr-1" /> Paid
-                    </>
+
+            {/* Payment Status in Edit Mode */}
+            {component.is_included && (
+              <div className="flex items-center gap-2 mb-3">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowStatusMenu((v) => !v)}
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity ${
+                      component.payment_status === "paid"
+                        ? "bg-green-100 text-green-800"
+                        : component.payment_status === "cancelled"
+                          ? "bg-red-100 text-red-800"
+                          : "bg-yellow-100 text-yellow-800"
+                    }`}
+                  >
+                    {component.payment_status === "paid" && (
+                      <>
+                        <CheckCircle className="h-3 w-3 mr-1" /> Paid
+                      </>
+                    )}
+                    {component.payment_status === "pending" && (
+                      <>
+                        <Clock className="h-3 w-3 mr-1" /> Pending
+                      </>
+                    )}
+                    {component.payment_status === "cancelled" && (
+                      <>
+                        <X className="h-3 w-3 mr-1" /> Cancelled
+                      </>
+                    )}
+                  </button>
+                  {showStatusMenu && (
+                    <div className="absolute z-50 mt-2 w-40 bg-white border rounded-md shadow-lg p-1">
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
+                        onClick={() => {
+                          onSetPaymentStatus?.(component.component_id, "paid");
+                          setShowStatusMenu(false);
+                        }}
+                      >
+                        Mark as Paid
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
+                        onClick={() => {
+                          onSetPaymentStatus?.(
+                            component.component_id,
+                            "pending"
+                          );
+                          setShowStatusMenu(false);
+                        }}
+                      >
+                        Mark as Pending
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                        onClick={() => {
+                          onSetPaymentStatus?.(
+                            component.component_id,
+                            "cancelled"
+                          );
+                          setShowStatusMenu(false);
+                        }}
+                      >
+                        Mark as Cancelled
+                      </button>
+                    </div>
                   )}
-                  {component.payment_status === "pending" && (
-                    <>
-                      <Clock className="h-3 w-3 mr-1" /> Pending
-                    </>
+                </div>
+                {component.payment_date &&
+                  component.payment_status === "paid" && (
+                    <span className="text-xs text-gray-500">
+                      Paid on{" "}
+                      {new Date(component.payment_date).toLocaleDateString()}
+                    </span>
                   )}
-                  {component.payment_status === "cancelled" && (
-                    <>
-                      <X className="h-3 w-3 mr-1" /> Cancelled
-                    </>
-                  )}
-                </button>
-                {showStatusMenu && (
-                  <div className="absolute z-50 mt-2 w-40 bg-white border rounded-md shadow-lg p-1">
-                    <button
-                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
-                      onClick={() => {
-                        onSetPaymentStatus?.(component.component_id, "paid");
-                        setShowStatusMenu(false);
-                      }}
+              </div>
+            )}
+
+            {/* Accordion Content - Component List */}
+            <AccordionContent>
+              <div className="ml-4 space-y-1">
+                {component.subComponents &&
+                component.subComponents.length > 0 ? (
+                  component.subComponents.map((subComp, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-start gap-2 text-sm text-gray-700 py-1"
                     >
-                      Mark as Paid
-                    </button>
-                    <button
-                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
-                      onClick={() => {
-                        onSetPaymentStatus?.(component.component_id, "pending");
-                        setShowStatusMenu(false);
-                      }}
-                    >
-                      Mark as Pending
-                    </button>
-                    <button
-                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                      onClick={() => {
-                        onSetPaymentStatus?.(
-                          component.component_id,
-                          "cancelled"
-                        );
-                        setShowStatusMenu(false);
-                      }}
-                    >
-                      Mark as Cancelled
-                    </button>
+                      <span className="text-[#028A75] font-bold">•</span>
+                      <span>{subComp.name}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-500 italic py-2">
+                    No component details available
                   </div>
                 )}
               </div>
-              {component.payment_date &&
-                component.payment_status === "paid" && (
-                  <span className="text-xs text-gray-500">
-                    Paid on{" "}
-                    {new Date(component.payment_date).toLocaleDateString()}
-                  </span>
-                )}
-            </div>
-          )}
+            </AccordionContent>
+          </div>
+          <div className="flex gap-2 ml-4">
+            <Button
+              onClick={handleEdit}
+              variant="outline"
+              size="sm"
+              disabled={loading}
+            >
+              <Edit className="h-4 w-4 mr-1" />
+              Edit
+            </Button>
+            <Button
+              onClick={onDelete}
+              disabled={loading}
+              variant="destructive"
+              size="sm"
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              Delete
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2 ml-4">
-          <Button
-            onClick={handleEdit}
-            variant="outline"
-            size="sm"
-            disabled={loading}
-          >
-            <Edit className="h-4 w-4 mr-1" />
-            Edit
-          </Button>
-          <Button
-            onClick={onDelete}
-            disabled={loading}
-            variant="destructive"
-            size="sm"
-          >
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete
-          </Button>
-        </div>
-      </div>
-    </div>
+      </AccordionItem>
+    </Accordion>
   );
 }
 
 // Event Timeline Component
-function EventTimeline({ event }: { event: Event }) {
+function EventTimeline({
+  event,
+  mainPaymentHistory,
+}: {
+  event: Event;
+  mainPaymentHistory?: any[];
+}) {
   const getTimelineSteps = () => {
     const includedComponents = (event.components || []).filter(
       (comp) => comp.is_included
@@ -2507,23 +2839,44 @@ function EventTimeline({ event }: { event: Event }) {
 
     // Calculate derived payment status based on budget progress
     const calculateDerivedPaymentStatus = () => {
-      // Calculate total paid amount
-      const paymentsTotal =
-        event.payments?.reduce((sum, payment: any) => {
-          if (
-            ["completed", "partial", "paid"].includes(payment.payment_status)
-          ) {
-            return sum + Number(payment.payment_amount || 0);
-          }
-          return sum;
-        }, 0) || 0;
+      // Use the same calculation logic as the main component
+      let paymentsTotal = 0;
 
+      // Try to get from mainPaymentHistory first (fetched by main component)
+      if (mainPaymentHistory && mainPaymentHistory.length > 0) {
+        paymentsTotal = mainPaymentHistory.reduce((sum, p) => {
+          const isPaid =
+            p.payment_status === "completed" ||
+            p.payment_status === "paid" ||
+            p.payment_status === "confirmed" ||
+            p.payment_status === "processed" ||
+            p.payment_status === "successful";
+          const amount = Number(p.payment_amount) || 0;
+          return isPaid ? sum + amount : sum;
+        }, 0);
+      } else if (event.payments && Array.isArray(event.payments)) {
+        // Fallback: try to get from event data
+        paymentsTotal = event.payments.reduce((sum, p) => {
+          const isPaid =
+            p.payment_status === "completed" ||
+            p.payment_status === "paid" ||
+            p.payment_status === "confirmed" ||
+            p.payment_status === "processed" ||
+            p.payment_status === "successful";
+          const amount = Number(p.payment_amount) || 0;
+          return isPaid ? sum + amount : sum;
+        }, 0);
+      }
+
+      // Include down payment (reservation fee) if not already included in payments
       const downPayment = Number(event.down_payment || 0);
       const downPaymentIncluded =
-        event.payments?.some(
+        (mainPaymentHistory || event.payments || []).some(
           (payment: any) =>
             payment.payment_type === "down_payment" ||
-            payment.payment_notes?.toLowerCase().includes("down payment")
+            payment.payment_type === "reserved" ||
+            payment.payment_notes?.toLowerCase().includes("down payment") ||
+            payment.payment_notes?.toLowerCase().includes("reservation")
         ) || false;
 
       const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
@@ -3226,8 +3579,10 @@ function PaymentHistoryTab({ event }: { event: Event }) {
 
   // Helper function to calculate paid amount with fallback
   const calculatePaidAmount = () => {
+    let paymentsTotal = 0;
+
     if (paymentHistory && paymentHistory.length > 0) {
-      const paid = paymentHistory.reduce((sum, p) => {
+      paymentsTotal = paymentHistory.reduce((sum, p) => {
         const isPaid =
           p.payment_status === "completed" ||
           p.payment_status === "paid" ||
@@ -3237,13 +3592,10 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         const amount = Number(p.payment_amount) || 0;
         return isPaid ? sum + amount : sum;
       }, 0);
-      console.log("Using payment history - paid amount:", paid);
-      return paid;
-    }
-
-    // Fallback: try to get from event data
-    if (event.payments && Array.isArray(event.payments)) {
-      const paid = event.payments.reduce((sum, p) => {
+      console.log("Using payment history - payments total:", paymentsTotal);
+    } else if (event.payments && Array.isArray(event.payments)) {
+      // Fallback: try to get from event data
+      paymentsTotal = event.payments.reduce((sum, p) => {
         const isPaid =
           p.payment_status === "completed" ||
           p.payment_status === "paid" ||
@@ -3253,12 +3605,32 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         const amount = Number(p.payment_amount) || 0;
         return isPaid ? sum + amount : sum;
       }, 0);
-      console.log("Using event payments - paid amount:", paid);
-      return paid;
+      console.log("Using event payments - payments total:", paymentsTotal);
     }
 
-    console.log("No payment data available");
-    return 0;
+    // Include down payment (reservation fee) if not already included in payments
+    const downPayment = Number(event.down_payment || 0);
+    const downPaymentIncluded =
+      (paymentHistory || event.payments || []).some(
+        (payment: any) =>
+          payment.payment_type === "down_payment" ||
+          payment.payment_type === "reserved" ||
+          payment.payment_notes?.toLowerCase().includes("down payment") ||
+          payment.payment_notes?.toLowerCase().includes("reservation")
+      ) || false;
+
+    const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+
+    console.log("Payment calculation details:", {
+      paymentsTotal,
+      downPayment,
+      downPaymentIncluded,
+      totalPaid,
+      paymentHistory: paymentHistory?.length || 0,
+      eventPayments: event.payments?.length || 0,
+    });
+
+    return totalPaid;
   };
 
   if (isLoading) {
@@ -3471,17 +3843,7 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                       }
                       size="sm"
                       onClick={() => {
-                        const remainingBalance = Math.max(
-                          0,
-                          event.total_budget -
-                            (paymentHistory?.reduce(
-                              (s, pay) =>
-                                pay.payment_status === "completed"
-                                  ? s + pay.payment_amount
-                                  : s,
-                              0
-                            ) || 0)
-                        );
+                        const remainingBalance = getRemainingBalance();
                         setNewPayment((p) => ({
                           ...p,
                           payment_type: "full",
@@ -3507,32 +3869,42 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                 {newPayment.payment_type === "percentage" && (
                   <div className="mb-4">
                     <label className="block text-sm text-gray-700 mb-1">
-                      Percentage
+                      Percentage of Remaining Balance
                     </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.01"
-                      value={
-                        newPayment.percentage === 0 ? "" : newPayment.percentage
-                      }
-                      onChange={(e) => {
-                        const percentage = parseFloat(e.target.value) || 0;
-                        const calculatedAmount =
-                          ((event.total_budget || 0) * percentage) / 100;
-                        setNewPayment((p) => ({
-                          ...p,
-                          percentage: percentage,
-                          payment_amount: calculatedAmount,
-                        }));
-                        setPaymentAmountDisplay(
-                          formatNumberWithCommas(calculatedAmount)
-                        );
-                      }}
-                      placeholder="e.g., 25"
-                      className="w-28 px-3 py-2 border rounded-md"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        value={
+                          newPayment.percentage === 0
+                            ? ""
+                            : newPayment.percentage
+                        }
+                        onChange={(e) => {
+                          const percentage = parseFloat(e.target.value) || 0;
+                          const remainingBalance = getRemainingBalance();
+                          const calculatedAmount =
+                            (remainingBalance * percentage) / 100;
+                          setNewPayment((p) => ({
+                            ...p,
+                            percentage: percentage,
+                            payment_amount: calculatedAmount,
+                          }));
+                          setPaymentAmountDisplay(
+                            formatNumberWithCommas(calculatedAmount)
+                          );
+                        }}
+                        placeholder="e.g., 25"
+                        className="w-28 px-3 py-2 border rounded-md"
+                      />
+                      <span className="text-sm text-gray-500">%</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Calculated from remaining balance: ₱
+                      {formatCurrency(getRemainingBalance())}
+                    </p>
                   </div>
                 )}
                 {/* Payment Details Form */}
@@ -4017,6 +4389,7 @@ export default function EventDetailsPage() {
     null
   );
   const [weddingSaving, setWeddingSaving] = useState(false);
+  const [mainPaymentHistory, setMainPaymentHistory] = useState<any[]>([]);
   const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const getTodayStringLocal = () => {
@@ -4061,8 +4434,47 @@ export default function EventDetailsPage() {
     protectRoute();
     if (eventId) {
       fetchEventDetails();
+      fetchMainPaymentHistory();
     }
   }, [eventId]);
+
+  const fetchMainPaymentHistory = async () => {
+    try {
+      console.log(
+        "Main component fetching payment history for event:",
+        eventId
+      );
+
+      const response = await axios.post(endpoints.admin, {
+        operation: "getEventPayments",
+        event_id: eventId,
+      });
+
+      console.log(
+        "Main component payment history API response:",
+        response.data
+      );
+
+      if (response.data.status === "success") {
+        const raw = response.data.payments || event?.payments || [];
+        const normalized = (raw || []).map((p: any) => ({
+          ...p,
+          payment_attachments: [],
+        }));
+        setMainPaymentHistory(normalized);
+        console.log("Main component normalized payment data:", normalized);
+      } else {
+        console.error(
+          "Main component API returned error:",
+          response.data.message
+        );
+        setMainPaymentHistory(event?.payments || []);
+      }
+    } catch (error) {
+      console.error("Main component error fetching payment history:", error);
+      setMainPaymentHistory(event?.payments || []);
+    }
+  };
 
   const openAssignOrganizer = async () => {
     setShowAssignOrganizer(true);
@@ -5121,25 +5533,59 @@ export default function EventDetailsPage() {
 
   // Calculate derived payment status based on budget progress
   const calculateDerivedPaymentStatus = () => {
-    // Calculate total paid amount
-    const paymentsTotal =
-      event.payments?.reduce((sum, payment: any) => {
-        if (["completed", "partial", "paid"].includes(payment.payment_status)) {
-          return sum + Number(payment.payment_amount || 0);
-        }
-        return sum;
-      }, 0) || 0;
+    // Use the same calculation logic as the payment history tab
+    let paymentsTotal = 0;
 
+    // Try to get from mainPaymentHistory first (fetched by main component)
+    if (mainPaymentHistory && mainPaymentHistory.length > 0) {
+      paymentsTotal = mainPaymentHistory.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
+      }, 0);
+    } else if (event.payments && Array.isArray(event.payments)) {
+      // Fallback: try to get from event data
+      paymentsTotal = event.payments.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
+      }, 0);
+    }
+
+    // Include down payment (reservation fee) if not already included in payments
     const downPayment = Number(event.down_payment || 0);
     const downPaymentIncluded =
-      event.payments?.some(
+      (mainPaymentHistory || event.payments || []).some(
         (payment: any) =>
           payment.payment_type === "down_payment" ||
-          payment.payment_notes?.toLowerCase().includes("down payment")
+          payment.payment_type === "reserved" ||
+          payment.payment_notes?.toLowerCase().includes("down payment") ||
+          payment.payment_notes?.toLowerCase().includes("reservation")
       ) || false;
 
     const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
     const remaining = event.total_budget - totalPaid;
+
+    console.log("Derived payment status calculation:", {
+      paymentsTotal,
+      downPayment,
+      downPaymentIncluded,
+      totalPaid,
+      remaining,
+      totalBudget: event.total_budget,
+      mainPaymentHistory: mainPaymentHistory?.length || 0,
+      eventPayments: event.payments?.length || 0,
+    });
 
     // If fully paid (no remaining balance), return "paid"
     if (remaining <= 0 && event.total_budget > 0) {
@@ -5209,8 +5655,11 @@ export default function EventDetailsPage() {
           {/* Left Sidebar - Client & Progress */}
           <div className="lg:col-span-1 space-y-6">
             <ClientProfile event={event} />
-            <BudgetProgress event={event} />
-            <EventTimeline event={event} />
+            <BudgetProgress event={event} paymentHistory={mainPaymentHistory} />
+            <EventTimeline
+              event={event}
+              mainPaymentHistory={mainPaymentHistory}
+            />
             <EventCountdown event={event} />
           </div>
 

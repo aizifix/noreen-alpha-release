@@ -627,7 +627,7 @@ export default function ClientsPage() {
         </CardHeader>
         <CardContent>
           <div
-            className="overflow-x-auto"
+            className="overflow-x-auto overflow-y-visible"
             style={{
               scrollbarWidth: "thin",
               scrollbarColor: "#d1d5db #f3f4f6",
@@ -649,7 +649,7 @@ export default function ClientsPage() {
                 background: #9ca3af;
               }
             `}</style>
-            <table className="w-full text-sm" style={{ minWidth: "1200px" }}>
+            <table className="w-full text-sm" style={{ minWidth: "1400px" }}>
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-3 px-4 w-12">
@@ -658,16 +658,36 @@ export default function ClientsPage() {
                       onCheckedChange={handleSelectAll}
                     />
                   </th>
-                  <th className="text-left py-3 px-4 w-16">Profile</th>
-                  <th className="text-left py-3 px-4 w-40">Name</th>
-                  <th className="text-left py-3 px-4 w-48">Email</th>
-                  <th className="text-left py-3 px-4 w-32">Phone</th>
-                  <th className="text-left py-3 px-4 w-64">Address</th>
-                  <th className="text-left py-3 px-4 w-24">Status</th>
-                  <th className="text-left py-3 px-4 w-20">Events</th>
-                  <th className="text-left py-3 px-4 w-28">Revenue</th>
-                  <th className="text-left py-3 px-4 w-28">Registered</th>
-                  <th className="text-left py-3 px-4 w-20">Actions</th>
+                  <th className="text-left py-3 px-4 w-16 min-w-[64px]">
+                    Profile
+                  </th>
+                  <th className="text-left py-3 px-4 w-48 min-w-[192px]">
+                    Name
+                  </th>
+                  <th className="text-left py-3 px-4 w-56 min-w-[224px]">
+                    Email
+                  </th>
+                  <th className="text-left py-3 px-4 w-40 min-w-[160px]">
+                    Phone
+                  </th>
+                  <th className="text-left py-3 px-4 w-80 min-w-[320px]">
+                    Address
+                  </th>
+                  <th className="text-left py-3 px-4 w-32 min-w-[128px]">
+                    Status
+                  </th>
+                  <th className="text-left py-3 px-4 w-24 min-w-[96px]">
+                    Events
+                  </th>
+                  <th className="text-left py-3 px-4 w-32 min-w-[128px]">
+                    Revenue
+                  </th>
+                  <th className="text-left py-3 px-4 w-32 min-w-[128px]">
+                    Registered
+                  </th>
+                  <th className="text-left py-3 px-4 w-24 min-w-[96px]">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -703,23 +723,46 @@ export default function ClientsPage() {
                       </Avatar>
                     </td>
                     <td className="py-3 px-4">
-                      <div className="font-medium">
+                      <div className="font-medium whitespace-nowrap">
                         {client.user_firstName} {client.user_lastName}
                       </div>
                     </td>
-                    <td className="py-3 px-4">{client.user_email}</td>
-                    <td className="py-3 px-4">{client.user_contact}</td>
                     <td className="py-3 px-4">
-                      <div className="text-sm">
+                      <div
+                        className="truncate max-w-[200px]"
+                        title={client.user_email}
+                      >
+                        {client.user_email}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="whitespace-nowrap">
+                        {client.user_contact}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="text-sm max-w-[300px]">
                         {client.user_address && (
-                          <div className="font-medium">
+                          <div
+                            className="font-medium truncate"
+                            title={client.user_address}
+                          >
                             {client.user_address}
                           </div>
                         )}
                         {(client.user_city ||
                           client.user_state ||
                           client.user_zipcode) && (
-                          <div className="text-gray-600">
+                          <div
+                            className="text-gray-600 truncate"
+                            title={[
+                              client.user_city,
+                              client.user_state,
+                              client.user_zipcode,
+                            ]
+                              .filter(Boolean)
+                              .join(", ")}
+                          >
                             {[
                               client.user_city,
                               client.user_state,
@@ -730,7 +773,10 @@ export default function ClientsPage() {
                           </div>
                         )}
                         {client.user_country && (
-                          <div className="text-gray-500 text-xs">
+                          <div
+                            className="text-gray-500 text-xs truncate"
+                            title={client.user_country}
+                          >
                             {client.user_country}
                           </div>
                         )}
@@ -738,19 +784,27 @@ export default function ClientsPage() {
                     </td>
                     <td className="py-3 px-4">
                       <span
-                        className={`px-2 py-1 rounded-full text-xs ${getClientStatusColor(client)}`}
+                        className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${getClientStatusColor(client)}`}
                       >
                         {getClientStatus(client)}
                       </span>
                     </td>
-                    <td className="py-3 px-4">{client.total_events}</td>
                     <td className="py-3 px-4">
-                      {formatCurrency(
-                        parseFloat(client.total_payments.toString())
-                      )}
+                      <div className="text-center whitespace-nowrap">
+                        {client.total_events}
+                      </div>
                     </td>
                     <td className="py-3 px-4">
-                      {formatDate(client.registration_date)}
+                      <div className="whitespace-nowrap">
+                        {formatCurrency(
+                          parseFloat(client.total_payments.toString())
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="whitespace-nowrap">
+                        {formatDate(client.registration_date)}
+                      </div>
                     </td>
                     <td className="py-3 px-4">
                       <DropdownMenu>

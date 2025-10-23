@@ -61,6 +61,13 @@ export function VenueSelection({
   const [guestCountInput, setGuestCountInput] = useState<string>(
     String(currentGuestCount || initialGuestCount)
   );
+
+  // Debug logging for guest count props
+  console.log("🎯 VenueSelection guest count props:", {
+    currentGuestCount,
+    initialGuestCount,
+    finalGuestCount: currentGuestCount || initialGuestCount
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredVenues, setFilteredVenues] = useState<any[]>([]);
   const [showVenueDetailsModal, setShowVenueDetailsModal] = useState(false);
@@ -73,6 +80,15 @@ export function VenueSelection({
   const [allVenues, setAllVenues] = useState<any[]>([]);
   const [venuesError, setVenuesError] = useState<string | null>(null);
   const [isUpdatingGuestCount, setIsUpdatingGuestCount] = useState(false);
+
+  // Update guest count when currentGuestCount prop changes
+  useEffect(() => {
+    if (currentGuestCount && currentGuestCount !== guestCount) {
+      console.log("🔄 Updating guest count from prop:", currentGuestCount);
+      setGuestCount(currentGuestCount);
+      setGuestCountInput(String(currentGuestCount));
+    }
+  }, [currentGuestCount, guestCount]);
 
   // Fetch all venues when in "start from scratch" mode and no venues are provided
   useEffect(() => {

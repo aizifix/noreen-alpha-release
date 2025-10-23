@@ -62,7 +62,7 @@ export const suppliers: Supplier[] = [
     categories: ["catering"],
     notes: "Farm-to-table approach. Can accommodate dietary restrictions.",
     isPreferred: true,
-    coverPhoto: "/placeholder.svg?height=200&width=400",
+    coverPhoto: "/placeholder.svg?height=170&width=340",
     category: "catering",
     rating: 4.9,
     contact: {
@@ -141,7 +141,7 @@ export const suppliers: Supplier[] = [
     notes:
       "Offers special discounts for our clients. Schedule fittings 2 months in advance.",
     isPreferred: false,
-    coverPhoto: "/placeholder.svg?height=200&width=400",
+    coverPhoto: "/placeholder.svg?height=170&width=340",
     category: "attire",
     rating: 4.5,
     contact: {
@@ -166,7 +166,7 @@ export const suppliers: Supplier[] = [
     categories: ["venue"],
     notes: "Capacity: 300 guests. Includes tables, chairs, and basic linens.",
     isPreferred: true,
-    coverPhoto: "/placeholder.svg?height=200&width=400",
+    coverPhoto: "/placeholder.svg?height=170&width=340",
     category: "venue",
     rating: 4.9,
     contact: {

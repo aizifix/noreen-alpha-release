@@ -497,13 +497,6 @@ export default function OrganizerAssignments() {
                     </span>
                   </div>
 
-                  {assignment.start_time && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Clock className="h-4 w-4" />
-                      <span>{assignment.start_time}</span>
-                    </div>
-                  )}
-
                   {assignment.venue_title && (
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                       <MapPin className="h-4 w-4" />
@@ -533,23 +526,27 @@ export default function OrganizerAssignments() {
                     <Eye className="h-4 w-4 mr-2" />
                     View Details
                   </Button>
-                  <Button
-                    onClick={() => handleAcceptAssignment(assignment)}
-                    size="sm"
-                    className="flex-1 bg-green-600 hover:bg-green-700"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Accept
-                  </Button>
-                  <Button
-                    onClick={() => handleRejectAssignment(assignment)}
-                    variant="destructive"
-                    size="sm"
-                    className="flex-1"
-                  >
-                    <XCircle className="h-4 w-4 mr-2" />
-                    Reject
-                  </Button>
+                  {assignment.assignment_status === "assigned" && (
+                    <>
+                      <Button
+                        onClick={() => handleAcceptAssignment(assignment)}
+                        size="sm"
+                        className="flex-1 bg-green-600 hover:bg-green-700"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Accept
+                      </Button>
+                      <Button
+                        onClick={() => handleRejectAssignment(assignment)}
+                        variant="destructive"
+                        size="sm"
+                        className="flex-1"
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Reject
+                      </Button>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -560,9 +557,10 @@ export default function OrganizerAssignments() {
       {/* Event Details Modal */}
       {showDetailsModal && selectedAssignment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col">
+            {/* Sticky Header with Event Details */}
+            <div className="p-6 border-b border-gray-200 bg-white rounded-t-lg sticky top-0 z-10">
+              <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-900">
                   Event Details
                 </h2>
@@ -574,6 +572,35 @@ export default function OrganizerAssignments() {
                 </button>
               </div>
 
+              {/* Key Event Info in Header */}
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {selectedAssignment.event_title}
+                </h3>
+                <div className="flex items-center gap-4 text-sm text-gray-600">
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-4 w-4" />
+                    <span>
+                      {format(
+                        new Date(selectedAssignment.event_date),
+                        "MMMM dd, yyyy"
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Users className="h-4 w-4" />
+                    <span>{selectedAssignment.guest_count} guests</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <DollarSign className="h-4 w-4" />
+                    <span>{formatCurrency(selectedAssignment.total_budget)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6">
               <div className="space-y-6">
                 {/* Event Info */}
                 <div>
@@ -581,61 +608,42 @@ export default function OrganizerAssignments() {
                     Event Information
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">
-                        Event Title
-                      </label>
-                      <p className="text-gray-900">
-                        {selectedAssignment.event_title}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">
-                        Event Date
-                      </label>
-                      <p className="text-gray-900">
-                        {format(
-                          new Date(selectedAssignment.event_date),
-                          "MMMM dd, yyyy"
-                        )}
-                      </p>
-                    </div>
-                    {selectedAssignment.start_time && (
+                    {selectedAssignment.event_type_name && (
                       <div>
                         <label className="text-sm font-medium text-gray-500">
-                          Start Time
+                          Event Type
                         </label>
                         <p className="text-gray-900">
-                          {selectedAssignment.start_time}
-                        </p>
-                      </div>
-                    )}
-                    {selectedAssignment.end_time && (
-                      <div>
-                        <label className="text-sm font-medium text-gray-500">
-                          End Time
-                        </label>
-                        <p className="text-gray-900">
-                          {selectedAssignment.end_time}
+                          {selectedAssignment.event_type_name}
                         </p>
                       </div>
                     )}
                     <div>
                       <label className="text-sm font-medium text-gray-500">
-                        Guest Count
+                        Status
                       </label>
-                      <p className="text-gray-900">
-                        {selectedAssignment.guest_count}
+                      <p className="text-gray-900 capitalize">
+                        {selectedAssignment.event_status}
                       </p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-500">
-                        Total Budget
+                        Payment Status
                       </label>
-                      <p className="text-gray-900">
-                        {formatCurrency(selectedAssignment.total_budget)}
+                      <p className="text-gray-900 capitalize">
+                        {selectedAssignment.payment_status}
                       </p>
                     </div>
+                    {selectedAssignment.down_payment > 0 && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">
+                          Down Payment
+                        </label>
+                        <p className="text-gray-900">
+                          {formatCurrency(selectedAssignment.down_payment)}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -732,22 +740,28 @@ export default function OrganizerAssignments() {
                     </p>
                   </div>
                 )}
+              </div>
+            </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-3 pt-4 border-t">
+            {/* Sticky Action Buttons at Bottom */}
+            {selectedAssignment.assignment_status === "assigned" && (
+              <div className="p-6 border-t border-gray-200 bg-white rounded-b-lg sticky bottom-0">
+                <div className="flex gap-3">
                   <Button
-                    onClick={() =>
-                      handleAcceptAssignment(selectedAssignment as Assignment)
-                    }
+                    onClick={() => {
+                      handleAcceptAssignment(selectedAssignment as Assignment);
+                      setShowDetailsModal(false);
+                    }}
                     className="flex-1 bg-green-600 hover:bg-green-700"
                   >
                     <CheckCircle className="h-4 w-4 mr-2" />
                     Accept Assignment
                   </Button>
                   <Button
-                    onClick={() =>
-                      handleRejectAssignment(selectedAssignment as Assignment)
-                    }
+                    onClick={() => {
+                      handleRejectAssignment(selectedAssignment as Assignment);
+                      setShowDetailsModal(false);
+                    }}
                     variant="destructive"
                     className="flex-1"
                   >
@@ -756,7 +770,7 @@ export default function OrganizerAssignments() {
                   </Button>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}

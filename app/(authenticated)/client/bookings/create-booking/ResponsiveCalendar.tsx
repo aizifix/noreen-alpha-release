@@ -16,6 +16,7 @@ import {
   Calendar as CalendarIcon,
   Info,
   AlertCircle,
+  X,
 } from "lucide-react";
 import {
   format,
@@ -206,17 +207,16 @@ export default function ResponsiveCalendar({
     return (
       <button
         className={cn(
-          "relative w-full h-full aspect-square text-sm font-medium rounded-md transition-all duration-200",
-          "flex flex-col items-center justify-center",
-          "min-h-[2.5rem] sm:min-h-[3rem] md:min-h-[3.5rem] lg:min-h-[4rem]",
-          "max-w-[2.5rem] sm:max-w-[3rem] md:max-w-[3.5rem] lg:max-w-[4rem]",
-          "mx-auto", // Center the button within its grid cell
+          "relative w-full h-full text-[9px] sm:text-xs font-medium rounded-sm sm:rounded transition-all duration-200",
+          "flex items-center justify-center",
+          "min-h-0 min-w-0 overflow-hidden",
           heatMapColor,
-          isSelected && "ring-2 ring-[#028A75] ring-offset-1 border-[#028A75]",
-          isPastDate && "opacity-50 cursor-not-allowed text-gray-400",
-          !isCurrentMonth && "text-gray-400",
-          isTodayDate && !isSelected && "ring-1 ring-blue-300 bg-blue-50",
-          !isPastDate && !hasWedding && "hover:scale-105 focus:scale-105"
+          isSelected && "ring-1 sm:ring-2 ring-[#028A75] ring-offset-0 sm:ring-offset-1",
+          isPastDate && "opacity-40 cursor-not-allowed",
+          !isCurrentMonth && "text-gray-400 opacity-50",
+          isTodayDate && !isSelected && "ring-1 ring-blue-400 bg-blue-50",
+          !isPastDate && !hasWedding && "hover:opacity-90",
+          "focus:outline-none focus:ring-1 focus:ring-[#028A75]"
         )}
         onClick={(e) => {
           e.preventDefault();
@@ -226,13 +226,15 @@ export default function ResponsiveCalendar({
           }
         }}
         disabled={isPastDate}
+        aria-label={`${format(day, "MMMM d, yyyy")}${eventCount > 0 ? ` - ${eventCount} events` : ""}${isPastDate ? " - Past date" : ""}`}
+        title={`${format(day, "MMMM d, yyyy")}${eventCount > 0 ? ` - ${eventCount} events` : ""}${isPastDate ? " - Past date" : ""}`}
       >
-        <span className="text-xs sm:text-sm font-medium">
+        <span className="font-semibold leading-none">
           {format(day, "d")}
         </span>
         {eventCount > 0 && !isPastDate && (
-          <div className="absolute -top-1 -right-1 z-10">
-            <div className="text-[8px] sm:text-[10px] rounded-full w-3 h-3 sm:w-4 sm:h-4 flex items-center justify-center font-bold bg-[#028A75] text-white border border-white">
+          <div className="absolute -top-0.5 -right-0.5 sm:top-0 sm:right-0">
+            <div className="text-[7px] sm:text-[8px] rounded-full w-2.5 h-2.5 sm:w-3 sm:h-3 flex items-center justify-center font-bold bg-[#028A75] text-white border border-white shadow-sm leading-none">
               {eventCount}
             </div>
           </div>
@@ -246,40 +248,41 @@ export default function ResponsiveCalendar({
 
   return (
     <>
-      <Card className={cn("w-full", className)}>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg sm:text-xl font-semibold text-[#028A75] flex items-center">
-              <CalendarIcon className="h-5 w-5 mr-2" />
-              Event Calendar
+      <Card className={cn("w-full max-w-full overflow-hidden mx-auto", className)}>
+        <CardHeader className="pb-2 px-2 sm:px-4">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-sm sm:text-base font-semibold text-[#028A75] flex items-center flex-shrink-0">
+              <CalendarIcon className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+              <span className="hidden sm:inline">Event Calendar</span>
+              <span className="sm:hidden">Calendar</span>
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 flex-shrink-0">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={prevMonth}
-                className="h-8 w-8 p-0"
+                className="h-6 w-6 sm:h-7 sm:w-7 p-0"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-3 w-3" />
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={nextMonth}
-                className="h-8 w-8 p-0"
+                className="h-6 w-6 sm:h-7 sm:w-7 p-0"
               >
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-3 w-3" />
               </Button>
             </div>
           </div>
-          <div className="text-center">
-            <h3 className="text-lg sm:text-xl font-bold text-gray-900">
+          <div className="text-center mt-1">
+            <h3 className="text-sm sm:text-base font-bold text-gray-900">
               {format(currentDate, "MMMM yyyy")}
             </h3>
           </div>
         </CardHeader>
 
-        <CardContent className="p-2 sm:p-4">
+        <CardContent className="p-2 sm:p-3">
           {/* Loading indicator */}
           {isLoading && (
             <div className="flex items-center justify-center py-4">
@@ -290,12 +293,22 @@ export default function ResponsiveCalendar({
             </div>
           )}
 
+          {/* Error state */}
+          {!isLoading && Object.keys(effectiveCalendarData).length === 0 && (
+            <div className="flex items-center justify-center py-4">
+              <div className="text-center">
+                <AlertCircle className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                <p className="text-sm text-gray-600">Unable to load calendar data</p>
+              </div>
+            </div>
+          )}
+
           {/* Day names header */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="grid grid-cols-7 gap-[2px] sm:gap-1 mb-1 w-full">
             {dayNames.map((day) => (
               <div
                 key={day}
-                className="text-center text-xs sm:text-sm font-medium text-gray-500 py-1 sm:py-2"
+                className="text-center text-[9px] sm:text-[10px] font-medium text-gray-500 py-0.5 sm:py-1"
               >
                 {day}
               </div>
@@ -303,11 +316,11 @@ export default function ResponsiveCalendar({
           </div>
 
           {/* Calendar grid */}
-          <div className="grid grid-cols-7 gap-1 w-full max-w-full overflow-hidden">
+          <div className="grid grid-cols-7 gap-[2px] sm:gap-1 w-full max-w-full">
             {calendarDays.map((day, index) => (
               <div
                 key={index}
-                className="aspect-square flex items-center justify-center min-h-0"
+                className="aspect-square w-full min-w-0"
               >
                 {renderCalendarDay(day)}
               </div>
@@ -315,27 +328,27 @@ export default function ResponsiveCalendar({
           </div>
 
           {/* Legend */}
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 text-xs">
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded bg-white border border-gray-300"></div>
-                <span>Available</span>
+          <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200">
+            <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 text-[9px] sm:text-[10px] px-1">
+              <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+                <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm bg-white border border-gray-300"></div>
+                <span className="whitespace-nowrap">Available</span>
               </div>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded bg-yellow-200"></div>
-                <span>1 Event</span>
+              <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+                <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm bg-yellow-200"></div>
+                <span className="whitespace-nowrap">1 Event</span>
               </div>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded bg-orange-300"></div>
-                <span>2 Events</span>
+              <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+                <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm bg-orange-300"></div>
+                <span className="whitespace-nowrap">2 Events</span>
               </div>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded bg-red-300"></div>
-                <span>3+ Events</span>
+              <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+                <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm bg-red-300"></div>
+                <span className="whitespace-nowrap">3+ Events</span>
               </div>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded bg-red-500"></div>
-                <span>Wedding</span>
+              <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+                <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm bg-red-500"></div>
+                <span className="whitespace-nowrap">Wedding</span>
               </div>
             </div>
           </div>
@@ -344,12 +357,20 @@ export default function ResponsiveCalendar({
 
       {/* Event Details Modal */}
       <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
-        <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[90vh] w-full overflow-hidden p-0 flex flex-col">
-          <DialogHeader className="p-4 sm:p-6 border-b">
+        <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[90vh] w-full overflow-hidden p-0 flex flex-col z-[100] fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+          <DialogHeader className="p-4 sm:p-6 border-b relative">
             <DialogTitle className="text-lg sm:text-xl font-bold flex items-center">
               <Info className="h-5 w-5 mr-2 text-[#028A75]" />
               Event Details
             </DialogTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDetailsModal(false)}
+              className="absolute top-4 right-4 h-8 w-8 p-0 hover:bg-gray-100 z-10"
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </DialogHeader>
 
           <div className="overflow-y-auto flex-grow p-4 sm:p-6">

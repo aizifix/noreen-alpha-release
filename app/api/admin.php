@@ -701,19 +701,62 @@ class Admin {
                 }
             }
 
-            // Insert the main event (without reserved_payment_total and adjusted_total columns for now)
+            // Calculate reserved payment total if this event is from a booking
+            $reservedPaymentTotal = 0.00;
+            $adjustedTotal = 0.00;
+
+            if (isset($data['original_booking_reference']) && !empty($data['original_booking_reference'])) {
+                try {
+                    error_log("createEvent: Calculating reserved payments for booking reference: " . $data['original_booking_reference']);
+
+                    // Get booking ID and payments
+                    $bookingStmt = $this->conn->prepare("SELECT booking_id FROM tbl_bookings WHERE booking_reference = ?");
+                    $bookingStmt->execute([$data['original_booking_reference']]);
+                    $booking = $bookingStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($booking) {
+                        // Get all completed/paid payments for this booking
+                        $paymentStmt = $this->conn->prepare("
+                            SELECT SUM(payment_amount) as total_paid
+                            FROM tbl_payments
+                            WHERE booking_id = ?
+                            AND payment_status IN ('completed', 'paid')
+                        ");
+                        $paymentStmt->execute([$booking['booking_id']]);
+                        $paymentData = $paymentStmt->fetch(PDO::FETCH_ASSOC);
+
+                        $reservedPaymentTotal = floatval($paymentData['total_paid'] ?? 0);
+                        error_log("createEvent: Reserved payment total from booking: " . $reservedPaymentTotal);
+                    }
+                } catch (Exception $e) {
+                    error_log("createEvent: Error calculating reserved payments: " . $e->getMessage());
+                    // Continue with 0 values if there's an error
+                }
+            }
+
+            // Calculate adjusted total (total budget minus reserved payments)
+            $totalBudget = isset($data['total_budget']) && is_numeric($data['total_budget']) ? floatval($data['total_budget']) : 0.00;
+            $adjustedTotal = $totalBudget - $reservedPaymentTotal;
+
+            error_log("createEvent: Reserved Payment Total: " . $reservedPaymentTotal);
+            error_log("createEvent: Total Budget: " . $totalBudget);
+            error_log("createEvent: Adjusted Total: " . $adjustedTotal);
+
+            // Insert the main event (now WITH reserved_payment_total and adjusted_total columns)
             $sql = "INSERT INTO tbl_events (
                         original_booking_reference, user_id, admin_id, organizer_id, event_title,
                         event_theme, event_description, church_location, church_start_time, event_type_id, guest_count, event_date, start_time, end_time,
                         package_id, venue_id, total_budget, down_payment, payment_method,
                         reference_number, additional_notes, event_status, payment_schedule_type_id,
-                        is_recurring, recurrence_rule, client_signature, finalized_at, event_attachments
+                        is_recurring, recurrence_rule, client_signature, finalized_at, event_attachments,
+                        reserved_payment_total, adjusted_total
                     ) VALUES (
                         :original_booking_reference, :user_id, :admin_id, :organizer_id, :event_title,
                         :event_theme, :event_description, :church_location, :church_start_time, :event_type_id, :guest_count, :event_date, :start_time, :end_time,
                         :package_id, :venue_id, :total_budget, :down_payment, :payment_method,
                         :reference_number, :additional_notes, :event_status, :payment_schedule_type_id,
-                        :is_recurring, :recurrence_rule, :client_signature, :finalized_at, :event_attachments
+                        :is_recurring, :recurrence_rule, :client_signature, :finalized_at, :event_attachments,
+                        :reserved_payment_total, :adjusted_total
                     )";
 
             $stmt = $this->conn->prepare($sql);
@@ -810,7 +853,7 @@ class Admin {
                 ':end_time' => $endTime,
                 ':package_id' => isset($data['package_id']) && $data['package_id'] ? intval($data['package_id']) : null,
                 ':venue_id' => isset($data['venue_id']) && $data['venue_id'] ? intval($data['venue_id']) : null,
-                ':total_budget' => isset($data['total_budget']) && is_numeric($data['total_budget']) ? floatval($data['total_budget']) : 0.00,
+                ':total_budget' => $totalBudget,
                 ':down_payment' => isset($data['down_payment']) && is_numeric($data['down_payment']) ? floatval($data['down_payment']) : 0.00,
                 ':payment_method' => $paymentMethod,
                 ':reference_number' => $referenceNumber,
@@ -821,7 +864,9 @@ class Admin {
                 ':recurrence_rule' => $recurrenceRule,
                 ':client_signature' => $clientSignature,
                 ':finalized_at' => $finalizedAt,
-                ':event_attachments' => $eventAttachments
+                ':event_attachments' => $eventAttachments,
+                ':reserved_payment_total' => $reservedPaymentTotal,
+                ':adjusted_total' => $adjustedTotal
             ];
 
             // Enhanced detailed logging of parameters
@@ -6060,7 +6105,10 @@ This is an automated message. Please do not reply.
     public function checkAndFixVenuePaxRates() {
         try {
             // First, let's see what venues we have
-            $sql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate FROM tbl_venue WHERE is_active = 1";
+            $sql = "SELECT v.venue_id, v.venue_title, COALESCE(vp.venue_price_min, 0) as venue_price, v.extra_pax_rate
+                    FROM tbl_venue v
+                    LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                    WHERE v.is_active = 1";
             $stmt = $this->conn->query($sql);
             $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -6120,7 +6168,10 @@ This is an automated message. Please do not reply.
             $stmt->execute([$paxRate, $venueId]);
 
             // Get the updated venue data
-            $getSql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate FROM tbl_venue WHERE venue_id = ?";
+            $getSql = "SELECT v.venue_id, v.venue_title, COALESCE(vp.venue_price_min, 0) as venue_price, v.extra_pax_rate
+                       FROM tbl_venue v
+                       LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                       WHERE v.venue_id = ?";
             $getStmt = $this->conn->prepare($getSql);
             $getStmt->execute([$venueId]);
             $venue = $getStmt->fetch(PDO::FETCH_ASSOC);
@@ -6140,7 +6191,10 @@ This is an automated message. Please do not reply.
 
     public function testVenueData() {
         try {
-            $sql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate FROM tbl_venue WHERE is_active = 1 LIMIT 5";
+            $sql = "SELECT v.venue_id, v.venue_title, COALESCE(vp.venue_price_min, 0) as venue_price, v.extra_pax_rate
+                    FROM tbl_venue v
+                    LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                    WHERE v.is_active = 1 LIMIT 5";
             $stmt = $this->conn->query($sql);
             $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -9764,7 +9818,10 @@ This is an automated message. Please do not reply.
             $this->pdo->beginTransaction();
 
             // Get current venue data
-            $stmt = $this->pdo->prepare("SELECT venue_price FROM tbl_venue WHERE venue_id = ?");
+            $stmt = $this->pdo->prepare("SELECT COALESCE(vp.venue_price_min, 0) as venue_price
+                                         FROM tbl_venue v
+                                         LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                                         WHERE v.venue_id = ?");
             $stmt->execute([$_POST['venue_id']]);
             $currentVenue = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -10235,9 +10292,13 @@ This is an automated message. Please do not reply.
 
     public function getPackageVenues($packageId) {
         try {
-            $sql = "SELECT v.*, pv.package_id
+            $sql = "SELECT v.*, pv.package_id,
+                           COALESCE(vp.venue_price_min, 0) as venue_price,
+                           COALESCE(vp.venue_price_max, 0) as venue_price_max,
+                           COALESCE(v.extra_pax_rate, 0) as extra_pax_rate
                     FROM tbl_venue v
                     INNER JOIN tbl_package_venues pv ON v.venue_id = pv.venue_id
+                    LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                     WHERE pv.package_id = ? AND v.is_active = 1
                     ORDER BY v.venue_title ASC";
 
@@ -10257,41 +10318,154 @@ This is an automated message. Please do not reply.
         }
     }
 
-    public function updateEventVenue($eventId, $venueId) {
+    public function updateEventVenue($eventId, $venueId, $guestCount = null, $venueCost = null, $budgetChange = null) {
         try {
+            $this->pdo->beginTransaction();
+
             // First check if the venue is available for the event's package
-            $checkSql = "SELECT e.package_id, pv.venue_id
+            $checkSql = "SELECT e.package_id, e.total_budget, e.guest_count, pv.venue_id
                         FROM tbl_events e
                         INNER JOIN tbl_package_venues pv ON e.package_id = pv.package_id
                         WHERE e.event_id = ? AND pv.venue_id = ?";
 
             $checkStmt = $this->pdo->prepare($checkSql);
             $checkStmt->execute([$eventId, $venueId]);
+            $eventData = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$checkStmt->fetch(PDO::FETCH_ASSOC)) {
+            if (!$eventData) {
+                $this->pdo->rollBack();
                 return json_encode([
                     "status" => "error",
                     "message" => "Selected venue is not available for this package"
                 ]);
             }
 
-            // Update the event venue
-            $updateSql = "UPDATE tbl_events SET venue_id = ? WHERE event_id = ?";
-            $updateStmt = $this->pdo->prepare($updateSql);
-            $updateStmt->execute([$venueId, $eventId]);
+            $currentBudget = floatval($eventData['total_budget']);
+            $oldGuestCount = intval($eventData['guest_count']);
+
+            // Get the old venue cost if it exists
+            $oldVenueCostSql = "SELECT SUM(component_price) as old_venue_cost
+                               FROM tbl_event_components
+                               WHERE event_id = ?
+                               AND (LOWER(component_name) LIKE '%venue:%'
+                                   OR LOWER(component_name) LIKE '%hotel%'
+                                   OR LOWER(component_name) LIKE '%reception hall%'
+                                   OR LOWER(component_name) LIKE '%ballroom%'
+                                   OR LOWER(component_name) LIKE 'venue -%'
+                                   OR LOWER(component_name) LIKE 'venue:%')";
+            $oldVenueCostStmt = $this->pdo->prepare($oldVenueCostSql);
+            $oldVenueCostStmt->execute([$eventId]);
+            $oldVenueCostResult = $oldVenueCostStmt->fetch(PDO::FETCH_ASSOC);
+            $oldVenueCost = floatval($oldVenueCostResult['old_venue_cost'] ?? 0);
+
+            // Calculate new budget using the budget change from frontend
+            // Frontend already calculated: newBudget = currentBudget + (newVenueCost - oldVenueCost)
+            if ($budgetChange !== null) {
+                $newBudget = $currentBudget + floatval($budgetChange);
+            } else {
+                // Fallback: calculate based on venue cost difference
+                $newBudget = $currentBudget - $oldVenueCost;
+                if ($venueCost !== null) {
+                    $newBudget += floatval($venueCost);
+                }
+            }
+
+            // Update the event venue and guest count
+            if ($guestCount !== null) {
+                $updateSql = "UPDATE tbl_events SET venue_id = ?, guest_count = ?, total_budget = ? WHERE event_id = ?";
+                $updateStmt = $this->pdo->prepare($updateSql);
+                $updateStmt->execute([$venueId, $guestCount, $newBudget, $eventId]);
+            } else {
+                $updateSql = "UPDATE tbl_events SET venue_id = ?, total_budget = ? WHERE event_id = ?";
+                $updateStmt = $this->pdo->prepare($updateSql);
+                $updateStmt->execute([$venueId, $newBudget, $eventId]);
+            }
+
+            // Remove old venue components
+            $deleteVenueSql = "DELETE FROM tbl_event_components
+                              WHERE event_id = ?
+                              AND (LOWER(component_name) LIKE '%venue:%'
+                                  OR LOWER(component_name) LIKE '%hotel%'
+                                  OR LOWER(component_name) LIKE '%reception hall%'
+                                  OR LOWER(component_name) LIKE '%ballroom%'
+                                  OR LOWER(component_name) LIKE 'venue -%'
+                                  OR LOWER(component_name) LIKE 'venue:%')";
+            $deleteVenueStmt = $this->pdo->prepare($deleteVenueSql);
+            $deleteVenueStmt->execute([$eventId]);
 
             // Get venue details for response
-            $venueSql = "SELECT venue_id, venue_title, venue_location, venue_price FROM tbl_venue WHERE venue_id = ?";
+            $venueSql = "SELECT v.venue_id, v.venue_title, v.venue_location,
+                               COALESCE(vp.venue_price_min, 0) as venue_price,
+                               v.venue_capacity, v.extra_pax_rate
+                         FROM tbl_venue v
+                         LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                         WHERE v.venue_id = ?";
             $venueStmt = $this->pdo->prepare($venueSql);
             $venueStmt->execute([$venueId]);
             $venue = $venueStmt->fetch(PDO::FETCH_ASSOC);
 
+            // Add new venue as a component if venue cost is provided
+            if ($venueCost !== null && $venueCost > 0 && $venue) {
+                $venueName = "Venue: " . $venue['venue_title'];
+                $venueDescription = "Venue for " . ($guestCount ?? $oldGuestCount) . " guests";
+
+                // Get the highest display order
+                $maxOrderSql = "SELECT COALESCE(MAX(display_order), 0) as max_order
+                               FROM tbl_event_components
+                               WHERE event_id = ?";
+                $maxOrderStmt = $this->pdo->prepare($maxOrderSql);
+                $maxOrderStmt->execute([$eventId]);
+                $maxOrderResult = $maxOrderStmt->fetch(PDO::FETCH_ASSOC);
+                $displayOrder = intval($maxOrderResult['max_order']) + 1;
+
+                // Insert the venue component
+                $insertVenueSql = "INSERT INTO tbl_event_components
+                                  (event_id, component_name, component_description, component_price,
+                                   is_custom, is_included, display_order, payment_status)
+                                  VALUES (?, ?, ?, ?, 1, 1, ?, 'pending')";
+                $insertVenueStmt = $this->pdo->prepare($insertVenueSql);
+                $insertVenueStmt->execute([
+                    $eventId,
+                    $venueName,
+                    $venueDescription,
+                    floatval($venueCost),
+                    $displayOrder
+                ]);
+            }
+
+            // Get payment information
+            $paymentSql = "SELECT COALESCE(SUM(payment_amount), 0) as total_paid
+                          FROM tbl_payments
+                          WHERE event_id = ? AND payment_status = 'completed'";
+            $paymentStmt = $this->pdo->prepare($paymentSql);
+            $paymentStmt->execute([$eventId]);
+            $paymentData = $paymentStmt->fetch(PDO::FETCH_ASSOC);
+            $totalPaid = floatval($paymentData['total_paid'] ?? 0);
+
+            // Calculate remaining balances
+            $oldRemainingBalance = $currentBudget - $totalPaid;
+            $newRemainingBalance = $newBudget - $totalPaid;
+
+            $this->pdo->commit();
+
             return json_encode([
                 "status" => "success",
                 "message" => "Event venue updated successfully",
-                "venue" => $venue
+                "venue" => $venue,
+                "old_venue_cost" => $oldVenueCost,
+                "new_venue_cost" => $venueCost,
+                "old_budget" => $currentBudget,
+                "new_budget" => $newBudget,
+                "guest_count" => $guestCount ?? $oldGuestCount,
+                "total_paid" => $totalPaid,
+                "old_remaining_balance" => $oldRemainingBalance,
+                "new_remaining_balance" => $newRemainingBalance,
+                "budget_change" => $newBudget - $currentBudget
             ]);
         } catch (PDOException $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
             return json_encode([
                 "status" => "error",
                 "message" => "Database error: " . $e->getMessage()
@@ -13150,8 +13324,8 @@ function sendDeliveryStatusNotification($eventId, $componentId, $status, $delive
 
         // Insert notifications
         $insertStmt = $pdo->prepare("
-            INSERT INTO tbl_notifications (user_id, notification_type, notification_title, notification_message, event_id, created_at)
-            VALUES (?, ?, ?, ?, ?, NOW())
+            INSERT INTO tbl_notifications (user_id, notification_type, notification_title, notification_message, event_id)
+            VALUES (?, ?, ?, ?, ?)
         ");
 
         foreach ($notifications as $notification) {
@@ -13825,7 +13999,10 @@ if (!defined('ADMIN_PHP_INCLUDED')) {
     case "updateEventVenue":
         $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
         $venueId = $_GET['venue_id'] ?? ($data['venue_id'] ?? 0);
-        echo $admin->updateEventVenue($eventId, $venueId);
+        $guestCount = $_GET['guest_count'] ?? ($data['guest_count'] ?? null);
+        $venueCost = $_GET['venue_cost'] ?? ($data['venue_cost'] ?? null);
+        $budgetChange = $_GET['budget_change'] ?? ($data['budget_change'] ?? null);
+        echo $admin->updateEventVenue($eventId, $venueId, $guestCount, $venueCost, $budgetChange);
         break;
     case "updateEventOrganizer":
         $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
@@ -14346,8 +14523,9 @@ function createReservationPayment($bookingId, $paymentData) {
             return ["status" => "error", "message" => "Booking not found"];
         }
 
-        if ($booking['booking_status'] !== 'pending') {
-            return ["status" => "error", "message" => "Booking is not in pending status"];
+        // Allow payments on both 'pending' and 'reserved' bookings
+        if (!in_array($booking['booking_status'], ['pending', 'reserved'])) {
+            return ["status" => "error", "message" => "Booking must be in 'pending' or 'reserved' status to accept payments"];
         }
 
         // Validate payment data
@@ -14388,10 +14566,12 @@ function createReservationPayment($bookingId, $paymentData) {
 
         $paymentId = $pdo->lastInsertId();
 
-        // Update booking status to 'reserved'
-        $updateBookingSql = "UPDATE tbl_bookings SET booking_status = 'reserved' WHERE booking_id = ?";
-        $updateStmt = $pdo->prepare($updateBookingSql);
-        $updateStmt->execute([$bookingId]);
+        // Update booking status to 'reserved' only if currently 'pending'
+        if ($booking['booking_status'] === 'pending') {
+            $updateBookingSql = "UPDATE tbl_bookings SET booking_status = 'reserved' WHERE booking_id = ?";
+            $updateStmt = $pdo->prepare($updateBookingSql);
+            $updateStmt->execute([$bookingId]);
+        }
 
         // Notify all admins and staff about payment made
         try {
@@ -14441,11 +14621,13 @@ function createReservationPayment($bookingId, $paymentData) {
 
         $pdo->commit();
 
+        $newStatus = ($booking['booking_status'] === 'pending') ? 'reserved' : $booking['booking_status'];
+
         return [
             "status" => "success",
             "payment_id" => $paymentId,
             "message" => "Reservation payment created successfully",
-            "booking_status" => "reserved"
+            "booking_status" => $newStatus
         ];
 
     } catch (Exception $e) {

@@ -17,7 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   Calendar as CalendarIcon,
   Users,
-  DollarSign,
   CheckCircle,
   RefreshCw,
   ChevronLeft,
@@ -36,12 +35,10 @@ import {
 
 interface DashboardMetrics {
   totalEvents: number;
-  totalRevenue: number;
   totalClients: number;
   completedEvents: number;
   monthlyGrowth: {
     events: number;
-    revenue: number;
     clients: number;
     completed: number;
   };
@@ -83,15 +80,6 @@ const formatNumber = (num: number): string => {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
   if (num >= 1000) return (num / 1000).toFixed(1) + "K";
   return num.toString();
-};
-
-const formatCurrency = (amount: number) => {
-  if (amount >= 1000000) return `₱${(amount / 1000000).toFixed(1)}M`;
-  if (amount >= 1000) return `₱${(amount / 1000).toFixed(1)}K`;
-  return new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency: "PHP",
-  }).format(amount);
 };
 
 function EnhancedCalendar({ events }: { events: CalendarEvent[] }) {
@@ -286,10 +274,9 @@ export default function OrganizerDashboard() {
 
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     totalEvents: 0,
-    totalRevenue: 0,
     totalClients: 0,
     completedEvents: 0,
-    monthlyGrowth: { events: 0, revenue: 0, clients: 0, completed: 0 },
+    monthlyGrowth: { events: 0, clients: 0, completed: 0 },
   });
 
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
@@ -405,14 +392,9 @@ export default function OrganizerDashboard() {
       const completedEvents = data.filter(
         (e: any) => e.event_status === "done"
       ).length;
-      const totalRevenue = data.reduce(
-        (sum: number, e: any) => sum + Number(e.total_budget || 0),
-        0
-      );
       setMetrics((prev) => ({
         ...prev,
         totalEvents,
-        totalRevenue,
         totalClients,
         completedEvents,
       }));
@@ -485,7 +467,7 @@ export default function OrganizerDashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
             <CardContent className="p-6">
               <div className="flex justify-between items-start">
@@ -500,23 +482,6 @@ export default function OrganizerDashboard() {
                 </div>
                 <div className="p-3 bg-[#028A75]/10 rounded-lg">
                   <CalendarIcon className="h-6 w-6 text-[#028A75]" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-0 bg-white hover:shadow-md transition-shadow duration-200">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Revenue</p>
-                  <h3 className="text-3xl font-bold mt-2 text-gray-900">
-                    {formatCurrency(metrics.totalRevenue)}
-                  </h3>
-                  <p className="text-xs text-gray-500 mt-1">This month</p>
-                </div>
-                <div className="p-3 bg-[#028A75]/10 rounded-lg">
-                  <DollarSign className="h-6 w-6 text-[#028A75]" />
                 </div>
               </div>
             </CardContent>
@@ -605,8 +570,8 @@ export default function OrganizerDashboard() {
                           {event.venue}
                         </p>
                         <p className="text-sm text-gray-500 mb-2">
-                          Client: {event.client} • Budget:{" "}
-                          {formatCurrency(event.budget)}
+                          Client: {event.client} • Budget: ₱
+                          {event.budget.toLocaleString()}
                         </p>
                         <button
                           className="flex items-center text-sm text-[#028A75] hover:text-[#027a65] font-medium"

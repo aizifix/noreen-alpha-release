@@ -995,7 +995,13 @@ function getClientEventDetails($userId, $eventId) {
                 v.venue_capacity,
                 COALESCE(vp.venue_price_min, 0) as venue_price,
                 CONCAT(a.user_firstName, ' ', a.user_lastName) as admin_name,
-                CONCAT(org.user_firstName, ' ', org.user_lastName) as organizer_name
+                CONCAT(org.user_firstName, ' ', org.user_lastName) as organizer_name,
+                eoa.assignment_id as organizer_assignment_id,
+                eoa.status as organizer_assignment_status,
+                eoa.payment_status as organizer_payment_status,
+                eoa.agreed_talent_fee,
+                eoa.assigned_at,
+                eoa.notes as assignment_notes
             FROM tbl_events e
             LEFT JOIN tbl_users u ON e.user_id = u.user_id
             LEFT JOIN tbl_users a ON e.admin_id = a.user_id
@@ -1004,6 +1010,7 @@ function getClientEventDetails($userId, $eventId) {
             LEFT JOIN tbl_packages p ON e.package_id = p.package_id
             LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
             LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
+            LEFT JOIN tbl_event_organizer_assignments eoa ON e.event_id = eoa.event_id
             WHERE e.event_id = ? AND e.user_id = ?
         ");
         $stmt->execute([$eventId, $userId]);

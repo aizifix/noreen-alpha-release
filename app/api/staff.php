@@ -671,19 +671,62 @@ class Staff {
                 }
             }
 
-            // Insert the main event
+            // Calculate reserved payment total if this event is from a booking
+            $reservedPaymentTotal = 0.00;
+            $adjustedTotal = 0.00;
+
+            if (isset($data['original_booking_reference']) && !empty($data['original_booking_reference'])) {
+                try {
+                    error_log("createEvent: Calculating reserved payments for booking reference: " . $data['original_booking_reference']);
+
+                    // Get booking ID and payments
+                    $bookingStmt = $this->conn->prepare("SELECT booking_id FROM tbl_bookings WHERE booking_reference = ?");
+                    $bookingStmt->execute([$data['original_booking_reference']]);
+                    $booking = $bookingStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($booking) {
+                        // Get all completed/paid payments for this booking
+                        $paymentStmt = $this->conn->prepare("
+                            SELECT SUM(payment_amount) as total_paid
+                            FROM tbl_payments
+                            WHERE booking_id = ?
+                            AND payment_status IN ('completed', 'paid')
+                        ");
+                        $paymentStmt->execute([$booking['booking_id']]);
+                        $paymentData = $paymentStmt->fetch(PDO::FETCH_ASSOC);
+
+                        $reservedPaymentTotal = floatval($paymentData['total_paid'] ?? 0);
+                        error_log("createEvent: Reserved payment total from booking: " . $reservedPaymentTotal);
+                    }
+                } catch (Exception $e) {
+                    error_log("createEvent: Error calculating reserved payments: " . $e->getMessage());
+                    // Continue with 0 values if there's an error
+                }
+            }
+
+            // Calculate adjusted total (total budget minus reserved payments)
+            $totalBudget = isset($data['total_budget']) && is_numeric($data['total_budget']) ? floatval($data['total_budget']) : 0.00;
+            $adjustedTotal = $totalBudget - $reservedPaymentTotal;
+
+            error_log("createEvent: Reserved Payment Total: " . $reservedPaymentTotal);
+            error_log("createEvent: Total Budget: " . $totalBudget);
+            error_log("createEvent: Adjusted Total: " . $adjustedTotal);
+
+            // Insert the main event (now WITH reserved_payment_total and adjusted_total columns)
             $sql = "INSERT INTO tbl_events (
                         original_booking_reference, user_id, admin_id, organizer_id, event_title,
                         event_theme, event_description, church_location, church_start_time, event_type_id, guest_count, event_date, start_time, end_time,
                         package_id, venue_id, total_budget, down_payment, payment_method,
                         reference_number, additional_notes, event_status, payment_schedule_type_id,
-                        is_recurring, recurrence_rule, client_signature, finalized_at, event_attachments
+                        is_recurring, recurrence_rule, client_signature, finalized_at, event_attachments,
+                        reserved_payment_total, adjusted_total
                     ) VALUES (
                         :original_booking_reference, :user_id, :admin_id, :organizer_id, :event_title,
                         :event_theme, :event_description, :church_location, :church_start_time, :event_type_id, :guest_count, :event_date, :start_time, :end_time,
                         :package_id, :venue_id, :total_budget, :down_payment, :payment_method,
                         :reference_number, :additional_notes, :event_status, :payment_schedule_type_id,
-                        :is_recurring, :recurrence_rule, :client_signature, :finalized_at, :event_attachments
+                        :is_recurring, :recurrence_rule, :client_signature, :finalized_at, :event_attachments,
+                        :reserved_payment_total, :adjusted_total
                     )";
 
             $stmt = $this->conn->prepare($sql);
@@ -780,7 +823,7 @@ class Staff {
                 ':end_time' => $endTime,
                 ':package_id' => isset($data['package_id']) && $data['package_id'] ? intval($data['package_id']) : null,
                 ':venue_id' => isset($data['venue_id']) && $data['venue_id'] ? intval($data['venue_id']) : null,
-                ':total_budget' => isset($data['total_budget']) && is_numeric($data['total_budget']) ? floatval($data['total_budget']) : 0.00,
+                ':total_budget' => $totalBudget,
                 ':down_payment' => isset($data['down_payment']) && is_numeric($data['down_payment']) ? floatval($data['down_payment']) : 0.00,
                 ':payment_method' => $paymentMethod,
                 ':reference_number' => $referenceNumber,
@@ -791,7 +834,9 @@ class Staff {
                 ':recurrence_rule' => $recurrenceRule,
                 ':client_signature' => $clientSignature,
                 ':finalized_at' => $finalizedAt,
-                ':event_attachments' => $eventAttachments
+                ':event_attachments' => $eventAttachments,
+                ':reserved_payment_total' => $reservedPaymentTotal,
+                ':adjusted_total' => $adjustedTotal
             ];
 
             // Enhanced detailed logging of parameters
@@ -5480,6 +5525,30 @@ This is an automated message. Please do not reply.
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
         }
     }
+    public function getUserProfilePicture($userId) {
+        try {
+            $sql = "SELECT user_pfp as profile_picture FROM tbl_users WHERE user_id = ?";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute([$userId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($result) {
+                return json_encode([
+                    "status" => "success",
+                    "profile_picture" => $result['profile_picture']
+                ]);
+            } else {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "User not found"
+                ]);
+            }
+        } catch (Exception $e) {
+            error_log("getUserProfilePicture error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
+        }
+    }
+
     public function getAllBookings() {
         try {
             $sql = "SELECT
@@ -5489,6 +5558,7 @@ This is an automated message. Please do not reply.
                         CONCAT(u.user_firstName COLLATE utf8mb4_general_ci, ' ', u.user_lastName COLLATE utf8mb4_general_ci) as client_name,
                         u.user_email as client_email,
                         u.user_contact as client_phone,
+                        u.user_pfp as client_profile_picture,
                         b.event_type_id,
                         et.event_name as event_type_name,
                         b.event_name,
@@ -5569,6 +5639,7 @@ This is an automated message. Please do not reply.
                         CONCAT(u.user_firstName COLLATE utf8mb4_general_ci, ' ', u.user_lastName COLLATE utf8mb4_general_ci) as client_name,
                         u.user_email as client_email,
                         u.user_contact as client_phone,
+                        u.user_pfp as client_profile_picture,
                         b.event_type_id,
                         et.event_name as event_type_name,
                         b.event_name,
@@ -5842,7 +5913,10 @@ This is an automated message. Please do not reply.
     public function checkAndFixVenuePaxRates() {
         try {
             // First, let's see what venues we have
-            $sql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate FROM tbl_venue WHERE is_active = 1";
+            $sql = "SELECT v.venue_id, v.venue_title, COALESCE(vp.venue_price_min, 0) as venue_price, v.extra_pax_rate
+                    FROM tbl_venue v
+                    LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                    WHERE v.is_active = 1";
             $stmt = $this->conn->query($sql);
             $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -5902,7 +5976,10 @@ This is an automated message. Please do not reply.
             $stmt->execute([$paxRate, $venueId]);
 
             // Get the updated venue data
-            $getSql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate FROM tbl_venue WHERE venue_id = ?";
+            $getSql = "SELECT v.venue_id, v.venue_title, COALESCE(vp.venue_price_min, 0) as venue_price, v.extra_pax_rate
+                       FROM tbl_venue v
+                       LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                       WHERE v.venue_id = ?";
             $getStmt = $this->conn->prepare($getSql);
             $getStmt->execute([$venueId]);
             $venue = $getStmt->fetch(PDO::FETCH_ASSOC);
@@ -5922,7 +5999,10 @@ This is an automated message. Please do not reply.
 
     public function testVenueData() {
         try {
-            $sql = "SELECT venue_id, venue_title, venue_price, extra_pax_rate FROM tbl_venue WHERE is_active = 1 LIMIT 5";
+            $sql = "SELECT v.venue_id, v.venue_title, COALESCE(vp.venue_price_min, 0) as venue_price, v.extra_pax_rate
+                    FROM tbl_venue v
+                    LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                    WHERE v.is_active = 1 LIMIT 5";
             $stmt = $this->conn->query($sql);
             $venues = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -8969,7 +9049,10 @@ This is an automated message. Please do not reply.
             $this->pdo->beginTransaction();
 
             // Get current venue data
-            $stmt = $this->pdo->prepare("SELECT venue_price FROM tbl_venue WHERE venue_id = ?");
+            $stmt = $this->pdo->prepare("SELECT COALESCE(vp.venue_price_min, 0) as venue_price
+                                         FROM tbl_venue v
+                                         LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                                         WHERE v.venue_id = ?");
             $stmt->execute([$_POST['venue_id']]);
             $currentVenue = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -9440,9 +9523,13 @@ This is an automated message. Please do not reply.
 
     public function getPackageVenues($packageId) {
         try {
-            $sql = "SELECT v.*, pv.package_id
+            $sql = "SELECT v.*, pv.package_id,
+                           COALESCE(vp.venue_price_min, 0) as venue_price,
+                           COALESCE(vp.venue_price_max, 0) as venue_price_max,
+                           COALESCE(v.extra_pax_rate, 0) as extra_pax_rate
                     FROM tbl_venue v
                     INNER JOIN tbl_package_venues pv ON v.venue_id = pv.venue_id
+                    LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id AND vp.is_active = 1
                     WHERE pv.package_id = ? AND v.is_active = 1
                     ORDER BY v.venue_title ASC";
 
@@ -9486,7 +9573,10 @@ This is an automated message. Please do not reply.
             $updateStmt->execute([$venueId, $eventId]);
 
             // Get venue details for response
-            $venueSql = "SELECT venue_id, venue_title, venue_location, venue_price FROM tbl_venue WHERE venue_id = ?";
+            $venueSql = "SELECT v.venue_id, v.venue_title, v.venue_location, COALESCE(vp.venue_price_min, 0) as venue_price
+                         FROM tbl_venue v
+                         LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
+                         WHERE v.venue_id = ?";
             $venueStmt = $this->pdo->prepare($venueSql);
             $venueStmt->execute([$venueId]);
             $venue = $venueStmt->fetch(PDO::FETCH_ASSOC);
@@ -12295,8 +12385,8 @@ function sendDeliveryStatusNotification($eventId, $componentId, $status, $delive
 
         // Insert notifications
         $insertStmt = $pdo->prepare("
-            INSERT INTO tbl_notifications (user_id, notification_type, notification_title, notification_message, event_id, created_at)
-            VALUES (?, ?, ?, ?, ?, NOW())
+            INSERT INTO tbl_notifications (user_id, notification_type, notification_title, notification_message, event_id)
+            VALUES (?, ?, ?, ?, ?)
         ");
 
         foreach ($notifications as $notification) {
@@ -12584,6 +12674,10 @@ try {
         break;
     case "getAllBookings":
         echo $staff->getAllBookings();
+        break;
+    case "getUserProfilePicture":
+        $userId = $_GET['user_id'] ?? ($data['user_id'] ?? 0);
+        echo $staff->getUserProfilePicture($userId);
         break;
     case "getAvailableBookings":
         echo $staff->getAvailableBookings();
@@ -13489,8 +13583,9 @@ function createReservationPayment($bookingId, $paymentData) {
             return ["status" => "error", "message" => "Booking not found"];
         }
 
-        if ($booking['booking_status'] !== 'pending') {
-            return ["status" => "error", "message" => "Booking is not in pending status"];
+        // Allow payments on both 'pending' and 'reserved' bookings
+        if (!in_array($booking['booking_status'], ['pending', 'reserved'])) {
+            return ["status" => "error", "message" => "Booking must be in 'pending' or 'reserved' status to accept payments"];
         }
 
         // Validate payment data
@@ -13531,10 +13626,12 @@ function createReservationPayment($bookingId, $paymentData) {
 
         $paymentId = $pdo->lastInsertId();
 
-        // Update booking status to 'reserved'
-        $updateBookingSql = "UPDATE tbl_bookings SET booking_status = 'reserved' WHERE booking_id = ?";
-        $updateStmt = $pdo->prepare($updateBookingSql);
-        $updateStmt->execute([$bookingId]);
+        // Update booking status to 'reserved' only if currently 'pending'
+        if ($booking['booking_status'] === 'pending') {
+            $updateBookingSql = "UPDATE tbl_bookings SET booking_status = 'reserved' WHERE booking_id = ?";
+            $updateStmt = $pdo->prepare($updateBookingSql);
+            $updateStmt->execute([$bookingId]);
+        }
 
         // Notify all admins and staff about payment made
         try {
@@ -13584,11 +13681,13 @@ function createReservationPayment($bookingId, $paymentData) {
 
         $pdo->commit();
 
+        $newStatus = ($booking['booking_status'] === 'pending') ? 'reserved' : $booking['booking_status'];
+
         return [
             "status" => "success",
             "payment_id" => $paymentId,
             "message" => "Reservation payment created successfully",
-            "booking_status" => "reserved"
+            "booking_status" => $newStatus
         ];
 
     } catch (Exception $e) {

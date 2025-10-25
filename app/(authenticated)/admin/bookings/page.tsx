@@ -91,8 +91,8 @@ interface Booking {
   notes: string | null;
   booking_status:
     | "pending"
-    | "confirmed"
     | "reserved"
+    | "confirmed"
     | "converted"
     | "cancelled"
     | "completed";
@@ -1360,9 +1360,15 @@ export default function AdminBookingsPage() {
         return;
       }
 
+      // Show appropriate success message based on status change
+      const statusMessage =
+        selectedBooking.booking_status === "pending"
+          ? "Payment recorded successfully. Booking status updated to 'reserved'."
+          : "Payment recorded successfully.";
+
       toast({
         title: "Success",
-        description: "Payment recorded successfully",
+        description: statusMessage,
       });
 
       // Reset form & close modal
@@ -1379,8 +1385,39 @@ export default function AdminBookingsPage() {
       setPaymentAmountDisplay("");
       setIsPaymentModalOpen(false);
 
-      // Refresh bookings
+      // Refresh bookings list
       await fetchBookings();
+
+      // Fetch updated booking details to refresh the modal
+      try {
+        const updatedBookingResponse = await axios.get("/admin.php", {
+          params: {
+            operation: "getBookingById",
+            booking_id: selectedBooking.booking_id,
+          },
+        });
+
+        if (updatedBookingResponse.data.status === "success") {
+          const updatedBooking = updatedBookingResponse.data.booking;
+
+          // Merge updated booking data with existing booking to preserve all fields
+          const mergedBooking = {
+            ...selectedBooking,
+            booking_status: updatedBooking.booking_status || "reserved",
+            payments: updatedBooking.payments || [],
+            total_price:
+              updatedBooking.total_price || selectedBooking.total_price,
+          };
+
+          // Update selectedBooking with fresh data including new payment
+          setSelectedBooking(mergedBooking as Booking);
+
+          // Update bookingDetails to include new payment data
+          setBookingDetails(updatedBooking);
+        }
+      } catch (error) {
+        console.error("Error fetching updated booking:", error);
+      }
     } catch (error) {
       console.error("Error creating payment:", error);
       toast({
@@ -1397,6 +1434,8 @@ export default function AdminBookingsPage() {
     switch (status) {
       case "pending":
         return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "reserved":
+        return "bg-orange-100 text-orange-800 border-orange-200";
       case "confirmed":
         return "bg-[#E6F5F2] text-[#065f54] border-[#BFE8E0]";
       case "converted":
@@ -1414,6 +1453,8 @@ export default function AdminBookingsPage() {
     switch (status) {
       case "pending":
         return <Clock className="h-4 w-4" />;
+      case "reserved":
+        return <Wallet className="h-4 w-4" />;
       case "confirmed":
         return <CheckCircle className="h-4 w-4" />;
       case "converted":
@@ -1797,6 +1838,9 @@ export default function AdminBookingsPage() {
                       <option key="pending" value="pending">
                         Pending
                       </option>
+                      <option key="reserved" value="reserved">
+                        Reserved
+                      </option>
                       <option key="confirmed" value="confirmed">
                         Confirmed
                       </option>
@@ -1817,7 +1861,7 @@ export default function AdminBookingsPage() {
           </div>
 
           {/* Statistics */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="bg-white p-4 rounded-lg border">
               <div className="text-2xl font-bold text-yellow-600">
                 {bookings.filter((b) => b.booking_status === "pending").length}
@@ -1825,7 +1869,13 @@ export default function AdminBookingsPage() {
               <div className="text-sm text-gray-600">Pending</div>
             </div>
             <div className="bg-white p-4 rounded-lg border">
-              <div className="text-2xl font-bold text-blue-600">
+              <div className="text-2xl font-bold text-orange-600">
+                {bookings.filter((b) => b.booking_status === "reserved").length}
+              </div>
+              <div className="text-sm text-gray-600">Reserved</div>
+            </div>
+            <div className="bg-white p-4 rounded-lg border">
+              <div className="text-2xl font-bold text-green-600">
                 {
                   bookings.filter((b) => b.booking_status === "confirmed")
                     .length
@@ -3048,12 +3098,11 @@ export default function AdminBookingsPage() {
                         {selectedBooking && (
                           <div>
                             <strong>Booking Total Price:</strong> ₱
-                            {Number(recalculateTotalPrice(selectedBooking)).toLocaleString(
-                              "en-PH",
-                              {
-                                minimumFractionDigits: 2,
-                              }
-                            )}
+                            {Number(
+                              recalculateTotalPrice(selectedBooking)
+                            ).toLocaleString("en-PH", {
+                              minimumFractionDigits: 2,
+                            })}
                           </div>
                         )}
                         {!selectedBooking && venuePricingInfo && (

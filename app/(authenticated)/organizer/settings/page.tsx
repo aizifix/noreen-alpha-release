@@ -118,6 +118,10 @@ export default function OrganizerSettingsPage() {
     useState<boolean>(false);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
+  // Organizer assignments state
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -149,7 +153,11 @@ export default function OrganizerSettingsPage() {
           }
         }
 
-        await Promise.all([fetchUserProfile(), fetchWebsiteSettings()]);
+        await Promise.all([
+          fetchUserProfile(),
+          fetchWebsiteSettings(),
+          fetchOrganizerAssignments(),
+        ]);
         setIsLoading(false);
       } catch (error) {
         console.error("Auth check failed:", error);
@@ -268,6 +276,51 @@ export default function OrganizerSettingsPage() {
     }
   };
 
+  const fetchOrganizerAssignments = async () => {
+    try {
+      setAssignmentsLoading(true);
+      const current = secureStorage.getItem("user");
+      if (!current?.user_id) return;
+
+      // Get organizer ID from the organizer profile
+      const orgRes = await axios.get(endpoints.organizer, {
+        params: {
+          operation: "getOrganizerProfile",
+          user_id: current.user_id,
+        },
+      });
+
+      if (
+        orgRes.data?.status === "success" &&
+        orgRes.data?.data?.organizer_id
+      ) {
+        const organizerId = orgRes.data.data.organizer_id;
+
+        const res = await axios.get(endpoints.organizer, {
+          params: {
+            operation: "getOrganizerAssignments",
+            organizer_id: organizerId,
+          },
+        });
+
+        if (res.data?.status === "success") {
+          setAssignments(res.data.assignments || []);
+        } else {
+          console.error("Failed to fetch assignments:", res.data?.message);
+          setAssignments([]);
+        }
+      } else {
+        console.log("No organizer profile found");
+        setAssignments([]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch organizer assignments:", error);
+      setAssignments([]);
+    } finally {
+      setAssignmentsLoading(false);
+    }
+  };
+
   const handleProfileSave = async () => {
     try {
       setIsSaving(true);
@@ -356,8 +409,16 @@ export default function OrganizerSettingsPage() {
 
   const handleProfilePictureUpload = async (filePath: string) => {
     try {
-      // Update the user profile state immediately for real-time update
-      setUserProfile((prev) => (prev ? { ...prev, user_pfp: filePath } : null));
+      // Update the appropriate profile state immediately for real-time update
+      if (organizerProfile) {
+        setOrganizerProfile((prev) =>
+          prev ? { ...prev, profile_picture: filePath } : null
+        );
+      } else {
+        setUserProfile((prev) =>
+          prev ? { ...prev, user_pfp: filePath } : null
+        );
+      }
 
       // Update user data in storage for persistence
       const userData = secureStorage.getItem("user");
@@ -408,9 +469,12 @@ export default function OrganizerSettingsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="profile" className="flex items-center gap-2">
             <User className="h-4 w-4" /> Profile
+          </TabsTrigger>
+          <TabsTrigger value="assignments" className="flex items-center gap-2">
+            <Shield className="h-4 w-4" /> Assignments
           </TabsTrigger>
           <TabsTrigger value="security" className="flex items-center gap-2">
             <Lock className="h-4 w-4" /> Security
@@ -439,9 +503,15 @@ export default function OrganizerSettingsPage() {
                 <div className="relative">
                   <img
                     src={
-                      userProfile?.user_pfp &&
-                      userProfile.user_pfp.trim() !== ""
-                        ? `${endpoints.serveImage}?path=${encodeURIComponent(userProfile.user_pfp)}`
+                      (userProfile?.user_pfp &&
+                        userProfile.user_pfp.trim() !== "") ||
+                      (organizerProfile?.profile_picture &&
+                        organizerProfile.profile_picture.trim() !== "")
+                        ? `${endpoints.serveImage}?path=${encodeURIComponent(
+                            userProfile?.user_pfp ||
+                              organizerProfile?.profile_picture ||
+                              ""
+                          )}`
                         : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                     }
                     alt="Profile"
@@ -637,6 +707,138 @@ export default function OrganizerSettingsPage() {
                   />
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="assignments" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" /> Assignment Details
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {assignmentsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <span className="ml-2">Loading assignments...</span>
+                </div>
+              ) : assignments.length === 0 ? (
+                <div className="text-center py-8">
+                  <Shield className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+                  <p className="text-gray-500">No assignments found</p>
+                  <p className="text-sm text-gray-400 mt-2">
+                    You haven't been assigned to any events yet.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {assignments.map((assignment) => (
+                    <div
+                      key={assignment.assignment_id}
+                      className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h3 className="font-semibold text-lg">
+                            {assignment.event_title}
+                          </h3>
+                          <p className="text-sm text-gray-600">
+                            {assignment.event_type_name} •{" "}
+                            {assignment.venue_title}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              assignment.assignment_status === "accepted"
+                                ? "bg-green-100 text-green-800"
+                                : assignment.assignment_status === "assigned"
+                                  ? "bg-blue-100 text-blue-800"
+                                  : assignment.assignment_status === "rejected"
+                                    ? "bg-red-100 text-red-800"
+                                    : "bg-gray-100 text-gray-800"
+                            }`}
+                          >
+                            {assignment.assignment_status?.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-500">Event Date</p>
+                          <p className="font-medium">
+                            {new Date(
+                              assignment.event_date
+                            ).toLocaleDateString()}
+                            {assignment.event_time &&
+                              ` at ${assignment.event_time}`}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Client</p>
+                          <p className="font-medium">
+                            {assignment.client_name}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {assignment.client_email}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Assigned By</p>
+                          <p className="font-medium">
+                            {assignment.assigned_by_name || "Admin"}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {assignment.assigned_by_email}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Payment Status</p>
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              assignment.payment_status === "paid"
+                                ? "bg-green-100 text-green-800"
+                                : assignment.payment_status === "partial"
+                                  ? "bg-yellow-100 text-yellow-800"
+                                  : "bg-gray-100 text-gray-800"
+                            }`}
+                          >
+                            {assignment.payment_status?.toUpperCase() ||
+                              "UNPAID"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {assignment.agreed_talent_fee && (
+                        <div className="mt-3 pt-3 border-t">
+                          <p className="text-gray-500 text-sm">Talent Fee</p>
+                          <p className="font-medium">
+                            {assignment.fee_currency || "₱"}{" "}
+                            {assignment.agreed_talent_fee}
+                          </p>
+                        </div>
+                      )}
+
+                      {assignment.assignment_notes && (
+                        <div className="mt-3 pt-3 border-t">
+                          <p className="text-gray-500 text-sm">Notes</p>
+                          <p className="text-sm">
+                            {assignment.assignment_notes}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="mt-3 pt-3 border-t text-xs text-gray-400">
+                        Assigned:{" "}
+                        {new Date(assignment.assigned_at).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1008,8 +1210,8 @@ export default function OrganizerSettingsPage() {
         isOpen={showProfilePictureModal}
         onClose={() => setShowProfilePictureModal(false)}
         onUploadSuccess={handleProfilePictureUpload}
-        uploadEndpoint={endpoints.admin}
-        userId={userProfile?.user_id || 0}
+        uploadEndpoint={endpoints.organizer}
+        userId={userProfile?.user_id || organizerProfile?.user_id || 0}
       />
     </div>
   );

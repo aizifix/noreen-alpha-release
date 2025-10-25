@@ -23,14 +23,19 @@ import {
   DollarSign,
   Percent,
   CreditCard,
+  Banknote,
+  Building,
+  Phone,
+  MoreVertical,
 } from "lucide-react";
 import axios from "axios";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Table,
   TableBody,
@@ -57,7 +62,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { Banknote, Building, AlertCircle } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 interface Booking {
   booking_id: number;
@@ -66,6 +77,7 @@ interface Booking {
   client_name: string;
   client_email: string;
   client_phone: string;
+  client_profile_picture?: string | null;
   event_type_id: number;
   event_type_name: string;
   event_name: string;
@@ -98,15 +110,103 @@ interface PaymentHistoryItem {
   payment_status: string;
   payment_reference?: string;
   description?: string;
+  from_booking?: boolean;
 }
 
 // Payment History Component for Booking Modal
-function PaymentHistoryTab({ booking }: { booking: Booking | null }) {
+function PaymentHistoryTab({
+  booking,
+  bookingDetails,
+  packageDetails,
+  venuePricingInfo,
+}: {
+  booking: Booking | null;
+  bookingDetails: any | null;
+  packageDetails: any | null;
+  venuePricingInfo: any | null;
+}) {
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryItem[]>(
     []
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
+
+  // Recalculate total price based on current booking data
+  const recalculateTotalPrice = (booking: Booking | null): number => {
+    if (!booking || !bookingDetails || !packageDetails) {
+      return bookingDetails?.total_price || booking?.total_price || 0;
+    }
+
+    try {
+      // Get base package price
+      const basePackagePrice = packageDetails.package_price || 0;
+
+      // Calculate venue excess if applicable
+      let venueExcess = 0;
+      if (booking.venue_id && venuePricingInfo) {
+        const { basePrice, extraPaxRate, overflowCharge } = venuePricingInfo;
+        const guestCount = booking.guest_count || 0;
+
+        // Calculate venue cost based on guest count
+        if (guestCount > 100) {
+          const extraGuests = guestCount - 100;
+          venueExcess = extraGuests * extraPaxRate;
+        }
+      }
+
+      // Add any custom inclusions or modifications from bookingDetails
+      let customTotal = 0;
+      if (bookingDetails.custom_inclusions) {
+        const customInclusions = Array.isArray(bookingDetails.custom_inclusions)
+          ? bookingDetails.custom_inclusions
+          : JSON.parse(bookingDetails.custom_inclusions || "[]");
+        customTotal = customInclusions.reduce(
+          (sum: number, item: any) => sum + (Number(item.price) || 0),
+          0
+        );
+      }
+
+      const recalculatedTotal = basePackagePrice + venueExcess + customTotal;
+
+      console.log("🔄 Recalculated Total Price:", {
+        basePackagePrice,
+        venueExcess,
+        customTotal,
+        recalculatedTotal,
+        originalTotal: bookingDetails?.total_price || booking.total_price,
+      });
+
+      return recalculatedTotal;
+    } catch (error) {
+      console.error("Error recalculating total price:", error);
+      return bookingDetails?.total_price || booking.total_price || 0;
+    }
+  };
+
+  const calculatePaidAmountLocal = (): number => {
+    if (!paymentHistory || paymentHistory.length === 0) return 0;
+
+    return paymentHistory
+      .filter(
+        (payment) =>
+          payment.payment_status === "completed" ||
+          payment.payment_status === "paid"
+      )
+      .reduce(
+        (total, payment) => total + (Number(payment.payment_amount) || 0),
+        0
+      );
+  };
+
+  const getRemainingBalanceLocal = (): number => {
+    const totalPrice = booking?.converted_event_id
+      ? (booking as any).event_total_budget ||
+        (booking ? recalculateTotalPrice(booking) : 0) ||
+        0
+      : (booking ? recalculateTotalPrice(booking) : 0) || 0;
+    const paidAmount = calculatePaidAmountLocal();
+    return Math.max(0, totalPrice - paidAmount);
+  };
 
   useEffect(() => {
     setIsMounted(true);
@@ -134,7 +234,7 @@ function PaymentHistoryTab({ booking }: { booking: Booking | null }) {
         setPaymentHistory(booking.payments);
       } else {
         // Fallback: try to fetch detailed booking data
-        const response = await axios.get("/admin.php", {
+        const response = await axios.get("/staff.php", {
           params: {
             operation: "getBookingById",
             booking_id: booking.booking_id,
@@ -240,19 +340,25 @@ function PaymentHistoryTab({ booking }: { booking: Booking | null }) {
           <div className="bg-white rounded-lg p-3 border">
             <div className="text-blue-700 font-medium mb-1">Total Price</div>
             <div className="font-bold text-lg text-blue-900">
-              {formatCurrency(booking?.total_price || 0)}
+              {formatCurrency(
+                booking?.converted_event_id
+                  ? (booking as any).event_total_budget ||
+                      (booking ? recalculateTotalPrice(booking) : 0) ||
+                      0
+                  : (booking ? recalculateTotalPrice(booking) : 0) || 0
+              )}
             </div>
           </div>
           <div className="bg-white rounded-lg p-3 border">
             <div className="text-green-700 font-medium mb-1">Amount Paid</div>
             <div className="font-bold text-lg text-green-600">
-              {formatCurrency(calculatePaidAmount())}
+              {formatCurrency(calculatePaidAmountLocal())}
             </div>
           </div>
           <div className="bg-white rounded-lg p-3 border">
             <div className="text-orange-700 font-medium mb-1">Balance Due</div>
             <div className="font-bold text-lg text-orange-600">
-              {formatCurrency(getRemainingBalance())}
+              {formatCurrency(getRemainingBalanceLocal())}
             </div>
           </div>
         </div>
@@ -304,6 +410,11 @@ function PaymentHistoryTab({ booking }: { booking: Booking | null }) {
                         </>
                       ) : (
                         payment.payment_method || "N/A"
+                      )}
+                      {payment.from_booking && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                          From Booking
+                        </span>
                       )}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
@@ -411,6 +522,16 @@ export default function AdminBookingsPage() {
   const [tableItemsPerPage, setTableItemsPerPage] = useState<number>(10);
   const [detailsTab, setDetailsTab] = useState<string>("summary");
 
+  // Card view pagination
+  const [cardsPerPage, setCardsPerPage] = useState<number>(6);
+  const [showAllCards, setShowAllCards] = useState<boolean>(false);
+  const [clientStats, setClientStats] = useState<{
+    totalRevenue: number;
+    totalEvents: number;
+    clientProfile: any;
+  } | null>(null);
+  const [clientEventHistory, setClientEventHistory] = useState<any[]>([]);
+
   // Payment modal state
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
@@ -486,12 +607,58 @@ export default function AdminBookingsPage() {
     tableStartIndex + tableItemsPerPage
   );
 
+  const fetchClientProfilePictures = async (bookings: Booking[]) => {
+    try {
+      const uniqueUserIds = [...new Set(bookings.map((b) => b.user_id))];
+      const profilePicturePromises = uniqueUserIds.map(async (userId) => {
+        try {
+          const response = await axios.get("/staff.php", {
+            params: {
+              operation: "getUserProfilePicture",
+              user_id: userId,
+            },
+          });
+          return {
+            userId,
+            profilePicture: response.data.profile_picture || null,
+          };
+        } catch (error) {
+          console.error(
+            `Error fetching profile picture for user ${userId}:`,
+            error
+          );
+          return { userId, profilePicture: null };
+        }
+      });
+
+      const profilePictures = await Promise.all(profilePicturePromises);
+      const profilePictureMap = profilePictures.reduce(
+        (acc, curr) => {
+          acc[curr.userId] = curr.profilePicture;
+          return acc;
+        },
+        {} as Record<number, string | null>
+      );
+
+      // Update bookings with profile pictures
+      const updatedBookings = bookings.map((booking) => ({
+        ...booking,
+        client_profile_picture: profilePictureMap[booking.user_id] || null,
+      }));
+
+      setBookings(updatedBookings);
+    } catch (error) {
+      console.error("Error fetching client profile pictures:", error);
+      // Continue with bookings without profile pictures
+    }
+  };
+
   const fetchBookings = async () => {
     try {
       setIsLoading(true);
       console.log("🔄 Fetching bookings from API...");
 
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post("/staff.php", {
         operation: "getAllBookings",
       });
 
@@ -503,7 +670,14 @@ export default function AdminBookingsPage() {
           "📊 Total bookings count:",
           response.data.count || response.data.bookings?.length || 0
         );
-        setBookings(response.data.bookings || []);
+
+        const bookings = response.data.bookings || [];
+        setBookings(bookings);
+
+        // Fetch client profile pictures
+        if (bookings.length > 0) {
+          await fetchClientProfilePictures(bookings);
+        }
 
         if (!response.data.bookings || response.data.bookings.length === 0) {
           console.log("ℹ️ No bookings found in the database");
@@ -592,6 +766,44 @@ export default function AdminBookingsPage() {
     }
   };
 
+  const fetchClientStats = async (userId: number) => {
+    try {
+      const response = await axios.get("/staff.php", {
+        params: {
+          operation: "getClientStats",
+          user_id: userId,
+        },
+      });
+
+      if (response.data.status === "success") {
+        setClientStats({
+          totalRevenue: response.data.total_revenue || 0,
+          totalEvents: response.data.total_events || 0,
+          clientProfile: response.data.client_profile || null,
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching client stats:", error);
+    }
+  };
+
+  const fetchClientEventHistory = async (userId: number) => {
+    try {
+      const response = await axios.get("/staff.php", {
+        params: {
+          operation: "getClientEventHistory",
+          user_id: userId,
+        },
+      });
+
+      if (response.data.status === "success") {
+        setClientEventHistory(response.data.events || []);
+      }
+    } catch (error) {
+      console.error("Error fetching client event history:", error);
+    }
+  };
+
   // When opening modal, fetch deeper booking + package/venue info
   useEffect(() => {
     const loadDetails = async () => {
@@ -600,6 +812,8 @@ export default function AdminBookingsPage() {
       setBookingDetails(null);
       setPackageDetails(null);
       setVenuePricingInfo(null);
+      setClientStats(null);
+      setClientEventHistory([]);
       try {
         const ref = selectedBooking.booking_reference;
         const pkgId = selectedBooking.package_id;
@@ -609,14 +823,14 @@ export default function AdminBookingsPage() {
         const requests: Promise<any>[] = [];
         // Detailed booking (includes b.* like total_price, component_changes)
         requests.push(
-          axios.get("/admin.php", {
+          axios.get("/staff.php", {
             params: { operation: "getBookingByReference", reference: ref },
           })
         );
         if (pkgId) {
           // Package details (inclusions list)
           requests.push(
-            axios.get("/admin.php", {
+            axios.get("/staff.php", {
               params: { operation: "getPackageDetails", package_id: pkgId },
             })
           );
@@ -639,6 +853,12 @@ export default function AdminBookingsPage() {
             );
           }
         }
+
+        // Fetch client stats and event history
+        const clientStatsPromise = fetchClientStats(selectedBooking.user_id);
+        const clientEventHistoryPromise = fetchClientEventHistory(
+          selectedBooking.user_id
+        );
         const [bookingRes, pkgRes, venuesRes] = (await Promise.allSettled(
           requests
         )) as any;
@@ -841,7 +1061,7 @@ export default function AdminBookingsPage() {
     }
 
     try {
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post("/staff.php", {
         operation: "updateBookingStatus",
         booking_id: booking.booking_id,
         status: "cancelled",
@@ -875,7 +1095,7 @@ export default function AdminBookingsPage() {
     newStatus: string
   ) => {
     try {
-      const response = await axios.post("/admin.php", {
+      const response = await axios.post("/staff.php", {
         operation: "updateBookingStatus",
         booking_id: bookingId,
         status: newStatus,
@@ -1117,6 +1337,7 @@ export default function AdminBookingsPage() {
     const isConverted = booking.booking_status === "converted";
     const isCancelled = booking.booking_status === "cancelled";
     const canConvert = booking.booking_status === "confirmed"; // Only confirmed bookings can be converted
+    const hasReservationFee = calculatePaidAmount(booking) > 0;
 
     return (
       <div
@@ -1125,11 +1346,48 @@ export default function AdminBookingsPage() {
         } ${isConverted ? "border-blue-200 bg-blue-50" : ""}`}
       >
         <div className="flex items-start justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">
-              {booking.booking_reference}
-            </h3>
-            <p className="text-sm text-gray-600">{booking.event_name}</p>
+          <div className="flex items-start gap-3">
+            {/* Client Profile Picture */}
+            <div className="flex-shrink-0">
+              {booking.client_profile_picture ? (
+                <img
+                  src={`${endpoints.serveImage}?path=${booking.client_profile_picture}`}
+                  alt={booking.client_name}
+                  className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
+                  onError={(e) => {
+                    // Fallback to default avatar if image fails to load
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = "none";
+                    const fallback = target.nextElementSibling as HTMLElement;
+                    if (fallback) fallback.style.display = "flex";
+                  }}
+                />
+              ) : null}
+              <div
+                className={`w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center border-2 border-gray-300 ${booking.client_profile_picture ? "hidden" : "flex"}`}
+              >
+                <Users className="h-6 w-6 text-gray-400" />
+              </div>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {booking.booking_reference}
+              </h3>
+              <p className="text-sm text-gray-600">{booking.event_name}</p>
+              <p className="text-sm text-gray-500 font-medium">
+                {booking.client_name}
+              </p>
+              {hasReservationFee &&
+                (isPending || booking.booking_status === "reserved") && (
+                  <div className="mt-1 flex items-center gap-1 text-xs text-green-700">
+                    <Wallet className="h-3 w-3" />
+                    <span className="font-medium">
+                      Reservation Fee:{" "}
+                      {formatCurrency(calculatePaidAmount(booking))}
+                    </span>
+                  </div>
+                )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Badge
@@ -1143,13 +1401,6 @@ export default function AdminBookingsPage() {
 
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div
-            key={`${booking.booking_id}-client`}
-            className="flex items-center gap-2 text-sm text-gray-600"
-          >
-            <Users className="h-4 w-4" />
-            <span>{booking.client_name}</span>
-          </div>
-          <div
             key={`${booking.booking_id}-date`}
             className="flex items-center gap-2 text-sm text-gray-600"
           >
@@ -1157,11 +1408,11 @@ export default function AdminBookingsPage() {
             <span>{new Date(booking.event_date).toLocaleDateString()}</span>
           </div>
           <div
-            key={`${booking.booking_id}-time`}
+            key={`${booking.booking_id}-contact`}
             className="flex items-center gap-2 text-sm text-gray-600"
           >
-            <Clock className="h-4 w-4" />
-            <span>{booking.event_time}</span>
+            <Phone className="h-4 w-4" />
+            <span>{booking.client_phone}</span>
           </div>
           <div
             key={`${booking.booking_id}-guests`}
@@ -2379,7 +2630,12 @@ export default function AdminBookingsPage() {
                       </TabsContent>
 
                       <TabsContent value="payments" className="min-h-[400px]">
-                        <PaymentHistoryTab booking={selectedBooking} />
+                        <PaymentHistoryTab
+                          booking={selectedBooking}
+                          bookingDetails={bookingDetails}
+                          packageDetails={packageDetails}
+                          venuePricingInfo={venuePricingInfo}
+                        />
                       </TabsContent>
                     </Tabs>
                   </>

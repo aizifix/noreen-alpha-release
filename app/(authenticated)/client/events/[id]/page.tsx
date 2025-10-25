@@ -146,6 +146,7 @@ interface Event {
   admin_name?: string;
   organizer_name?: string;
   organizer_assignment_id?: number;
+  organizer_assignment_status?: "assigned" | "accepted" | "rejected";
   organizer_payment_status?: "unpaid" | "partial" | "paid" | "cancelled";
   venue_payment_status?: "unpaid" | "partial" | "paid" | "cancelled";
   created_by_name?: string;
@@ -255,17 +256,59 @@ function ConfirmationModal({
 
 // Budget Progress Component with fixed formatting
 function BudgetProgress({ event }: { event: Event }) {
-  const totalPaid =
-    event.payments?.reduce(
-      (sum, payment: any) =>
-        payment.payment_status === "completed"
-          ? sum + Number(payment.payment_amount || 0)
-          : sum,
-      0
-    ) || 0;
+  // Debug: Log payment data to understand what we're receiving
+  console.log("🔍 BudgetProgress - Event payments:", event.payments);
+
+  // Calculate total paid from payments
+  const paymentsTotal =
+    event.payments?.reduce((sum, payment: any) => {
+      console.log("🔍 Processing payment:", {
+        amount: payment.payment_amount,
+        status: payment.payment_status,
+        date: payment.payment_date,
+      });
+
+      // Include payments with 'completed' or 'paid' status
+      if (
+        payment.payment_status === "completed" ||
+        payment.payment_status === "paid"
+      ) {
+        console.log(
+          "💰 Including payment:",
+          payment.payment_amount,
+          "Status:",
+          payment.payment_status
+        );
+        return sum + Number(payment.payment_amount || 0);
+      }
+      return sum;
+    }, 0) || 0;
+
+  // Check if down payment is included in payments
+  const downPayment = Number(event.down_payment || 0);
+  const downPaymentIncluded =
+    event.payments?.some(
+      (payment: any) =>
+        payment.payment_type === "down_payment" ||
+        payment.payment_notes?.toLowerCase().includes("down payment")
+    ) || false;
+
+  // Total paid includes payments plus down payment (if not already included in payments)
+  const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
   const remaining = event.total_budget - totalPaid;
   const progressPercentage =
     event.total_budget > 0 ? (totalPaid / event.total_budget) * 100 : 0;
+
+  // Debug: Log final calculation
+  console.log("📊 Budget Progress Calculation:", {
+    totalBudget: event.total_budget,
+    paymentsTotal,
+    downPayment,
+    downPaymentIncluded,
+    totalPaid,
+    remaining,
+    progressPercentage: progressPercentage.toFixed(1) + "%",
+  });
 
   // Format currency properly
   const formatCurrency = (amount: number) => {
@@ -4299,6 +4342,8 @@ export default function EventDetailsPage() {
         const message = res?.message ?? res?.data?.message;
 
         if (status === "success" && eventPayload) {
+          console.log("📊 Event payload received:", eventPayload);
+          console.log("💳 Payments data:", eventPayload.payments);
           setEvent(eventPayload);
         } else {
           const errorMessage = message || "Failed to load event details";
@@ -5040,8 +5085,25 @@ export default function EventDetailsPage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-600">
                           <div className="flex items-center gap-2">
                             <span className="font-medium">Status:</span>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-yellow-50 text-yellow-800 border-yellow-200">
-                              Pending
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${
+                                event.organizer_assignment_status === "accepted"
+                                  ? "bg-green-50 text-green-800 border-green-200"
+                                  : event.organizer_assignment_status ===
+                                      "rejected"
+                                    ? "bg-red-50 text-red-800 border-red-200"
+                                    : "bg-yellow-50 text-yellow-800 border-yellow-200"
+                              }`}
+                            >
+                              {event.organizer_assignment_status === "accepted"
+                                ? "Accepted"
+                                : event.organizer_assignment_status ===
+                                    "rejected"
+                                  ? "Rejected"
+                                  : event.organizer_assignment_status ===
+                                      "assigned"
+                                    ? "Assigned"
+                                    : "Pending"}
                             </span>
                           </div>
                           <div>

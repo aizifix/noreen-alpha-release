@@ -132,6 +132,10 @@ export function OrganizerSelection({
 
           // Notify parent component about the organizer data
           if (onOrganizerDataUpdate) {
+            console.log(
+              "📤 Notifying parent with organizer data:",
+              finalOrganizers
+            );
             onOrganizerDataUpdate(finalOrganizers);
           }
         } else {
@@ -178,10 +182,16 @@ export function OrganizerSelection({
   });
 
   const toggleOrganizer = (organizerId: string) => {
+    console.log("🔄 Toggling organizer:", organizerId);
+    console.log("Current selectedIds:", selectedIds);
     if (selectedIds.includes(organizerId)) {
-      onSelect(selectedIds.filter((id) => id !== organizerId));
+      const newSelection = selectedIds.filter((id) => id !== organizerId);
+      console.log("Removing organizer, new selection:", newSelection);
+      onSelect(newSelection);
     } else {
-      onSelect([...selectedIds, organizerId]);
+      const newSelection = [...selectedIds, organizerId];
+      console.log("Adding organizer, new selection:", newSelection);
+      onSelect(newSelection);
     }
   };
 

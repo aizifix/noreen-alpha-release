@@ -126,11 +126,12 @@ export default function StaffLayout({
         label: "Event Management",
         items: [
           { icon: Calendar, label: "Events", href: "/staff/events" },
-          {
-            icon: Wrench,
-            label: "Event Builder",
-            href: "/staff/event-builder",
-          },
+          // Event Builder temporarily hidden - can be re-enabled if needed
+          // {
+          //   icon: Wrench,
+          //   label: "Event Builder",
+          //   href: "/staff/event-builder",
+          // },
           { icon: CalendarCheck, label: "Bookings", href: "/staff/bookings" },
         ],
       },

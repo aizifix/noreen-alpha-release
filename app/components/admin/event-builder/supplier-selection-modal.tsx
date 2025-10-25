@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatCurrency } from "@/lib/utils";
+import { toast } from "sonner";
+import { endpoints } from "@/app/config/api";
 import {
   Search,
   Star,
@@ -26,11 +28,11 @@ import {
   Building,
   Camera,
   Utensils,
-  Music,
   Palette,
   Car,
   Home,
   Sparkles,
+  X,
 } from "lucide-react";
 
 interface Supplier {
@@ -46,7 +48,7 @@ interface Supplier {
   services?: Service[];
   supplier_address?: string;
   supplier_rating?: number;
-  supplier_profile_picture?: string;
+  supplier_pfp?: string;
   supplier_description?: string;
 }
 
@@ -131,6 +133,13 @@ export function SupplierSelectionModal({
   const handleConfirmSelection = () => {
     if (selectedSupplier) {
       onSelectSupplier(selectedSupplier, selectedTier);
+      toast.success(
+        `${selectedSupplier.supplier_name} added to event successfully!`,
+        {
+          description: `Service: ${selectedSupplier.supplier_category}`,
+          duration: 3000,
+        }
+      );
       setSelectedSupplier(null);
       setSelectedTier(null);
       setSearchTerm("");
@@ -160,11 +169,8 @@ export function SupplierSelectionModal({
       return <Camera className="h-4 w-4 text-blue-600" />;
     if (categoryLower.includes("food") || categoryLower.includes("catering"))
       return <Utensils className="h-4 w-4 text-orange-600" />;
-    if (
-      categoryLower.includes("music") ||
-      categoryLower.includes("entertainment")
-    )
-      return <Music className="h-4 w-4 text-purple-600" />;
+    if (categoryLower.includes("entertainment"))
+      return <Sparkles className="h-4 w-4 text-purple-600" />;
     if (categoryLower.includes("decor") || categoryLower.includes("decoration"))
       return <Palette className="h-4 w-4 text-pink-600" />;
     if (categoryLower.includes("transport"))
@@ -176,134 +182,173 @@ export function SupplierSelectionModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-7xl max-h-[90vh] overflow-hidden p-6">
-        <DialogHeader className="pb-6">
-          <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <User className="h-6 w-6 text-blue-600" />
-            Select Your Supplier
-          </DialogTitle>
-          <p className="text-gray-600">
-            Choose a supplier and their service tier for your event
-          </p>
-        </DialogHeader>
+      <DialogContent className="max-w-7xl w-[95vw] h-[90vh] p-0 overflow-hidden">
+        {/* Header - Fixed */}
+        <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <DialogTitle className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <User className="h-6 w-6 text-blue-600" />
+                </div>
+                Select Supplier
+              </DialogTitle>
+              <p className="text-gray-600 mt-1">
+                Choose a supplier and their service tier for your event
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              className="h-8 w-8 rounded-full hover:bg-gray-100"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[70vh]">
-          {/* Search & Supplier List */}
-          <div className="lg:col-span-2 space-y-4 overflow-hidden">
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search suppliers by name, category, or email..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 h-12 text-lg"
-              />
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Panel - Supplier List */}
+          <div className="flex-1 flex flex-col border-r border-gray-200">
+            {/* Search Bar - Fixed */}
+            <div className="p-6 border-b border-gray-200 bg-gray-50">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Search suppliers by name, category, or email..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 h-11 text-base border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                />
+              </div>
             </div>
 
-            {/* Supplier Grid */}
-            <div className="overflow-y-auto space-y-3 pr-2">
+            {/* Supplier List - Scrollable */}
+            <div className="flex-1 overflow-y-auto p-6">
               {filteredSuppliers.length > 0 ? (
-                filteredSuppliers.map((supplier) => (
-                  <Card
-                    key={supplier.supplier_id}
-                    className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
-                      selectedSupplier?.supplier_id === supplier.supplier_id
-                        ? "border-blue-500 bg-blue-50 shadow-lg ring-2 ring-blue-200"
-                        : "hover:border-gray-300 hover:bg-gray-50"
-                    }`}
-                    onClick={() => handleSupplierSelect(supplier)}
-                  >
-                    <CardContent className="p-6">
-                      <div className="flex items-start gap-4">
-                        {/* Avatar */}
-                        <Avatar className="h-12 w-12">
-                          <AvatarImage
-                            src={supplier.supplier_profile_picture}
-                            alt={supplier.supplier_name}
-                          />
-                          <AvatarFallback className="bg-blue-100 text-blue-700 font-semibold">
-                            {getInitials(supplier.supplier_name)}
-                          </AvatarFallback>
-                        </Avatar>
+                <div className="grid gap-4">
+                  {filteredSuppliers.map((supplier) => (
+                    <Card
+                      key={supplier.supplier_id}
+                      className={`cursor-pointer transition-all duration-200 hover:shadow-md border-2 ${
+                        selectedSupplier?.supplier_id === supplier.supplier_id
+                          ? "border-blue-500 bg-blue-50 shadow-lg"
+                          : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                      }`}
+                      onClick={() => handleSupplierSelect(supplier)}
+                    >
+                      <CardContent className="p-6">
+                        <div className="flex items-start gap-4">
+                          {/* Avatar */}
+                          <Avatar className="h-14 w-14 ring-2 ring-white shadow-sm">
+                            <AvatarImage
+                              src={
+                                supplier.supplier_pfp
+                                  ? `${endpoints.serveImage}?path=${supplier.supplier_pfp}`
+                                  : undefined
+                              }
+                              alt={supplier.supplier_name}
+                              className="object-cover"
+                            />
+                            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-600 text-white font-semibold text-lg">
+                              {getInitials(supplier.supplier_name)}
+                            </AvatarFallback>
+                          </Avatar>
 
-                        {/* Supplier Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <h3 className="font-semibold text-gray-900 text-lg">
-                                {supplier.supplier_name}
-                              </h3>
-                              <div className="flex items-center gap-2 mt-1">
-                                {getCategoryIcon(supplier.supplier_category)}
-                                <Badge variant="secondary" className="text-xs">
-                                  {supplier.supplier_category}
-                                </Badge>
-                                <Badge
-                                  variant={
-                                    supplier.supplier_status === "active"
-                                      ? "default"
-                                      : "destructive"
-                                  }
-                                  className={`text-xs ${
-                                    supplier.supplier_status === "active"
-                                      ? "bg-green-100 text-green-700"
-                                      : "bg-red-100 text-red-700"
-                                  }`}
-                                >
-                                  {supplier.supplier_status}
-                                </Badge>
+                          {/* Supplier Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <h3 className="font-semibold text-gray-900 text-lg mb-1">
+                                  {supplier.supplier_name}
+                                </h3>
+                                <div className="flex items-center gap-2 mb-2">
+                                  {getCategoryIcon(supplier.supplier_category)}
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs bg-gray-100 text-gray-700"
+                                  >
+                                    {supplier.supplier_category}
+                                  </Badge>
+                                  <Badge
+                                    variant={
+                                      supplier.supplier_status === "active"
+                                        ? "default"
+                                        : "destructive"
+                                    }
+                                    className={`text-xs ${
+                                      supplier.supplier_status === "active"
+                                        ? "bg-green-100 text-green-700 border-green-200"
+                                        : "bg-red-100 text-red-700 border-red-200"
+                                    }`}
+                                  >
+                                    {supplier.supplier_status}
+                                  </Badge>
+                                </div>
                               </div>
-                            </div>
-                            {selectedSupplier?.supplier_id ===
-                              supplier.supplier_id && (
-                              <CheckCircle className="h-6 w-6 text-blue-600" />
-                            )}
-                          </div>
-
-                          {/* Contact Info */}
-                          <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
-                            <div className="flex items-center gap-1">
-                              <Mail className="h-3 w-3" />
-                              <span className="truncate">
-                                {supplier.supplier_email}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              <span>{supplier.supplier_phone}</span>
-                            </div>
-                          </div>
-
-                          {/* Rating & Pricing Info */}
-                          <div className="flex items-center justify-between mt-3">
-                            <div className="flex items-center gap-1">
-                              {supplier.supplier_rating && (
-                                <>
-                                  <Star className="h-4 w-4 text-yellow-500 fill-current" />
+                              {selectedSupplier?.supplier_id ===
+                                supplier.supplier_id && (
+                                <div className="flex items-center gap-1 text-blue-600">
+                                  <CheckCircle className="h-5 w-5" />
                                   <span className="text-sm font-medium">
-                                    {supplier.supplier_rating.toFixed(1)}
+                                    Selected
                                   </span>
-                                </>
+                                </div>
                               )}
                             </div>
-                            {supplier.offers && supplier.offers.length > 0 && (
-                              <div className="flex items-center gap-1 text-sm text-green-600">
-                                <DollarSign className="h-3 w-3" />
-                                <span>
-                                  {supplier.offers.length} offer(s) available
+
+                            {/* Contact Info */}
+                            <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
+                              <div className="flex items-center gap-1">
+                                <Mail className="h-3 w-3" />
+                                <span className="truncate max-w-[200px]">
+                                  {supplier.supplier_email}
                                 </span>
                               </div>
-                            )}
+                              <div className="flex items-center gap-1">
+                                <Phone className="h-3 w-3" />
+                                <span>{supplier.supplier_phone}</span>
+                              </div>
+                            </div>
+
+                            {/* Rating & Pricing Info */}
+                            <div className="flex items-center justify-between mt-3">
+                              <div className="flex items-center gap-1">
+                                {supplier.supplier_rating && (
+                                  <>
+                                    <Star className="h-4 w-4 text-yellow-500 fill-current" />
+                                    <span className="text-sm font-medium text-gray-700">
+                                      {supplier.supplier_rating.toFixed(1)}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                              {supplier.offers &&
+                                supplier.offers.length > 0 && (
+                                  <div className="flex items-center gap-1 text-sm text-green-600">
+                                    <DollarSign className="h-3 w-3" />
+                                    <span className="font-medium">
+                                      {supplier.offers.length} offer
+                                      {supplier.offers.length !== 1
+                                        ? "s"
+                                        : ""}{" "}
+                                      available
+                                    </span>
+                                  </div>
+                                )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               ) : (
-                <div className="text-center py-12">
-                  <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <div className="text-center py-16">
+                  <div className="p-4 bg-gray-100 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                    <User className="h-8 w-8 text-gray-400" />
+                  </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">
                     No suppliers found
                   </h3>
@@ -315,21 +360,33 @@ export function SupplierSelectionModal({
             </div>
           </div>
 
-          {/* Tier Selection Panel */}
-          <div className="lg:col-span-1 space-y-4">
-            <div className="sticky top-0 bg-white pb-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">
+          {/* Right Panel - Service Offers */}
+          <div className="w-96 flex flex-col bg-gray-50">
+            {/* Panel Header - Fixed */}
+            <div className="p-6 border-b border-gray-200 bg-white">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
                 Service Offers
               </h3>
+              <p className="text-sm text-gray-600">
+                Select a service tier for your chosen supplier
+              </p>
+            </div>
+
+            {/* Panel Content - Scrollable */}
+            <div className="flex-1 overflow-y-auto p-6">
               {selectedSupplier ? (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {/* Selected Supplier Info */}
                   <Card className="bg-blue-50 border-blue-200">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10">
+                        <Avatar className="h-12 w-12">
                           <AvatarImage
-                            src={selectedSupplier.supplier_profile_picture}
+                            src={
+                              selectedSupplier.supplier_pfp
+                                ? `${endpoints.serveImage}?path=${selectedSupplier.supplier_pfp}`
+                                : undefined
+                            }
                             alt={selectedSupplier.supplier_name}
                           />
                           <AvatarFallback className="bg-blue-100 text-blue-700">
@@ -355,28 +412,29 @@ export function SupplierSelectionModal({
                       {selectedSupplier.offers.map((offer, index) => (
                         <Card
                           key={index}
-                          className={`cursor-pointer transition-all duration-200 ${
+                          className={`cursor-pointer transition-all duration-200 border-2 ${
                             selectedTier === offer
-                              ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
-                              : "hover:border-gray-300 hover:bg-gray-50"
+                              ? "border-blue-500 bg-blue-50 shadow-md"
+                              : "border-gray-200 hover:border-gray-300 hover:bg-white"
                           }`}
                           onClick={() => handleTierSelect(offer)}
                         >
                           <CardContent className="p-5">
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
-                                <h5 className="font-semibold text-gray-900 mb-1">
+                                <h5 className="font-semibold text-gray-900 mb-2">
                                   {offer.offer_title}
                                 </h5>
                                 <p className="text-2xl font-bold text-blue-600 mb-2">
-                                  {typeof offer.price_min === "number" &&
-                                  typeof offer.price_max === "number"
-                                    ? offer.price_min === offer.price_max
-                                      ? formatCurrency(offer.price_min)
-                                      : `${formatCurrency(offer.price_min)} - ${formatCurrency(offer.price_max)}`
-                                    : `${offer.price_min} - ${offer.price_max}`}
+                                  {formatCurrency(
+                                    typeof offer.price_min === "number"
+                                      ? offer.price_min
+                                      : parseFloat(
+                                          offer.price_min.toString()
+                                        ) || 0
+                                  )}
                                 </p>
-                                <p className="text-sm text-gray-600 mb-2">
+                                <p className="text-sm text-gray-600 mb-3">
                                   {offer.offer_description}
                                 </p>
                                 <div className="flex items-center gap-1 text-xs text-gray-500">
@@ -407,30 +465,13 @@ export function SupplierSelectionModal({
                       </CardContent>
                     </Card>
                   )}
-
-                  {/* Action Buttons */}
-                  <div className="flex gap-3 pt-6">
-                    <Button
-                      onClick={handleConfirmSelection}
-                      disabled={!selectedSupplier}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-11"
-                    >
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Add to Event
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={handleCancel}
-                      className="px-6 h-11"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
                 </div>
               ) : (
                 <Card className="border-dashed border-2 border-gray-300">
                   <CardContent className="text-center py-16 px-6">
-                    <User className="h-16 w-16 text-gray-400 mx-auto mb-6" />
+                    <div className="p-4 bg-gray-100 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                      <User className="h-8 w-8 text-gray-400" />
+                    </div>
                     <h3 className="text-lg font-medium text-gray-700 mb-3">
                       Select a Supplier
                     </h3>
@@ -442,6 +483,29 @@ export function SupplierSelectionModal({
                 </Card>
               )}
             </div>
+
+            {/* Panel Footer - Fixed */}
+            {selectedSupplier && (
+              <div className="p-6 border-t border-gray-200 bg-white">
+                <div className="flex gap-3">
+                  <Button
+                    onClick={handleConfirmSelection}
+                    disabled={!selectedSupplier}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-11 font-medium"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Add to Event
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleCancel}
+                    className="px-6 h-11 border-gray-300 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>

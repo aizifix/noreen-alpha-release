@@ -29,6 +29,7 @@ import {
   DollarSign,
   Percent,
   Wallet,
+  Check,
   CheckCircle,
   Circle,
   AlertCircle,
@@ -46,7 +47,7 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import { adminApi, notificationsApi } from "@/app/utils/api";
-import { endpoints } from "@/app/config/api";
+import { endpoints, api } from "@/app/config/api";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,6 +75,14 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from "@/components/ui/accordion";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  Legend,
+} from "recharts";
 
 // Enhanced interface to match updated tbl_events structure
 interface Event {
@@ -95,6 +104,8 @@ interface Event {
   venue_id?: number;
   total_budget: number;
   down_payment: number;
+  reserved_payment_total?: number;
+  adjusted_total?: number;
   payment_method?: string;
   payment_schedule_type_id?: number;
   reference_number?: string;
@@ -878,13 +889,269 @@ function EventCountdown({ event }: { event: Event }) {
   );
 }
 
+// Budget Breakdown Pie Chart Component
+function BudgetBreakdownChart({ event }: { event: Event }) {
+  // Define colors for different categories
+  const COLORS = [
+    "#4F46E5", // Indigo
+    "#0EA5E9", // Sky blue
+    "#10B981", // Emerald
+    "#F59E0B", // Amber
+    "#8B5CF6", // Purple
+    "#EC4899", // Pink
+    "#6366F1", // Indigo
+    "#14B8A6", // Teal
+    "#06B6D4", // Cyan
+    "#64748B", // Slate
+  ];
+
+  // Process event components for pie chart
+  const getChartData = () => {
+    const chartData = [];
+    let colorIndex = 0;
+
+    // Add venue information if available
+    if (event.venue_price && event.venue_price > 0) {
+      chartData.push({
+        name: event.venue_title || "Venue",
+        value: parseFloat(String(event.venue_price)),
+        color: COLORS[colorIndex % COLORS.length],
+      });
+      colorIndex++;
+    }
+
+    // Add components if available
+    if (event.components && event.components.length > 0) {
+      // Group components by category or use component names
+      const componentMap = new Map<string, number>();
+
+      event.components.forEach((component) => {
+        if (component.is_included) {
+          const category = component.component_name || "Other";
+          const price = parseFloat(String(component.component_price)) || 0;
+
+          const existingPrice = componentMap.get(category) ?? 0;
+          componentMap.set(category, existingPrice + price);
+        }
+      });
+
+      // Add components to chart data
+      Array.from(componentMap.entries()).forEach(([name, value]) => {
+        chartData.push({
+          name,
+          value,
+          color: COLORS[colorIndex % COLORS.length],
+        });
+        colorIndex++;
+      });
+    }
+
+    // If no venue and no components, show generic breakdown
+    if (chartData.length === 0) {
+      if (event.total_budget && event.total_budget > 0) {
+        return [
+          {
+            name: "Event Budget",
+            value: event.total_budget,
+            color: COLORS[0],
+          },
+        ];
+      }
+
+      return [
+        {
+          name: "No Components",
+          value: 0,
+          color: "#E5E7EB",
+        },
+      ];
+    }
+
+    return chartData;
+  };
+
+  const chartData = getChartData();
+  const calculatedTotal = chartData.reduce((sum, item) => sum + item.value, 0);
+  // Use event.total_budget as the source of truth to match Budget Progress
+  const totalValue = event.total_budget || calculatedTotal;
+
+  // Custom tooltip
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      const percentage =
+        totalValue > 0 ? ((data.value / totalValue) * 100).toFixed(1) : 0;
+      return (
+        <div className="bg-white p-3 border rounded-lg shadow-lg">
+          <p className="font-semibold text-gray-900">{data.name}</p>
+          <p className="text-lg font-bold text-blue-600">
+            {formatCurrency(data.value)}
+          </p>
+          <p className="text-sm text-gray-500">{percentage}% of total</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Custom label for pie chart segments
+  const renderCustomizedLabel = ({
+    cx,
+    cy,
+    midAngle,
+    innerRadius,
+    outerRadius,
+    percent,
+  }: any) => {
+    const RADIAN = Math.PI / 180;
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+    // Only show percentage for segments that are large enough
+    if (percent < 0.05) return null;
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="white"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize={12}
+        fontWeight="bold"
+      >
+        {`${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
+  };
+
+  if (totalValue === 0) {
+    return (
+      <div className="rounded-xl shadow-sm border p-6 bg-gray-50">
+        <div className="text-center">
+          <div className="text-gray-400 mb-2">
+            <DollarSign className="h-12 w-12 mx-auto" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-700 mb-2">
+            Budget Breakdown
+          </h3>
+          <p className="text-sm text-gray-500 mb-2">
+            No components added to this event yet
+          </p>
+          <p className="text-xs text-gray-400">
+            Components will appear here once they are added to the event
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl shadow-sm border p-4 bg-white">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">
+            Budget Breakdown
+          </h3>
+        </div>
+        <div className="text-right">
+          <p className="text-sm text-gray-500">Total Budget</p>
+          <p className="text-lg font-bold text-blue-600">
+            {formatCurrency(totalValue)}
+          </p>
+          {calculatedTotal !== totalValue && (
+            <p className="text-xs text-orange-600 mt-1">
+              Components: {formatCurrency(calculatedTotal)}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {/* Pie Chart */}
+        <div className="h-40 w-full flex items-center justify-center">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={chartData}
+                cx="50%"
+                cy="50%"
+                innerRadius={30}
+                outerRadius={60}
+                paddingAngle={2}
+                dataKey="value"
+                label={renderCustomizedLabel}
+                labelLine={false}
+              >
+                {chartData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={entry.color}
+                    stroke="#fff"
+                    strokeWidth={2}
+                  />
+                ))}
+              </Pie>
+              <Tooltip content={<CustomTooltip />} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Legend */}
+        <div className="space-y-2">
+          <h4 className="font-semibold text-gray-800 mb-2 text-sm">
+            Components
+          </h4>
+          <div className="max-h-32 overflow-y-auto">
+            {chartData.map((item, index) => {
+              const percentage =
+                totalValue > 0
+                  ? ((item.value / totalValue) * 100).toFixed(1)
+                  : 0;
+              return (
+                <div
+                  key={index}
+                  className="flex items-center justify-between py-1"
+                >
+                  <div className="flex items-center space-x-2 flex-1 min-w-0">
+                    <div
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="text-xs font-medium text-gray-700 truncate">
+                      {item.name}
+                    </span>
+                  </div>
+                  <div className="text-right ml-2 flex-shrink-0">
+                    <p className="text-xs font-semibold text-gray-900">
+                      {formatCurrency(item.value)}
+                    </p>
+                    <p className="text-xs text-gray-500">{percentage}%</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Venue Selection Component
 function VenueSelection({
   event,
   onEventUpdate,
+  onEditingChange,
 }: {
   event: Event;
   onEventUpdate: () => Promise<void>;
+  onEditingChange?: (
+    isEditing: boolean,
+    guestCapacity: number,
+    newBudget?: number
+  ) => void;
 }) {
   const [venues, setVenues] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -893,12 +1160,65 @@ function VenueSelection({
   const [customVenueName, setCustomVenueName] = useState("");
   const [customVenuePrice, setCustomVenuePrice] = useState<number | "">("");
   const [savingCustom, setSavingCustom] = useState(false);
+  const [selectedVenue, setSelectedVenue] = useState<any>(null);
+  const [showVenueModal, setShowVenueModal] = useState(false);
+  const [guestCapacity, setGuestCapacity] = useState<number>(
+    event.guest_count || 0
+  );
+  const [venueBufferFee, setVenueBufferFee] = useState<number | null>(null);
+  const [pendingVenueId, setPendingVenueId] = useState<number | null>(null);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (event.package_id) {
       fetchPackageVenues();
+      fetchVenueBufferFee();
     }
-  }, [event.package_id]);
+    // Update guest capacity when event guest count changes
+    setGuestCapacity(event.guest_count || 0);
+  }, [event.package_id, event.guest_count, event.total_budget]);
+
+  // Computed budget that updates in real-time based on changes
+  const getDisplayBudget = (): number => {
+    if (!hasChanges || !isEditing) {
+      return event.total_budget;
+    }
+    const calculation = calculateNewBudget();
+    return calculation.newBudget;
+  };
+
+  // Computed guest count for display
+  const getDisplayGuestCount = (): number => {
+    return isEditing ? guestCapacity : event.guest_count || 0;
+  };
+
+  // Check for changes when editing
+  useEffect(() => {
+    if (isEditing) {
+      const hasVenueChange =
+        pendingVenueId !== null && pendingVenueId !== event.venue_id;
+      const hasCapacityChange = guestCapacity !== (event.guest_count || 0);
+      const changesDetected = hasVenueChange || hasCapacityChange;
+      setHasChanges(changesDetected);
+
+      // Notify parent component with real-time budget updates
+      if (changesDetected && venues.length > 0) {
+        const calculation = calculateNewBudget();
+        onEditingChange?.(true, guestCapacity, calculation.newBudget);
+      }
+    } else {
+      setHasChanges(false);
+      setPendingVenueId(null);
+    }
+  }, [
+    isEditing,
+    pendingVenueId,
+    guestCapacity,
+    event.venue_id,
+    event.guest_count,
+    venues.length,
+  ]);
 
   const fetchPackageVenues = async () => {
     try {
@@ -921,6 +1241,137 @@ function VenueSelection({
     } finally {
       setLoading(false);
     }
+  };
+
+  // Fetch venue buffer fee for the package
+  const fetchVenueBufferFee = async () => {
+    try {
+      const response = await axios.post(endpoints.admin, {
+        operation: "getPackageDetails",
+        package_id: event.package_id,
+      });
+
+      if (response.data.status === "success") {
+        const packageData = response.data.package;
+        const bufferFee = parseFloat(packageData.venue_fee_buffer || 0);
+        setVenueBufferFee(bufferFee);
+
+        console.log(`🏢 Venue Buffer Fee: ₱${bufferFee.toLocaleString()}`);
+      }
+    } catch (error) {
+      console.error("Error fetching venue buffer fee:", error);
+      setVenueBufferFee(null);
+    }
+  };
+
+  // Update event budget function
+  const updateEventBudget = async (eventId: number, budgetChange: number) => {
+    const response = await fetch(endpoints.admin, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        operation: "updateEventBudget",
+        event_id: eventId,
+        budget_change: budgetChange,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.status !== "success") {
+      throw new Error(data.message || "Failed to update budget");
+    }
+  };
+
+  // Calculate venue cost based on new formula
+  const calculateNewVenueCost = (venue: any, capacity: number) => {
+    if (!venue || venueBufferFee === null) return 0;
+
+    // Use the same logic as computeVenueEstimatedPrice
+    const venueRate = getExtraPaxRate(venue);
+    const actualVenueCost = venueRate * capacity;
+    const excessPayment = Math.max(0, actualVenueCost - venueBufferFee);
+
+    console.log(`🏢 Venue Cost Calculation:
+      - Venue: ${venue.venue_title || venue.venue_name}
+      - Capacity: ${capacity}
+      - Venue Rate: ₱${venueRate.toLocaleString()}
+      - Actual Venue Cost: ₱${actualVenueCost.toLocaleString()}
+      - Venue Buffer: ₱${venueBufferFee.toLocaleString()}
+      - Excess Payment: ₱${excessPayment.toLocaleString()}
+    `);
+
+    return Number.isFinite(excessPayment) ? excessPayment : 0;
+  };
+
+  // Get current total paid amount from payments
+  const getTotalPaidAmount = () => {
+    if (event.payments && Array.isArray(event.payments)) {
+      return event.payments.reduce((sum, payment: any) => {
+        if (["completed", "partial", "paid"].includes(payment.payment_status)) {
+          return sum + (Number(payment.payment_amount) || 0);
+        }
+        return sum;
+      }, 0);
+    }
+    return 0;
+  };
+
+  // Calculate new budget after venue/capacity change
+  const calculateNewBudget = (): {
+    newBudget: number;
+    costDifference: number;
+    totalPaid: number;
+    newRemainingBalance: number;
+    newVenueCost: number;
+    currentVenueCost: number;
+  } => {
+    const currentVenue = pendingVenueId
+      ? venues.find((v) => v.venue_id === pendingVenueId)
+      : venues.find((v) => v.venue_id === event.venue_id);
+
+    if (!currentVenue)
+      return {
+        newBudget: event.total_budget,
+        costDifference: 0,
+        totalPaid: getTotalPaidAmount(),
+        newRemainingBalance: event.total_budget - getTotalPaidAmount(),
+        newVenueCost: 0,
+        currentVenueCost: 0,
+      };
+
+    const newVenueCost = calculateNewVenueCost(currentVenue, guestCapacity);
+    const currentVenueCost = event.venue_id
+      ? calculateNewVenueCost(
+          venues.find((v) => v.venue_id === event.venue_id),
+          event.guest_count || 0
+        )
+      : 0;
+
+    const costDifference = newVenueCost - currentVenueCost;
+    const newBudget = event.total_budget + costDifference;
+    const totalPaid = getTotalPaidAmount();
+    const newRemainingBalance = newBudget - totalPaid;
+
+    console.log(`💰 Budget Calculation Debug:
+      - Current Budget: ₱${event.total_budget.toLocaleString()}
+      - New Venue Cost: ₱${newVenueCost.toLocaleString()}
+      - Current Venue Cost: ₱${currentVenueCost.toLocaleString()}
+      - Cost Difference: ₱${costDifference.toLocaleString()}
+      - New Budget (Real-time): ₱${newBudget.toLocaleString()}
+      - Total Paid: ₱${totalPaid.toLocaleString()}
+      - New Remaining: ₱${newRemainingBalance.toLocaleString()}
+    `);
+
+    return {
+      newBudget,
+      costDifference,
+      totalPaid,
+      newRemainingBalance,
+      newVenueCost,
+      currentVenueCost,
+    };
   };
 
   const handleAddCustomVenue = async () => {
@@ -985,22 +1436,123 @@ function VenueSelection({
     }
   };
 
-  const handleVenueChange = async (venueId: number) => {
+  // Get extra pax rate from venue
+  const getExtraPaxRate = (venue: any): number => {
+    return parseFloat(venue.extra_pax_rate || 0);
+  };
+
+  // Calculate venue estimated price using venue buffer formula
+  const computeVenueEstimatedPrice = (
+    venue: { venue_price: number | string; extra_pax_rate?: number | string },
+    guests: number
+  ): number => {
+    if (venueBufferFee !== null) {
+      // Use the venue's per-pax rate (extra_pax_rate) as the VenueRate
+      const venueRate = getExtraPaxRate(venue);
+      const clientPax = guests;
+
+      // Calculate actual venue cost: VenueRate × ClientPax
+      const actualVenueCost = venueRate * clientPax;
+
+      // Calculate excess payment: MAX(0, ActualVenueCost - VenueBuffer)
+      const excessPayment = Math.max(0, actualVenueCost - venueBufferFee);
+
+      console.log(`🏢 Admin Venue Buffer Calculation:
+        - Venue Rate: ₱${venueRate.toLocaleString()} per pax
+        - Client Pax: ${clientPax}
+        - Actual Venue Cost: ₱${venueRate.toLocaleString()} × ${clientPax} = ₱${actualVenueCost.toLocaleString()}
+        - Venue Buffer: ₱${venueBufferFee.toLocaleString()}
+        - Excess Payment: MAX(0, ₱${actualVenueCost.toLocaleString()} - ₱${venueBufferFee.toLocaleString()}) = ₱${excessPayment.toLocaleString()}
+      `);
+
+      return Number.isFinite(excessPayment) ? excessPayment : 0;
+    }
+
+    // Fallback to old calculation if no venue buffer
+    return calculateNewVenueCost(venue, guests);
+  };
+
+  // Handle venue selection (set pending venue)
+  const handleVenueSelect = (venueId: number) => {
+    setPendingVenueId(venueId);
+  };
+
+  // Handle guest capacity change
+  const handleGuestCapacityChange = (newCapacity: number) => {
+    setGuestCapacity(newCapacity);
+    // useEffect will handle notifying parent with updated budget
+  };
+
+  // Save venue and capacity changes
+  const handleSaveChanges = async () => {
+    if (!hasChanges) return;
+
     try {
-      setLoading(true);
-      const response = await axios.post("/admin.php", {
+      setSaving(true);
+
+      const selectedVenue = venues.find((v) => v.venue_id === pendingVenueId);
+      if (!selectedVenue && pendingVenueId !== null) {
+        toast({
+          title: "Error",
+          description: "Selected venue not found",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const budgetCalculation = calculateNewBudget();
+
+      const response = await axios.post(endpoints.admin, {
         operation: "updateEventVenue",
         event_id: event.event_id,
-        venue_id: venueId,
+        venue_id: pendingVenueId || event.venue_id,
+        guest_count: guestCapacity,
+        venue_cost: budgetCalculation.newVenueCost,
+        budget_change: budgetCalculation.costDifference,
       });
 
       if (response.data.status === "success") {
+        const {
+          old_budget,
+          new_budget,
+          total_paid,
+          new_remaining_balance,
+          budget_change,
+        } = response.data;
+
+        let description = `Venue updated successfully.`;
+
+        if (pendingVenueId !== null && pendingVenueId !== event.venue_id) {
+          const venueName = selectedVenue?.venue_title || "Selected venue";
+          description += `\nVenue changed to: ${venueName}`;
+        }
+
+        if (guestCapacity !== (event.guest_count || 0)) {
+          description += `\nGuest capacity changed from ${event.guest_count || 0} to ${guestCapacity}`;
+        }
+
+        if (budget_change !== 0) {
+          const changeText = budget_change > 0 ? "increased" : "decreased";
+          description += `\n\nBudget ${changeText} from ₱${formatCurrency(old_budget)} to ₱${formatCurrency(new_budget)}`;
+
+          if (total_paid > 0) {
+            description += `\nAmount paid: ₱${formatCurrency(total_paid)}`;
+            description += `\nNew remaining balance: ₱${formatCurrency(new_remaining_balance)}`;
+          }
+        }
+
         toast({
           title: "Success",
-          description: "Venue updated successfully",
+          description: description,
+          duration: 8000,
         });
+
         await onEventUpdate();
+        // Budget and guest count will be updated via useEffect when event refreshes
         setIsEditing(false);
+        onEditingChange?.(false, guestCapacity);
+        setPendingVenueId(null);
+        setHasChanges(false);
       } else {
         toast({
           title: "Error",
@@ -1016,8 +1568,17 @@ function VenueSelection({
         variant: "destructive",
       });
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
+  };
+
+  // Cancel changes
+  const handleCancelChanges = () => {
+    setPendingVenueId(null);
+    setGuestCapacity(event.guest_count || 0);
+    setIsEditing(false);
+    onEditingChange?.(false, event.guest_count || 0);
+    setHasChanges(false);
   };
 
   if (!event.package_id) {
@@ -1038,24 +1599,53 @@ function VenueSelection({
             </p>
           </div>
         </div>
-        <Button
-          onClick={() => setIsEditing(!isEditing)}
-          variant={isEditing ? "outline" : "default"}
-          size="sm"
-          disabled={loading}
-        >
-          {isEditing ? (
-            <>
-              <X className="h-4 w-4 mr-2" />
-              Cancel
-            </>
-          ) : (
-            <>
-              <Edit className="h-4 w-4 mr-2" />
-              Change Venue
-            </>
+        <div className="flex items-center gap-2">
+          {isEditing && hasChanges && (
+            <Button
+              onClick={handleSaveChanges}
+              disabled={saving || loading}
+              size="sm"
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {saving ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4 mr-2" />
+                  Save Changes
+                </>
+              )}
+            </Button>
           )}
-        </Button>
+          <Button
+            onClick={() => {
+              if (isEditing) {
+                handleCancelChanges();
+              } else {
+                setIsEditing(true);
+                onEditingChange?.(true, guestCapacity);
+              }
+            }}
+            variant={isEditing ? "outline" : "default"}
+            size="sm"
+            disabled={loading}
+          >
+            {isEditing ? (
+              <>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </>
+            ) : (
+              <>
+                <Edit className="h-4 w-4 mr-2" />
+                Change Venue
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -1064,58 +1654,199 @@ function VenueSelection({
         </div>
       ) : (
         <div className="space-y-4">
-          {venues.length > 0 ? (
-            venues.map((venue) => (
-              <div
-                key={venue.venue_id}
-                className={`border rounded-lg p-4 transition-all ${
-                  event.venue_id === venue.venue_id
-                    ? "border-purple-200 bg-purple-50"
-                    : "border-gray-200 bg-gray-50"
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      {event.venue_id === venue.venue_id ? (
-                        <CheckCircle className="h-5 w-5 text-purple-600" />
-                      ) : (
-                        <Circle className="h-5 w-5 text-gray-400" />
-                      )}
-                      <h4 className="font-medium text-gray-900">
-                        {venue.venue_title}
-                      </h4>
-                      {event.venue_id === venue.venue_id && (
-                        <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
-                          Current
-                        </span>
-                      )}
+          {/* Guest Capacity Field - Only show when editing */}
+          {isEditing && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <Users className="h-5 w-5 text-blue-600" />
+                <h4 className="font-medium text-blue-900">Guest Capacity</h4>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-sm text-blue-700 font-medium">
+                  Number of Guests:
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={guestCapacity}
+                  onChange={(e) =>
+                    handleGuestCapacityChange(parseInt(e.target.value) || 0)
+                  }
+                  className="w-24 px-3 py-2 text-sm border border-blue-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <span className="text-sm text-blue-600">
+                  Current: {guestCapacity} guests
+                </span>
+              </div>
+              {hasChanges && (
+                <div className="mt-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg shadow-sm">
+                  <div className="text-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Info className="w-4 h-4 text-blue-600" />
+                      <strong className="text-blue-900">
+                        Budget Impact Preview (Real-time)
+                      </strong>
                     </div>
-                    <p className="text-sm text-gray-600 mb-2">
-                      {venue.venue_location}
-                    </p>
-                    <div className="flex items-center gap-4 text-sm">
-                      <span className="text-purple-600 font-semibold">
-                        ₱{formatCurrency(venue.venue_price || 0)}
-                      </span>
-                      <span className="text-gray-500">
-                        Capacity: {venue.venue_capacity || "N/A"}
-                      </span>
+                    <div className="mt-2 space-y-1.5">
+                      {(() => {
+                        const calculation = calculateNewBudget();
+                        const isIncrease = calculation.costDifference > 0;
+                        const isDecrease = calculation.costDifference < 0;
+                        return (
+                          <>
+                            <div className="flex justify-between items-center py-1 border-b border-blue-200">
+                              <span className="text-gray-600">
+                                Current Budget:
+                              </span>
+                              <span className="font-medium text-gray-900">
+                                ₱{formatCurrency(event.total_budget)}
+                              </span>
+                            </div>
+                            <div
+                              className={`flex justify-between items-center py-1 border-b border-blue-200 ${
+                                isIncrease
+                                  ? "text-orange-600"
+                                  : isDecrease
+                                    ? "text-green-600"
+                                    : "text-gray-600"
+                              }`}
+                            >
+                              <span>Cost Change:</span>
+                              <span className="font-semibold">
+                                {isIncrease && "+"}
+                                {isDecrease && "-"}₱
+                                {formatCurrency(
+                                  Math.abs(calculation.costDifference)
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center py-1 border-b border-blue-200 bg-blue-100 px-2 rounded">
+                              <span className="font-semibold text-blue-900">
+                                New Budget:
+                              </span>
+                              <span className="font-bold text-blue-900">
+                                ₱{formatCurrency(calculation.newBudget)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center py-1 border-b border-blue-200">
+                              <span className="text-gray-600">
+                                Amount Paid:
+                              </span>
+                              <span className="font-medium text-gray-900">
+                                ₱{formatCurrency(calculation.totalPaid)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center py-1 bg-green-50 px-2 rounded">
+                              <span className="font-semibold text-green-900">
+                                New Remaining:
+                              </span>
+                              <span className="font-bold text-green-900">
+                                ₱
+                                {formatCurrency(
+                                  calculation.newRemainingBalance
+                                )}
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
-                  {isEditing && event.venue_id !== venue.venue_id && (
-                    <Button
-                      onClick={() => handleVenueChange(venue.venue_id)}
-                      disabled={loading}
-                      variant="outline"
-                      size="sm"
-                    >
-                      Select
-                    </Button>
-                  )}
                 </div>
-              </div>
-            ))
+              )}
+            </div>
+          )}
+
+          {venues.length > 0 ? (
+            venues.map((venue) => {
+              const isCurrentVenue = event.venue_id === venue.venue_id;
+              const isPendingVenue = pendingVenueId === venue.venue_id;
+              const isSelected = isCurrentVenue || isPendingVenue;
+
+              return (
+                <div
+                  key={venue.venue_id}
+                  className={`border rounded-lg p-4 transition-all ${
+                    isSelected
+                      ? "border-purple-200 bg-purple-50"
+                      : "border-gray-200 bg-gray-50"
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        {isCurrentVenue ? (
+                          <CheckCircle className="h-5 w-5 text-purple-600" />
+                        ) : isPendingVenue ? (
+                          <Clock className="h-5 w-5 text-orange-500" />
+                        ) : (
+                          <Circle className="h-5 w-5 text-gray-400" />
+                        )}
+                        <h4 className="font-medium text-gray-900">
+                          {venue.venue_title}
+                        </h4>
+                        {isCurrentVenue && (
+                          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                            Current
+                          </span>
+                        )}
+                        {isPendingVenue && (
+                          <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">
+                            Selected
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-600 mb-2">
+                        {venue.venue_location}
+                      </p>
+                      <div className="flex items-center gap-4 text-sm">
+                        {venue.extra_pax_rate && venue.extra_pax_rate > 0 ? (
+                          <span className="text-purple-600 font-semibold">
+                            ₱{formatCurrency(venue.extra_pax_rate)} per pax
+                          </span>
+                        ) : (
+                          <span className="text-purple-600 font-semibold">
+                            ₱0.00 per pax
+                          </span>
+                        )}
+                        <span className="text-gray-500">
+                          Base Capacity: {venue.venue_capacity || "N/A"}
+                        </span>
+                        {venueBufferFee !== null && venueBufferFee > 0 && (
+                          <span className="text-emerald-600 text-xs">
+                            Buffer: ₱{formatCurrency(venueBufferFee)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={() => {
+                          setSelectedVenue(venue);
+                          setShowVenueModal(true);
+                        }}
+                        variant="outline"
+                        size="sm"
+                        className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Details
+                      </Button>
+                      {isEditing && !isCurrentVenue && (
+                        <Button
+                          onClick={() => handleVenueSelect(venue.venue_id)}
+                          disabled={loading}
+                          variant={isPendingVenue ? "default" : "outline"}
+                          size="sm"
+                        >
+                          {isPendingVenue ? "Selected" : "Select"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
           ) : (
             <div className="text-center py-8 text-gray-500">
               <Building className="h-12 w-12 mx-auto mb-4 text-gray-300" />
@@ -1207,6 +1938,273 @@ function VenueSelection({
           )}
         </div>
       )}
+
+      {/* Venue Details Modal */}
+      {showVenueModal && selectedVenue && (
+        <VenueDetailsModal
+          venue={selectedVenue}
+          isOpen={showVenueModal}
+          onClose={() => {
+            setShowVenueModal(false);
+            setSelectedVenue(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Venue Details Modal Component
+function VenueDetailsModal({
+  venue,
+  isOpen,
+  onClose,
+}: {
+  venue: any;
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  if (!isOpen || !venue) return null;
+
+  const getProfileImageUrl = (pfpPath?: string) => {
+    if (!pfpPath) return "/default_pfp.png";
+    if (pfpPath.startsWith("http")) return pfpPath;
+
+    // Handle case where imagePath might be a JSON string (from upload response)
+    let actualPath = pfpPath;
+    try {
+      const parsed = JSON.parse(pfpPath);
+      if (parsed && typeof parsed === "object" && parsed.filePath) {
+        actualPath = parsed.filePath;
+      }
+    } catch (e) {
+      // If it's not JSON, use the original path
+      actualPath = pfpPath;
+    }
+
+    // Use the proper API configuration for image serving
+    return api.getServeImageUrl(actualPath) || "/default_pfp.png";
+  };
+
+  const getCoverImageUrl = (coverPath?: string) => {
+    if (!coverPath) return "";
+    if (coverPath.startsWith("http")) return coverPath;
+
+    // Handle case where imagePath might be a JSON string (from upload response)
+    let actualPath = coverPath;
+    try {
+      const parsed = JSON.parse(coverPath);
+      if (parsed && typeof parsed === "object" && parsed.filePath) {
+        actualPath = parsed.filePath;
+      }
+    } catch (e) {
+      // If it's not JSON, use the original path
+      actualPath = coverPath;
+    }
+
+    // Use the proper API configuration for image serving
+    return api.getServeImageUrl(actualPath) || "";
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+        {/* Header */}
+        <div className="relative">
+          {/* Cover Photo */}
+          {getCoverImageUrl(venue.venue_cover_photo) && (
+            <div className="h-48 bg-gradient-to-r from-purple-500 to-pink-500 relative">
+              <img
+                src={getCoverImageUrl(venue.venue_cover_photo) || ""}
+                alt="Venue Cover"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.style.display = "none";
+                }}
+              />
+              <div className="absolute inset-0 bg-black bg-opacity-30" />
+            </div>
+          )}
+
+          {/* Close Button */}
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 bg-white bg-opacity-90 hover:bg-opacity-100 rounded-full p-2 transition-all duration-200"
+          >
+            <X className="h-5 w-5 text-gray-600" />
+          </button>
+
+          {/* Profile Section */}
+          <div className="relative px-6 pb-6">
+            <div className="flex items-start gap-4 -mt-16 relative z-10">
+              {/* Profile Picture */}
+              <div className="w-24 h-24 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white">
+                <img
+                  src={getProfileImageUrl(venue.venue_profile_picture)}
+                  alt={venue.venue_title}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = "/default_pfp.png";
+                  }}
+                />
+              </div>
+
+              {/* Venue Info */}
+              <div className="flex-1 pt-16">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                  {venue.venue_title}
+                </h2>
+                <div className="flex items-center gap-4 text-sm text-gray-600 mb-4">
+                  <div className="flex items-center gap-1">
+                    <MapPin className="h-4 w-4" />
+                    <span>{venue.venue_location}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Users className="h-4 w-4" />
+                    <span>Capacity: {venue.venue_capacity || "N/A"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="px-6 pb-6 max-h-96 overflow-y-auto">
+          {/* Price Information */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-purple-50 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Users className="h-5 w-5 text-purple-600" />
+                <span className="font-semibold text-gray-900">Base Guess</span>
+              </div>
+              <p className="text-2xl font-bold text-purple-600">
+                {venue.venue_capacity || "N/A"} guests
+              </p>
+              {venue.extra_pax_rate && venue.extra_pax_rate > 0 && (
+                <p className="text-sm text-orange-600 mt-1">
+                  +₱{formatCurrency(venue.extra_pax_rate)} for excess capacity
+                </p>
+              )}
+            </div>
+
+            {venue.extra_pax_rate && venue.extra_pax_rate > 0 && (
+              <div className="bg-green-50 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <DollarSign className="h-5 w-5 text-green-600" />
+                  <span className="font-semibold text-gray-900">
+                    Price per Pax
+                  </span>
+                </div>
+                <p className="text-2xl font-bold text-green-600">
+                  ₱{formatCurrency(venue.extra_pax_rate)}
+                </p>
+                <p className="text-xs text-gray-600 mt-1">
+                  For guests beyond base capacity
+                </p>
+              </div>
+            )}
+
+            <div className="bg-blue-50 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Building className="h-5 w-5 text-blue-600" />
+                <span className="font-semibold text-gray-900">Venue Type</span>
+              </div>
+              <p className="text-lg font-semibold text-blue-600 capitalize">
+                {venue.venue_type || "Standard"}
+              </p>
+            </div>
+          </div>
+
+          {/* Contact Information */}
+          {venue.venue_contact && (
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <Phone className="h-5 w-5" />
+                Contact Information
+              </h3>
+              <div className="flex items-center gap-2 text-gray-700">
+                <Phone className="h-4 w-4" />
+                <span>{venue.venue_contact}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Venue Details */}
+          {venue.venue_details && (
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Venue Details
+              </h3>
+              <p className="text-gray-700 leading-relaxed">
+                {venue.venue_details}
+              </p>
+            </div>
+          )}
+
+          {/* Venue Inclusions */}
+          {venue.inclusions && venue.inclusions.length > 0 && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Venue Inclusions
+              </h3>
+              <div className="space-y-3">
+                {venue.inclusions.map((inclusion: any, index: number) => (
+                  <div key={index} className="bg-white rounded-lg p-3 border">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-medium text-gray-900">
+                        {inclusion.inclusion_name}
+                      </h4>
+                      {inclusion.inclusion_price && (
+                        <span className="text-sm font-semibold text-purple-600">
+                          ₱{formatCurrency(inclusion.inclusion_price)}
+                        </span>
+                      )}
+                    </div>
+                    {inclusion.inclusion_description && (
+                      <p className="text-sm text-gray-600">
+                        {inclusion.inclusion_description}
+                      </p>
+                    )}
+                    {inclusion.components &&
+                      inclusion.components.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs font-medium text-gray-500 mb-1">
+                            Components:
+                          </p>
+                          <ul className="text-xs text-gray-600 space-y-1">
+                            {inclusion.components.map(
+                              (component: any, compIndex: number) => (
+                                <li
+                                  key={compIndex}
+                                  className="flex items-center gap-1"
+                                >
+                                  <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                                  {component.component_name}
+                                </li>
+                              )
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t bg-gray-50 px-6 py-4 flex justify-end">
+          <Button onClick={onClose} variant="outline">
+            Close
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1219,13 +2217,36 @@ function PackageInclusionsManagement({
   event: Event;
   onEventUpdate: () => Promise<void>;
 }) {
+  // Helper function to check if a component is a venue/hotel
+  const isVenueComponent = (componentName: string): boolean => {
+    const lowerName = componentName.toLowerCase();
+    return (
+      lowerName.includes("venue:") ||
+      lowerName.includes("hotel") ||
+      lowerName.includes("reception hall") ||
+      lowerName.includes("ballroom") ||
+      lowerName.startsWith("venue -") ||
+      lowerName.startsWith("venue:") ||
+      lowerName.includes("package") ||
+      lowerName.includes("ultrawinds") ||
+      lowerName.includes("demiren") ||
+      lowerName.includes("marco hotel")
+    );
+  };
+
   const [isEditing, setIsEditing] = useState(false);
   const [components, setComponents] = useState<EventComponent[]>(
-    (event.components || []).filter((comp) => comp.is_included)
+    (event.components || []).filter(
+      (comp) => comp.is_included && !isVenueComponent(comp.component_name)
+    )
   );
   const [originalComponents, setOriginalComponents] = useState<
     EventComponent[]
-  >((event.components || []).filter((comp) => comp.is_included));
+  >(
+    (event.components || []).filter(
+      (comp) => comp.is_included && !isVenueComponent(comp.component_name)
+    )
+  );
   const [newComponent, setNewComponent] = useState({
     component_name: "",
     component_description: "",
@@ -1246,9 +2267,11 @@ function PackageInclusionsManagement({
   });
   // NOTE: Assign Organizer UI lives in the main EventDetailsPage component
 
-  // Calculate total price of inclusions
+  // Calculate total price of inclusions (excluding venue components)
   const totalInclusionsPrice = components
-    .filter((comp) => comp.is_included)
+    .filter(
+      (comp) => comp.is_included && !isVenueComponent(comp.component_name)
+    )
     .reduce((sum, comp) => sum + Number(comp.component_price || 0), 0);
 
   // Check if there are any changes
@@ -1769,7 +2792,14 @@ function PackageInclusionsManagement({
                 {event.package_id ? "Total Inclusions" : "Total Components"}
               </div>
               <div className="text-sm font-semibold text-green-600">
-                {components.filter((comp) => comp.is_included).length} items
+                {
+                  components.filter(
+                    (comp) =>
+                      comp.is_included &&
+                      !comp.component_name.toLowerCase().includes("venue:")
+                  ).length
+                }{" "}
+                items
               </div>
             </div>
             <div className="flex gap-2">
@@ -4122,31 +5152,113 @@ function PaymentHistoryTab({ event }: { event: Event }) {
               ₱{formatCurrency(Number(event.total_budget || 0))}
             </div>
           </div>
-          {paymentHistory &&
-            paymentHistory.some((p: any) => p.payment_type === "reserved") && (
-              <div>
-                <div className="text-blue-700">Reserved Fee</div>
-                <div className="font-semibold text-blue-900">
-                  ₱
-                  {formatCurrency(
-                    Number(
+          {(() => {
+            // Use stored reserved_payment_total from event if available, otherwise calculate from payments
+            const storedReservedPayment = Number(
+              event.reserved_payment_total || 0
+            );
+
+            // Check for reserved payments by multiple criteria
+            const hasReservedPayments =
+              storedReservedPayment > 0 ||
+              (paymentHistory &&
+                (paymentHistory.some(
+                  (p: any) => p.payment_type === "reserved"
+                ) ||
+                  paymentHistory.some((p: any) =>
+                    p.payment_notes?.toLowerCase().includes("reservation")
+                  ) ||
+                  paymentHistory.some((p: any) =>
+                    p.payment_notes?.toLowerCase().includes("reserved")
+                  ) ||
+                  paymentHistory.some((p: any) =>
+                    p.payment_notes?.toLowerCase().includes("booking")
+                  )));
+
+            // Calculate reserved payment total
+            const calculatedReservedPayment = paymentHistory
+              ? paymentHistory
+                  .filter((p: any) => {
+                    const isReserved =
+                      p.payment_type === "reserved" ||
+                      p.payment_notes?.toLowerCase().includes("reservation") ||
+                      p.payment_notes?.toLowerCase().includes("reserved") ||
+                      p.payment_notes?.toLowerCase().includes("booking");
+                    const isPaid =
+                      p.payment_status === "completed" ||
+                      p.payment_status === "paid" ||
+                      p.payment_status === "confirmed";
+                    return isReserved && isPaid;
+                  })
+                  .reduce(
+                    (sum: number, p: any) =>
+                      sum + Number(p.payment_amount || 0),
+                    0
+                  )
+              : 0;
+
+            // Use stored value if available, otherwise use calculated value
+            const reservedPaymentTotal =
+              storedReservedPayment > 0
+                ? storedReservedPayment
+                : calculatedReservedPayment;
+
+            console.log("Payment Summary Debug:", {
+              paymentHistory: paymentHistory,
+              hasReservedPayments: hasReservedPayments,
+              storedReservedPayment: storedReservedPayment,
+              calculatedReservedPayment: calculatedReservedPayment,
+              reservedPaymentTotal: reservedPaymentTotal,
+              originalBookingReference: event.original_booking_reference,
+            });
+
+            return hasReservedPayments;
+          })() && (
+            <div>
+              <div className="text-blue-700">Reservation Fee</div>
+              <div className="font-semibold text-blue-900">
+                ₱
+                {formatCurrency(
+                  (() => {
+                    // Use stored reserved_payment_total from event if available
+                    const storedReservedPayment = Number(
+                      event.reserved_payment_total || 0
+                    );
+
+                    if (storedReservedPayment > 0) {
+                      return storedReservedPayment;
+                    }
+
+                    // Otherwise calculate from payments
+                    return Number(
                       paymentHistory
-                        .filter(
-                          (p: any) =>
-                            p.payment_type === "reserved" &&
-                            (p.payment_status === "completed" ||
-                              p.payment_status === "paid")
-                        )
+                        ?.filter((p: any) => {
+                          const isReserved =
+                            p.payment_type === "reserved" ||
+                            p.payment_notes
+                              ?.toLowerCase()
+                              .includes("reservation") ||
+                            p.payment_notes
+                              ?.toLowerCase()
+                              .includes("reserved") ||
+                            p.payment_notes?.toLowerCase().includes("booking");
+                          const isPaid =
+                            p.payment_status === "completed" ||
+                            p.payment_status === "paid" ||
+                            p.payment_status === "confirmed";
+                          return isReserved && isPaid;
+                        })
                         .reduce(
                           (sum: number, p: any) =>
                             sum + Number(p.payment_amount || 0),
                           0
-                        )
-                    )
-                  )}
-                </div>
+                        ) || 0
+                    );
+                  })()
+                )}
               </div>
-            )}
+            </div>
+          )}
           <div>
             <div className="text-blue-700">Down Payment</div>
             <div className="font-semibold text-blue-900">
@@ -4352,7 +5464,43 @@ export default function EventDetailsPage() {
   const [event, setEvent] = useState<Event | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
+  const [isVenueEditing, setIsVenueEditing] = useState(false);
+  const [currentGuestCapacity, setCurrentGuestCapacity] = useState<number>(0);
+  const [pendingBudget, setPendingBudget] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
+
+  // Handle venue editing state changes
+  const handleVenueEditingChange = (
+    isEditing: boolean,
+    guestCapacity: number,
+    newBudget?: number
+  ) => {
+    setIsVenueEditing(isEditing);
+    setCurrentGuestCapacity(guestCapacity);
+    setPendingBudget(newBudget ?? null);
+  };
+
+  // Initialize current guest capacity when event data is loaded
+  useEffect(() => {
+    if (event) {
+      setCurrentGuestCapacity(event.guest_count || 0);
+    }
+  }, [event]);
+
+  // Create a display event that uses pending values when editing
+  const displayEvent = useMemo(() => {
+    if (!event) return null;
+
+    if (isVenueEditing && pendingBudget !== null) {
+      return {
+        ...event,
+        total_budget: pendingBudget,
+        guest_count: currentGuestCapacity,
+      };
+    }
+
+    return event;
+  }, [event, isVenueEditing, pendingBudget, currentGuestCapacity]);
   const [organizerMeta, setOrganizerMeta] = useState<{
     pending: string[];
     accepted: string[];
@@ -4465,6 +5613,10 @@ export default function EventDetailsPage() {
         }));
         setMainPaymentHistory(normalized);
         console.log("Main component normalized payment data:", normalized);
+        console.log(
+          "Reserved payments in data:",
+          normalized.filter((p: any) => p.payment_type === "reserved")
+        );
       } else {
         console.error(
           "Main component API returned error:",
@@ -5015,6 +6167,10 @@ export default function EventDetailsPage() {
 
         setEvent(eventData);
         console.log("✅ Event data loaded:", eventData);
+        console.log(
+          "Event original_booking_reference:",
+          eventData.original_booking_reference
+        );
 
         // Debug profile picture
         console.log("🖼️ Profile Picture Debug:", {
@@ -5524,11 +6680,15 @@ export default function EventDetailsPage() {
   const extraEntitiesCount =
     (event?.organizer_id ? 1 : 0) + (event?.venue_id ? 1 : 0);
   const derivedIncludedCount =
-    (event.components || []).filter((c) => c.is_included).length +
-    extraEntitiesCount;
+    (event.components || []).filter(
+      (c) => c.is_included && !c.component_name.toLowerCase().includes("venue:")
+    ).length + extraEntitiesCount;
   const derivedPaidCount =
     (event.components || []).filter(
-      (c) => c.is_included && c.payment_status === "paid"
+      (c) =>
+        c.is_included &&
+        c.payment_status === "paid" &&
+        !c.component_name.toLowerCase().includes("venue:")
     ).length +
     (organizerPaid ? 1 : 0) +
     (venuePaid ? 1 : 0);
@@ -5657,12 +6817,16 @@ export default function EventDetailsPage() {
           {/* Left Sidebar - Client & Progress */}
           <div className="lg:col-span-1 space-y-6">
             <ClientProfile event={event} />
-            <BudgetProgress event={event} paymentHistory={mainPaymentHistory} />
+            <BudgetProgress
+              event={displayEvent || event}
+              paymentHistory={mainPaymentHistory}
+            />
             <EventTimeline
               event={event}
               mainPaymentHistory={mainPaymentHistory}
             />
             <EventCountdown event={event} />
+            <BudgetBreakdownChart event={displayEvent || event} />
           </div>
 
           {/* Main Content */}
@@ -5729,8 +6893,18 @@ export default function EventDetailsPage() {
                               <div className="text-sm text-gray-600">
                                 Guest Count
                               </div>
-                              <div className="font-medium">
-                                {event.guest_count} guests
+                              <div
+                                className={`font-medium ${isVenueEditing ? "text-blue-600" : ""}`}
+                              >
+                                {isVenueEditing
+                                  ? currentGuestCapacity
+                                  : event.guest_count}{" "}
+                                guests
+                                {isVenueEditing && (
+                                  <span className="ml-2 text-xs text-blue-500">
+                                    (editing)
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -6285,6 +7459,7 @@ export default function EventDetailsPage() {
                     <VenueSelection
                       event={event}
                       onEventUpdate={fetchEventDetails}
+                      onEditingChange={handleVenueEditingChange}
                     />
                   </div>
 
@@ -6363,34 +7538,35 @@ export default function EventDetailsPage() {
                     open={showAssignOrganizer}
                     onOpenChange={setShowAssignOrganizer}
                   >
-                    <DialogContent className="max-w-3xl sm:max-w-4xl">
-                      <DialogHeader>
-                        <DialogTitle className="text-xl">
+                    <DialogContent className="max-w-4xl sm:max-w-5xl p-0">
+                      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-[#028A75]/10 to-[#028A75]/5 border-b border-[#028A75]/20">
+                        <DialogTitle className="text-2xl font-semibold text-[#028A75]">
                           Assign Organizer
                         </DialogTitle>
-                        <DialogDescription className="text-sm">
-                          Select an organizer and optionally set an agreed fee.
+                        <DialogDescription className="text-[#028A75]/80 mt-1">
+                          Select an organizer and optionally set an agreed fee
+                          for this event.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="col-span-1">
-                          <div className="flex items-center justify-between mb-2">
-                            <Label className="text-base font-medium">
-                              Select Organizer
-                            </Label>
-                            {organizersLoading && (
-                              <div className="flex items-center text-xs text-blue-600">
-                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-2"></div>
-                                Loading organizers...
-                              </div>
-                            )}
-                          </div>
+                      <div className="p-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-lg font-semibold text-gray-800">
+                                Select Organizer
+                              </Label>
+                              {organizersLoading && (
+                                <div className="flex items-center text-sm text-[#028A75]">
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#028A75] mr-2"></div>
+                                  Loading organizers...
+                                </div>
+                              )}
+                            </div>
 
-                          {/* Search input */}
-                          <div className="mb-3">
+                            {/* Search input */}
                             <div className="relative">
                               <svg
-                                className="absolute left-3 top-3 h-4 w-4 text-gray-400"
+                                className="absolute left-3 top-3.5 h-4 w-4 text-[#028A75]"
                                 width="15"
                                 height="15"
                                 viewBox="0 0 15 15"
@@ -6405,8 +7581,8 @@ export default function EventDetailsPage() {
                                 ></path>
                               </svg>
                               <Input
-                                placeholder="Search organizers by name"
-                                className="pl-10"
+                                placeholder="Search organizers by name..."
+                                className="pl-10 h-11 border-[#028A75]/30 focus:border-[#028A75] focus:ring-[#028A75]"
                                 onChange={(e) => {
                                   // Filter organizers on client side
                                   const searchTerm =
@@ -6428,299 +7604,305 @@ export default function EventDetailsPage() {
                                 }}
                               />
                             </div>
-                          </div>
 
-                          {/* Organizers List */}
-                          <div className="max-h-80 overflow-auto border rounded shadow-inner bg-gray-50">
-                            {organizersLoading ? (
-                              <div className="p-6 text-center text-gray-500">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
-                                <p>Loading organizers...</p>
-                              </div>
-                            ) : organizers.length === 0 ? (
-                              <div className="p-6 text-center text-gray-500">
-                                <User className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                                <p className="font-medium">
-                                  No organizers found
-                                </p>
-                                <p className="text-sm mt-1">
-                                  Try refreshing or add new organizers
-                                </p>
-                              </div>
-                            ) : (
-                              <div className="divide-y divide-gray-200">
-                                {organizers.map((o) => (
-                                  <button
-                                    key={o.organizer_id}
-                                    className={`w-full text-left p-4 flex items-center gap-4 transition-colors hover:bg-purple-50/70 ${
-                                      String(selectedOrganizerId) ===
-                                      String(o.organizer_id)
-                                        ? "bg-purple-100 border-l-4 border-purple-600"
-                                        : "bg-white"
-                                    } ${o.is_admin ? "border-l-4 border-l-blue-500" : ""}`}
-                                    onClick={() =>
-                                      setSelectedOrganizerId(o.organizer_id)
-                                    }
-                                  >
-                                    <div className="relative">
-                                      <img
-                                        src={
-                                          o.profile_picture
-                                            ? `${endpoints.serveImage}?path=${encodeURIComponent(
-                                                o.profile_picture
-                                              )}`
-                                            : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
-                                        }
-                                        alt="Profile"
-                                        className="h-12 w-12 rounded-full object-cover border-2 border-gray-200"
-                                      />
-                                      {String(selectedOrganizerId) ===
-                                        String(o.organizer_id) && (
-                                        <div className="absolute -right-1 -bottom-1 bg-purple-600 text-white rounded-full p-0.5">
-                                          <CheckCircle className="h-4 w-4" />
-                                        </div>
-                                      )}
-                                      {o.is_admin && (
-                                        <div className="absolute -right-1 -top-1 bg-blue-600 text-white rounded-full p-0.5">
-                                          <User className="h-3 w-3" />
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    <div className="flex-1">
-                                      <div className="flex items-center gap-2">
-                                        <div className="font-medium text-gray-900">
-                                          {o.first_name} {o.last_name}
-                                        </div>
-                                        {o.is_admin && (
-                                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">
-                                            Admin (Default)
-                                          </span>
-                                        )}
-                                      </div>
-
-                                      <div className="grid grid-cols-2 gap-2 mt-1">
-                                        <div className="text-xs text-gray-500 flex items-center">
-                                          <Mail className="h-3 w-3 mr-1" />
-                                          {o.email || "No email"}
-                                        </div>
-                                        <div className="text-xs text-gray-500 flex items-center">
-                                          <Phone className="h-3 w-3 mr-1" />
-                                          {o.contact_number || "No phone"}
-                                        </div>
-                                      </div>
-
-                                      <div className="flex items-center gap-2 mt-1">
-                                        {o.is_admin ? (
-                                          <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full flex items-center">
-                                            <User className="h-3 w-3 mr-1" />
-                                            No additional fee
-                                          </span>
-                                        ) : (
-                                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full flex items-center">
-                                            <Banknote className="h-3 w-3 mr-1" />
-                                            {o.talent_fee_min
-                                              ? `₱${formatCurrency(Number(o.talent_fee_min))}`
-                                              : "No fee"}
-                                            {o.talent_fee_max &&
-                                            o.talent_fee_min !==
-                                              o.talent_fee_max
-                                              ? ` - ₱${formatCurrency(Number(o.talent_fee_max))}`
-                                              : ""}
-                                          </span>
-                                        )}
-
-                                        {o.experience_summary &&
-                                          !o.is_admin && (
-                                            <span className="text-xs bg-gray-100 text-gray-800 px-2 py-0.5 rounded-full">
-                                              {
-                                                o.experience_summary.split(
-                                                  " "
-                                                )[0]
-                                              }{" "}
-                                              exp.
-                                            </span>
-                                          )}
-                                      </div>
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="col-span-1 space-y-4">
-                          {/* Selected Organizer Summary */}
-                          {selectedOrganizerId && (
-                            <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-                              <h4 className="font-medium text-purple-900 mb-2">
-                                Selected Organizer
-                              </h4>
-
-                              {(() => {
-                                const selected = organizers.find(
-                                  (o) =>
-                                    String(o.organizer_id) ===
-                                    String(selectedOrganizerId)
-                                );
-
-                                if (!selected) {
-                                  return (
-                                    <div className="text-sm text-purple-700">
-                                      Organizer ID: {selectedOrganizerId}
-                                    </div>
-                                  );
-                                }
-
-                                return (
-                                  <div className="space-y-2">
-                                    <div className="flex items-center gap-3">
+                            {/* Organizers List */}
+                            <div className="max-h-96 overflow-auto border border-[#028A75]/30 rounded-lg shadow-sm bg-white">
+                              {organizersLoading ? (
+                                <div className="p-8 text-center text-[#028A75]">
+                                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#028A75] mx-auto mb-3"></div>
+                                  <p className="font-medium">
+                                    Loading organizers...
+                                  </p>
+                                </div>
+                              ) : organizers.length === 0 ? (
+                                <div className="p-8 text-center text-gray-500">
+                                  <User className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                                  <p className="font-medium text-gray-700">
+                                    No organizers found
+                                  </p>
+                                  <p className="text-sm mt-1 text-gray-500">
+                                    Try refreshing or add new organizers
+                                  </p>
+                                </div>
+                              ) : (
+                                <div className="divide-y divide-gray-100">
+                                  {organizers.map((o) => (
+                                    <button
+                                      key={o.organizer_id}
+                                      className={`w-full text-left p-5 flex items-center gap-4 transition-all duration-200 hover:bg-[#028A75]/5 ${
+                                        String(selectedOrganizerId) ===
+                                        String(o.organizer_id)
+                                          ? "bg-[#028A75]/10 border-l-4 border-[#028A75] shadow-sm"
+                                          : "bg-white hover:shadow-sm"
+                                      } ${o.is_admin ? "border-l-4 border-l-blue-500" : ""}`}
+                                      onClick={() =>
+                                        setSelectedOrganizerId(o.organizer_id)
+                                      }
+                                    >
                                       <div className="relative">
                                         <img
                                           src={
-                                            selected.profile_picture
+                                            o.profile_picture
                                               ? `${endpoints.serveImage}?path=${encodeURIComponent(
-                                                  selected.profile_picture
+                                                  o.profile_picture
                                                 )}`
                                               : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
                                           }
                                           alt="Profile"
-                                          className="h-10 w-10 rounded-full object-cover"
+                                          className="h-12 w-12 rounded-full object-cover border-2 border-gray-200"
                                         />
-                                        {selected.is_admin && (
+                                        {String(selectedOrganizerId) ===
+                                          String(o.organizer_id) && (
+                                          <div className="absolute -right-1 -bottom-1 bg-[#028A75] text-white rounded-full p-1">
+                                            <CheckCircle className="h-3 w-3" />
+                                          </div>
+                                        )}
+                                        {o.is_admin && (
                                           <div className="absolute -right-1 -top-1 bg-blue-600 text-white rounded-full p-0.5">
-                                            <User className="h-2 w-2" />
+                                            <User className="h-3 w-3" />
                                           </div>
                                         )}
                                       </div>
-                                      <div>
+
+                                      <div className="flex-1">
                                         <div className="flex items-center gap-2">
-                                          <div className="font-medium text-purple-900">
-                                            {selected.first_name}{" "}
-                                            {selected.last_name}
+                                          <div className="font-semibold text-gray-900">
+                                            {o.first_name} {o.last_name}
                                           </div>
-                                          {selected.is_admin && (
-                                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">
-                                              Admin
+                                          {o.is_admin && (
+                                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
+                                              Admin (Default)
                                             </span>
                                           )}
                                         </div>
-                                        <div className="text-xs text-purple-700">
-                                          {selected.is_admin
-                                            ? "Default Organizer"
-                                            : `ID: ${selected.organizer_id}`}
+
+                                        <div className="grid grid-cols-2 gap-3 mt-2">
+                                          <div className="text-xs text-gray-600 flex items-center">
+                                            <Mail className="h-3 w-3 mr-1.5 text-[#028A75]" />
+                                            {o.email || "No email"}
+                                          </div>
+                                          <div className="text-xs text-gray-600 flex items-center">
+                                            <Phone className="h-3 w-3 mr-1.5 text-[#028A75]" />
+                                            {o.contact_number || "No phone"}
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 mt-2">
+                                          {o.is_admin ? (
+                                            <span className="text-xs bg-[#028A75]/10 text-[#028A75] px-3 py-1 rounded-full flex items-center font-medium">
+                                              <User className="h-3 w-3 mr-1.5" />
+                                              No additional fee
+                                            </span>
+                                          ) : (
+                                            <span className="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full flex items-center font-medium">
+                                              <Banknote className="h-3 w-3 mr-1.5" />
+                                              {o.talent_fee_min
+                                                ? `₱${formatCurrency(Number(o.talent_fee_min))}`
+                                                : "No fee"}
+                                              {o.talent_fee_max &&
+                                              o.talent_fee_min !==
+                                                o.talent_fee_max
+                                                ? ` - ₱${formatCurrency(Number(o.talent_fee_max))}`
+                                                : ""}
+                                            </span>
+                                          )}
+
+                                          {o.experience_summary &&
+                                            !o.is_admin && (
+                                              <span className="text-xs bg-gray-100 text-gray-700 px-3 py-1 rounded-full font-medium">
+                                                {
+                                                  o.experience_summary.split(
+                                                    " "
+                                                  )[0]
+                                                }{" "}
+                                                exp.
+                                              </span>
+                                            )}
                                         </div>
                                       </div>
-                                    </div>
-
-                                    {selected.is_admin ? (
-                                      <div className="text-sm text-green-800">
-                                        <span className="font-medium">
-                                          Fee:
-                                        </span>{" "}
-                                        No additional fee (Admin handles event)
-                                      </div>
-                                    ) : selected.talent_fee_min ? (
-                                      <div className="text-sm text-purple-800">
-                                        <span className="font-medium">
-                                          Regular Fee:
-                                        </span>{" "}
-                                        ₱
-                                        {formatCurrency(
-                                          Number(selected.talent_fee_min)
-                                        )}
-                                        {selected.talent_fee_max &&
-                                        selected.talent_fee_min !==
-                                          selected.talent_fee_max
-                                          ? ` - ₱${formatCurrency(Number(selected.talent_fee_max))}`
-                                          : ""}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                );
-                              })()}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          )}
-
-                          <div>
-                            <Label className="text-base font-medium">
-                              Agreed Talent Fee (optional)
-                            </Label>
-                            <div className="flex items-center mt-1">
-                              <span className="bg-gray-100 p-2 border border-r-0 rounded-l-md text-gray-500">
-                                ₱
-                              </span>
-                              <Input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={
-                                  agreedFee === "" ? "" : String(agreedFee)
-                                }
-                                onChange={(e) =>
-                                  setAgreedFee(
-                                    e.target.value === ""
-                                      ? ""
-                                      : Number(e.target.value)
-                                  )
-                                }
-                                placeholder="e.g. 15000"
-                                className="rounded-l-none"
-                              />
-                            </div>
-                            <p className="text-xs text-gray-500 mt-2">
-                              If provided, this fee will be saved with the
-                              assignment and used for budget calculations.
-                            </p>
                           </div>
 
-                          {/* Assignment Note */}
-                          <div>
-                            <Label className="text-base font-medium">
-                              Assignment Note (optional)
-                            </Label>
-                            <textarea
-                              ref={notesTextareaRef}
-                              className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                              rows={3}
-                              placeholder="Add any special instructions or notes for this organizer assignment..."
-                            ></textarea>
+                          <div className="space-y-6">
+                            {/* Selected Organizer Summary */}
+                            {selectedOrganizerId && (
+                              <div className="bg-gradient-to-br from-[#028A75]/10 to-[#028A75]/5 p-6 rounded-xl border border-[#028A75]/20 shadow-sm">
+                                <h4 className="font-semibold text-[#028A75] mb-4 text-lg">
+                                  Selected Organizer
+                                </h4>
+
+                                {(() => {
+                                  const selected = organizers.find(
+                                    (o) =>
+                                      String(o.organizer_id) ===
+                                      String(selectedOrganizerId)
+                                  );
+
+                                  if (!selected) {
+                                    return (
+                                      <div className="text-sm text-[#028A75]/80">
+                                        Organizer ID: {selectedOrganizerId}
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div className="space-y-3">
+                                      <div className="flex items-center gap-4">
+                                        <div className="relative">
+                                          <img
+                                            src={
+                                              selected.profile_picture
+                                                ? `${endpoints.serveImage}?path=${encodeURIComponent(
+                                                    selected.profile_picture
+                                                  )}`
+                                                : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
+                                            }
+                                            alt="Profile"
+                                            className="h-12 w-12 rounded-full object-cover border-2 border-[#028A75]/30"
+                                          />
+                                          {selected.is_admin && (
+                                            <div className="absolute -right-1 -top-1 bg-blue-600 text-white rounded-full p-1">
+                                              <User className="h-2 w-2" />
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div>
+                                          <div className="flex items-center gap-2">
+                                            <div className="font-semibold text-[#028A75]">
+                                              {selected.first_name}{" "}
+                                              {selected.last_name}
+                                            </div>
+                                            {selected.is_admin && (
+                                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
+                                                Admin
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="text-sm text-[#028A75]/80">
+                                            {selected.is_admin
+                                              ? "Default Organizer"
+                                              : `ID: ${selected.organizer_id}`}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {selected.is_admin ? (
+                                        <div className="text-sm text-[#028A75] bg-[#028A75]/10 px-3 py-2 rounded-lg">
+                                          <span className="font-semibold">
+                                            Fee:
+                                          </span>{" "}
+                                          No additional fee (Admin handles
+                                          event)
+                                        </div>
+                                      ) : selected.talent_fee_min ? (
+                                        <div className="text-sm text-blue-800 bg-blue-100 px-3 py-2 rounded-lg">
+                                          <span className="font-semibold">
+                                            Regular Fee:
+                                          </span>{" "}
+                                          ₱
+                                          {formatCurrency(
+                                            Number(selected.talent_fee_min)
+                                          )}
+                                          {selected.talent_fee_max &&
+                                          selected.talent_fee_min !==
+                                            selected.talent_fee_max
+                                            ? ` - ₱${formatCurrency(Number(selected.talent_fee_max))}`
+                                            : ""}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+
+                            <div className="space-y-2">
+                              <Label className="text-base font-semibold text-gray-800">
+                                Agreed Talent Fee (optional)
+                              </Label>
+                              <div className="flex items-center">
+                                <span className="bg-[#028A75]/10 p-3 border border-r-0 rounded-l-lg text-[#028A75] font-medium">
+                                  ₱
+                                </span>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={
+                                    agreedFee === "" ? "" : String(agreedFee)
+                                  }
+                                  onChange={(e) =>
+                                    setAgreedFee(
+                                      e.target.value === ""
+                                        ? ""
+                                        : Number(e.target.value)
+                                    )
+                                  }
+                                  placeholder="e.g. 15000"
+                                  className="rounded-l-none h-11 border-[#028A75]/30 focus:border-[#028A75] focus:ring-[#028A75]"
+                                />
+                              </div>
+                              <p className="text-sm text-gray-600 mt-2">
+                                If provided, this fee will be saved with the
+                                assignment and used for budget calculations.
+                              </p>
+                            </div>
+
+                            {/* Assignment Note */}
+                            <div className="space-y-2">
+                              <Label className="text-base font-semibold text-gray-800">
+                                Assignment Note (optional)
+                              </Label>
+                              <textarea
+                                ref={notesTextareaRef}
+                                className="w-full px-4 py-3 border border-[#028A75]/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#028A75] focus:border-[#028A75] resize-none"
+                                rows={3}
+                                placeholder="Add any special instructions or notes for this organizer assignment..."
+                              ></textarea>
+                            </div>
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between gap-2 mt-6 border-t pt-4">
-                        <div className="text-sm text-gray-500">
+                      <div className="flex items-center justify-between gap-6 mt-8 border-t border-[#028A75]/20 pt-8 pb-8 px-8">
+                        <div className="text-sm">
                           {organizersLoading ? (
-                            <span className="flex items-center text-blue-600">
-                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-2"></div>
+                            <span className="flex items-center text-[#028A75]">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#028A75] mr-2"></div>
                               Processing...
                             </span>
                           ) : selectedOrganizerId ? (
-                            <span className="text-green-600 flex items-center">
+                            <span className="text-[#028A75] flex items-center font-medium">
                               <CheckCircle className="h-4 w-4 mr-2" />
                               Ready to assign
                             </span>
                           ) : (
-                            <span>Select an organizer to continue</span>
+                            <span className="text-gray-500">
+                              Select an organizer to continue
+                            </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-4">
                           <Button
                             variant="outline"
                             onClick={() => setShowAssignOrganizer(false)}
                             disabled={organizersLoading}
+                            className="px-8 py-3 border-gray-300 text-gray-700 hover:bg-gray-50 font-medium"
                           >
                             Cancel
                           </Button>
                           <Button
                             onClick={() => assignOrganizer()}
                             disabled={organizersLoading || !selectedOrganizerId}
-                            className={
+                            className={`px-8 py-3 font-medium ${
                               selectedOrganizerId
-                                ? "bg-purple-600 hover:bg-purple-700"
-                                : ""
-                            }
+                                ? "bg-[#028A75] hover:bg-[#028A75]/90 text-white"
+                                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                            }`}
                           >
                             {organizersLoading ? (
                               <>
@@ -6754,7 +7936,9 @@ export default function EventDetailsPage() {
                 </div>
               )}
 
-              {activeTab === "payments" && <PaymentHistoryTab event={event} />}
+              {activeTab === "payments" && (
+                <PaymentHistoryTab event={displayEvent || event} />
+              )}
 
               {activeTab === "attachments" && (
                 <div className="space-y-6">

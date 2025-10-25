@@ -267,6 +267,8 @@ export default function EventBuilderPage() {
     if (draft.venueBufferFee) setVenueBufferFee(draft.venueBufferFee);
     if (draft.selectedOrganizers)
       setSelectedOrganizers(draft.selectedOrganizers);
+    if (draft.hasExplicitOrganizerSelection !== undefined)
+      setHasExplicitOrganizerSelection(draft.hasExplicitOrganizerSelection);
 
     if (draft.paymentData) {
       // Ensure paymentData has all required fields
@@ -459,6 +461,10 @@ export default function EventBuilderPage() {
           setVenueBufferFee(savedData.venueBufferFee);
         if (savedData.selectedOrganizers)
           setSelectedOrganizers(savedData.selectedOrganizers);
+        if (savedData.hasExplicitOrganizerSelection !== undefined)
+          setHasExplicitOrganizerSelection(
+            savedData.hasExplicitOrganizerSelection
+          );
         if (savedData.paymentData) {
           const completePaymentData = {
             total: 0,
@@ -547,6 +553,8 @@ export default function EventBuilderPage() {
   >(null);
   const [venueBufferFee, setVenueBufferFee] = useState<number | null>(null);
   const [selectedOrganizers, setSelectedOrganizers] = useState<string[]>([]);
+  const [hasExplicitOrganizerSelection, setHasExplicitOrganizerSelection] =
+    useState<boolean>(false);
   const [organizerData, setOrganizerData] = useState<
     Array<{
       organizer_id: string;
@@ -947,6 +955,7 @@ export default function EventBuilderPage() {
       originalPackagePrice,
       venueBufferFee,
       selectedOrganizers,
+      hasExplicitOrganizerSelection,
       organizerData,
       paymentData,
       weddingFormData,
@@ -976,6 +985,7 @@ export default function EventBuilderPage() {
     originalPackagePrice,
     venueBufferFee,
     selectedOrganizers,
+    hasExplicitOrganizerSelection,
     organizerData,
     paymentData,
     weddingFormData,
@@ -2289,15 +2299,25 @@ export default function EventBuilderPage() {
           `${eventDetails.type?.charAt(0).toUpperCase() + eventDetails.type?.slice(1)} Event`,
       };
 
+      // Debug: Log organizer selection
+      console.log("🔍 Organizer Selection Debug:");
+      console.log("selectedOrganizers:", selectedOrganizers);
+      console.log("selectedOrganizers.length:", selectedOrganizers.length);
+      console.log(
+        "hasExplicitOrganizerSelection:",
+        hasExplicitOrganizerSelection
+      );
+      console.log("userData.user_id:", userData.user_id);
+
       // Prepare event data for API with proper field mapping to match backend expectations
       const eventData = {
         operation: "createEvent",
         original_booking_reference: isBookingEvent ? bookingReference : null,
         user_id: parseInt(clientData.id) || 0,
         admin_id: parseInt(userData.user_id) || 0,
-        // Set organizer_id; default to admin if none selected
+        // Set organizer_id; default to admin if none explicitly selected
         organizer_id:
-          selectedOrganizers.length > 0
+          hasExplicitOrganizerSelection && selectedOrganizers.length > 0
             ? parseInt(selectedOrganizers[0])
             : parseInt(userData.user_id),
         external_organizer:
@@ -3713,7 +3733,10 @@ export default function EventBuilderPage() {
       component: (
         <OrganizerSelection
           selectedIds={selectedOrganizers}
-          onSelect={setSelectedOrganizers}
+          onSelect={(organizers) => {
+            setSelectedOrganizers(organizers);
+            setHasExplicitOrganizerSelection(true);
+          }}
           onOrganizerDataUpdate={setOrganizerData}
           externalOrganizer={externalOrganizer}
           onExternalOrganizerChange={setExternalOrganizer}
@@ -4170,6 +4193,7 @@ export default function EventBuilderPage() {
     setOriginalPackagePrice(null);
     setVenueBufferFee(null);
     setSelectedOrganizers([]);
+    setHasExplicitOrganizerSelection(false);
     setOrganizerData([]);
 
     setPaymentData({

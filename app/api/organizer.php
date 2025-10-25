@@ -404,7 +404,7 @@ class Organizer {
                     $assignmentId = (int)$row['assignment_id'];
                 } else {
                     // Create a new assignment so the organizer can accept/reject
-                    $createStmt = $this->conn->prepare("\n                        INSERT INTO tbl_event_organizer_assignments (event_id, organizer_id, assigned_by, status, notes, created_at, updated_at)\n                        VALUES (?, ?, ?, ?, NULL, NOW(), NOW())\n                    ");
+                    $createStmt = $this->conn->prepare("\n                        INSERT INTO tbl_event_organizer_assignments (event_id, organizer_id, assigned_by, status, notes)\n                        VALUES (?, ?, ?, ?, NULL)\n                    ");
                     $createStmt->execute([$eventId, $organizerId, $organizerId, $status]);
                     $assignmentId = (int)$this->conn->lastInsertId();
 
@@ -498,7 +498,7 @@ class Organizer {
                     } catch (Exception $eNotif) {
                         // Fallback direct insert
                         try {
-                            $fallback = $this->conn->prepare("INSERT INTO tbl_notifications (\n                                user_id, notification_type, notification_title, notification_message,\n                                notification_priority, notification_icon, notification_url, event_id,\n                                notification_status, created_at\n                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unread', NOW())");
+                            $fallback = $this->conn->prepare("INSERT INTO tbl_notifications (\n                                user_id, notification_type, notification_title, notification_message,\n                                notification_priority, notification_icon, notification_url, event_id,\n                                notification_status\n                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unread')");
                             $fallback->execute([
                                 $adminId,
                                 $notifType,
@@ -626,6 +626,62 @@ class Organizer {
         } catch (Exception $e) {
             error_log("logOrganizerActivity error: " . $e->getMessage());
             return false;
+        }
+    }
+
+    // Get organizer's assignments with admin details
+    public function getOrganizerAssignments($organizerId) {
+        try {
+            $organizerId = (int)$organizerId;
+            if ($organizerId <= 0) {
+                return json_encode(["status" => "error", "message" => "Valid organizer ID required"]);
+            }
+
+            $stmt = $this->conn->prepare("
+                SELECT
+                    eoa.assignment_id,
+                    eoa.event_id,
+                    eoa.status as assignment_status,
+                    eoa.assigned_at,
+                    eoa.notes as assignment_notes,
+                    eoa.agreed_talent_fee,
+                    eoa.fee_currency,
+                    eoa.fee_status as payment_status,
+                    eoa.created_at,
+                    eoa.updated_at,
+                    e.event_title,
+                    e.event_date,
+                    e.event_time,
+                    e.total_budget,
+                    e.event_status,
+                    CONCAT(c.user_firstName, ' ', c.user_lastName) as client_name,
+                    c.user_email as client_email,
+                    c.user_contact as client_contact,
+                    CONCAT(admin.user_firstName, ' ', admin.user_lastName) as assigned_by_name,
+                    admin.user_email as assigned_by_email,
+                    et.event_name as event_type_name,
+                    v.venue_title,
+                    v.venue_location
+                FROM tbl_event_organizer_assignments eoa
+                LEFT JOIN tbl_events e ON eoa.event_id = e.event_id
+                LEFT JOIN tbl_users c ON e.user_id = c.user_id
+                LEFT JOIN tbl_users admin ON eoa.assigned_by = admin.user_id
+                LEFT JOIN tbl_event_type et ON e.event_type_id = et.event_type_id
+                LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
+                WHERE eoa.organizer_id = ?
+                ORDER BY eoa.assigned_at DESC
+            ");
+            $stmt->execute([$organizerId]);
+            $assignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return json_encode([
+                "status" => "success",
+                "assignments" => $assignments
+            ]);
+
+        } catch (Exception $e) {
+            error_log("getOrganizerAssignments error: " . $e->getMessage());
+            return json_encode(["status" => "error", "message" => "Failed to fetch organizer assignments: " . $e->getMessage()]);
         }
     }
 
@@ -1061,6 +1117,74 @@ class Organizer {
              return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
          }
      }
+
+     // Upload profile picture for organizer
+     public function uploadProfilePicture($file, $userId) {
+         try {
+             // Debug logging
+             error_log("uploadProfilePicture - userId: $userId, file: " . json_encode($file));
+
+             $uploadDir = "uploads/profile_pictures/";
+
+             // Create directory if it doesn't exist
+             if (!file_exists($uploadDir)) {
+                 mkdir($uploadDir, 0777, true);
+             }
+
+             // Validate file type
+             $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+             $fileType = $file['type'] ?? mime_content_type($file['tmp_name']);
+
+             if (!in_array($fileType, $allowedTypes)) {
+                 return json_encode([
+                     "status" => "error",
+                     "message" => "Invalid file type. Only images are allowed."
+                 ]);
+             }
+
+             // Generate unique filename
+             $fileExtension = pathinfo($file['name'], PATHINFO_EXTENSION);
+             if (empty($fileExtension)) {
+                 $fileExtension = 'jpg'; // Default for blob uploads
+             }
+             $fileName = 'profile_' . $userId . '_' . time() . '.' . $fileExtension;
+             $filePath = $uploadDir . $fileName;
+
+             // Delete old profile picture if exists
+             $getUserSql = "SELECT user_pfp FROM tbl_users WHERE user_id = ?";
+             $getUserStmt = $this->conn->prepare($getUserSql);
+             $getUserStmt->execute([$userId]);
+             $userData = $getUserStmt->fetch(PDO::FETCH_ASSOC);
+
+             if ($userData && $userData['user_pfp'] && file_exists($userData['user_pfp'])) {
+                 unlink($userData['user_pfp']);
+             }
+
+             // Move uploaded file
+             if (move_uploaded_file($file['tmp_name'], $filePath)) {
+                 // Update user profile picture in database
+                 $updateSql = "UPDATE tbl_users SET user_pfp = ? WHERE user_id = ?";
+                 $updateStmt = $this->conn->prepare($updateSql);
+                 $updateStmt->execute([$filePath, $userId]);
+
+                 return json_encode([
+                     "status" => "success",
+                     "filePath" => $filePath,
+                     "message" => "Profile picture uploaded successfully"
+                 ]);
+             } else {
+                 return json_encode([
+                     "status" => "error",
+                     "message" => "Failed to upload file"
+                 ]);
+             }
+         } catch (Exception $e) {
+             return json_encode([
+                 "status" => "error",
+                 "message" => "Error uploading profile picture: " . $e->getMessage()
+             ]);
+         }
+     }
 }
 
 if (!$pdo) {
@@ -1171,6 +1295,15 @@ try {
             }
             break;
 
+        case "getOrganizerAssignments":
+            $organizerId = (int)($_GET['organizer_id'] ?? ($data['organizer_id'] ?? 0));
+            if ($organizerId <= 0) {
+                echo json_encode(["status" => "error", "message" => "Valid organizer ID required"]);
+            } else {
+                echo $organizer->getOrganizerAssignments($organizerId);
+            }
+            break;
+
         case "updateComponentDeliveryStatus":
             echo $organizer->updateComponentDeliveryStatus($data);
             break;
@@ -1194,6 +1327,40 @@ try {
                  echo $organizer->getWeddingDetails($eventId, $organizerId);
              }
              break;
+
+        case "uploadProfilePicture":
+            // Debug logging
+            error_log("uploadProfilePicture case - POST data: " . json_encode($_POST));
+            error_log("uploadProfilePicture case - FILES data: " . json_encode($_FILES));
+
+            if (isset($_FILES['file'])) {
+                $userId = (int)($_POST['user_id'] ?? 0);
+                error_log("uploadProfilePicture case - userId: $userId");
+                if ($userId > 0) {
+                    // Verify the user exists and is an organizer
+                    $userCheck = $pdo->prepare("SELECT u.user_id, u.user_role FROM tbl_users u LEFT JOIN tbl_organizer o ON u.user_id = o.user_id WHERE u.user_id = ?");
+                    $userCheck->execute([$userId]);
+                    $userData = $userCheck->fetch(PDO::FETCH_ASSOC);
+
+                    error_log("uploadProfilePicture case - userData: " . json_encode($userData));
+
+                    if (!$userData) {
+                        error_log("uploadProfilePicture case - User not found for userId: $userId");
+                        echo json_encode(["status" => "error", "message" => "User not found"]);
+                    } else if (!in_array(strtolower($userData['user_role']), ['organizer', 'vendor'])) {
+                        error_log("uploadProfilePicture case - Invalid user role: " . $userData['user_role']);
+                        echo json_encode(["status" => "error", "message" => "Invalid user role. Only organizers can upload profile pictures."]);
+                    } else {
+                        error_log("uploadProfilePicture case - User validation passed, proceeding with upload");
+                        echo $organizer->uploadProfilePicture($_FILES['file'], $userId);
+                    }
+                } else {
+                    echo json_encode(["status" => "error", "message" => "Valid user ID is required"]);
+                }
+            } else {
+                echo json_encode(["status" => "error", "message" => "No file uploaded"]);
+            }
+            break;
 
         default:
             echo json_encode([

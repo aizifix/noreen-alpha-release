@@ -538,7 +538,7 @@ export default function OrganizerProfilePage() {
         isOpen={showProfilePictureModal}
         onClose={() => setShowProfilePictureModal(false)}
         onUploadSuccess={handleProfilePictureUpload}
-        uploadEndpoint={adminApi}
+        uploadEndpoint={endpoints.organizer}
         userId={profile?.user_id || 0}
       />
     </div>

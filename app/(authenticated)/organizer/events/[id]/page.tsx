@@ -68,6 +68,7 @@ interface Event {
   attachments?: any[];
   organizer_id?: number;
   venue_id?: number;
+  admin_id?: number;
   organizer_payment_status?: "unpaid" | "partial" | "paid" | "cancelled";
   venue_payment_status?: "unpaid" | "partial" | "paid" | "cancelled";
 }
@@ -165,13 +166,20 @@ export default function OrganizerEventDetailsPage() {
           router.push("/organizer/events");
           return;
         }
-        await fetchEventDetails();
+        // Don't fetch event details here - wait for organizerId to be set
       } catch (error) {
         router.push("/auth/login");
       }
     };
     checkAuth();
   }, [router, eventId]);
+
+  // Fetch event details when organizerId is available
+  useEffect(() => {
+    if (organizerId) {
+      fetchEventDetails();
+    }
+  }, [organizerId]);
 
   // Fetch delivery progress when organizerId is available and all components are paid
   useEffect(() => {
@@ -220,6 +228,7 @@ export default function OrganizerEventDetailsPage() {
       const response = await axios.post(endpoints.organizer, {
         operation: "getOrganizerEventDetails",
         event_id: parseInt(eventId),
+        organizer_id: organizerId,
       });
 
       console.log("📡 Organizer API Response:", response.data);
@@ -258,6 +267,7 @@ export default function OrganizerEventDetailsPage() {
           additional_notes: raw.additional_notes || raw.notes || undefined,
           assignment_status: raw.assignment_status || raw.status || undefined,
           assigned_at: raw.assigned_at || undefined,
+          admin_id: raw.admin_id ? Number(raw.admin_id) : undefined,
           components: Array.isArray(raw.components) ? raw.components : [],
           timeline: Array.isArray(raw.timeline) ? raw.timeline : [],
           payments: Array.isArray(raw.payments) ? raw.payments : [],
@@ -482,15 +492,28 @@ export default function OrganizerEventDetailsPage() {
 
         // Send notification to admin
         if (isDelivered) {
-          // Notify admin about delivery confirmation
-          await axios.post("/notifications.php", {
-            operation: "create",
-            user_id: "admin", // This would need to be the actual admin user ID
-            notification_title: "Component Delivered",
-            notification_message: `${component.component_name} has been delivered for event ${event.event_title}`,
-            notification_type: "delivery_confirmation",
-            event_id: event.event_id,
-          });
+          try {
+            // Get admin user ID from event data or default to 1
+            const adminUserId = event.admin_id || 1;
+
+            // Notify admin about delivery confirmation
+            await axios.post("/notifications.php", {
+              operation: "create_notification",
+              user_id: adminUserId,
+              title: "Component Delivered",
+              message: `${component.component_name} has been delivered for event ${event.event_title}`,
+              type: "delivery_confirmation",
+              event_id: event.event_id,
+              priority: "medium",
+              icon: "package-check",
+            });
+          } catch (notificationError) {
+            console.warn(
+              "Failed to send notification to admin:",
+              notificationError
+            );
+            // Don't throw error - notification failure shouldn't break the main flow
+          }
         }
       } else {
         console.error("API Error Response:", response.data);

@@ -1016,10 +1016,10 @@ function getClientEventDetails($userId, $eventId) {
         $stmt = $pdo->prepare("
             SELECT
                 ec.*,
-                pc.component_name as original_component_name,
-                pc.component_description as original_component_description
+                pc.inclusion_name as original_component_name,
+                pc.components_list as original_component_description
             FROM tbl_event_components ec
-            LEFT JOIN tbl_package_inclusions pc ON ec.original_package_component_id = pc.component_id
+            LEFT JOIN tbl_package_inclusions pc ON ec.original_package_component_id = pc.inclusion_id
             WHERE ec.event_id = ?
             ORDER BY ec.display_order
         ");

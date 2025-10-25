@@ -26,8 +26,11 @@ export function LocalStorageRecoveryModal({
   currentStep = 1,
 }: LocalStorageRecoveryModalProps) {
   return (
-    <Dialog open={isOpen} onOpenChange={() => {}}>
-      <DialogContent className="max-w-md">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent
+        className="max-w-md"
+        onPointerDownOutside={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-yellow-500" />
@@ -53,11 +56,11 @@ export function LocalStorageRecoveryModal({
           </div>
         </div>
 
-        <DialogFooter className="flex gap-2">
+        <DialogFooter className="flex flex-col sm:flex-row gap-2 sm:justify-end">
           <Button
             variant="outline"
             onClick={onCancel}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 order-3 sm:order-1"
           >
             <X className="h-4 w-4" />
             Cancel
@@ -65,12 +68,15 @@ export function LocalStorageRecoveryModal({
           <Button
             variant="destructive"
             onClick={onDiscard}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 order-2"
           >
             <Trash2 className="h-4 w-4" />
             Discard
           </Button>
-          <Button onClick={onSave} className="flex items-center gap-2">
+          <Button
+            onClick={onSave}
+            className="flex items-center gap-2 order-1 sm:order-3 bg-[#028A75] hover:bg-[#027a65]"
+          >
             <Save className="h-4 w-4" />
             Save & Continue
           </Button>

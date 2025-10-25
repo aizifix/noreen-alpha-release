@@ -493,6 +493,9 @@ export default function EventBuilderPage() {
   const [bookingReference, setBookingReference] = useState<string>(
     bookingRefFromUrl || ""
   );
+
+  // Track if this event is actually being created from a booking
+  const [isBookingEvent, setIsBookingEvent] = useState<boolean>(false);
   const [lookupLoading, setLookupLoading] = useState<boolean>(false);
 
   // State to track if wedding packages are available
@@ -1161,7 +1164,8 @@ export default function EventBuilderPage() {
     }
 
     // Apply reservation fee adjustment if we have a booking
-    if (reservedPaymentData.reservedPaymentTotal > 0) {
+    // Only apply reservation fee if this event is actually created from a booking
+    if (reservedPaymentData.reservedPaymentTotal > 0 && isBookingEvent) {
       console.log(
         `💰 Subtracting reservation fee: ₱${reservedPaymentData.reservedPaymentTotal.toLocaleString()}`
       );
@@ -2288,7 +2292,7 @@ export default function EventBuilderPage() {
       // Prepare event data for API with proper field mapping to match backend expectations
       const eventData = {
         operation: "createEvent",
-        original_booking_reference: bookingReference || null,
+        original_booking_reference: isBookingEvent ? bookingReference : null,
         user_id: parseInt(clientData.id) || 0,
         admin_id: parseInt(userData.user_id) || 0,
         // Set organizer_id; default to admin if none selected
@@ -2324,12 +2328,15 @@ export default function EventBuilderPage() {
         total_budget: Number(
           (parseFloat(calculateEventSummaryTotal()?.toString()) || 0).toFixed(2)
         ),
-        reserved_payment_total: Number(
-          (
-            parseFloat(reservedPaymentData?.reservedPaymentTotal?.toString()) ||
-            0
-          ).toFixed(2)
-        ),
+        reserved_payment_total: isBookingEvent
+          ? Number(
+              (
+                parseFloat(
+                  reservedPaymentData?.reservedPaymentTotal?.toString()
+                ) || 0
+              ).toFixed(2)
+            )
+          : 0,
         adjusted_total: Number(
           (parseFloat(calculateEventSummaryTotal()?.toString()) || 0).toFixed(2)
         ),
@@ -2397,19 +2404,21 @@ export default function EventBuilderPage() {
 
           return eventAttachments.length > 0 ? eventAttachments : [];
         })(),
-        // Components data
+        // Components data - only include components that are actually included
         components:
-          components?.map((comp, index) => ({
-            component_name: comp.name || "",
-            component_price: parseFloat(comp.price?.toString() || "0") || 0,
-            component_description: (comp as any).description || "",
-            is_custom: comp.isCustom || false,
-            is_included: comp.included !== false,
-            original_package_component_id: (comp as any).originalId || null,
-            supplier_id: (comp as any).supplier_id || null,
-            offer_id: (comp as any).offer_id || null,
-            display_order: index,
-          })) || [],
+          components
+            ?.filter((comp) => comp.included !== false)
+            ?.map((comp, index) => ({
+              component_name: comp.name || "",
+              component_price: parseFloat(comp.price?.toString() || "0") || 0,
+              component_description: (comp as any).description || "",
+              is_custom: comp.isCustom || false,
+              is_included: true, // All components sent are included
+              original_package_component_id: (comp as any).originalId || null,
+              supplier_id: (comp as any).supplier_id || null,
+              offer_id: (comp as any).offer_id || null,
+              display_order: index,
+            })) || [],
       };
 
       console.log("Creating event with data:", eventData);
@@ -3076,6 +3085,9 @@ export default function EventBuilderPage() {
           clientFinalTotal,
           reservedGuestCount, // Lock the guest count from booking
         });
+
+        // Mark this as a booking event since we successfully loaded booking data
+        setIsBookingEvent(true);
 
         toast.success(
           `Booking ${refToUse} found and form fields populated! Step 1 (Package) and Step 2 (Client Details) have been pre-filled. You can now create an event from this booking.`
@@ -3961,19 +3973,21 @@ export default function EventBuilderPage() {
                     </span>
                   </div>
 
-                  {/* Reserved Fee Section */}
-                  {reservedPaymentData.reservedPaymentTotal > 0 && (
-                    <div className="flex justify-between items-center text-blue-600">
-                      <span>Reserved Fee (from booking):</span>
-                      <span className="font-semibold">
-                        {formatCurrency(
-                          reservedPaymentData.reservedPaymentTotal
-                        )}
-                      </span>
-                    </div>
-                  )}
+                  {/* Reserved Fee Section - Only show for events created from bookings */}
+                  {reservedPaymentData.reservedPaymentTotal > 0 &&
+                    isBookingEvent && (
+                      <div className="flex justify-between items-center text-blue-600">
+                        <span>Reserved Fee (from booking):</span>
+                        <span className="font-semibold">
+                          {formatCurrency(
+                            reservedPaymentData.reservedPaymentTotal
+                          )}
+                        </span>
+                      </div>
+                    )}
 
-                  {reservedPaymentData.reservedPaymentTotal > 0 ? (
+                  {reservedPaymentData.reservedPaymentTotal > 0 &&
+                  isBookingEvent ? (
                     <>
                       <div className="border-t pt-3">
                         <div className="flex justify-between items-center text-lg font-bold">

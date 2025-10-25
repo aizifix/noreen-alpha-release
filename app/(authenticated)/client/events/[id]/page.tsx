@@ -1107,11 +1107,11 @@ function PackageInclusionsManagement({
   const [isEditing, setIsEditing] = useState(false);
   const isEventFinalized = !!event.finalized_at;
   const [components, setComponents] = useState<EventComponent[]>(
-    event.components || []
+    (event.components || []).filter((comp) => comp.is_included)
   );
   const [originalComponents, setOriginalComponents] = useState<
     EventComponent[]
-  >(event.components || []);
+  >((event.components || []).filter((comp) => comp.is_included));
   const [newComponent, setNewComponent] = useState({
     component_name: "",
     component_description: "",
@@ -1834,68 +1834,70 @@ function PackageInclusionsManagement({
         <div className="space-y-4">
           {components.length > 0 ? (
             <>
-              {components.map((component, index) => (
-                <div
-                  key={
-                    component?.component_id
-                      ? `component-${component.component_id}`
-                      : `component-temp-${index}-${component?.component_name || component?.display_order || ""}`
-                  }
-                  className={`border rounded-lg p-4 transition-all ${
-                    component.is_included
-                      ? "border-green-200 bg-green-50"
-                      : "border-gray-200 bg-gray-50"
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3 flex-1">
-                      <div className="flex items-center gap-2">
-                        {component.is_included ? (
-                          <CheckCircle className="h-5 w-5 text-green-600" />
-                        ) : (
-                          <Circle className="h-5 w-5 text-gray-400" />
-                        )}
-                        {isEditing && (
-                          <input
-                            type="checkbox"
-                            checked={component.is_included}
-                            onChange={() =>
+              {components
+                .filter((component) => component.is_included)
+                .map((component, index) => (
+                  <div
+                    key={
+                      component?.component_id
+                        ? `component-${component.component_id}`
+                        : `component-temp-${index}-${component?.component_name || component?.display_order || ""}`
+                    }
+                    className={`border rounded-lg p-4 transition-all ${
+                      component.is_included
+                        ? "border-green-200 bg-green-50"
+                        : "border-gray-200 bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="flex items-center gap-2">
+                          {component.is_included ? (
+                            <CheckCircle className="h-5 w-5 text-green-600" />
+                          ) : (
+                            <Circle className="h-5 w-5 text-gray-400" />
+                          )}
+                          {isEditing && (
+                            <input
+                              type="checkbox"
+                              checked={component.is_included}
+                              onChange={() =>
+                                handleToggleInclusion(component.component_id)
+                              }
+                              className="rounded border-gray-300"
+                            />
+                          )}
+                        </div>
+
+                        <div className="flex-1">
+                          <ComponentDisplay
+                            component={component}
+                            isEditing={isEditing}
+                            onEdit={() =>
+                              handleEditComponent(component.component_id)
+                            }
+                            onDelete={() =>
+                              handleDeleteComponent(component.component_id)
+                            }
+                            onToggleInclusion={() =>
                               handleToggleInclusion(component.component_id)
                             }
-                            className="rounded border-gray-300"
+                            loading={loading}
+                            onUpdateComponent={
+                              readOnly ? undefined : handleUpdateComponent
+                            }
+                            onSetPaymentStatus={
+                              readOnly
+                                ? undefined
+                                : (id, status) =>
+                                    handlePaymentStatusChange(id, status)
+                            }
                           />
-                        )}
-                      </div>
-
-                      <div className="flex-1">
-                        <ComponentDisplay
-                          component={component}
-                          isEditing={isEditing}
-                          onEdit={() =>
-                            handleEditComponent(component.component_id)
-                          }
-                          onDelete={() =>
-                            handleDeleteComponent(component.component_id)
-                          }
-                          onToggleInclusion={() =>
-                            handleToggleInclusion(component.component_id)
-                          }
-                          loading={loading}
-                          onUpdateComponent={
-                            readOnly ? undefined : handleUpdateComponent
-                          }
-                          onSetPaymentStatus={
-                            readOnly
-                              ? undefined
-                              : (id, status) =>
-                                  handlePaymentStatusChange(id, status)
-                          }
-                        />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
             </>
           ) : (
             <div className="text-center py-8 text-gray-500">

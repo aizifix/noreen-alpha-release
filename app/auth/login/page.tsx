@@ -112,6 +112,7 @@ const LoginPage = () => {
           description: "Please solve the math challenge correctly to continue.",
           variant: "destructive",
         });
+        setIsLoading(false);
         return;
       }
       formDataToSend.append("captcha", "math_challenge_passed"); // Send placeholder value
@@ -133,8 +134,9 @@ const LoginPage = () => {
             response.data.message || "Check your email for the code.",
         });
 
-        // Immediate redirect to OTP page
+        // Keep loading state active during navigation to OTP page
         router.push("/auth/verify-otp");
+        // Don't reset loading state here - let it continue until navigation completes
       } else if (response.data.status === "success" && response.data.user) {
         // Direct login success (OTP may be disabled globally). Check per-user OTP preference for organizer/vendor.
         try {
@@ -167,6 +169,7 @@ const LoginPage = () => {
                 description: "Check your email for the code.",
               });
               // Do NOT store user yet; require OTP verification
+              // Keep loading state active during navigation to OTP page
               router.push("/auth/verify-otp");
               return;
             }
@@ -177,6 +180,7 @@ const LoginPage = () => {
           const { secureStorage } = await import("@/app/utils/encryption");
           secureStorage.setItem("user", userData);
 
+          // Keep loading state active during navigation
           if (role === "admin") router.replace("/admin/dashboard");
           else if (role === "staff") router.replace("/staff/dashboard");
           else if (role === "organizer") router.replace("/organizer/dashboard");
@@ -188,6 +192,7 @@ const LoginPage = () => {
             description: "Please try again.",
             variant: "destructive",
           });
+          setIsLoading(false);
         }
       } else if (response.data.status === "error") {
         toast({
@@ -195,12 +200,16 @@ const LoginPage = () => {
           description: response.data.message || "Invalid credentials.",
           variant: "destructive",
         });
+        generateMathChallenge();
+        setIsLoading(false);
       } else {
         toast({
           title: "Unexpected response",
           description: "Please try again.",
           variant: "destructive",
         });
+        generateMathChallenge();
+        setIsLoading(false);
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -209,11 +218,12 @@ const LoginPage = () => {
         description: "Error logging in. Please try again.",
         variant: "destructive",
       });
-    } finally {
-      // Always regenerate the math challenge and reset loading state
       generateMathChallenge();
       setIsLoading(false);
     }
+
+    // Only regenerate math challenge for error cases, not for successful navigation
+    // The loading state will remain active during successful navigation
   };
 
   // Don't render until client-side
@@ -533,9 +543,9 @@ const LoginPage = () => {
                   whileTap={{ scale: 0.98 }}
                 >
                   {isLoading ? (
-                    <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-white mr-2"></div>
-                      Signing in...
+                    <div className="flex items-center justify-center gap-2">
+                      <span>Signing in</span>
+                      <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-2 border-white border-t-transparent" />
                     </div>
                   ) : (
                     "Sign In"

@@ -528,7 +528,7 @@ export default function EventsPage() {
         <div
           key={day}
           className={`min-h-[120px] p-2 border transition-colors duration-200 ${
-            isPastDate ? "opacity-75 bg-gray-50 border-gray-200" : ""
+            isPastDate ? "bg-gray-50 border-gray-200" : ""
           } ${
             isToday ? "bg-blue-50 border-blue-200" : "border-gray-200"
           } ${isSelected ? "ring-2 ring-[#028A75]" : ""} cursor-pointer hover:bg-gray-50`}
@@ -549,11 +549,14 @@ export default function EventsPage() {
             {dayEvents.slice(0, 3).map((event, index) => {
               const derivedStatus = getDerivedEventStatus(event);
               const colors = getStatusColor(derivedStatus);
+              // Only apply opacity to past events, not to on-going events (today's events)
+              const shouldApplyOpacity =
+                isPastDate && derivedStatus !== "on_going";
               return (
                 <div
                   key={event.event_id}
                   className={`text-xs p-1 rounded truncate ${colors.bg} ${colors.text} ${
-                    isPastDate ? "opacity-70" : "hover:opacity-80"
+                    shouldApplyOpacity ? "opacity-70" : "hover:opacity-80"
                   } transition-opacity duration-200 cursor-pointer`}
                   title={`${event.event_title} - ${event.client_name || "Unknown Client"}${event.start_time && event.end_time ? ` (${format(new Date(`2000-01-01T${event.start_time}`), "h:mm a")} - ${format(new Date(`2000-01-01T${event.end_time}`), "h:mm a")})` : ""}`}
                   onClick={(e) => {
@@ -564,7 +567,7 @@ export default function EventsPage() {
                 >
                   <div className="font-medium">{event.event_title}</div>
                   {event.start_time && event.end_time && (
-                    <div className="text-xs opacity-75 mt-0.5">
+                    <div className="text-xs mt-0.5">
                       {format(
                         new Date(`2000-01-01T${event.start_time}`),
                         "h:mm a"
@@ -689,12 +692,15 @@ export default function EventsPage() {
               const derivedStatus = getDerivedEventStatus(event);
               const colors = getStatusColor(derivedStatus);
               const paymentColors = getPaymentStatusColor(event.payment_status);
+              // Only apply opacity to past events, not to on-going events (today's events)
+              const shouldApplyOpacity =
+                isPastDate && derivedStatus !== "on_going";
 
               return (
                 <div
                   key={event.event_id}
                   className={`p-4 rounded-lg border-l-4 ${colors.border} ${colors.bg} ${
-                    isPastDate ? "opacity-80" : "hover:opacity-80"
+                    shouldApplyOpacity ? "opacity-80" : "hover:opacity-80"
                   } transition-all duration-200 animate-in slide-in-from-right-4 delay-${index * 100} cursor-pointer`}
                   onClick={() => router.push(`/admin/events/${event.event_id}`)}
                 >

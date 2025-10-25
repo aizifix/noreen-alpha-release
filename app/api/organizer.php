@@ -95,11 +95,39 @@ class Organizer {
     }
 
     // Get specific event details for organizer
-    public function getOrganizerEventDetails($eventId) {
+    public function getOrganizerEventDetails($eventId, $organizerId = null) {
         try {
             $eventId = (int)$eventId;
             if ($eventId <= 0) {
                 return json_encode(["status" => "error", "message" => "Valid event ID required"]);
+            }
+
+            // First check if the event exists
+            $checkStmt = $this->conn->prepare("SELECT event_id FROM tbl_events WHERE event_id = ?");
+            $checkStmt->execute([$eventId]);
+            if (!$checkStmt->fetch()) {
+                return json_encode([
+                    "status" => "error",
+                    "message" => "Event not found"
+                ]);
+            }
+
+            // If organizer_id is provided, verify they have access to this event
+            if ($organizerId) {
+                $organizerId = (int)$organizerId;
+                $accessStmt = $this->conn->prepare("
+                    SELECT eoa.assignment_id
+                    FROM tbl_event_organizer_assignments eoa
+                    WHERE eoa.event_id = ? AND eoa.organizer_id = ?
+                    AND eoa.status IN ('assigned', 'accepted')
+                ");
+                $accessStmt->execute([$eventId, $organizerId]);
+                if (!$accessStmt->fetch()) {
+                    return json_encode([
+                        "status" => "error",
+                        "message" => "Access denied: You are not assigned to this event"
+                    ]);
+                }
             }
 
             $stmt = $this->conn->prepare("
@@ -1086,10 +1114,11 @@ try {
 
         case "getOrganizerEventDetails":
             $eventId = (int)($_GET['event_id'] ?? ($data['event_id'] ?? 0));
+            $organizerId = (int)($_GET['organizer_id'] ?? ($data['organizer_id'] ?? 0));
             if ($eventId <= 0) {
                 echo json_encode(["status" => "error", "message" => "Valid event ID required"]);
             } else {
-                echo $organizer->getOrganizerEventDetails($eventId);
+                echo $organizer->getOrganizerEventDetails($eventId, $organizerId > 0 ? $organizerId : null);
             }
             break;
 

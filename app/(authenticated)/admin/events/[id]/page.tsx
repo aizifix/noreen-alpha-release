@@ -2734,6 +2734,16 @@ function PackageInclusionsManagement({
 
         // Refresh event data to get updated stats
         await onEventUpdate();
+
+        // Update event payment status on the server
+        try {
+          await axios.post(endpoints.admin, {
+            operation: "updateEventPaymentStatus",
+            event_id: event.event_id,
+          });
+        } catch (error) {
+          console.error("Failed to update event payment status:", error);
+        }
       } else {
         toast({
           title: "Error",
@@ -3442,7 +3452,16 @@ function ComponentDisplay({
   if (!isEditing) {
     // Read-only display mode with Accordion
     return (
-      <Accordion type="single" collapsible className="w-full">
+      <Accordion
+        type="single"
+        collapsible
+        className="w-full"
+        defaultValue={
+          component.subComponents && component.subComponents.length > 0
+            ? "component-details"
+            : undefined
+        }
+      >
         <AccordionItem value="component-details" className="border-none">
           <div className="flex items-start justify-between">
             <div className="flex-1">
@@ -3557,15 +3576,23 @@ function ComponentDisplay({
                 <div className="ml-4 space-y-1">
                   {component.subComponents &&
                   component.subComponents.length > 0 ? (
-                    component.subComponents.map((subComp, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-start gap-2 text-sm text-gray-700 py-1"
-                      >
-                        <span className="text-[#028A75] font-bold">•</span>
-                        <span>{subComp.name}</span>
-                      </div>
-                    ))
+                    component.subComponents.map((subComp, idx) => {
+                      console.log(
+                        "SubComponent:",
+                        subComp,
+                        "Type:",
+                        typeof subComp
+                      );
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-2 text-sm text-gray-700 py-1"
+                        >
+                          <span className="text-[#028A75] font-bold">•</span>
+                          <span>{subComp.name}</span>
+                        </div>
+                      );
+                    })
                   ) : (
                     <div className="text-sm text-gray-500 italic py-2">
                       No component details available
@@ -3702,7 +3729,16 @@ function ComponentDisplay({
 
   // Edit mode (not inline editing) with Accordion
   return (
-    <Accordion type="single" collapsible className="w-full">
+    <Accordion
+      type="single"
+      collapsible
+      className="w-full"
+      defaultValue={
+        component.subComponents && component.subComponents.length > 0
+          ? "component-details-edit"
+          : undefined
+      }
+    >
       <AccordionItem value="component-details-edit" className="border-none">
         <div className="flex items-start justify-between">
           <div className="flex-1">
@@ -3813,15 +3849,23 @@ function ComponentDisplay({
               <div className="ml-4 space-y-1">
                 {component.subComponents &&
                 component.subComponents.length > 0 ? (
-                  component.subComponents.map((subComp, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-start gap-2 text-sm text-gray-700 py-1"
-                    >
-                      <span className="text-[#028A75] font-bold">•</span>
-                      <span>{subComp.name}</span>
-                    </div>
-                  ))
+                  component.subComponents.map((subComp, idx) => {
+                    console.log(
+                      "Edit SubComponent:",
+                      subComp,
+                      "Type:",
+                      typeof subComp
+                    );
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-start gap-2 text-sm text-gray-700 py-1"
+                      >
+                        <span className="text-[#028A75] font-bold">•</span>
+                        <span>{subComp.name}</span>
+                      </div>
+                    );
+                  })
                 ) : (
                   <div className="text-sm text-gray-500 italic py-2">
                     No component details available
@@ -3918,7 +3962,12 @@ function EventTimeline({
         ) || false;
 
       const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
-      const remaining = event.total_budget - totalPaid;
+
+      // Add reserved payment total if it exists and is separate from down payment
+      const reservedPaymentTotal = Number(event.reserved_payment_total || 0);
+      const finalTotalPaid = totalPaid + reservedPaymentTotal;
+
+      const remaining = event.total_budget - finalTotalPaid;
 
       // If fully paid (no remaining balance), return "paid"
       if (remaining <= 0 && event.total_budget > 0) {
@@ -3926,7 +3975,7 @@ function EventTimeline({
       }
 
       // If partially paid, return "partial"
-      if (totalPaid > 0 && remaining > 0) {
+      if (finalTotalPaid > 0 && remaining > 0) {
         return "partial";
       }
 
@@ -4620,6 +4669,18 @@ function PaymentHistoryTab({ event }: { event: Event }) {
 
       // Refresh payment history
       await fetchPaymentHistory();
+
+      // Update event payment status on the server
+      try {
+        await axios.post(endpoints.admin, {
+          operation: "updateEventPaymentStatus",
+          event_id: event.event_id,
+        });
+      } catch (error) {
+        console.error("Failed to update event payment status:", error);
+      }
+
+      // Event payment status will be updated automatically on the server
     } catch (e) {
       console.error(e);
       toast({
@@ -5668,11 +5729,34 @@ export default function EventDetailsPage() {
   const getDerivedEventStatusLocal = (evt: Event) => {
     if (evt.event_status === "cancelled") return "cancelled";
     const today = getTodayStringLocal();
+
+    // Events happening today are "on_going" (blue)
     if (evt.event_date === today) return "on_going";
+
+    // Past events are "done" (purple)
     if (evt.event_date < today) return "done";
-    // Check if event is confirmed
-    if (evt.event_status === "confirmed") return "confirmed";
-    // Show as Planning for non-confirmed events
+
+    // For future events, check payment completion to determine status
+    // Check if all inclusions are paid
+    const allInclusionsPaid = (evt.components || []).every((component) => {
+      // Only check included components
+      if (!component.is_included) return true;
+
+      // Check if component payment status is "paid"
+      return component.payment_status === "paid";
+    });
+
+    // Also check organizer and venue payment status
+    const organizerPaid =
+      !evt.organizer_id || evt.organizer_payment_status === "paid";
+    const venuePaid = !evt.venue_id || evt.venue_payment_status === "paid";
+
+    // If all inclusions, organizer, and venue are paid, show as "confirmed" (green)
+    if (allInclusionsPaid && organizerPaid && venuePaid) {
+      return "confirmed";
+    }
+
+    // Otherwise show as "planning" (yellow) for future events
     return "planning";
   };
 
@@ -6926,13 +7010,20 @@ export default function EventDetailsPage() {
       ) || false;
 
     const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
-    const remaining = event.total_budget - totalPaid;
+
+    // Add reserved payment total if it exists and is separate from down payment
+    const reservedPaymentTotal = Number(event.reserved_payment_total || 0);
+    const finalTotalPaid = totalPaid + reservedPaymentTotal;
+
+    const remaining = event.total_budget - finalTotalPaid;
 
     console.log("Derived payment status calculation:", {
       paymentsTotal,
       downPayment,
       downPaymentIncluded,
+      reservedPaymentTotal,
       totalPaid,
+      finalTotalPaid,
       remaining,
       totalBudget: event.total_budget,
       mainPaymentHistory: mainPaymentHistory?.length || 0,
@@ -6945,7 +7036,7 @@ export default function EventDetailsPage() {
     }
 
     // If partially paid, return "partial"
-    if (totalPaid > 0 && remaining > 0) {
+    if (finalTotalPaid > 0 && remaining > 0) {
       return "partial";
     }
 
@@ -7414,115 +7505,108 @@ export default function EventDetailsPage() {
                             <span className="font-medium">Assigned by:</span>{" "}
                             Admin
                           </div>
-                          <div className="col-span-1 md:col-span-2 flex items-center gap-2 mt-1">
-                            <div className="text-xs text-gray-500">
-                              Payment Status:
-                            </div>
-                            <div className="relative">
-                              {!event.organizer_id ? (
-                                <span className="px-2 py-1 text-xs rounded-full border bg-green-50 text-green-800 border-green-200 inline-flex items-center gap-1">
-                                  <CheckCircle className="h-3 w-3" />
-                                  Paid (Admin)
-                                </span>
-                              ) : (
-                                <button
-                                  disabled={!isOrganizerEditing}
-                                  className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(event.organizer_payment_status || "unpaid")} ${!isOrganizerEditing ? "opacity-60 cursor-not-allowed" : ""}`}
-                                  onClick={(e) => {
-                                    if (!isOrganizerEditing) return;
-                                    e.preventDefault();
-                                    setShowOrganizerStatusMenu((prev) => !prev);
-                                  }}
-                                >
-                                  {(event.organizer_payment_status ||
-                                    "unpaid") === "paid" && (
-                                    <CheckCircle className="h-3 w-3" />
-                                  )}
-                                  {(event.organizer_payment_status ||
-                                    "unpaid") === "partial" && (
-                                    <Percent className="h-3 w-3" />
-                                  )}
-                                  {(event.organizer_payment_status ||
-                                    "unpaid") === "unpaid" && (
-                                    <Wallet className="h-3 w-3" />
-                                  )}
-                                  {(event.organizer_payment_status ||
-                                    "unpaid") === "cancelled" && (
-                                    <X className="h-3 w-3" />
-                                  )}
-                                  {formatPaymentStatusLabel(
-                                    event.organizer_payment_status || "unpaid"
-                                  )}
-                                </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Payment Status - Always Visible */}
+                    {(event.organizer_id ||
+                      (!event.organizer_id && event.admin_id)) && (
+                      <div className="mt-4 flex items-center gap-2">
+                        <div className="text-xs text-gray-500">
+                          Payment Status:
+                        </div>
+                        <div className="relative">
+                          {!event.organizer_id ? (
+                            <span className="px-2 py-1 text-xs rounded-full border bg-green-50 text-green-800 border-green-200 inline-flex items-center gap-1">
+                              <CheckCircle className="h-3 w-3" />
+                              Paid (Admin)
+                            </span>
+                          ) : (
+                            <button
+                              className={`px-2 py-1 text-xs rounded-full border inline-flex items-center gap-1 ${getPaymentStatusColor(event.organizer_payment_status || "unpaid")} hover:scale-105 transition-all duration-200 cursor-pointer active:scale-95`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setShowOrganizerStatusMenu((prev) => !prev);
+                              }}
+                            >
+                              {(event.organizer_payment_status || "unpaid") ===
+                                "paid" && <CheckCircle className="h-3 w-3" />}
+                              {(event.organizer_payment_status || "unpaid") ===
+                                "partial" && <Percent className="h-3 w-3" />}
+                              {(event.organizer_payment_status || "unpaid") ===
+                                "unpaid" && <Wallet className="h-3 w-3" />}
+                              {(event.organizer_payment_status || "unpaid") ===
+                                "cancelled" && <X className="h-3 w-3" />}
+                              {formatPaymentStatusLabel(
+                                event.organizer_payment_status || "unpaid"
                               )}
-                              {showOrganizerStatusMenu &&
-                                isOrganizerEditing &&
-                                event.organizer_id && (
-                                  <div className="absolute z-10 mt-1 w-40 bg-white border rounded shadow">
-                                    <button
-                                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
-                                      onClick={() => {
-                                        event.organizer_assignment_id &&
-                                          updateOrganizerPayment(
-                                            event.organizer_assignment_id,
-                                            "paid"
-                                          );
-                                        setShowOrganizerStatusMenu(false);
-                                      }}
-                                    >
-                                      <span className="inline-flex items-center gap-2">
-                                        <CheckCircle className="h-3 w-3" /> Paid
-                                      </span>
-                                    </button>
-                                    <button
-                                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
-                                      onClick={() => {
-                                        event.organizer_assignment_id &&
-                                          updateOrganizerPayment(
-                                            event.organizer_assignment_id,
-                                            "partial"
-                                          );
-                                        setShowOrganizerStatusMenu(false);
-                                      }}
-                                    >
-                                      <span className="inline-flex items-center gap-2">
-                                        <Percent className="h-3 w-3" /> Partial
-                                      </span>
-                                    </button>
-                                    <button
-                                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                                      onClick={() => {
-                                        event.organizer_assignment_id &&
-                                          updateOrganizerPayment(
-                                            event.organizer_assignment_id,
-                                            "cancelled"
-                                          );
-                                        setShowOrganizerStatusMenu(false);
-                                      }}
-                                    >
-                                      <span className="inline-flex items-center gap-2">
-                                        <X className="h-3 w-3" /> Cancelled
-                                      </span>
-                                    </button>
-                                    <button
-                                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
-                                      onClick={() => {
-                                        event.organizer_assignment_id &&
-                                          updateOrganizerPayment(
-                                            event.organizer_assignment_id,
-                                            "unpaid"
-                                          );
-                                        setShowOrganizerStatusMenu(false);
-                                      }}
-                                    >
-                                      <span className="inline-flex items-center gap-2">
-                                        <Wallet className="h-3 w-3" /> Unpaid
-                                      </span>
-                                    </button>
-                                  </div>
-                                )}
+                            </button>
+                          )}
+                          {showOrganizerStatusMenu && event.organizer_id && (
+                            <div className="absolute z-10 mt-1 w-40 bg-white border rounded shadow">
+                              <button
+                                className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50"
+                                onClick={() => {
+                                  event.organizer_assignment_id &&
+                                    updateOrganizerPayment(
+                                      event.organizer_assignment_id,
+                                      "paid"
+                                    );
+                                  setShowOrganizerStatusMenu(false);
+                                }}
+                              >
+                                <span className="inline-flex items-center gap-2">
+                                  <CheckCircle className="h-3 w-3" /> Paid
+                                </span>
+                              </button>
+                              <button
+                                className="w-full text-left px-3 py-2 text-sm rounded hover:bg-yellow-50"
+                                onClick={() => {
+                                  event.organizer_assignment_id &&
+                                    updateOrganizerPayment(
+                                      event.organizer_assignment_id,
+                                      "partial"
+                                    );
+                                  setShowOrganizerStatusMenu(false);
+                                }}
+                              >
+                                <span className="inline-flex items-center gap-2">
+                                  <Percent className="h-3 w-3" /> Partial
+                                </span>
+                              </button>
+                              <button
+                                className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                                onClick={() => {
+                                  event.organizer_assignment_id &&
+                                    updateOrganizerPayment(
+                                      event.organizer_assignment_id,
+                                      "cancelled"
+                                    );
+                                  setShowOrganizerStatusMenu(false);
+                                }}
+                              >
+                                <span className="inline-flex items-center gap-2">
+                                  <X className="h-3 w-3" /> Cancelled
+                                </span>
+                              </button>
+                              <button
+                                className="w-full text-left px-3 py-2 text-sm rounded hover:bg-red-50"
+                                onClick={() => {
+                                  event.organizer_assignment_id &&
+                                    updateOrganizerPayment(
+                                      event.organizer_assignment_id,
+                                      "unpaid"
+                                    );
+                                  setShowOrganizerStatusMenu(false);
+                                }}
+                              >
+                                <span className="inline-flex items-center gap-2">
+                                  <Wallet className="h-3 w-3" /> Unpaid
+                                </span>
+                              </button>
                             </div>
-                          </div>
+                          )}
                         </div>
                       </div>
                     )}

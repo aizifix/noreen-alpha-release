@@ -1015,6 +1015,31 @@ class Admin {
                         }
                         error_log("createEvent: Processing component: " . $componentName . " - Price: " . $componentPrice);
 
+                        // Prepare component description with subcomponents
+                        $finalDescription = $componentDescription;
+                        if (!empty($component['subComponents']) && is_array($component['subComponents'])) {
+                            error_log("Processing subcomponents for component: " . $componentName);
+                            error_log("Subcomponents data: " . json_encode($component['subComponents']));
+
+                            $subComponentNames = array_map(function($sub) {
+                                error_log("Processing sub: " . json_encode($sub));
+                                $result = $sub['name'] ?? '';
+                                error_log("Extracted sub name: " . $result);
+                                return $result;
+                            }, $component['subComponents']);
+
+                            $subComponentNames = array_filter($subComponentNames, function($name) {
+                                return !empty(trim($name));
+                            });
+
+                            if (!empty($subComponentNames)) {
+                                $finalDescription = implode(', ', $subComponentNames);
+                                error_log("Final description: " . $finalDescription);
+                            }
+                        } else {
+                            error_log("No subcomponents found for component: " . $componentName);
+                        }
+
                         $sql = "INSERT INTO tbl_event_components (
                                     event_id, component_name, component_description,
                                     component_price, is_custom, is_included,
@@ -1029,7 +1054,7 @@ class Admin {
                         $stmt->execute([
                             ':event_id' => $eventId,
                             ':name' => $componentName,
-                            ':description' => $componentDescription,
+                            ':description' => $finalDescription,
                             ':price' => $componentPrice,
                             ':is_custom' => $isCustom,
                             ':is_included' => $isIncluded,
@@ -3819,6 +3844,58 @@ This is an automated message. Please do not reply.
             $componentsStmt->execute([':package_id' => $packageId]);
             $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+            error_log("getPackageById: Package ID " . $packageId . " - Found " . count($components) . " components");
+
+            // Parse components_list into subcomponents for each component
+            foreach ($components as &$component) {
+                $subComponents = [];
+
+                // First try to get real components from tbl_inclusion_components
+                $realComponentsSql = "SELECT component_id, component_name, component_description, component_price, display_order
+                                    FROM tbl_inclusion_components
+                                    WHERE inclusion_id = :inclusion_id
+                                    ORDER BY display_order";
+                $realComponentsStmt = $this->conn->prepare($realComponentsSql);
+                $realComponentsStmt->execute([':inclusion_id' => $component['component_id']]);
+                $realComponents = $realComponentsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                if (!empty($realComponents)) {
+                    // Use real components from database
+                    foreach ($realComponents as $realComponent) {
+                        $subComponents[] = [
+                            'name' => $realComponent['component_name'],
+                            'price' => (float)$realComponent['component_price']
+                        ];
+                    }
+                } else {
+                    // Fall back to parsing components_list
+                    $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
+
+                    error_log("getPackageById: Component " . $component['component_name'] . " - components_list (aliased as component_description): '" . $rawDescription . "'");
+
+                    if ($rawDescription !== '') {
+                        // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
+                        $normalized = preg_replace('/[\r\n;•]+/u', ',', $rawDescription);
+                        $parts = array_filter(array_map('trim', explode(',', (string)$normalized)), function($p) { return $p !== ''; });
+
+                        error_log("getPackageById: Parsed parts for " . $component['component_name'] . ": " . json_encode($parts));
+
+                        foreach ($parts as $idx => $part) {
+                            $subComponents[] = [
+                                'name' => $part,
+                                'price' => 0
+                            ];
+                        }
+                    } else {
+                        error_log("getPackageById: No components_list found for " . $component['component_name']);
+                    }
+                }
+
+                $component['subComponents'] = $subComponents;
+                $component['subcomponents'] = $subComponents; // Also add lowercase version for frontend compatibility
+                error_log("getPackageById: Final subComponents for " . $component['component_name'] . ": " . json_encode($subComponents));
+            }
+
             // Get package freebies
             $freebiesSql = "SELECT * FROM tbl_package_freebies WHERE package_id = :package_id ORDER BY display_order";
             $freebiesStmt = $this->conn->prepare($freebiesSql);
@@ -3996,6 +4073,7 @@ This is an automated message. Please do not reply.
                     'price' => (float)$component['inclusion_price'],
                     'components' => $childComponents,  // For package details page
                     'subComponents' => $childComponents,  // For event details page
+                    'subcomponents' => $childComponents,  // Also add lowercase version for frontend compatibility
                 ];
 
                 // Add supplier information if available and columns exist
@@ -4810,6 +4888,46 @@ This is an automated message. Please do not reply.
             $stmt->execute([$adminId]);
             $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Add component payment status information for each event
+            foreach ($events as &$event) {
+                // Get event components with payment status
+                $componentStmt = $this->conn->prepare("
+                    SELECT
+                        ec.component_id,
+                        ec.event_id,
+                        ec.component_name,
+                        ec.component_price,
+                        ec.component_description,
+                        ec.is_custom,
+                        ec.is_included,
+                        ec.payment_status,
+                        ec.payment_date,
+                        ec.payment_notes
+                    FROM tbl_event_components ec
+                    WHERE ec.event_id = ?
+                    ORDER BY ec.display_order
+                ");
+                $componentStmt->execute([$event['event_id']]);
+                $event['components'] = $componentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Get organizer payment status
+                if ($event['organizer_id']) {
+                    $organizerStmt = $this->conn->prepare("
+                        SELECT payment_status
+                        FROM tbl_event_organizer_assignments
+                        WHERE event_id = ? AND organizer_id = ?
+                    ");
+                    $organizerStmt->execute([$event['event_id'], $event['organizer_id']]);
+                    $organizerAssignment = $organizerStmt->fetch(PDO::FETCH_ASSOC);
+                    $event['organizer_payment_status'] = $organizerAssignment ? $organizerAssignment['payment_status'] : 'unpaid';
+                } else {
+                    $event['organizer_payment_status'] = null;
+                }
+
+                // Venue payment status is already in the main query as venue_payment_status
+                // No need to fetch it separately
+            }
+
             return json_encode([
                 "status" => "success",
                 "events" => $events,
@@ -4982,6 +5100,97 @@ This is an automated message. Please do not reply.
                 "status" => "error",
                 "message" => "Failed to get calendar conflict data: " . $e->getMessage(),
                 "calendarData" => []
+            ]);
+        }
+    }
+
+    public function updateEventComponentsWithSubcomponents($eventId = null) {
+        try {
+            // If eventId is provided, update only that event; otherwise update all events
+            $whereClause = $eventId ? "WHERE e.event_id = :event_id" : "";
+            $params = $eventId ? [':event_id' => $eventId] : [];
+
+            $sql = "SELECT
+                        e.event_id,
+                        e.package_id,
+                        ec.component_id,
+                        ec.component_name,
+                        ec.original_package_component_id,
+                        ec.component_description
+                    FROM tbl_events e
+                    JOIN tbl_event_components ec ON e.event_id = ec.event_id
+                    $whereClause
+                    ORDER BY e.event_id, ec.display_order";
+
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute($params);
+            $eventComponents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $updatedCount = 0;
+            $errors = [];
+
+            foreach ($eventComponents as $eventComponent) {
+                try {
+                    $eventId = $eventComponent['event_id'];
+                    $componentId = $eventComponent['component_id'];
+                    $originalPackageComponentId = $eventComponent['original_package_component_id'];
+
+                    // Skip if no original package component ID
+                    if (empty($originalPackageComponentId)) {
+                        continue;
+                    }
+
+                    // Get the components_list from the original package inclusion
+                    $inclusionSql = "SELECT components_list FROM tbl_package_inclusions WHERE inclusion_id = :inclusion_id";
+                    $inclusionStmt = $this->conn->prepare($inclusionSql);
+                    $inclusionStmt->execute([':inclusion_id' => $originalPackageComponentId]);
+                    $inclusionData = $inclusionStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($inclusionData && !empty($inclusionData['components_list'])) {
+                        $componentsList = trim($inclusionData['components_list']);
+
+                        // Only update if the current description is empty or just contains the component name
+                        $currentDescription = trim($eventComponent['component_description'] ?? '');
+                        $componentName = trim($eventComponent['component_name']);
+
+                        // Skip if already has proper subcomponents (contains commas or multiple items)
+                        if (!empty($currentDescription) &&
+                            $currentDescription !== $componentName &&
+                            (strpos($currentDescription, ',') !== false || strlen($currentDescription) > strlen($componentName) + 5)) {
+                            continue;
+                        }
+
+                        // Update the component description with the components_list
+                        $updateSql = "UPDATE tbl_event_components
+                                     SET component_description = :description
+                                     WHERE component_id = :component_id";
+                        $updateStmt = $this->conn->prepare($updateSql);
+                        $updateStmt->execute([
+                            ':description' => $componentsList,
+                            ':component_id' => $componentId
+                        ]);
+
+                        $updatedCount++;
+                        error_log("Updated component $componentId for event $eventId with subcomponents: $componentsList");
+                    }
+                } catch (Exception $e) {
+                    $errors[] = "Failed to update component {$eventComponent['component_id']}: " . $e->getMessage();
+                    error_log("Error updating component {$eventComponent['component_id']}: " . $e->getMessage());
+                }
+            }
+
+            return json_encode([
+                "status" => "success",
+                "message" => "Updated $updatedCount components with subcomponents",
+                "updated_count" => $updatedCount,
+                "errors" => $errors
+            ]);
+
+        } catch (Exception $e) {
+            error_log("updateEventComponentsWithSubcomponents error: " . $e->getMessage());
+            return json_encode([
+                "status" => "error",
+                "message" => "Failed to update event components: " . $e->getMessage()
             ]);
         }
     }
@@ -5168,15 +5377,20 @@ This is an automated message. Please do not reply.
                     if (empty($subComponents)) {
                         $rawDescription = isset($component['original_component_description']) ? trim((string)$component['original_component_description']) : '';
 
+                        error_log("getEventById: Component " . $component['component_name'] . " - original_component_description: '" . $rawDescription . "'");
+
                         // If original_component_description is empty, try component_description
                         if (empty($rawDescription)) {
                             $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
+                            error_log("getEventById: Component " . $component['component_name'] . " - component_description: '" . $rawDescription . "'");
                         }
 
                         if ($rawDescription !== '') {
                             // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
                             $normalized = preg_replace('/[\r\n;•]+/u', ',', $rawDescription);
                             $parts = array_filter(array_map('trim', explode(',', (string)$normalized)), function($p) { return $p !== ''; });
+
+                            error_log("getEventById: Component " . $component['component_name'] . " - Parsed parts: " . json_encode($parts));
 
                             foreach ($parts as $part) {
                                 $subComponents[] = [
@@ -5187,7 +5401,32 @@ This is an automated message. Please do not reply.
                         }
                     }
 
+                    // If still no components found, try to get components_list from tbl_package_inclusions
+                    if (empty($subComponents) && !empty($component['original_package_component_id'])) {
+                        $inclusionSql = "SELECT components_list FROM tbl_package_inclusions WHERE inclusion_id = :inclusion_id";
+                        $inclusionStmt = $this->conn->prepare($inclusionSql);
+                        $inclusionStmt->execute([':inclusion_id' => $component['original_package_component_id']]);
+                        $inclusionData = $inclusionStmt->fetch(PDO::FETCH_ASSOC);
+
+                        if ($inclusionData && !empty($inclusionData['components_list'])) {
+                            $componentsList = trim($inclusionData['components_list']);
+                            if ($componentsList !== '') {
+                                // Parse comma-separated components list
+                                $normalized = preg_replace('/[\r\n;•]+/u', ',', $componentsList);
+                                $parts = array_filter(array_map('trim', explode(',', $normalized)), function($p) { return $p !== ''; });
+
+                                foreach ($parts as $part) {
+                                    $subComponents[] = [
+                                        'name' => $part,
+                                        'price' => 0
+                                    ];
+                                }
+                            }
+                        }
+                    }
+
                     $component['subComponents'] = $subComponents;
+                    error_log("getEventById: Component " . $component['component_name'] . " - Final subComponents: " . json_encode($subComponents));
                 }
                 unset($component); // Break reference
 
@@ -7193,6 +7432,9 @@ This is an automated message. Please do not reply.
 
             $this->pdo->commit();
 
+            // Automatically update the event's payment status after creating payment
+            $this->updateEventPaymentStatus($data['event_id']);
+
             // Log payment creation activity - DISABLED TO PREVENT CONCAT COLLATION ERRORS
             // if ($this->logger) {
             //     $this->logger->logPayment(
@@ -7373,6 +7615,9 @@ This is an automated message. Please do not reply.
             $logStmt->execute();
 
             $this->pdo->commit();
+
+            // Automatically update the event's payment status after updating payment status
+            $this->updateEventPaymentStatus($payment['event_id']);
 
             return json_encode([
                 "status" => "success",
@@ -10341,6 +10586,97 @@ This is an automated message. Please do not reply.
             return json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
         }
     }
+
+    /**
+     * Automatically update the event's main payment_status based on total payments received
+     */
+    public function updateEventPaymentStatus($eventId) {
+        try {
+            // Get event details
+            $eventStmt = $this->pdo->prepare("SELECT total_budget, down_payment, original_booking_reference FROM tbl_events WHERE event_id = ?");
+            $eventStmt->execute([$eventId]);
+            $event = $eventStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$event) {
+                error_log("updateEventPaymentStatus: Event not found for ID: " . $eventId);
+                return false;
+            }
+
+            // Calculate total paid amount
+            $totalPaid = 0;
+
+            // Get event payments
+            $paymentStmt = $this->pdo->prepare("
+                SELECT SUM(payment_amount) as total_paid
+                FROM tbl_payments
+                WHERE event_id = ?
+                AND payment_status IN ('completed', 'paid', 'confirmed', 'processed', 'successful')
+            ");
+            $paymentStmt->execute([$eventId]);
+            $paymentData = $paymentStmt->fetch(PDO::FETCH_ASSOC);
+            $totalPaid += floatval($paymentData['total_paid'] ?? 0);
+
+            // Include reserved payments from original booking if event was created from a booking
+            if (!empty($event['original_booking_reference'])) {
+                $reservedStmt = $this->pdo->prepare("
+                    SELECT SUM(p.payment_amount) as total_reserved
+                    FROM tbl_payments p
+                    JOIN tbl_bookings b ON p.booking_id = b.booking_id
+                    WHERE b.booking_reference = ?
+                    AND p.payment_status IN ('completed', 'paid', 'confirmed', 'processed', 'successful')
+                ");
+                $reservedStmt->execute([$event['original_booking_reference']]);
+                $reservedData = $reservedStmt->fetch(PDO::FETCH_ASSOC);
+                $totalPaid += floatval($reservedData['total_reserved'] ?? 0);
+            }
+
+            // Include down payment if not already included in payments
+            $downPayment = floatval($event['down_payment'] ?? 0);
+            $downPaymentIncluded = false;
+
+            // Check if down payment is already included in the payments
+            $downPaymentCheckStmt = $this->pdo->prepare("
+                SELECT COUNT(*) as count
+                FROM tbl_payments
+                WHERE event_id = ?
+                AND (payment_notes LIKE '%down payment%' OR payment_notes LIKE '%reservation%' OR payment_type = 'down_payment')
+                AND payment_status IN ('completed', 'paid', 'confirmed', 'processed', 'successful')
+            ");
+            $downPaymentCheckStmt->execute([$eventId]);
+            $downPaymentCheck = $downPaymentCheckStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($downPaymentCheck['count'] == 0 && $downPayment > 0) {
+                $totalPaid += $downPayment;
+            }
+
+            // Add reserved payment total if it exists and is separate from down payment
+            $reservedPaymentTotal = floatval($event['reserved_payment_total'] ?? 0);
+            $totalPaid += $reservedPaymentTotal;
+
+            $totalBudget = floatval($event['total_budget']);
+            $remaining = $totalBudget - $totalPaid;
+
+            // Determine payment status
+            $newStatus = 'unpaid';
+            if ($remaining <= 0 && $totalBudget > 0) {
+                $newStatus = 'paid';
+            } elseif ($totalPaid > 0 && $remaining > 0) {
+                $newStatus = 'partial';
+            }
+
+            // Update the event's payment status
+            $updateStmt = $this->pdo->prepare("UPDATE tbl_events SET payment_status = ?, updated_at = CURRENT_TIMESTAMP WHERE event_id = ?");
+            $updateStmt->execute([$newStatus, $eventId]);
+
+            error_log("updateEventPaymentStatus: Event {$eventId} - Total Budget: {$totalBudget}, Total Paid: {$totalPaid}, Reserved Payment Total: {$reservedPaymentTotal}, Remaining: {$remaining}, New Status: {$newStatus}");
+
+            return true;
+        } catch (Exception $e) {
+            error_log("updateEventPaymentStatus error: " . $e->getMessage());
+            return false;
+        }
+    }
+
     public function updateEventBudget($eventId, $budgetChange) {
         try {
             // Get current budget
@@ -13682,6 +14018,10 @@ if (!defined('ADMIN_PHP_INCLUDED')) {
         $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
         echo $admin->getEventById($eventId);
         break;
+    case "updateEventComponentsWithSubcomponents":
+        $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? null);
+        echo $admin->updateEventComponentsWithSubcomponents($eventId);
+        break;
     case "getEnhancedEventDetails":
         $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
         echo $admin->getEnhancedEventDetails($eventId);
@@ -13832,6 +14172,11 @@ if (!defined('ADMIN_PHP_INCLUDED')) {
         $status = $_GET['status'] ?? ($data['status'] ?? '');
         $notes = $_GET['notes'] ?? ($data['notes'] ?? null);
         echo $admin->updatePaymentStatus($paymentId, $status, $notes);
+        break;
+    case "updateEventPaymentStatus":
+        $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);
+        $result = $admin->updateEventPaymentStatus($eventId);
+        echo json_encode(["status" => $result ? "success" : "error", "message" => $result ? "Event payment status updated" : "Failed to update event payment status"]);
         break;
     case "getPaymentSchedule":
         $eventId = $_GET['event_id'] ?? ($data['event_id'] ?? 0);

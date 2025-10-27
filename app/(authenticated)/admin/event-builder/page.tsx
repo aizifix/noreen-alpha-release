@@ -2377,7 +2377,8 @@ export default function EventBuilderPage() {
           (currentEventDetails.notes && currentEventDetails.notes.trim()) ||
           "N/A",
         // Must match DB enum: 'done' | 'confirmed' | 'on_going' | 'cancelled'
-        event_status: "confirmed",
+        // Use 'done' for new events (represents planning phase until fully paid)
+        event_status: "done",
         // Enhanced fields
         client_signature: (clientSignature && clientSignature.trim()) || "N/A",
         finalized_at: null,
@@ -2428,17 +2429,79 @@ export default function EventBuilderPage() {
         components:
           components
             ?.filter((comp) => comp.included !== false)
-            ?.map((comp, index) => ({
-              component_name: comp.name || "",
-              component_price: parseFloat(comp.price?.toString() || "0") || 0,
-              component_description: (comp as any).description || "",
-              is_custom: comp.isCustom || false,
-              is_included: true, // All components sent are included
-              original_package_component_id: (comp as any).originalId || null,
-              supplier_id: (comp as any).supplier_id || null,
-              offer_id: (comp as any).offer_id || null,
-              display_order: index,
-            })) || [],
+            ?.map((comp, index) => {
+              // Build component description from subcomponents
+              let componentDescription = (comp as any).description || "";
+
+              // If we have subcomponents, use them to build the description
+              if (
+                (comp as any).subComponents &&
+                (comp as any).subComponents.length > 0
+              ) {
+                console.log(
+                  "Processing subcomponents for",
+                  comp.name,
+                  ":",
+                  (comp as any).subComponents
+                );
+                console.log(
+                  "Subcomponents type:",
+                  typeof (comp as any).subComponents
+                );
+                console.log(
+                  "Subcomponents length:",
+                  (comp as any).subComponents.length
+                );
+
+                const subComponentNames = (comp as any).subComponents
+                  .map((sub: any, index: number) => {
+                    console.log(
+                      `Sub component ${index}:`,
+                      sub,
+                      "Type:",
+                      typeof sub
+                    );
+                    console.log(
+                      "sub.subcomponent_name:",
+                      sub.subcomponent_name
+                    );
+                    console.log("sub.name:", sub.name);
+                    const result = sub.name || "";
+                    console.log("Extracted result:", result);
+                    return result;
+                  })
+                  .filter((name: string) => name.trim() !== "");
+
+                console.log("Extracted names:", subComponentNames);
+
+                if (subComponentNames.length > 0) {
+                  componentDescription = subComponentNames.join(", ");
+                  console.log(
+                    "Final component description:",
+                    componentDescription
+                  );
+                }
+              } else {
+                console.log("No subcomponents found for", comp.name);
+                console.log(
+                  "subComponents value:",
+                  (comp as any).subComponents
+                );
+              }
+
+              return {
+                component_name: comp.name || "",
+                component_price: parseFloat(comp.price?.toString() || "0") || 0,
+                component_description: componentDescription,
+                is_custom: comp.isCustom || false,
+                is_included: true, // All components sent are included
+                original_package_component_id: (comp as any).originalId || null,
+                supplier_id: (comp as any).supplier_id || null,
+                offer_id: (comp as any).offer_id || null,
+                display_order: index,
+                subComponents: (comp as any).subComponents || [], // Include subcomponents
+              };
+            }) || [],
       };
 
       console.log("Creating event with data:", eventData);

@@ -39,6 +39,8 @@ interface Event {
   venue_id?: number;
   total_budget: number;
   down_payment: number;
+  reserved_payment_total?: number;
+  adjusted_total?: number;
   payment_method?: string;
   payment_schedule_type_id?: number;
   reference_number?: string;
@@ -80,6 +82,8 @@ interface Event {
   package_description?: string;
   admin_name?: string;
   organizer_name?: string;
+  organizer_payment_status?: "unpaid" | "partial" | "paid" | "cancelled";
+  venue_payment_status?: "unpaid" | "partial" | "paid" | "cancelled";
   created_by_name?: string;
   updated_by_name?: string;
   payment_schedule_name?: string;
@@ -431,17 +435,34 @@ export default function EventsPage() {
 
     const today = getTodayString();
 
+    // Events happening today are "on_going" (blue)
     if (event.event_date === today) return "on_going";
+
+    // Past events are "done" (purple)
     if (event.event_date < today) return "done";
 
-    // Only treat as confirmed when explicitly finalized
-    if (event.finalized_at) return "confirmed";
+    // For future events, check payment completion to determine status
+    // Check if all inclusions are paid
+    const allInclusionsPaid = (event.components || []).every((component) => {
+      // Only check included components
+      if (!component.is_included) return true;
 
-    // Otherwise, map to non-confirmed statuses; treat stray 'confirmed' as planning
-    const status = (event.event_status || "").toLowerCase().trim();
-    if (["draft", "pending", "planning"].includes(status)) return status;
-    if (["on_going", "done", "cancelled"].includes(status)) return status;
-    return "draft";
+      // Check if component payment status is "paid"
+      return component.payment_status === "paid";
+    });
+
+    // Also check organizer and venue payment status
+    const organizerPaid =
+      !event.organizer_id || event.organizer_payment_status === "paid";
+    const venuePaid = !event.venue_id || event.venue_payment_status === "paid";
+
+    // If all inclusions, organizer, and venue are paid, show as "confirmed" (green)
+    if (allInclusionsPaid && organizerPaid && venuePaid) {
+      return "confirmed";
+    }
+
+    // Otherwise show as "planning" (yellow) for future events
+    return "planning";
   };
 
   const formatEventStatusLabel = (status: string) => {
@@ -772,11 +793,6 @@ export default function EventsPage() {
                           className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${colors.bg} ${colors.text}`}
                         >
                           {formatEventStatusLabel(getDerivedEventStatus(event))}
-                        </span>
-                        <span
-                          className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
-                        >
-                          {formatPaymentStatusLabel(event.payment_status)}
                         </span>
                       </div>
                     </div>

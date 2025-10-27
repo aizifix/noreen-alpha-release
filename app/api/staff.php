@@ -368,6 +368,21 @@ class Staff {
                 error_log("Processing " . count($data['components']) . " components for minimal event creation");
                 try {
                     foreach ($data['components'] as $index => $component) {
+                        // Prepare component description with subcomponents
+                        $finalDescription = $component['component_description'] ?? '';
+                        if (!empty($component['subComponents']) && is_array($component['subComponents'])) {
+                            $subComponentNames = array_map(function($sub) {
+                                return $sub['name'] || '';
+                            }, $component['subComponents']);
+                            $subComponentNames = array_filter($subComponentNames, function($name) {
+                                return !empty(trim($name));
+                            });
+
+                            if (!empty($subComponentNames)) {
+                                $finalDescription = implode(', ', $subComponentNames);
+                            }
+                        }
+
                         $sql = "INSERT INTO tbl_event_components (
                             event_id, component_name, component_price, component_description,
                             is_custom, is_included, original_package_component_id,
@@ -379,7 +394,7 @@ class Staff {
                             $eventId,
                             $component['component_name'] ?? 'Unknown Component',
                             floatval($component['component_price'] ?? 0),
-                            $component['component_description'] ?? '',
+                            $finalDescription,
                             isset($component['is_custom']) ? (bool)$component['is_custom'] : false,
                             isset($component['is_included']) ? (bool)$component['is_included'] : true,
                             isset($component['original_package_component_id']) ? intval($component['original_package_component_id']) : null,
@@ -985,6 +1000,21 @@ class Staff {
                         }
                         error_log("createEvent: Processing component: " . $componentName . " - Price: " . $componentPrice);
 
+                        // Prepare component description with subcomponents
+                        $finalDescription = $componentDescription;
+                        if (!empty($component['subComponents']) && is_array($component['subComponents'])) {
+                            $subComponentNames = array_map(function($sub) {
+                                return $sub['name'] || '';
+                            }, $component['subComponents']);
+                            $subComponentNames = array_filter($subComponentNames, function($name) {
+                                return !empty(trim($name));
+                            });
+
+                            if (!empty($subComponentNames)) {
+                                $finalDescription = implode(', ', $subComponentNames);
+                            }
+                        }
+
                         $sql = "INSERT INTO tbl_event_components (
                                     event_id, component_name, component_description,
                                     component_price, is_custom, is_included,
@@ -999,7 +1029,7 @@ class Staff {
                         $stmt->execute([
                             ':event_id' => $eventId,
                             ':name' => $componentName,
-                            ':description' => $componentDescription,
+                            ':description' => $finalDescription,
                             ':price' => $componentPrice,
                             ':is_custom' => $isCustom,
                             ':is_included' => $isIncluded,
@@ -3815,6 +3845,7 @@ This is an automated message. Please do not reply.
                     'price' => (float)$component['component_price'],
                     'components' => $childComponents,  // For package details page
                     'subComponents' => $childComponents,  // For event details page
+                    'subcomponents' => $childComponents,  // Also add lowercase version for frontend compatibility
                 ];
 
                 // Add supplier information if available and columns exist

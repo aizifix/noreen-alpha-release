@@ -675,16 +675,27 @@ function EventFinalization({
         {/* Inclusion & Payment Status Display (includes venue + organizer) */}
         {paymentStats &&
           (() => {
-            const organizerPaid = event.organizer_payment_status === "paid";
-            const venuePaid = event.venue_payment_status === "paid";
-            const extraEntitiesCount =
-              (event.organizer_id ? 1 : 0) + (event.venue_id ? 1 : 0);
+            const hasAssignedOrganizer = !!event.organizer_id;
+            const isAdminAsOrganizer =
+              hasAssignedOrganizer && event.organizer_id === event.admin_id;
+            const isExternalOrganizer =
+              hasAssignedOrganizer && event.organizer_id !== event.admin_id;
+
+            // Admin is always considered an organizer (head organizer by default)
+            const organizerPaid = isExternalOrganizer
+              ? event.organizer_payment_status === "paid"
+              : true; // Admin as organizer is always considered "paid"
+
+            // Count all components (including venue components that might have is_included = false)
+            const allComponents = (event.components || []).filter(
+              (c) => c.is_included || c.component_name?.startsWith("Venue:")
+            );
+            const extraEntitiesCount = 1; // Always count organizer
             const derivedIncludedCount =
-              (paymentStats.included_components || 0) + extraEntitiesCount;
+              allComponents.length + extraEntitiesCount;
             const derivedFinalizedCount =
-              (paymentStats.finalized_inclusions || 0) +
-              (organizerPaid ? 1 : 0) +
-              (venuePaid ? 1 : 0);
+              allComponents.filter((c) => c.payment_status === "paid").length +
+              (organizerPaid ? 1 : 0);
             const derivedInclusionPercentage =
               derivedIncludedCount > 0
                 ? Math.round(
@@ -692,9 +703,7 @@ function EventFinalization({
                   )
                 : 0;
             const derivedPaidComponents =
-              (paymentStats.paid_components || 0) +
-              (organizerPaid ? 1 : 0) +
-              (venuePaid ? 1 : 0);
+              (paymentStats.paid_components || 0) + (organizerPaid ? 1 : 0);
             const derivedPaymentPercentage =
               derivedIncludedCount > 0
                 ? Math.round(
@@ -1609,7 +1618,7 @@ function PackageInclusionsManagement({
                 {event.package_id ? "Total Inclusions" : "Total Components"}
               </div>
               <div className="text-sm font-semibold text-green-600">
-                {components.filter((comp) => comp.is_included).length} items
+                {components.filter((comp) => comp.is_included).length + 1} items
               </div>
             </div>
             <div className="flex gap-2">
@@ -1671,6 +1680,7 @@ function PackageInclusionsManagement({
         </div>
 
         {/* --- PAYMENT COMPLETION PROGRESS BAR --- */}
+        {/* Cache bust: 2025-01-27 15:30:00 */}
         {(() => {
           const includedComponents = components.filter(
             (comp) => comp.is_included
@@ -1679,18 +1689,30 @@ function PackageInclusionsManagement({
             (comp) => (comp as any).payment_status === "paid"
           );
 
-          // Include organizer and venue in counts
-          const organizerCount = event.organizer_id ? 1 : 0;
-          const venueCount = event.venue_id ? 1 : 0;
-          const extraIncluded = organizerCount + venueCount;
-          const organizerPaid =
-            event.organizer_payment_status === "paid" ? 1 : 0;
-          const venuePaid = event.venue_payment_status === "paid" ? 1 : 0;
-          const extraPaid = organizerPaid + venuePaid;
+          // Include organizer in counts (admin is ALWAYS head organizer by default)
+          const hasAssignedOrganizer = !!event.organizer_id;
+          const isAdminAsOrganizer =
+            hasAssignedOrganizer && event.organizer_id === event.admin_id;
+          const isExternalOrganizer =
+            hasAssignedOrganizer && event.organizer_id !== event.admin_id;
 
-          const totalIncludedWithExtras =
-            includedComponents.length + extraIncluded;
-          const totalPaidWithExtras = paidComponents.length + extraPaid;
+          // Admin is always considered an organizer (head organizer by default)
+          const organizerPaid = isExternalOrganizer
+            ? event.organizer_payment_status === "paid"
+            : true; // Admin as organizer is always considered "paid"
+
+          // Count all components (including venue components that might have is_included = false)
+          const allComponents = (event.components || []).filter(
+            (c) => c.is_included || c.component_name?.startsWith("Venue:")
+          );
+          const organizerCount = 1; // Always count organizer (admin is always the organizer)
+          const extraIncluded = organizerCount; // Only count organizer, venue is in components
+          const extraPaid = organizerPaid ? 1 : 0;
+
+          const totalIncludedWithExtras = allComponents.length + extraIncluded;
+          const totalPaidWithExtras =
+            allComponents.filter((c) => c.payment_status === "paid").length +
+            extraPaid;
 
           const completionPercentage =
             totalIncludedWithExtras > 0
@@ -2641,15 +2663,26 @@ function EventTimeline({ event }: { event: Event }) {
     const paidIncludedComponents = includedComponents.filter(
       (c) => c.payment_status === "paid"
     );
-    const organizerPaid = event.organizer_payment_status === "paid";
-    const venuePaid = event.venue_payment_status === "paid";
-    const extraEntitiesCount =
-      (event.organizer_id ? 1 : 0) + (event.venue_id ? 1 : 0);
-    const derivedIncludedCount = includedComponents.length + extraEntitiesCount;
+    const hasAssignedOrganizer = !!event.organizer_id;
+    const isAdminAsOrganizer =
+      hasAssignedOrganizer && event.organizer_id === event.admin_id;
+    const isExternalOrganizer =
+      hasAssignedOrganizer && event.organizer_id !== event.admin_id;
+
+    // Admin is always considered an organizer (head organizer by default)
+    const organizerPaid = isExternalOrganizer
+      ? event.organizer_payment_status === "paid"
+      : true; // Admin as organizer is always considered "paid"
+
+    // Count all components (including venue components that might have is_included = false)
+    const allComponents = (event.components || []).filter(
+      (c) => c.is_included || c.component_name?.startsWith("Venue:")
+    );
+    const extraEntitiesCount = 1; // Always count organizer
+    const derivedIncludedCount = allComponents.length + extraEntitiesCount;
     const derivedPaidCount =
-      paidIncludedComponents.length +
-      (organizerPaid ? 1 : 0) +
-      (venuePaid ? 1 : 0);
+      allComponents.filter((c) => c.payment_status === "paid").length +
+      (organizerPaid ? 1 : 0);
     const planningComplete =
       derivedIncludedCount > 0 && derivedPaidCount === derivedIncludedCount;
     return base.map((s) =>
@@ -4603,19 +4636,27 @@ export default function EventDetailsPage() {
   }
 
   // Derived inclusion/payment aggregates including venue and organizer
-  const organizerPaid = !!event && event.organizer_payment_status === "paid";
-  const venuePaid = !!event && event.venue_payment_status === "paid";
-  const extraEntitiesCount =
-    (event?.organizer_id ? 1 : 0) + (event?.venue_id ? 1 : 0);
-  const derivedIncludedCount =
-    (event.components || []).filter((c) => c.is_included).length +
-    extraEntitiesCount;
+  // 🔧 FIX: Admin is ALWAYS the head organizer by default, count them regardless of organizer_id
+  const hasAssignedOrganizer = !!event && !!event.organizer_id;
+  const isAdminAsOrganizer =
+    hasAssignedOrganizer && event.organizer_id === event.admin_id;
+  const isExternalOrganizer =
+    hasAssignedOrganizer && event.organizer_id !== event.admin_id;
+
+  // Admin is always considered an organizer (head organizer by default)
+  const organizerPaid = isExternalOrganizer
+    ? event.organizer_payment_status === "paid"
+    : true; // Admin as organizer is always considered "paid"
+
+  // Count all components (including venue components that might have is_included = false)
+  const allComponents = (event.components || []).filter(
+    (c) => c.is_included || c.component_name?.startsWith("Venue:")
+  );
+  const extraEntitiesCount = 1; // Always count organizer
+  const derivedIncludedCount = allComponents.length + extraEntitiesCount;
   const derivedFinalizedCount =
-    (event.components || []).filter(
-      (c) => c.is_included && c.payment_status === "paid"
-    ).length +
-    (organizerPaid ? 1 : 0) +
-    (venuePaid ? 1 : 0);
+    allComponents.filter((c) => c.payment_status === "paid").length +
+    (organizerPaid ? 1 : 0);
   const derivedInclusionPercentage =
     derivedIncludedCount > 0
       ? Math.round((derivedFinalizedCount / derivedIncludedCount) * 100)
@@ -4701,25 +4742,50 @@ export default function EventDetailsPage() {
         </div>
       </div>
 
-      {/* Client confirmation banner when all inclusions are paid */}
+      {/* Client confirmation banner - 🔧 FIX: Admin is ALWAYS head organizer by default */}
       {isClient &&
-        derivedIncludedCount > 0 &&
-        derivedPaidComponents === derivedIncludedCount && (
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
-              <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
-              <div>
-                <div className="text-green-800 font-medium">
-                  All inclusions paid
-                </div>
-                <div className="text-sm text-green-700">
-                  Your event is confirmed. We will keep you posted for any
-                  updates.
+        (() => {
+          const hasAssignedOrganizer = !!event.organizer_id;
+          const isAdminAsOrganizer =
+            hasAssignedOrganizer && event.organizer_id === event.admin_id;
+          const isExternalOrganizer =
+            hasAssignedOrganizer && event.organizer_id !== event.admin_id;
+
+          // Admin is always considered an organizer (head organizer by default)
+          const organizerPaid = isExternalOrganizer
+            ? event.organizer_payment_status === "paid"
+            : true; // Admin as organizer is always considered "paid"
+
+          // Count all components (including venue components that might have is_included = false)
+          const allComponents = (event.components || []).filter(
+            (c) => c.is_included || c.component_name?.startsWith("Venue:")
+          );
+          const extraEntitiesCount = 1; // Always count organizer
+          const localDerivedIncludedCount =
+            allComponents.length + extraEntitiesCount;
+
+          const localDerivedPaidComponents =
+            allComponents.filter((c) => c.payment_status === "paid").length +
+            (organizerPaid ? 1 : 0);
+
+          return localDerivedIncludedCount > 0 &&
+            localDerivedPaidComponents === localDerivedIncludedCount ? (
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                <div>
+                  <div className="text-green-800 font-medium">
+                    All inclusions paid
+                  </div>
+                  <div className="text-sm text-green-700">
+                    Your event is confirmed. We will keep you posted for any
+                    updates.
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          ) : null;
+        })()}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">

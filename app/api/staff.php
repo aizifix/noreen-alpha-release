@@ -1205,19 +1205,29 @@ class Staff {
                     if ($booking) {
                         $bookingId = $booking['booking_id'];
 
-                        // Update payment records to link them to the event
-                        $transferPaymentsSql = "UPDATE tbl_payments
-                                              SET event_id = :event_id
-                                              WHERE booking_id = :booking_id AND event_id IS NULL";
-                        $transferStmt = $this->conn->prepare($transferPaymentsSql);
-                        $transferStmt->execute([
-                            ':event_id' => $eventId,
-                            ':booking_id' => $bookingId
-                        ]);
+                        // Check if there are any booking payments to transfer
+                        $checkPaymentsSql = "SELECT COUNT(*) as count FROM tbl_payments WHERE booking_id = :booking_id AND event_id IS NULL";
+                        $checkStmt = $this->conn->prepare($checkPaymentsSql);
+                        $checkStmt->execute([':booking_id' => $bookingId]);
+                        $paymentCount = $checkStmt->fetch(PDO::FETCH_ASSOC)['count'];
 
-                        $transferredCount = $transferStmt->rowCount();
-                        if ($transferredCount > 0) {
-                            error_log("createEvent: Transferred {$transferredCount} payment(s) from booking to event");
+                        if ($paymentCount > 0) {
+                            // Update payment records to link them to the event
+                            $transferPaymentsSql = "UPDATE tbl_payments
+                                                  SET event_id = :event_id
+                                                  WHERE booking_id = :booking_id AND event_id IS NULL";
+                            $transferStmt = $this->conn->prepare($transferPaymentsSql);
+                            $transferStmt->execute([
+                                ':event_id' => $eventId,
+                                ':booking_id' => $bookingId
+                            ]);
+
+                            $transferredCount = $transferStmt->rowCount();
+                            if ($transferredCount > 0) {
+                                error_log("createEvent: Transferred {$transferredCount} payment(s) from booking to event");
+                            }
+                        } else {
+                            error_log("createEvent: No booking payments found to transfer");
                         }
                     }
                 } catch (Exception $e) {
@@ -3758,23 +3768,43 @@ This is an automated message. Please do not reply.
             error_log("getPackageDetails: Found " . count($components) . " components");
 
             // Transform components into the expected structure for detailed view
-            // Parse component_description into child components so UI can show dropdown per inclusion
+            // Fetch real components from tbl_inclusion_components table
             $inclusions = [];
             foreach ($components as $component) {
                 $childComponents = [];
-                $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
 
-                if ($rawDescription !== '') {
-                    // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
-                    $normalized = preg_replace('/[\r\n;•]+/u', ',', $rawDescription);
-                    $parts = array_filter(array_map('trim', explode(',', (string)$normalized)), function($p) { return $p !== ''; });
+                // Fetch real components from tbl_inclusion_components table
+                $componentsSql = "SELECT component_id, component_name, component_description, component_price, display_order
+                                FROM tbl_inclusion_components
+                                WHERE inclusion_id = :inclusion_id
+                                ORDER BY display_order";
+                $componentsStmt = $this->conn->prepare($componentsSql);
+                $componentsStmt->execute([':inclusion_id' => $component['component_id']]);
+                $realComponents = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-                    foreach ($parts as $part) {
+                // If no real components found, fall back to parsing components_list
+                if (empty($realComponents)) {
+                    $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
+
+                    if ($rawDescription !== '') {
+                        // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
+                        $normalized = preg_replace('/[\r\n;•]+/u', ',', $rawDescription);
+                        $parts = array_filter(array_map('trim', explode(',', (string)$normalized)), function($p) { return $p !== ''; });
+
+                        foreach ($parts as $part) {
+                            $childComponents[] = [
+                                'name' => $part,
+                                'price' => 0,
+                                'subComponents' => [],
+                            ];
+                        }
+                    }
+                } else {
+                    // Use real components from database
+                    foreach ($realComponents as $realComponent) {
                         $childComponents[] = [
-                            'name' => $part,
-                            // No per-item pricing stored at this granularity
-                            'price' => 0,
-                            // Frontend expects this key; provide empty list
+                            'name' => $realComponent['component_name'],
+                            'price' => (float)$realComponent['component_price'],
                             'subComponents' => [],
                         ];
                     }
@@ -3783,7 +3813,8 @@ This is an automated message. Please do not reply.
                 $inclusion = [
                     'name' => $component['component_name'],
                     'price' => (float)$component['component_price'],
-                    'components' => $childComponents,
+                    'components' => $childComponents,  // For package details page
+                    'subComponents' => $childComponents,  // For event details page
                 ];
 
                 // Add supplier information if available and columns exist
@@ -4917,12 +4948,72 @@ This is an automated message. Please do not reply.
 
                 // Get event components
                 $stmt = $this->pdo->prepare("
-                    SELECT * FROM tbl_event_components
-                    WHERE event_id = ?
-                    ORDER BY display_order
+                    SELECT
+                        ec.*,
+                        pc.inclusion_name as original_component_name,
+                        pc.components_list as original_component_description
+                    FROM tbl_event_components ec
+                    LEFT JOIN tbl_package_inclusions pc ON ec.original_package_component_id = pc.inclusion_id
+                    WHERE ec.event_id = ?
+                    ORDER BY ec.display_order
                 ");
                 $stmt->execute([$eventId]);
-                $event['components'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $eventComponents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Parse component_description into subComponents array for each component
+                // Fetch real components from tbl_inclusion_components table
+                foreach ($eventComponents as &$component) {
+                    $subComponents = [];
+
+                    // If this component has an original_package_component_id, fetch real components
+                    if (!empty($component['original_package_component_id'])) {
+                        $componentsSql = "SELECT component_id, component_name, component_description, component_price, display_order
+                                        FROM tbl_inclusion_components
+                                        WHERE inclusion_id = :inclusion_id
+                                        ORDER BY display_order";
+                        $componentsStmt = $this->conn->prepare($componentsSql);
+                        $componentsStmt->execute([':inclusion_id' => $component['original_package_component_id']]);
+                        $realComponents = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                        if (!empty($realComponents)) {
+                            // Use real components from database
+                            foreach ($realComponents as $realComponent) {
+                                $subComponents[] = [
+                                    'name' => $realComponent['component_name'],
+                                    'price' => (float)$realComponent['component_price']
+                                ];
+                            }
+                        }
+                    }
+
+                    // If no real components found, fall back to parsing component_description
+                    if (empty($subComponents)) {
+                        $rawDescription = isset($component['original_component_description']) ? trim((string)$component['original_component_description']) : '';
+
+                        // If original_component_description is empty, try component_description
+                        if (empty($rawDescription)) {
+                            $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
+                        }
+
+                        if ($rawDescription !== '') {
+                            // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
+                            $normalized = preg_replace('/[\r\n;•]+/u', ',', $rawDescription);
+                            $parts = array_filter(array_map('trim', explode(',', (string)$normalized)), function($p) { return $p !== ''; });
+
+                            foreach ($parts as $part) {
+                                $subComponents[] = [
+                                    'name' => $part,
+                                    'price' => 0
+                                ];
+                            }
+                        }
+                    }
+
+                    $component['subComponents'] = $subComponents;
+                }
+                unset($component); // Break reference
+
+                $event['components'] = $eventComponents;
 
                 // Get event timeline
                 $stmt = $this->pdo->prepare("
@@ -5091,7 +5182,62 @@ This is an automated message. Please do not reply.
                 ORDER BY ec.display_order
             ");
             $stmt->execute([$eventId]);
-            $event['components'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $eventComponents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Parse component_description into subComponents array for each component
+            // Fetch real components from tbl_inclusion_components table
+            foreach ($eventComponents as &$component) {
+                $subComponents = [];
+
+                // If this component has an original_package_component_id, fetch real components
+                if (!empty($component['original_package_component_id'])) {
+                    $componentsSql = "SELECT component_id, component_name, component_description, component_price, display_order
+                                    FROM tbl_inclusion_components
+                                    WHERE inclusion_id = :inclusion_id
+                                    ORDER BY display_order";
+                    $componentsStmt = $this->conn->prepare($componentsSql);
+                    $componentsStmt->execute([':inclusion_id' => $component['original_package_component_id']]);
+                    $realComponents = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                    if (!empty($realComponents)) {
+                        // Use real components from database
+                        foreach ($realComponents as $realComponent) {
+                            $subComponents[] = [
+                                'name' => $realComponent['component_name'],
+                                'price' => (float)$realComponent['component_price']
+                            ];
+                        }
+                    }
+                }
+
+                // If no real components found, fall back to parsing component_description
+                if (empty($subComponents)) {
+                    $rawDescription = isset($component['original_component_description']) ? trim((string)$component['original_component_description']) : '';
+
+                    // If original_component_description is empty, try component_description
+                    if (empty($rawDescription)) {
+                        $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
+                    }
+
+                    if ($rawDescription !== '') {
+                        // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
+                        $normalized = preg_replace('/[\r\n;•]+/u', ',', $rawDescription);
+                        $parts = array_filter(array_map('trim', explode(',', (string)$normalized)), function($p) { return $p !== ''; });
+
+                        foreach ($parts as $part) {
+                            $subComponents[] = [
+                                'name' => $part,
+                                'price' => 0
+                            ];
+                        }
+                    }
+                }
+
+                $component['subComponents'] = $subComponents;
+            }
+            unset($component); // Break reference
+
+            $event['components'] = $eventComponents;
 
             // Get event timeline
             $stmt = $this->pdo->prepare("

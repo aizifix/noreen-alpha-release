@@ -347,6 +347,10 @@ function BudgetProgress({
       return sum;
     }, 0) || 0;
 
+  // Add reserved payment total from event if it exists
+  const eventReservedPaymentTotal = Number(event.reserved_payment_total || 0);
+  const finalTotalPaid = totalPaid + eventReservedPaymentTotal;
+
   // Calculate non-reserved payments (regular event payments)
   const eventPaymentsTotal =
     event.payments?.reduce((sum, payment: any) => {
@@ -362,10 +366,10 @@ function BudgetProgress({
 
   // Ensure remaining amount is never negative
   const totalBudget = Number(event.total_budget) || 0;
-  const remaining = Math.max(0, totalBudget - totalPaid);
+  const remaining = Math.max(0, totalBudget - finalTotalPaid);
   const progressPercentage = Math.min(
     100,
-    Math.max(0, totalBudget > 0 ? (totalPaid / totalBudget) * 100 : 0)
+    Math.max(0, totalBudget > 0 ? (finalTotalPaid / totalBudget) * 100 : 0)
   );
 
   // Debug logging
@@ -377,6 +381,8 @@ function BudgetProgress({
     reservedPaymentsTotal: reservedPaymentsTotal,
     eventPaymentsTotal: eventPaymentsTotal,
     totalPaid: totalPaid,
+    eventReservedPaymentTotal: eventReservedPaymentTotal,
+    finalTotalPaid: finalTotalPaid,
     remaining: remaining,
     paymentHistory: paymentHistory?.length || 0,
     eventPayments: event.payments?.length || 0,
@@ -418,7 +424,7 @@ function BudgetProgress({
           <div className="bg-green-50 rounded-lg p-3">
             <div className="text-green-700 font-medium">Paid</div>
             <div className="text-green-900 font-semibold">
-              P{formatCurrency(totalPaid)}
+              P{formatCurrency(finalTotalPaid)}
             </div>
             <div className="text-green-600 text-xs">
               {progressPercentage.toFixed(1)}%
@@ -4292,19 +4298,92 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         console.log("Raw payment data:", raw);
         console.log("Raw payment data length:", raw.length);
 
-        const normalized = (raw || []).map((p: any) => {
+        // Deduplicate payments by payment_id to prevent duplicate keys
+        const uniquePayments = raw.reduce((acc: any[], payment: any) => {
+          const existingIndex = acc.findIndex(
+            (p) => p.payment_id === payment.payment_id
+          );
+          if (existingIndex === -1) {
+            acc.push(payment);
+          } else {
+            // If duplicate found, keep the one with more complete data
+            const existing = acc[existingIndex];
+            if (payment.payment_reference && !existing.payment_reference) {
+              acc[existingIndex] = payment;
+            }
+          }
+          return acc;
+        }, []);
+
+        const normalized = (uniquePayments || []).map((p: any) => {
           // Attachments removed; ensure field exists as empty array for UI safety
           return { ...p, payment_attachments: [] };
         });
 
-        console.log("Normalized payment data:", normalized);
+        // Sort payments: reservation fees at bottom, others by date (newest first)
+        const sortedPayments = normalized.sort((a: any, b: any) => {
+          // More comprehensive reservation fee detection
+          const aIsReservation =
+            a.payment_type === "reserved" ||
+            a.payment_notes?.toLowerCase().includes("reservation") ||
+            a.payment_notes?.toLowerCase().includes("reserved") ||
+            a.payment_notes?.toLowerCase().includes("reservation fee") ||
+            // Check if this payment was transferred from a booking (has booking_id but no event-specific notes)
+            (a.booking_id &&
+              !a.payment_notes?.toLowerCase().includes("down payment") &&
+              !a.payment_notes?.toLowerCase().includes("initial"));
+
+          const bIsReservation =
+            b.payment_type === "reserved" ||
+            b.payment_notes?.toLowerCase().includes("reservation") ||
+            b.payment_notes?.toLowerCase().includes("reserved") ||
+            b.payment_notes?.toLowerCase().includes("reservation fee") ||
+            // Check if this payment was transferred from a booking (has booking_id but no event-specific notes)
+            (b.booking_id &&
+              !b.payment_notes?.toLowerCase().includes("down payment") &&
+              !b.payment_notes?.toLowerCase().includes("initial"));
+
+          console.log("Sorting payments:", {
+            a: {
+              amount: a.payment_amount,
+              method: a.payment_method,
+              type: a.payment_type,
+              notes: a.payment_notes,
+              isReservation: aIsReservation,
+            },
+            b: {
+              amount: b.payment_amount,
+              method: b.payment_method,
+              type: b.payment_type,
+              notes: b.payment_notes,
+              isReservation: bIsReservation,
+            },
+          });
+
+          // If one is reservation and other isn't, reservation goes to bottom
+          if (aIsReservation && !bIsReservation) return 1;
+          if (!aIsReservation && bIsReservation) return -1;
+
+          // If both are same type, sort by date (newest first)
+          const dateA = new Date(a.payment_date).getTime();
+          const dateB = new Date(b.payment_date).getTime();
+          return dateB - dateA;
+        });
+
+        console.log("Normalized payment data:", sortedPayments);
+        console.log(
+          "Deduplicated payments count:",
+          sortedPayments.length,
+          "from",
+          raw.length
+        );
         console.log(
           "Setting payment history with",
-          normalized.length,
+          sortedPayments.length,
           "payments"
         );
 
-        setPaymentHistory(normalized);
+        setPaymentHistory(sortedPayments);
       } else {
         console.error("API returned error:", response.data.message);
       }
@@ -4653,16 +4732,22 @@ function PaymentHistoryTab({ event }: { event: Event }) {
 
     const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
 
+    // Add reserved payment total if it exists and is separate from down payment
+    const reservedPaymentTotal = Number(event.reserved_payment_total || 0);
+    const finalTotalPaid = totalPaid + reservedPaymentTotal;
+
     console.log("Payment calculation details:", {
       paymentsTotal,
       downPayment,
       downPaymentIncluded,
+      reservedPaymentTotal,
       totalPaid,
+      finalTotalPaid,
       paymentHistory: paymentHistory?.length || 0,
       eventPayments: event.payments?.length || 0,
     });
 
-    return totalPaid;
+    return finalTotalPaid;
   };
 
   if (isLoading) {
@@ -5284,7 +5369,13 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                     const amount = Number(p.payment_amount) || 0;
                     return isPaid ? sum + amount : sum;
                   }, 0);
-                  return paid;
+
+                  // Add reserved payment total if it exists
+                  const reservedPaymentTotal = Number(
+                    event.reserved_payment_total || 0
+                  );
+
+                  return paid + reservedPaymentTotal;
                 })()
               )}
             </div>
@@ -5309,7 +5400,14 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                     const amount = Number(p.payment_amount) || 0;
                     return isPaid ? sum + amount : sum;
                   }, 0);
-                  return Math.max(0, totalBudget - paid);
+
+                  // Add reserved payment total if it exists
+                  const reservedPaymentTotal = Number(
+                    event.reserved_payment_total || 0
+                  );
+                  const totalPaid = paid + reservedPaymentTotal;
+
+                  return Math.max(0, totalBudget - totalPaid);
                 })()
               )}
             </div>
@@ -5342,9 +5440,26 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                   <div>
                     <h5 className="font-bold text-lg text-gray-900">
                       ₱{formatCurrency(Number(payment.payment_amount || 0))}
-                      {payment.payment_type === "reserved" && (
+                      {(payment.payment_type === "reserved" ||
+                        payment.payment_notes
+                          ?.toLowerCase()
+                          .includes("reservation") ||
+                        payment.payment_notes
+                          ?.toLowerCase()
+                          .includes("reserved") ||
+                        payment.payment_notes
+                          ?.toLowerCase()
+                          .includes("reservation fee") ||
+                        // Check if this payment was transferred from a booking (has booking_id but no event-specific notes)
+                        (payment.booking_id &&
+                          !payment.payment_notes
+                            ?.toLowerCase()
+                            .includes("down payment") &&
+                          !payment.payment_notes
+                            ?.toLowerCase()
+                            .includes("initial"))) && (
                         <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                          Reserved Fee
+                          Reservation Fee
                         </span>
                       )}
                     </h5>
@@ -5607,15 +5722,90 @@ export default function EventDetailsPage() {
 
       if (response.data.status === "success") {
         const raw = response.data.payments || event?.payments || [];
-        const normalized = (raw || []).map((p: any) => ({
+
+        // Deduplicate payments by payment_id to prevent duplicate keys
+        const uniquePayments = raw.reduce((acc: any[], payment: any) => {
+          const existingIndex = acc.findIndex(
+            (p) => p.payment_id === payment.payment_id
+          );
+          if (existingIndex === -1) {
+            acc.push(payment);
+          } else {
+            // If duplicate found, keep the one with more complete data
+            const existing = acc[existingIndex];
+            if (payment.payment_reference && !existing.payment_reference) {
+              acc[existingIndex] = payment;
+            }
+          }
+          return acc;
+        }, []);
+
+        const normalized = (uniquePayments || []).map((p: any) => ({
           ...p,
           payment_attachments: [],
         }));
-        setMainPaymentHistory(normalized);
-        console.log("Main component normalized payment data:", normalized);
+
+        // Sort payments: reservation fees at bottom, others by date (newest first)
+        const sortedPayments = normalized.sort((a: any, b: any) => {
+          // More comprehensive reservation fee detection
+          const aIsReservation =
+            a.payment_type === "reserved" ||
+            a.payment_notes?.toLowerCase().includes("reservation") ||
+            a.payment_notes?.toLowerCase().includes("reserved") ||
+            a.payment_notes?.toLowerCase().includes("reservation fee") ||
+            // Check if this payment was transferred from a booking (has booking_id but no event-specific notes)
+            (a.booking_id &&
+              !a.payment_notes?.toLowerCase().includes("down payment") &&
+              !a.payment_notes?.toLowerCase().includes("initial"));
+
+          const bIsReservation =
+            b.payment_type === "reserved" ||
+            b.payment_notes?.toLowerCase().includes("reservation") ||
+            b.payment_notes?.toLowerCase().includes("reserved") ||
+            b.payment_notes?.toLowerCase().includes("reservation fee") ||
+            // Check if this payment was transferred from a booking (has booking_id but no event-specific notes)
+            (b.booking_id &&
+              !b.payment_notes?.toLowerCase().includes("down payment") &&
+              !b.payment_notes?.toLowerCase().includes("initial"));
+
+          console.log("Sorting payments:", {
+            a: {
+              amount: a.payment_amount,
+              method: a.payment_method,
+              type: a.payment_type,
+              notes: a.payment_notes,
+              isReservation: aIsReservation,
+            },
+            b: {
+              amount: b.payment_amount,
+              method: b.payment_method,
+              type: b.payment_type,
+              notes: b.payment_notes,
+              isReservation: bIsReservation,
+            },
+          });
+
+          // If one is reservation and other isn't, reservation goes to bottom
+          if (aIsReservation && !bIsReservation) return 1;
+          if (!aIsReservation && bIsReservation) return -1;
+
+          // If both are same type, sort by date (newest first)
+          const dateA = new Date(a.payment_date).getTime();
+          const dateB = new Date(b.payment_date).getTime();
+          return dateB - dateA;
+        });
+
+        setMainPaymentHistory(sortedPayments);
+        console.log("Main component normalized payment data:", sortedPayments);
+        console.log(
+          "Deduplicated payments count:",
+          sortedPayments.length,
+          "from",
+          raw.length
+        );
         console.log(
           "Reserved payments in data:",
-          normalized.filter((p: any) => p.payment_type === "reserved")
+          sortedPayments.filter((p: any) => p.payment_type === "reserved")
         );
       } else {
         console.error(

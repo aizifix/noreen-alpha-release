@@ -3460,6 +3460,10 @@ export default function EventBuilderPage() {
       scheduleTypeId: 2,
     });
 
+    // Mark this as a booking event and set the booking reference
+    setIsBookingEvent(true);
+    setBookingReference(booking.booking_reference);
+
     toast.success(
       `Successfully loaded booking: ${booking.event_name}. All fields have been populated.`
     );

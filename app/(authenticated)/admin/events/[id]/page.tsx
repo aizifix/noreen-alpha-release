@@ -83,6 +83,7 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+import { EventScheduleTab } from "./schedule-component";
 
 // Enhanced interface to match updated tbl_events structure
 interface Event {
@@ -3908,6 +3909,79 @@ function EventTimeline({
   event: Event;
   mainPaymentHistory?: any[];
 }) {
+  // Helper functions moved to component level for accessibility
+  const getTodayString = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const calculateDerivedPaymentStatus = () => {
+    // Use the same calculation logic as the main component
+    let paymentsTotal = 0;
+
+    // Try to get from mainPaymentHistory first (fetched by main component)
+    if (mainPaymentHistory && mainPaymentHistory.length > 0) {
+      paymentsTotal = mainPaymentHistory.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
+      }, 0);
+    } else if (event.payments && Array.isArray(event.payments)) {
+      // Fallback: try to get from event data
+      paymentsTotal = event.payments.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
+      }, 0);
+    }
+
+    // Include down payment (reservation fee) if not already included in payments
+    const downPayment = Number(event.down_payment || 0);
+    const downPaymentIncluded =
+      (mainPaymentHistory || event.payments || []).some(
+        (payment: any) =>
+          payment.payment_type === "down_payment" ||
+          payment.payment_type === "reserved" ||
+          payment.payment_notes?.toLowerCase().includes("down payment") ||
+          payment.payment_notes?.toLowerCase().includes("reservation")
+      ) || false;
+
+    const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+
+    // Add reserved payment total if it exists and is separate from down payment
+    const reservedPaymentTotal = Number(event.reserved_payment_total || 0);
+    const finalTotalPaid = totalPaid + reservedPaymentTotal;
+
+    const totalBudget = Number(event.total_budget || 0);
+    const remaining = totalBudget - finalTotalPaid;
+
+    // If fully paid, return "paid"
+    if (remaining <= 0 && finalTotalPaid > 0) {
+      return "paid";
+    }
+
+    // If partially paid, return "partial"
+    if (finalTotalPaid > 0 && remaining > 0) {
+      return "partial";
+    }
+
+    // If no payments made, return "unpaid"
+    return "unpaid";
+  };
+
   const getTimelineSteps = () => {
     const includedComponents = (event.components || []).filter(
       (comp) => comp.is_included
@@ -3919,71 +3993,27 @@ function EventTimeline({
       includedComponents.length > 0 &&
       paidIncludedComponents.length === includedComponents.length;
 
-    // Calculate derived payment status based on budget progress
-    const calculateDerivedPaymentStatus = () => {
-      // Use the same calculation logic as the main component
-      let paymentsTotal = 0;
-
-      // Try to get from mainPaymentHistory first (fetched by main component)
-      if (mainPaymentHistory && mainPaymentHistory.length > 0) {
-        paymentsTotal = mainPaymentHistory.reduce((sum, p) => {
-          const isPaid =
-            p.payment_status === "completed" ||
-            p.payment_status === "paid" ||
-            p.payment_status === "confirmed" ||
-            p.payment_status === "processed" ||
-            p.payment_status === "successful";
-          const amount = Number(p.payment_amount) || 0;
-          return isPaid ? sum + amount : sum;
-        }, 0);
-      } else if (event.payments && Array.isArray(event.payments)) {
-        // Fallback: try to get from event data
-        paymentsTotal = event.payments.reduce((sum, p) => {
-          const isPaid =
-            p.payment_status === "completed" ||
-            p.payment_status === "paid" ||
-            p.payment_status === "confirmed" ||
-            p.payment_status === "processed" ||
-            p.payment_status === "successful";
-          const amount = Number(p.payment_amount) || 0;
-          return isPaid ? sum + amount : sum;
-        }, 0);
-      }
-
-      // Include down payment (reservation fee) if not already included in payments
-      const downPayment = Number(event.down_payment || 0);
-      const downPaymentIncluded =
-        (mainPaymentHistory || event.payments || []).some(
-          (payment: any) =>
-            payment.payment_type === "down_payment" ||
-            payment.payment_type === "reserved" ||
-            payment.payment_notes?.toLowerCase().includes("down payment") ||
-            payment.payment_notes?.toLowerCase().includes("reservation")
-        ) || false;
-
-      const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
-
-      // Add reserved payment total if it exists and is separate from down payment
-      const reservedPaymentTotal = Number(event.reserved_payment_total || 0);
-      const finalTotalPaid = totalPaid + reservedPaymentTotal;
-
-      const remaining = event.total_budget - finalTotalPaid;
-
-      // If fully paid (no remaining balance), return "paid"
-      if (remaining <= 0 && event.total_budget > 0) {
-        return "paid";
-      }
-
-      // If partially paid, return "partial"
-      if (finalTotalPaid > 0 && remaining > 0) {
-        return "partial";
-      }
-
-      // If no payments made, return "unpaid"
-      return "unpaid";
-    };
-
     const derivedPaymentStatus = calculateDerivedPaymentStatus();
+
+    // Get today's date in YYYY-MM-DD format for accurate comparison
+    const today = getTodayString();
+    const eventDate = event.event_date;
+
+    // Determine execution status based on date comparison
+    let executionStatus: "completed" | "in-progress" | "pending" = "pending";
+    if (event.event_status === "done") {
+      // Only mark as completed if explicitly set to done
+      executionStatus = "completed";
+    } else if (eventDate === today) {
+      // Event is happening today
+      executionStatus = "in-progress";
+    } else if (eventDate < today) {
+      // Past event that's not marked as done - show as in-progress
+      executionStatus = "in-progress";
+    } else {
+      // Future event - always pending
+      executionStatus = "pending";
+    }
 
     const steps = [
       {
@@ -4006,10 +4036,7 @@ function EventTimeline({
         id: "planning",
         title: "Event Planning",
         date: null,
-        status:
-          allIncludedPaid || event.event_status === "confirmed"
-            ? "completed"
-            : "pending",
+        status: allIncludedPaid ? "completed" : "pending",
         icon: Edit,
         description: allIncludedPaid
           ? "All inclusions paid. Event ready."
@@ -4020,7 +4047,9 @@ function EventTimeline({
         title: "Final Payment",
         date: null,
         status:
-          calculateDerivedPaymentStatus() === "paid" ? "completed" : "pending",
+          calculateDerivedPaymentStatus() === "paid" && allIncludedPaid
+            ? "completed"
+            : "pending",
         icon: DollarSign,
         description: "Complete payment settlement",
       },
@@ -4028,12 +4057,7 @@ function EventTimeline({
         id: "execution",
         title: "Event Day",
         date: event.event_date,
-        status:
-          event.event_status === "done"
-            ? "completed"
-            : event.event_status === "on_going"
-              ? "in-progress"
-              : "pending",
+        status: executionStatus,
         icon: Users,
         description: "Event execution",
       },
@@ -4063,11 +4087,46 @@ function EventTimeline({
       (venuePaid ? 1 : 0);
     const planningComplete =
       derivedIncludedCount > 0 && derivedPaidCount === derivedIncludedCount;
-    return base.map((s) =>
-      s.id === "planning"
-        ? { ...s, status: planningComplete ? "completed" : s.status }
-        : s
-    );
+    return base.map((s) => {
+      if (s.id === "planning") {
+        return {
+          ...s,
+          status: planningComplete ? "completed" : "pending",
+        };
+      }
+      if (s.id === "final-payment") {
+        return {
+          ...s,
+          status:
+            calculateDerivedPaymentStatus() === "paid" && planningComplete
+              ? "completed"
+              : "pending",
+        };
+      }
+      if (s.id === "execution") {
+        // Calculate execution status based on date comparison
+        const today = getTodayString();
+        const eventDate = event.event_date;
+        let executionStatus: "completed" | "in-progress" | "pending" =
+          "pending";
+
+        if (event.event_status === "done") {
+          executionStatus = "completed";
+        } else if (eventDate === today) {
+          executionStatus = "in-progress";
+        } else if (eventDate < today) {
+          executionStatus = "in-progress";
+        } else {
+          executionStatus = "pending";
+        }
+
+        return {
+          ...s,
+          status: executionStatus,
+        };
+      }
+      return s;
+    });
   })();
 
   const getStatusColor = (status: string) => {
@@ -5736,27 +5795,29 @@ export default function EventDetailsPage() {
     // Past events are "done" (purple)
     if (evt.event_date < today) return "done";
 
-    // For future events, check payment completion to determine status
-    // Check if all inclusions are paid
-    const allInclusionsPaid = (evt.components || []).every((component) => {
-      // Only check included components
-      if (!component.is_included) return true;
+    // For future events, check if they're truly ready to be "confirmed"
+    if (evt.event_date > today) {
+      // Check if all inclusions are paid and event is fully ready
+      const includedComponents = (evt.components || []).filter(
+        (c) => c.is_included
+      );
+      const paidIncludedComponents = includedComponents.filter(
+        (c) => c.payment_status === "paid"
+      );
+      const allIncludedPaid =
+        includedComponents.length > 0 &&
+        paidIncludedComponents.length === includedComponents.length;
 
-      // Check if component payment status is "paid"
-      return component.payment_status === "paid";
-    });
+      // Only show as "confirmed" if all inclusions are paid AND event status is explicitly confirmed
+      if (evt.event_status === "confirmed" && allIncludedPaid) {
+        return "confirmed";
+      }
 
-    // Also check organizer and venue payment status
-    const organizerPaid =
-      !evt.organizer_id || evt.organizer_payment_status === "paid";
-    const venuePaid = !evt.venue_id || evt.venue_payment_status === "paid";
-
-    // If all inclusions, organizer, and venue are paid, show as "confirmed" (green)
-    if (allInclusionsPaid && organizerPaid && venuePaid) {
-      return "confirmed";
+      // Otherwise show as "planning" (yellow) for future events
+      return "planning";
     }
 
-    // Otherwise show as "planning" (yellow) for future events
+    // Fallback to planning for any other case
     return "planning";
   };
 
@@ -6907,6 +6968,7 @@ export default function EventDetailsPage() {
   const tabs = [
     { id: "overview", label: "Overview", icon: Eye },
     { id: "payments", label: "Payments", icon: CreditCard },
+    { id: "schedule", label: "Schedule", icon: Calendar },
     { id: "attachments", label: "Files", icon: Paperclip },
     // Only show nuptial tab for wedding events
     ...(event?.event_type_name?.toLowerCase() === "wedding"
@@ -8212,6 +8274,13 @@ export default function EventDetailsPage() {
 
               {activeTab === "payments" && (
                 <PaymentHistoryTab event={displayEvent || event} />
+              )}
+
+              {activeTab === "schedule" && (
+                <EventScheduleTab
+                  event={displayEvent || event}
+                  onEventUpdate={fetchEventDetails}
+                />
               )}
 
               {activeTab === "attachments" && (

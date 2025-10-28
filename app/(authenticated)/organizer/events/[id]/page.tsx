@@ -26,7 +26,6 @@ import {
   ChevronRight,
   Package,
   Circle,
-  TrendingUp,
   BarChart3,
   X,
 } from "lucide-react";
@@ -35,9 +34,7 @@ import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 import axios from "axios";
 import { api, endpoints } from "@/app/config/api";
-
-// Feature flag: toggle delivery progress functionality for organizer
-const ENABLE_DELIVERY_PROGRESS = false;
+import { OrganizerEventScheduleTab } from "./schedule-component";
 
 interface Event {
   event_id: number;
@@ -108,12 +105,6 @@ export default function OrganizerEventDetailsPage() {
     Set<string | number>
   >(new Set());
   const [showGanttModal, setShowGanttModal] = useState(false);
-  const [deliveryProgress, setDeliveryProgress] = useState<any>(null);
-  const [updatingDelivery, setUpdatingDelivery] = useState<number | null>(null);
-  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
-  const [selectedComponent, setSelectedComponent] =
-    useState<EventComponent | null>(null);
-  const [deliveryError, setDeliveryError] = useState<string | null>(null);
   const [weddingDetails, setWeddingDetails] = useState<any | null>(null);
   const [weddingLoading, setWeddingLoading] = useState(false);
 
@@ -180,27 +171,6 @@ export default function OrganizerEventDetailsPage() {
       fetchEventDetails();
     }
   }, [organizerId]);
-
-  // Fetch delivery progress when organizerId is available and all components are paid
-  useEffect(() => {
-    if (!ENABLE_DELIVERY_PROGRESS) return;
-    if (organizerId && event && event.components) {
-      const includedComponents = event.components.filter(
-        (comp) => comp.is_included
-      );
-      const paidComponents = includedComponents.filter(
-        (comp) => comp.payment_status?.toLowerCase() === "paid"
-      );
-
-      // Only fetch delivery progress if all included components are paid
-      if (
-        includedComponents.length > 0 &&
-        includedComponents.length === paidComponents.length
-      ) {
-        fetchDeliveryProgress();
-      }
-    }
-  }, [organizerId, event]);
 
   // Fetch wedding details when organizerId and event become available for wedding events
   useEffect(() => {
@@ -436,126 +406,57 @@ export default function OrganizerEventDetailsPage() {
     }
   };
 
-  const handleDeliveryConfirmation = async (
-    component: EventComponent,
-    isDelivered: boolean
-  ) => {
-    if (!event?.event_id || !organizerId) return;
+  // Helper function to get today's date string
+  const getTodayString = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
 
-    try {
-      const newStatus = isDelivered ? "delivered" : "confirmed";
+  // Intelligent event status derivation
+  const getDerivedEventStatus = (event: Event) => {
+    if (event.event_status === "cancelled") return "cancelled";
+    const today = getTodayString();
 
-      // Update component status in the event state
-      setEvent((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          components: prev.components?.map((comp) =>
-            comp.component_id === component.component_id
-              ? { ...comp, supplier_status: newStatus }
-              : comp
-          ),
-        };
-      });
+    // Events happening today are "on_going" (blue)
+    if (event.event_date === today) return "on_going";
 
-      // Send API request to update delivery status
-      const requestData = {
-        operation: "updateComponentDeliveryStatus",
-        event_id: event.event_id,
-        component_id: component.component_id,
-        organizer_id: organizerId,
-        delivery_status: newStatus,
-        delivery_date: isDelivered
-          ? new Date().toISOString().split("T")[0]
-          : null, // Send only date part
-      };
+    // Past events are "done" (purple)
+    if (event.event_date < today) return "done";
 
-      console.log("📤 Sending delivery status update to:", endpoints.organizer);
-      console.log("📦 Request data:", requestData);
+    // For future events, check if they're truly ready to be "confirmed"
+    if (event.event_date > today) {
+      // Check if all inclusions are paid and event is fully ready
+      const includedComponents = (event.components || []).filter(
+        (c) => c.is_included
+      );
+      const paidIncludedComponents = includedComponents.filter(
+        (c) => c.payment_status === "paid"
+      );
+      const allIncludedPaid =
+        includedComponents.length > 0 &&
+        paidIncludedComponents.length === includedComponents.length;
 
-      const response = await axios.post(endpoints.organizer, requestData, {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      console.log("API Response:", response.data);
-
-      if (response.data?.status === "success") {
-        console.log("✅ Delivery status updated successfully");
-        toast({
-          title: isDelivered ? "Delivery Confirmed" : "Delivery Status Updated",
-          description: isDelivered
-            ? `${component.component_name} has been marked as delivered.`
-            : `${component.component_name} delivery status has been updated.`,
-        });
-
-        // Send notification to admin
-        if (isDelivered) {
-          try {
-            // Get admin user ID from event data or default to 1
-            const adminUserId = event.admin_id || 1;
-
-            // Notify admin about delivery confirmation
-            await axios.post("/notifications.php", {
-              operation: "create_notification",
-              user_id: adminUserId,
-              title: "Component Delivered",
-              message: `${component.component_name} has been delivered for event ${event.event_title}`,
-              type: "delivery_confirmation",
-              event_id: event.event_id,
-              priority: "medium",
-              icon: "package-check",
-            });
-          } catch (notificationError) {
-            console.warn(
-              "Failed to send notification to admin:",
-              notificationError
-            );
-            // Don't throw error - notification failure shouldn't break the main flow
-          }
-        }
-      } else {
-        console.error("API Error Response:", response.data);
-        throw new Error(
-          response.data?.message || "Failed to update delivery status"
-        );
+      // Only show as "confirmed" if all inclusions are paid AND event status is explicitly confirmed
+      if (event.event_status === "confirmed" && allIncludedPaid) {
+        return "confirmed";
       }
-    } catch (error: any) {
-      console.error("❌ Error updating delivery status:", error);
-      console.error("Error details:", {
-        message: error?.message,
-        response: error?.response?.data,
-        status: error?.response?.status,
-        url: error?.config?.url,
-      });
-      toast({
-        title: "Error",
-        description:
-          error?.response?.data?.message ||
-          "Failed to update delivery status. Please try again.",
-        variant: "destructive",
-      });
 
-      // Revert the state change on error
-      setEvent((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          components: prev.components?.map((comp) =>
-            comp.component_id === component.component_id
-              ? { ...comp, supplier_status: component.supplier_status }
-              : comp
-          ),
-        };
-      });
+      // Otherwise show as "planning" (yellow) for future events
+      return "planning";
     }
+
+    // Fallback to planning for any other case
+    return "planning";
   };
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case "confirmed":
         return "bg-green-100 text-green-700 border-green-300";
+      case "planning":
       case "draft":
         return "bg-yellow-100 text-yellow-700 border-yellow-300";
       case "on_going":
@@ -607,193 +508,6 @@ export default function OrganizerEventDetailsPage() {
       }
       return newSet;
     });
-  };
-
-  // Delivery tracking functions
-  const fetchDeliveryProgress = async () => {
-    if (!ENABLE_DELIVERY_PROGRESS) return;
-    if (!organizerId) return;
-
-    try {
-      setDeliveryError(null);
-      const response = await axios.post(endpoints.organizer, {
-        operation: "getEventDeliveryProgress",
-        event_id: parseInt(eventId),
-        organizer_id: organizerId,
-      });
-
-      if (response.data?.status === "success") {
-        setDeliveryProgress(response.data.data);
-        setDeliveryError(null);
-      } else {
-        setDeliveryError(
-          response.data?.message || "Failed to load delivery progress."
-        );
-      }
-    } catch (error) {
-      console.error("Error fetching delivery progress:", error);
-      setDeliveryError("Unable to contact server for delivery progress.");
-    }
-  };
-
-  const updateDeliveryStatus = async (
-    componentId: number,
-    status: string,
-    deliveryDate?: string,
-    notes?: string
-  ) => {
-    if (!ENABLE_DELIVERY_PROGRESS) return;
-    if (!organizerId) return;
-
-    // Ensure organizer has accepted the assignment before allowing updates
-    if (
-      event?.assignment_status &&
-      event.assignment_status.toLowerCase() !== "accepted"
-    ) {
-      toast({
-        title: "Action not allowed",
-        description:
-          "You must accept the assignment before updating delivery status.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Check if all included components are paid before allowing delivery updates
-    const includedComponents =
-      event?.components?.filter((comp) => comp.is_included) || [];
-    const paidComponents = includedComponents.filter(
-      (comp) => comp.payment_status?.toLowerCase() === "paid"
-    );
-
-    if (
-      includedComponents.length > 0 &&
-      includedComponents.length !== paidComponents.length
-    ) {
-      toast({
-        title: "Cannot Update Delivery",
-        description:
-          "All included components must be paid before tracking delivery status.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Ensure a valid date is sent; default to today if missing
-    const effectiveDeliveryDate =
-      deliveryDate && deliveryDate.trim().length > 0
-        ? deliveryDate
-        : new Date().toISOString().split("T")[0];
-
-    setUpdatingDelivery(componentId);
-    try {
-      const response = await axios.post(endpoints.organizer, {
-        operation: "updateComponentDeliveryStatus",
-        component_id: componentId,
-        delivery_status: status,
-        delivery_date: effectiveDeliveryDate,
-        delivery_notes: notes,
-        organizer_id: organizerId,
-      });
-
-      if (response.data?.status === "success") {
-        toast({
-          title: "Success",
-          description: "Delivery status updated successfully",
-        });
-        // Refresh delivery progress and event data
-        await fetchDeliveryProgress();
-        await fetchEventDetails();
-      } else {
-        const msg =
-          response.data?.message || "Failed to update delivery status";
-        toast({ title: "Error", description: msg, variant: "destructive" });
-        return;
-      }
-    } catch (error: any) {
-      console.error("Error updating delivery status:", error);
-      const backendMessage =
-        error?.response?.data?.message ||
-        error?.message ||
-        "Failed to update delivery status. Please try again.";
-      toast({
-        title: "Error",
-        description: backendMessage,
-        variant: "destructive",
-      });
-    } finally {
-      setUpdatingDelivery(null);
-    }
-  };
-
-  const openDeliveryModal = (component: EventComponent) => {
-    if (!ENABLE_DELIVERY_PROGRESS) return;
-    // Ensure organizer has accepted the assignment before allowing updates
-    if (
-      event?.assignment_status &&
-      event.assignment_status.toLowerCase() !== "accepted"
-    ) {
-      toast({
-        title: "Action not allowed",
-        description:
-          "You must accept the assignment before updating delivery status.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Check if all included components are paid before allowing delivery updates
-    const includedComponents =
-      event?.components?.filter((comp) => comp.is_included) || [];
-    const paidComponents = includedComponents.filter(
-      (comp) => comp.payment_status?.toLowerCase() === "paid"
-    );
-
-    if (
-      includedComponents.length > 0 &&
-      includedComponents.length !== paidComponents.length
-    ) {
-      toast({
-        title: "Cannot Update Delivery",
-        description:
-          "All included components must be paid before tracking delivery status.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setSelectedComponent(component);
-    setShowDeliveryModal(true);
-  };
-
-  const getDeliveryStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case "delivered":
-        return "bg-green-100 text-green-700 border-green-300";
-      case "confirmed":
-        return "bg-blue-100 text-blue-700 border-blue-300";
-      case "pending":
-        return "bg-yellow-100 text-yellow-700 border-yellow-300";
-      case "cancelled":
-        return "bg-red-100 text-red-700 border-red-300";
-      default:
-        return "bg-gray-100 text-gray-700 border-gray-300";
-    }
-  };
-
-  const getDeliveryStatusIcon = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case "delivered":
-        return <CheckCircle className="h-4 w-4" />;
-      case "confirmed":
-        return <Clock className="h-4 w-4" />;
-      case "pending":
-        return <Circle className="h-4 w-4" />;
-      case "cancelled":
-        return <XCircle className="h-4 w-4" />;
-      default:
-        return <Circle className="h-4 w-4" />;
-    }
   };
 
   // Event Progress Components
@@ -1345,7 +1059,7 @@ export default function OrganizerEventDetailsPage() {
 
   const tabs = [
     { id: "overview", label: "Overview", icon: Eye },
-    { id: "timeline", label: "Timeline", icon: Clock },
+    { id: "schedule", label: "Schedule", icon: Calendar },
     { id: "attachments", label: "Files", icon: FileText },
     // Only show nuptial tab for wedding events
     ...(event?.event_type_name?.toLowerCase() === "wedding"
@@ -1415,9 +1129,9 @@ export default function OrganizerEventDetailsPage() {
             </div>
             <div className="flex items-center space-x-3">
               <span
-                className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(event.event_status)}`}
+                className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(getDerivedEventStatus(event))}`}
               >
-                {event.event_status}
+                {getDerivedEventStatus(event)}
               </span>
               <span
                 className={`px-3 py-1 rounded-full text-sm font-medium border ${getPaymentStatusColor(event.payment_status)}`}
@@ -1600,630 +1314,12 @@ export default function OrganizerEventDetailsPage() {
                   </div>
                 )}
 
-                {activeTab === "timeline" && (
+                {activeTab === "schedule" && (
                   <div>
-                    <div className="mb-6">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        Event Timeline & Components
-                      </h3>
-                    </div>
-
-                    <div className="space-y-6">
-                      {/* Delivery Progress Section */}
-                      <div className="bg-white border border-gray-200 rounded-lg p-6">
-                        <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center">
-                          <TrendingUp className="h-4 w-4 mr-2 text-blue-600" />
-                          Delivery Progress
-                        </h4>
-                        {(() => {
-                          const includedComponents = (
-                            event.components || []
-                          ).filter((comp) => comp.is_included);
-                          const deliveredComponents = includedComponents.filter(
-                            (comp) => comp.supplier_status === "delivered"
-                          );
-                          const progressPercentage =
-                            includedComponents.length > 0
-                              ? (deliveredComponents.length /
-                                  includedComponents.length) *
-                                100
-                              : 0;
-
-                          return (
-                            <div className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium text-gray-700">
-                                  Items Delivered
-                                </span>
-                                <span className="text-sm text-gray-600">
-                                  {deliveredComponents.length} of{" "}
-                                  {includedComponents.length}
-                                </span>
-                              </div>
-
-                              <div className="w-full bg-gray-200 rounded-full h-3">
-                                <div
-                                  className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-in-out"
-                                  style={{ width: `${progressPercentage}%` }}
-                                ></div>
-                              </div>
-
-                              <div className="text-center">
-                                <span className="text-2xl font-bold text-blue-600">
-                                  {Math.round(progressPercentage)}%
-                                </span>
-                                <span className="text-sm text-gray-500 ml-1">
-                                  Complete
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* Components Section */}
-                      <div>
-                        <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center">
-                          <Package className="h-4 w-4 mr-2 text-gray-600" />
-                          Event Components
-                        </h4>
-                        {event.components &&
-                          event.components
-                            .filter(
-                              (component, index, self) =>
-                                index ===
-                                self.findIndex(
-                                  (c) =>
-                                    c.component_id === component.component_id
-                                )
-                            )
-                            .map((component, index) => (
-                              <div
-                                key={component.component_id || index}
-                                className="bg-white border border-gray-200 rounded-lg overflow-hidden animate-in slide-in-from-left-2 duration-300"
-                              >
-                                <button
-                                  onClick={() =>
-                                    toggleComponent(
-                                      component.component_id || index
-                                    )
-                                  }
-                                  className="w-full px-4 py-4 text-left hover:bg-gray-50 transition-colors flex items-center justify-between"
-                                >
-                                  <div className="flex items-center space-x-3">
-                                    <Package className="h-5 w-5 text-brand-500" />
-                                    <div>
-                                      <div className="flex items-center gap-2">
-                                        <h4 className="font-semibold text-gray-900">
-                                          {component.component_name}
-                                        </h4>
-                                        {/* Inclusion Status */}
-                                        <span
-                                          className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                            component.is_included
-                                              ? "bg-green-100 text-green-700"
-                                              : "bg-gray-100 text-gray-700"
-                                          }`}
-                                        >
-                                          {component.is_included
-                                            ? "Included"
-                                            : "Not Included"}
-                                        </span>
-                                      </div>
-                                      {/* Payment Status */}
-                                      {component.is_included && (
-                                        <div className="flex items-center gap-2 mt-1">
-                                          <span
-                                            className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                              component.payment_status ===
-                                              "paid"
-                                                ? "bg-green-100 text-green-700"
-                                                : component.payment_status ===
-                                                    "cancelled"
-                                                  ? "bg-red-100 text-red-700"
-                                                  : "bg-yellow-100 text-yellow-700"
-                                            }`}
-                                          >
-                                            {component.payment_status ===
-                                              "paid" && (
-                                              <>
-                                                <CheckCircle className="h-3 w-3 inline mr-1" />
-                                                Paid
-                                              </>
-                                            )}
-                                            {component.payment_status ===
-                                              "pending" && (
-                                              <>
-                                                <Clock className="h-3 w-3 inline mr-1" />
-                                                Pending
-                                              </>
-                                            )}
-                                            {component.payment_status ===
-                                              "cancelled" && (
-                                              <>
-                                                <XCircle className="h-3 w-3 inline mr-1" />
-                                                Cancelled
-                                              </>
-                                            )}
-                                          </span>
-
-                                          {/* Delivery Confirmation Checkbox - Only show for paid components */}
-                                          {component.payment_status ===
-                                            "paid" && (
-                                            <div className="flex items-center gap-2">
-                                              <label className="flex items-center gap-1 text-xs text-gray-600">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={
-                                                    component.supplier_status ===
-                                                    "delivered"
-                                                  }
-                                                  onChange={(e) =>
-                                                    handleDeliveryConfirmation(
-                                                      component,
-                                                      e.target.checked
-                                                    )
-                                                  }
-                                                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                                                />
-                                                <span>Delivered</span>
-                                              </label>
-                                              {component.supplier_status ===
-                                                "delivered" && (
-                                                <div className="flex items-center gap-2">
-                                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-                                                    <CheckCircle className="h-3 w-3 inline mr-1" />
-                                                    Delivered
-                                                  </span>
-                                                  {component.delivery_date && (
-                                                    <span className="text-xs text-gray-500">
-                                                      {format(
-                                                        new Date(
-                                                          component.delivery_date +
-                                                            "T00:00:00"
-                                                        ),
-                                                        "MMM dd, yyyy"
-                                                      )}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                              )}
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  {expandedComponents.has(
-                                    component.component_id || index
-                                  ) ? (
-                                    <ChevronDown className="h-5 w-5 text-gray-400" />
-                                  ) : (
-                                    <ChevronRight className="h-5 w-5 text-gray-400" />
-                                  )}
-                                </button>
-
-                                {expandedComponents.has(
-                                  component.component_id || index
-                                ) && (
-                                  <div className="px-4 pb-4 border-t border-gray-100">
-                                    <div className="pt-4 space-y-3">
-                                      {component.component_description && (
-                                        <div>
-                                          <h5 className="text-sm font-medium text-gray-700 mb-2">
-                                            Description:
-                                          </h5>
-                                          <p className="text-sm text-gray-600">
-                                            {component.component_description}
-                                          </p>
-                                        </div>
-                                      )}
-
-                                      {component.component_notes && (
-                                        <div>
-                                          <h5 className="text-sm font-medium text-gray-700 mb-2">
-                                            Notes:
-                                          </h5>
-                                          <p className="text-sm text-gray-600">
-                                            {component.component_notes}
-                                          </p>
-                                        </div>
-                                      )}
-
-                                      <div className="grid grid-cols-2 gap-4 text-sm">
-                                        {component.quantity && (
-                                          <div>
-                                            <span className="font-medium text-gray-700">
-                                              Quantity:
-                                            </span>
-                                            <span className="ml-2 text-gray-600">
-                                              {component.quantity}
-                                            </span>
-                                          </div>
-                                        )}
-                                        {component.unit && (
-                                          <div>
-                                            <span className="font-medium text-gray-700">
-                                              Unit:
-                                            </span>
-                                            <span className="ml-2 text-gray-600">
-                                              {component.unit}
-                                            </span>
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {/* Payment Details */}
-                                      {component.is_included &&
-                                        component.payment_status && (
-                                          <div className="pt-3 border-t border-gray-100">
-                                            <h5 className="text-sm font-medium text-gray-700 mb-2">
-                                              Payment Details:
-                                            </h5>
-                                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                              <div>
-                                                <span className="font-medium text-gray-700">
-                                                  Status:
-                                                </span>
-                                                <span
-                                                  className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${
-                                                    component.payment_status ===
-                                                    "paid"
-                                                      ? "bg-green-100 text-green-700"
-                                                      : component.payment_status ===
-                                                          "cancelled"
-                                                        ? "bg-red-100 text-red-700"
-                                                        : "bg-yellow-100 text-yellow-700"
-                                                  }`}
-                                                >
-                                                  {component.payment_status}
-                                                </span>
-                                              </div>
-                                              {component.payment_date && (
-                                                <div>
-                                                  <span className="font-medium text-gray-700">
-                                                    Date:
-                                                  </span>
-                                                  <span className="ml-2 text-gray-600">
-                                                    {format(
-                                                      new Date(
-                                                        component.payment_date
-                                                      ),
-                                                      "MMM dd, yyyy"
-                                                    )}
-                                                  </span>
-                                                </div>
-                                              )}
-                                            </div>
-                                            {component.payment_notes && (
-                                              <div className="mt-2">
-                                                <span className="font-medium text-gray-700">
-                                                  Notes:
-                                                </span>
-                                                <p className="text-sm text-gray-600 mt-1">
-                                                  {component.payment_notes}
-                                                </p>
-                                              </div>
-                                            )}
-                                          </div>
-                                        )}
-
-                                      {/* Delivery Details */}
-                                      {component.is_included &&
-                                        component.supplier_status && (
-                                          <div className="pt-3 border-t border-gray-100">
-                                            <h5 className="text-sm font-medium text-gray-700 mb-2">
-                                              Delivery Details:
-                                            </h5>
-                                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                              <div>
-                                                <span className="font-medium text-gray-700">
-                                                  Status:
-                                                </span>
-                                                <span
-                                                  className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${
-                                                    component.supplier_status ===
-                                                    "delivered"
-                                                      ? "bg-blue-100 text-blue-700"
-                                                      : component.supplier_status ===
-                                                          "cancelled"
-                                                        ? "bg-red-100 text-red-700"
-                                                        : "bg-yellow-100 text-yellow-700"
-                                                  }`}
-                                                >
-                                                  {component.supplier_status}
-                                                </span>
-                                              </div>
-                                              {component.delivery_date && (
-                                                <div>
-                                                  <span className="font-medium text-gray-700">
-                                                    Delivered:
-                                                  </span>
-                                                  <span className="ml-2 text-gray-600">
-                                                    {format(
-                                                      new Date(
-                                                        component.delivery_date +
-                                                          "T00:00:00"
-                                                      ),
-                                                      "MMM dd, yyyy"
-                                                    )}
-                                                  </span>
-                                                </div>
-                                              )}
-                                            </div>
-                                            {component.supplier_notes && (
-                                              <div className="mt-2">
-                                                <span className="font-medium text-gray-700">
-                                                  Delivery Notes:
-                                                </span>
-                                                <p className="text-sm text-gray-600 mt-1">
-                                                  {component.supplier_notes}
-                                                </p>
-                                              </div>
-                                            )}
-                                          </div>
-                                        )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                        {/* Empty State */}
-                        {(!event.components ||
-                          event.components.length === 0) && (
-                          <div className="text-center py-8">
-                            <Package className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                            <p className="text-gray-500">
-                              No components available for this event.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Divider */}
-                    <div className="border-t border-gray-200 my-8"></div>
-
-                    {/* Delivery Progress Section - disabled via feature flag */}
-                    {ENABLE_DELIVERY_PROGRESS && (
-                      <div>
-                        <div className="flex items-center justify-between mb-6">
-                          <h4 className="text-lg font-semibold text-gray-900 flex items-center">
-                            <Package className="h-5 w-5 mr-2 text-brand-500" />
-                            Delivery Progress
-                          </h4>
-                          {deliveryProgress && (
-                            <button
-                              onClick={fetchDeliveryProgress}
-                              className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                            >
-                              Refresh
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Check if all included components are paid */}
-                        {(() => {
-                          const includedComponents =
-                            event.components?.filter(
-                              (comp) => comp.is_included
-                            ) || [];
-                          const paidComponents = includedComponents.filter(
-                            (comp) => comp.payment_status === "paid"
-                          );
-                          const allPaid =
-                            includedComponents.length > 0 &&
-                            includedComponents.length === paidComponents.length;
-
-                          if (!allPaid) {
-                            return (
-                              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-                                <div className="flex items-center justify-center mb-3">
-                                  <Clock className="h-8 w-8 text-yellow-500" />
-                                </div>
-                                <h5 className="text-lg font-semibold text-yellow-800 mb-2">
-                                  Delivery Tracking Not Available
-                                </h5>
-                                <p className="text-yellow-700 mb-3">
-                                  Delivery progress tracking will be available
-                                  once all included components are paid.
-                                </p>
-                                <div className="text-sm text-yellow-600">
-                                  <span className="font-medium">
-                                    {paidComponents.length}
-                                  </span>{" "}
-                                  of{" "}
-                                  <span className="font-medium">
-                                    {includedComponents.length}
-                                  </span>{" "}
-                                  components paid
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          if (deliveryError) {
-                            return (
-                              <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-                                <div className="flex items-center justify-center mb-3">
-                                  <AlertCircle className="h-8 w-8 text-red-500" />
-                                </div>
-                                <h5 className="text-lg font-semibold text-red-800 mb-2">
-                                  Failed to load delivery progress
-                                </h5>
-                                <p className="text-red-700 mb-3">
-                                  {deliveryError}
-                                </p>
-                                <button
-                                  onClick={fetchDeliveryProgress}
-                                  className="px-3 py-1 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                                >
-                                  Retry
-                                </button>
-                              </div>
-                            );
-                          }
-
-                          return deliveryProgress ? (
-                            <>
-                              {/* Delivery Progress Bar */}
-                              <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
-                                <div className="flex items-center justify-between mb-4">
-                                  <h5 className="text-sm font-medium text-gray-700">
-                                    Overall Progress
-                                  </h5>
-                                  <span className="text-sm text-gray-600">
-                                    {deliveryProgress.progress
-                                      ?.delivered_components || 0}{" "}
-                                    of{" "}
-                                    {deliveryProgress.progress
-                                      ?.included_components || 0}{" "}
-                                    delivered
-                                  </span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-                                  <div
-                                    className="bg-green-500 h-3 rounded-full transition-all duration-300"
-                                    style={{
-                                      width: `${
-                                        deliveryProgress.progress
-                                          ?.included_components > 0
-                                          ? Math.round(
-                                              ((deliveryProgress.progress
-                                                ?.delivered_components || 0) /
-                                                deliveryProgress.progress
-                                                  ?.included_components) *
-                                                100
-                                            )
-                                          : 0
-                                      }%`,
-                                    }}
-                                  ></div>
-                                </div>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                  <div className="text-center">
-                                    <div className="text-2xl font-bold text-green-600">
-                                      {deliveryProgress.progress
-                                        ?.delivered_components || 0}
-                                    </div>
-                                    <div className="text-gray-600">
-                                      Delivered
-                                    </div>
-                                  </div>
-                                  <div className="text-center">
-                                    <div className="text-2xl font-bold text-blue-600">
-                                      {deliveryProgress.progress
-                                        ?.confirmed_components || 0}
-                                    </div>
-                                    <div className="text-gray-600">
-                                      Confirmed
-                                    </div>
-                                  </div>
-                                  <div className="text-center">
-                                    <div className="text-2xl font-bold text-yellow-600">
-                                      {deliveryProgress.progress
-                                        ?.pending_components || 0}
-                                    </div>
-                                    <div className="text-gray-600">Pending</div>
-                                  </div>
-                                  <div className="text-center">
-                                    <div className="text-2xl font-bold text-red-600">
-                                      {deliveryProgress.progress
-                                        ?.cancelled_components || 0}
-                                    </div>
-                                    <div className="text-gray-600">
-                                      Cancelled
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Component Delivery Status */}
-                              {deliveryProgress.components &&
-                              deliveryProgress.components.length > 0 ? (
-                                <div className="space-y-3">
-                                  {deliveryProgress.components.map(
-                                    (component: any, index: number) => (
-                                      <div
-                                        key={component.component_id || index}
-                                        className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow"
-                                      >
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex items-center space-x-3">
-                                            <div className="flex items-center space-x-2">
-                                              {getDeliveryStatusIcon(
-                                                component.supplier_status
-                                              )}
-                                              <span className="font-medium text-gray-900">
-                                                {component.component_name}
-                                              </span>
-                                            </div>
-                                            <span
-                                              className={`px-2 py-1 rounded-full text-xs font-medium ${getDeliveryStatusColor(component.supplier_status)}`}
-                                            >
-                                              {component.supplier_status ||
-                                                "pending"}
-                                            </span>
-                                          </div>
-                                          <div className="flex items-center space-x-2">
-                                            {component.delivery_date && (
-                                              <span className="text-sm text-gray-600">
-                                                {format(
-                                                  new Date(
-                                                    component.delivery_date
-                                                  ),
-                                                  "MMM dd, yyyy"
-                                                )}
-                                              </span>
-                                            )}
-                                            <button
-                                              onClick={() =>
-                                                openDeliveryModal(component)
-                                              }
-                                              disabled={
-                                                updatingDelivery ===
-                                                component.component_id
-                                              }
-                                              className="px-3 py-1 text-sm bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                            >
-                                              {updatingDelivery ===
-                                              component.component_id
-                                                ? "Updating..."
-                                                : "Update"}
-                                            </button>
-                                          </div>
-                                        </div>
-                                        {component.supplier_notes && (
-                                          <div className="mt-2 text-sm text-gray-600">
-                                            <strong>Notes:</strong>{" "}
-                                            {component.supplier_notes}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
-                                  <Package className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                                  <p className="text-gray-500">
-                                    No components available for delivery
-                                    tracking.
-                                  </p>
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
-                              <Package className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                              <p className="text-gray-500">
-                                No components available for delivery tracking.
-                              </p>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
+                    <OrganizerEventScheduleTab
+                      event={event}
+                      onEventUpdate={fetchEventDetails}
+                    />
                   </div>
                 )}
 
@@ -2848,163 +1944,6 @@ export default function OrganizerEventDetailsPage() {
         isOpen={showGanttModal}
         onClose={() => setShowGanttModal(false)}
       />
-
-      {/* Delivery Status Update Modal */}
-      {ENABLE_DELIVERY_PROGRESS && showDeliveryModal && selectedComponent && (
-        <DeliveryStatusModal
-          component={selectedComponent}
-          isOpen={showDeliveryModal}
-          onClose={() => {
-            setShowDeliveryModal(false);
-            setSelectedComponent(null);
-          }}
-          onUpdate={updateDeliveryStatus}
-        />
-      )}
-    </div>
-  );
-}
-
-// Delivery Status Update Modal Component
-function DeliveryStatusModal({
-  component,
-  isOpen,
-  onClose,
-  onUpdate,
-}: {
-  component: EventComponent;
-  isOpen: boolean;
-  onClose: () => void;
-  onUpdate: (
-    componentId: number,
-    status: string,
-    deliveryDate?: string,
-    notes?: string
-  ) => Promise<void>;
-}) {
-  const [status, setStatus] = useState(component.supplier_status || "pending");
-  const [deliveryDate, setDeliveryDate] = useState(
-    component.delivery_date || new Date().toISOString().split("T")[0]
-  );
-  const [notes, setNotes] = useState(component.supplier_notes || "");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      await onUpdate(
-        component.component_id,
-        status,
-        deliveryDate || undefined,
-        notes || undefined
-      );
-      onClose();
-    } catch (error) {
-      console.error("Error updating delivery status:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-xl">
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Update Delivery Status
-            </h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors p-1"
-            >
-              <X className="h-6 w-6" />
-            </button>
-          </div>
-
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">
-              Component:
-            </h4>
-            <p className="text-gray-900 font-medium">
-              {component.component_name}
-            </p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Delivery Status
-              </label>
-              <select
-                value={status}
-                onChange={(e) =>
-                  setStatus(
-                    e.target.value as
-                      | "pending"
-                      | "confirmed"
-                      | "delivered"
-                      | "cancelled"
-                  )
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                required
-              >
-                <option value="pending">Pending</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="delivered">Delivered</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Delivery Date
-              </label>
-              <input
-                type="date"
-                value={deliveryDate}
-                onChange={(e) => setDeliveryDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Notes
-              </label>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                placeholder="Add any notes about the delivery..."
-              />
-            </div>
-
-            <div className="flex space-x-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="flex-1 px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {isSubmitting ? "Updating..." : "Update Status"}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
     </div>
   );
 }

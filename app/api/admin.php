@@ -13695,6 +13695,12 @@ if (empty($data) && !empty($_POST)) {
     $data = $_POST;
 }
 
+// Additional fallback: if raw input is empty but we have POST data, use that
+if (empty($rawInput) && !empty($_POST)) {
+    error_log("Admin.php - Raw input empty, using POST data");
+    $data = $_POST;
+}
+
 // Ensure $data is an array
 if (!is_array($data)) {
     $data = [];
@@ -14940,6 +14946,17 @@ if (!defined('ADMIN_PHP_INCLUDED')) {
         } else {
             echo json_encode(createReservationPayment($bookingId, $data));
         }
+        break;
+
+    case "schedules":
+        // Include schedule.php for schedule management
+        error_log("Admin.php - Schedules case hit");
+        error_log("Admin.php - POST data: " . json_encode($_POST));
+        error_log("Admin.php - GET data: " . json_encode($_GET));
+
+        // Define constant to indicate schedule.php is being included
+        define('SCHEDULE_PHP_INCLUDED', true);
+        include_once 'schedule.php';
         break;
 
     default:

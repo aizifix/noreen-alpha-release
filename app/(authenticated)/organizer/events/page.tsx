@@ -45,6 +45,20 @@ interface Event {
   client_pfp?: string;
   assignment_status?: string;
   assigned_at?: string;
+  components?: EventComponent[];
+}
+
+interface EventComponent {
+  component_id: number;
+  event_id: number;
+  component_name: string;
+  component_price: number;
+  component_description?: string;
+  is_custom: boolean;
+  is_included: boolean;
+  payment_status?: "pending" | "paid" | "cancelled";
+  payment_date?: string;
+  payment_notes?: string;
 }
 
 export default function OrganizerEventsPage() {
@@ -207,7 +221,7 @@ export default function OrganizerEventsPage() {
       client_email: raw.client_email || undefined,
       client_contact: raw.client_contact || undefined,
       client_pfp: raw.client_pfp || undefined,
-      assignment_status: raw.assignment_status || raw.status || undefined,
+      assignment_status: raw.assignment_status || undefined,
       assigned_at: raw.assigned_at || undefined,
     };
     return normalized;
@@ -236,6 +250,11 @@ export default function OrganizerEventsPage() {
     try {
       setLoading(true);
       console.log("🔍 Fetching events for organizer user ID:", organizerUserId);
+
+      // BUGFIX: Prevent organizers from seeing events they're no longer assigned to
+      // When admin switches assignment from organizer 1 to organizer 2, organizer 1
+      // should not see the event in their calendar anymore, even if they're still
+      // in the event_attachments organizer_invites data.
 
       // For now, let's try using the user_id directly as organizer_id
       // This is a temporary fix until we properly map user_id to organizer_id
@@ -283,6 +302,7 @@ export default function OrganizerEventsPage() {
         console.warn("⚠️ API error; falling back to attachments for invites");
       }
       // Always also scan attachments for organizer_invites and merge
+      // BUT only include events where the organizer still has a valid assignment
       let attachmentPending: Event[] = [];
       try {
         const response = await axios.post("/admin.php", {
@@ -290,8 +310,38 @@ export default function OrganizerEventsPage() {
         });
         const allEvents =
           response.data?.status === "success" ? response.data.events || [] : [];
+
+        // Get current assignment IDs for this organizer to cross-reference
+        const currentAssignmentIds = new Set<number>();
+        try {
+          const assignmentResponse = await axios.post(endpoints.organizer, {
+            operation: "getOrganizerAssignments",
+            organizer_id: organizerId,
+          });
+          if (assignmentResponse.data.status === "success") {
+            const assignments = assignmentResponse.data.data || [];
+            assignments.forEach((assignment: any) => {
+              if (assignment.event_id) {
+                currentAssignmentIds.add(Number(assignment.event_id));
+              }
+            });
+          }
+        } catch (assignmentError) {
+          console.warn(
+            "Could not fetch current assignments for cross-reference:",
+            assignmentError
+          );
+        }
+
         const pendingEvents = allEvents.filter((e: any) => {
           try {
+            // First check if organizer has a current assignment for this event
+            const eventId = Number(e.event_id);
+            if (!currentAssignmentIds.has(eventId)) {
+              // Organizer doesn't have current assignment, don't show this event
+              return false;
+            }
+
             const attachments = e.event_attachments
               ? JSON.parse(e.event_attachments)
               : e.attachments;
@@ -310,7 +360,17 @@ export default function OrganizerEventsPage() {
             return false;
           }
         });
-        attachmentPending = dedupeById(pendingEvents.map(normalizeEvent));
+        attachmentPending = dedupeById(
+          pendingEvents.map((e: any) => {
+            const normalized = normalizeEvent(e);
+            // Ensure attachment events have proper assignment status
+            // If they're in the attachment pending list, they should be "assigned"
+            if (!normalized.assignment_status) {
+              normalized.assignment_status = "assigned";
+            }
+            return normalized;
+          })
+        );
       } catch {}
 
       // Only show events that are actually assigned to this organizer
@@ -321,12 +381,31 @@ export default function OrganizerEventsPage() {
 
       // Set events to only accepted events (no fallback to sample data)
       setEvents(acceptedEvents);
+
+      // For pending invites, only show events that are actually assigned to this organizer
+      // This prevents showing events that were reassigned to other organizers
       const assignedPending = assignedEvents.filter(
         (e: any) => e.assignment_status === "assigned"
       );
+
+      // Cross-reference attachment pending with current assignments
+      // Only include attachment events if organizer still has assignment
+      const validAttachmentPending = attachmentPending.filter((event) => {
+        // Check if this event is in the assignedEvents (meaning organizer has current assignment)
+        const hasAssignment = assignedEvents.some(
+          (assigned) => assigned.event_id === event.event_id
+        );
+        if (!hasAssignment) {
+          console.log(
+            `🚫 Filtering out event ${event.event_id} - organizer no longer assigned`
+          );
+        }
+        return hasAssignment;
+      });
+
       const mergedPendingMap = new Map<number, Event>();
       for (const p of assignedPending) mergedPendingMap.set(p.event_id, p);
-      for (const p of attachmentPending)
+      for (const p of validAttachmentPending)
         if (!mergedPendingMap.has(p.event_id))
           mergedPendingMap.set(p.event_id, p);
       setPendingInvites(Array.from(mergedPendingMap.values()));
@@ -370,7 +449,26 @@ export default function OrganizerEventsPage() {
   }, [events, pendingInvites]);
 
   const pendingInviteIds = useMemo(() => {
-    return new Set(pendingInvites.map((e) => e.event_id));
+    // Only show pending invite badges/buttons for events that are actually in "assigned" status
+    // This prevents showing accept/reject buttons for events that are already accepted
+    const assignedPendingEvents = pendingInvites.filter(
+      (e) => e.assignment_status === "assigned"
+    );
+    const assignedPendingIds = new Set(
+      assignedPendingEvents.map((e) => e.event_id)
+    );
+
+    console.log("📋 Pending invite analysis:", {
+      totalPendingInvites: pendingInvites.length,
+      assignedStatusEvents: assignedPendingEvents.length,
+      assignedPendingIds: Array.from(assignedPendingIds),
+      allPendingStatuses: pendingInvites.map((e) => ({
+        id: e.event_id,
+        status: e.assignment_status,
+      })),
+    });
+
+    return assignedPendingIds;
   }, [pendingInvites]);
 
   // Accept/Reject handlers calling organizer.php updateAssignmentStatus
@@ -550,6 +648,52 @@ export default function OrganizerEventsPage() {
     );
   };
 
+  // Helper function to get today's date string
+  const getTodayString = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  // Intelligent event status derivation
+  const getDerivedEventStatus = (event: Event) => {
+    if (event.event_status === "cancelled") return "cancelled";
+    const today = getTodayString();
+
+    // Events happening today are "on_going" (blue)
+    if (event.event_date === today) return "on_going";
+
+    // Past events are "done" (purple)
+    if (event.event_date < today) return "done";
+
+    // For future events, check if they're truly ready to be "confirmed"
+    if (event.event_date > today) {
+      // Check if all inclusions are paid and event is fully ready
+      const includedComponents = (event.components || []).filter(
+        (c) => c.is_included
+      );
+      const paidIncludedComponents = includedComponents.filter(
+        (c) => c.payment_status === "paid"
+      );
+      const allIncludedPaid =
+        includedComponents.length > 0 &&
+        paidIncludedComponents.length === includedComponents.length;
+
+      // Only show as "confirmed" if all inclusions are paid AND event status is explicitly confirmed
+      if (event.event_status === "confirmed" && allIncludedPaid) {
+        return "confirmed";
+      }
+
+      // Otherwise show as "planning" (yellow) for future events
+      return "planning";
+    }
+
+    // Fallback to planning for any other case
+    return "planning";
+  };
+
   // Get status colors
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -559,6 +703,7 @@ export default function OrganizerEventsPage() {
           border: "border-green-500",
           text: "text-green-700",
         };
+      case "planning":
       case "draft":
         return {
           bg: "bg-yellow-50",
@@ -673,7 +818,7 @@ export default function OrganizerEventsPage() {
             {/* Show only 1 event on mobile, 2 on larger screens */}
             <div className="block sm:hidden">
               {dayEvents.slice(0, 1).map((event) => {
-                const colors = getStatusColor(event.event_status);
+                const colors = getStatusColor(getDerivedEventStatus(event));
                 return (
                   <div
                     key={event.event_id}
@@ -697,7 +842,7 @@ export default function OrganizerEventsPage() {
             {/* Show 2 events on larger screens */}
             <div className="hidden sm:block">
               {dayEvents.slice(0, 2).map((event) => {
-                const colors = getStatusColor(event.event_status);
+                const colors = getStatusColor(getDerivedEventStatus(event));
                 return (
                   <div
                     key={event.event_id}
@@ -880,7 +1025,7 @@ export default function OrganizerEventsPage() {
         ) : (
           <div className="space-y-4">
             {dayEvents.map((event, index) => {
-              const colors = getStatusColor(event.event_status);
+              const colors = getStatusColor(getDerivedEventStatus(event));
               const paymentColors = getPaymentStatusColor(event.payment_status);
 
               const getClientInitials = (name: string) => {
@@ -920,7 +1065,7 @@ export default function OrganizerEventsPage() {
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${colors.bg} ${colors.text}`}
                         >
-                          {event.event_status}
+                          {getDerivedEventStatus(event)}
                         </span>
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${paymentColors.bg} ${paymentColors.text}`}
@@ -1105,7 +1250,9 @@ export default function OrganizerEventsPage() {
                 {events.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 max-w-7xl mx-auto px-4">
                     {events.map((event, index) => {
-                      const colors = getStatusColor(event.event_status);
+                      const colors = getStatusColor(
+                        getDerivedEventStatus(event)
+                      );
                       const paymentColors = getPaymentStatusColor(
                         event.payment_status
                       );
@@ -1144,7 +1291,7 @@ export default function OrganizerEventsPage() {
                                 <span
                                   className={`px-2 py-1 rounded-full text-xs font-semibold ${colors.bg} ${colors.text}`}
                                 >
-                                  {event.event_status}
+                                  {getDerivedEventStatus(event)}
                                 </span>
                                 <span
                                   className={`px-2 py-1 rounded-full text-xs font-semibold ${paymentColors.bg} ${paymentColors.text}`}

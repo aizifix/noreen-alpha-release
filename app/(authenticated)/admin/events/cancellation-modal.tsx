@@ -268,8 +268,8 @@ export function CancellationModal({
               <Checkbox
                 id="terms"
                 checked={termsAccepted}
-                onCheckedChange={(checked) =>
-                  setTermsAccepted(checked as boolean)
+                onCheckedChange={(checked: boolean) =>
+                  setTermsAccepted(checked)
                 }
                 disabled={!eligibility.canCancel}
               />

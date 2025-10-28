@@ -54,6 +54,8 @@ import {
   Lock,
   Unlock,
   Banknote,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { adminApi, clientApi } from "@/app/utils/api";
 import { toast } from "@/components/ui/use-toast";
@@ -74,7 +76,14 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { format } from "date-fns";
+import { ClientScheduleTab } from "./schedule-component";
 
 // Enhanced interface to match updated tbl_events structure
 interface Event {
@@ -96,6 +105,7 @@ interface Event {
   venue_id?: number;
   total_budget: number;
   down_payment: number;
+  reserved_payment_total?: number;
   payment_method?: string;
   payment_schedule_type_id?: number;
   reference_number?: string;
@@ -177,6 +187,11 @@ interface EventComponent {
   payment_status?: "pending" | "paid" | "cancelled";
   payment_date?: string;
   payment_notes?: string;
+  // Sub-components parsed from component_description
+  subComponents?: Array<{
+    name: string;
+    price: number;
+  }>;
 }
 
 interface PaymentHistoryItem {
@@ -449,364 +464,6 @@ function EventCountdown({ event }: { event: Event }) {
   );
 }
 
-// Event Finalization Component
-function EventFinalization({
-  event,
-  onEventUpdate,
-}: {
-  event: Event;
-  onEventUpdate: () => Promise<void>;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [finalizationAction, setFinalizationAction] = useState<
-    "finalize" | "unfinalize"
-  >("finalize");
-  const [paymentStats, setPaymentStats] = useState<any>(null);
-  const [unlockPassword, setUnlockPassword] = useState("");
-
-  const isEventFinalized = !!event.finalized_at;
-
-  // Check if event is finalized and disable editing
-  const isEditingDisabled = isEventFinalized;
-
-  useEffect(() => {
-    fetchPaymentStats();
-  }, [event.event_id]);
-
-  const fetchPaymentStats = async () => {
-    try {
-      const response = await axios.post(endpoints.admin, {
-        operation: "getEventPaymentStats",
-        event_id: event.event_id,
-      });
-
-      if (response.data.status === "success") {
-        setPaymentStats(response.data.stats);
-      }
-    } catch (error) {
-      console.error("Error fetching payment stats:", error);
-    }
-  };
-
-  const handleFinalizationToggle = async () => {
-    try {
-      setLoading(true);
-      const action = isEventFinalized ? "unfinalize" : "finalize";
-      setFinalizationAction(action);
-      setShowConfirmModal(true);
-    } catch (error) {
-      console.error("Error toggling finalization:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update event finalization status",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const confirmFinalization = async () => {
-    try {
-      setLoading(true);
-      const payload: any = {
-        operation: "updateEventFinalization",
-        event_id: event.event_id,
-        action: finalizationAction,
-      };
-
-      // No admin password required when unfinalizing
-
-      const response = await adminApi.post(payload);
-
-      if (response.data.status === "success") {
-        toast({
-          title: "Success",
-          description:
-            finalizationAction === "finalize"
-              ? "Event has been finalized. Editing is locked."
-              : "Event has been set back to draft status",
-        });
-        await onEventUpdate();
-      } else {
-        toast({
-          title: "Error",
-          description:
-            response.data.message || "Failed to update event finalization",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error updating finalization:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update event finalization",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-      setShowConfirmModal(false);
-      setUnlockPassword("");
-    }
-  };
-
-  return (
-    <>
-      {/* Confirmation Modal */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertTriangle className="h-6 w-6 text-orange-500" />
-              <h3 className="text-lg font-semibold text-gray-900">
-                {finalizationAction === "finalize"
-                  ? "Finalize Event"
-                  : "Set to Draft"}
-              </h3>
-            </div>
-
-            <p className="text-gray-600 mb-4">
-              {finalizationAction === "finalize"
-                ? "Are you sure you want to finalize this event? Editing will be locked. The organizer will be notified."
-                : "Are you sure you want to set this event back to planning status? This will allow full editing again."}
-            </p>
-
-            {/* Password prompt removed */}
-
-            <div className="flex gap-3 justify-end">
-              <Button
-                onClick={() => setShowConfirmModal(false)}
-                variant="outline"
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={confirmFinalization}
-                disabled={loading}
-                className={
-                  finalizationAction === "finalize"
-                    ? "bg-green-600 hover:bg-green-700"
-                    : "bg-blue-600 hover:bg-blue-700"
-                }
-              >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    {finalizationAction === "finalize" ? (
-                      <>
-                        <Lock className="h-4 w-4 mr-2" />
-                        Yes, Finalize
-                      </>
-                    ) : (
-                      <>
-                        <Unlock className="h-4 w-4 mr-2" />
-                        Yes, Set to Draft
-                      </>
-                    )}
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div
-        className={`rounded-xl shadow-sm border p-6 ${
-          isEventFinalized
-            ? "bg-green-50 border-green-200"
-            : "bg-yellow-50 border-yellow-200"
-        }`}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            {isEventFinalized ? (
-              <Lock className="h-6 w-6 text-green-600" />
-            ) : (
-              <Unlock className="h-6 w-6 text-yellow-600" />
-            )}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                Event Finalization
-              </h3>
-              <p className="text-sm text-gray-500">
-                {isEventFinalized
-                  ? "Event is finalized. Editing is locked."
-                  : "Event is in planning status and can be edited"}
-              </p>
-            </div>
-          </div>
-          <Button
-            onClick={handleFinalizationToggle}
-            disabled={loading}
-            variant={isEventFinalized ? "outline" : "default"}
-            size="sm"
-            className={
-              isEventFinalized
-                ? "border-green-300 text-green-700 hover:bg-green-100"
-                : "bg-green-600 hover:bg-green-700"
-            }
-          >
-            {loading ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                Processing...
-              </>
-            ) : isEventFinalized ? (
-              <>
-                <Unlock className="h-4 w-4 mr-2" />
-                Set to Draft
-              </>
-            ) : (
-              <>
-                <Lock className="h-4 w-4 mr-2" />
-                Finalize Event
-              </>
-            )}
-          </Button>
-        </div>
-
-        {/* Inclusion & Payment Status Display (includes venue + organizer) */}
-        {paymentStats &&
-          (() => {
-            const hasAssignedOrganizer = !!event.organizer_id;
-            const isAdminAsOrganizer =
-              hasAssignedOrganizer && event.organizer_id === event.admin_id;
-            const isExternalOrganizer =
-              hasAssignedOrganizer && event.organizer_id !== event.admin_id;
-
-            // Admin is always considered an organizer (head organizer by default)
-            const organizerPaid = isExternalOrganizer
-              ? event.organizer_payment_status === "paid"
-              : true; // Admin as organizer is always considered "paid"
-
-            // Count all components (including venue components that might have is_included = false)
-            const allComponents = (event.components || []).filter(
-              (c) => c.is_included || c.component_name?.startsWith("Venue:")
-            );
-            const extraEntitiesCount = 1; // Always count organizer
-            const derivedIncludedCount =
-              allComponents.length + extraEntitiesCount;
-            const derivedFinalizedCount =
-              allComponents.filter((c) => c.payment_status === "paid").length +
-              (organizerPaid ? 1 : 0);
-            const derivedInclusionPercentage =
-              derivedIncludedCount > 0
-                ? Math.round(
-                    (derivedFinalizedCount / derivedIncludedCount) * 100
-                  )
-                : 0;
-            const derivedPaidComponents =
-              (paymentStats.paid_components || 0) + (organizerPaid ? 1 : 0);
-            const derivedPaymentPercentage =
-              derivedIncludedCount > 0
-                ? Math.round(
-                    (derivedPaidComponents / derivedIncludedCount) * 100
-                  )
-                : 0;
-            return (
-              <div className="mb-4 space-y-3">
-                {/* Inclusion Status */}
-                <div
-                  className={`p-3 rounded-md border ${
-                    derivedInclusionPercentage === 100
-                      ? "bg-green-50 border-green-200"
-                      : "bg-yellow-50 border-yellow-200"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-gray-600" />
-                      <span className="text-sm font-medium text-gray-700">
-                        Inclusion Status: {derivedFinalizedCount} of{" "}
-                        {derivedIncludedCount} finalized
-                      </span>
-                    </div>
-                    <span
-                      className={`text-sm font-bold ${
-                        derivedInclusionPercentage === 100
-                          ? "text-green-600"
-                          : "text-yellow-600"
-                      }`}
-                    >
-                      {derivedInclusionPercentage}%
-                    </span>
-                  </div>
-                  {derivedInclusionPercentage !== 100 && (
-                    <p className="text-xs text-yellow-700 mt-1">
-                      All inclusions must be paid before the event can be
-                      finalized.
-                    </p>
-                  )}
-                </div>
-
-                {/* Payment Status */}
-                <div
-                  className={`p-3 rounded-md border ${
-                    derivedPaymentPercentage === 100
-                      ? "bg-green-50 border-green-200"
-                      : "bg-blue-50 border-blue-200"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Receipt className="h-4 w-4 text-gray-600" />
-                      <span className="text-sm font-medium text-gray-700">
-                        Payment Status: {derivedPaidComponents} of{" "}
-                        {derivedIncludedCount} paid
-                      </span>
-                    </div>
-                    <span
-                      className={`text-sm font-bold ${
-                        derivedPaymentPercentage === 100
-                          ? "text-green-600"
-                          : "text-blue-600"
-                      }`}
-                    >
-                      {derivedPaymentPercentage}%
-                    </span>
-                  </div>
-                  {derivedPaymentPercentage !== 100 && (
-                    <p className="text-xs text-blue-700 mt-1">
-                      All inclusions must be paid before the event can be
-                      finalized.
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-
-        {isEventFinalized && (
-          <div className="bg-green-100 border border-green-200 rounded-md p-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600" />
-              <span className="text-sm font-medium text-green-800">
-                Event Finalized
-              </span>
-            </div>
-            <p className="text-sm text-green-700 mt-1">
-              This event has been finalized. Editing is locked.
-            </p>
-            {event.finalized_at && (
-              <p className="text-xs text-green-600 mt-2">
-                Finalized on:{" "}
-                {new Date(event.finalized_at).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
 // Venue Selection Component
 function VenueSelection({
   event,
@@ -963,36 +620,14 @@ function VenueSelection({
 
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <Building className="h-6 w-6 text-purple-600" />
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">
-              Venue Selection
-            </h3>
-            <p className="text-sm text-gray-500">
-              Choose from available venues for this package
-            </p>
-          </div>
+      <div className="flex items-center gap-3 mb-4">
+        <Building className="h-6 w-6 text-purple-600" />
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">
+            Selected Venue
+          </h3>
+          <p className="text-sm text-gray-500">Venue assigned to this event</p>
         </div>
-        <Button
-          onClick={() => setIsEditing(!isEditing)}
-          variant={isEditing ? "outline" : "default"}
-          size="sm"
-          disabled={loading}
-        >
-          {isEditing ? (
-            <>
-              <X className="h-4 w-4 mr-2" />
-              Cancel
-            </>
-          ) : (
-            <>
-              <Edit className="h-4 w-4 mr-2" />
-              Change Venue
-            </>
-          )}
-        </Button>
       </div>
 
       {loading ? (
@@ -1001,143 +636,42 @@ function VenueSelection({
         </div>
       ) : (
         <div className="space-y-4">
-          {venues.length > 0 ? (
-            venues.map((venue) => (
-              <div
-                key={venue.venue_id}
-                className={`border rounded-lg p-4 transition-all ${
-                  event.venue_id === venue.venue_id
-                    ? "border-purple-200 bg-purple-50"
-                    : "border-gray-200 bg-gray-50"
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      {event.venue_id === venue.venue_id ? (
+          {event.venue_id &&
+          venues.find((v) => v.venue_id === event.venue_id) ? (
+            (() => {
+              const selectedVenue = venues.find(
+                (v) => v.venue_id === event.venue_id
+              );
+              return (
+                <div className="border rounded-lg p-4 border-purple-200 bg-purple-50">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
                         <CheckCircle className="h-5 w-5 text-purple-600" />
-                      ) : (
-                        <Circle className="h-5 w-5 text-gray-400" />
-                      )}
-                      <h4 className="font-medium text-gray-900">
-                        {venue.venue_title}
-                      </h4>
-                      {event.venue_id === venue.venue_id && (
+                        <h4 className="font-medium text-gray-900">
+                          {selectedVenue.venue_title}
+                        </h4>
                         <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
-                          Current
+                          Selected
                         </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-600 mb-2">
-                      {venue.venue_location}
-                    </p>
-                    <div className="flex items-center gap-4 text-sm">
-                      <span className="text-purple-600 font-semibold">
-                        ₱{formatCurrency(venue.venue_price || 0)}
-                      </span>
-                      <span className="text-gray-500">
-                        Capacity: {venue.venue_capacity || "N/A"}
-                      </span>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-2">
+                        {selectedVenue.venue_location}
+                      </p>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="text-gray-500">
+                          Capacity: {selectedVenue.venue_capacity || "N/A"}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  {isEditing && event.venue_id !== venue.venue_id && (
-                    <Button
-                      onClick={() => handleVenueChange(venue.venue_id)}
-                      disabled={loading}
-                      variant="outline"
-                      size="sm"
-                    >
-                      Select
-                    </Button>
-                  )}
                 </div>
-              </div>
-            ))
+              );
+            })()
           ) : (
             <div className="text-center py-8 text-gray-500">
               <Building className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>No venues available for this package</p>
-            </div>
-          )}
-
-          {isEditing && (
-            <div className="border rounded-lg p-4 bg-gray-50">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Building className="h-5 w-5 text-purple-600" />
-                  <span className="font-medium text-gray-900">
-                    Add Custom Venue
-                  </span>
-                </div>
-                <Button
-                  variant={showCustomVenue ? "outline" : "default"}
-                  size="sm"
-                  onClick={() => setShowCustomVenue((v) => !v)}
-                >
-                  {showCustomVenue ? (
-                    <>
-                      <X className="h-4 w-4 mr-2" />
-                      Cancel
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4 mr-2" />
-                      New
-                    </>
-                  )}
-                </Button>
-              </div>
-              {showCustomVenue && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="col-span-1">
-                    <Label htmlFor="customVenueName">Venue Name</Label>
-                    <Input
-                      id="customVenueName"
-                      placeholder="e.g. Client's Backyard"
-                      value={customVenueName}
-                      onChange={(e) => setCustomVenueName(e.target.value)}
-                    />
-                  </div>
-                  <div className="col-span-1">
-                    <Label htmlFor="customVenuePrice">Price (₱)</Label>
-                    <Input
-                      id="customVenuePrice"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={customVenuePrice as any}
-                      onChange={(e) =>
-                        setCustomVenuePrice(
-                          e.target.value === "" ? "" : Number(e.target.value)
-                        )
-                      }
-                    />
-                  </div>
-                  <div className="col-span-1 flex items-end gap-2">
-                    <Button
-                      onClick={handleAddCustomVenue}
-                      disabled={savingCustom}
-                    >
-                      {savingCustom ? "Saving..." : "Add"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setShowCustomVenue(false);
-                        setCustomVenueName("");
-                        setCustomVenuePrice("");
-                      }}
-                      disabled={savingCustom}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                  <div className="col-span-1 md:col-span-3 text-xs text-gray-500">
-                    Adds a custom venue as an inclusion so you can flexibly
-                    price it.
-                  </div>
-                </div>
-              )}
+              <p>No venue selected</p>
             </div>
           )}
         </div>
@@ -1618,7 +1152,10 @@ function PackageInclusionsManagement({
                 {event.package_id ? "Total Inclusions" : "Total Components"}
               </div>
               <div className="text-sm font-semibold text-green-600">
-                {components.filter((comp) => comp.is_included).length + 1} items
+                {components.filter((comp) => comp.is_included).length +
+                  (event.venue_id ? 1 : 0) +
+                  1}{" "}
+                items
               </div>
             </div>
             <div className="flex gap-2">
@@ -1706,8 +1243,11 @@ function PackageInclusionsManagement({
             (c) => c.is_included || c.component_name?.startsWith("Venue:")
           );
           const organizerCount = 1; // Always count organizer (admin is always the organizer)
-          const extraIncluded = organizerCount; // Only count organizer, venue is in components
-          const extraPaid = organizerPaid ? 1 : 0;
+          const venueCount = event.venue_id ? 1 : 0; // Count venue if assigned
+          const extraIncluded = organizerCount + venueCount; // Count organizer and venue
+          const venuePaid =
+            !event.venue_id || event.venue_payment_status === "paid";
+          const extraPaid = (organizerPaid ? 1 : 0) + (venuePaid ? 1 : 0);
 
           const totalIncludedWithExtras = allComponents.length + extraIncluded;
           const totalPaidWithExtras =
@@ -1749,52 +1289,6 @@ function PackageInclusionsManagement({
                 <span className="text-sm font-bold text-gray-700">
                   {completionPercentage}%
                 </span>
-                {completionPercentage === 100 && !isEventFinalized && (
-                  <Button
-                    onClick={async () => {
-                      try {
-                        setLoading(true);
-                        const response = await axios.post(endpoints.admin, {
-                          operation: "updateEventFinalization",
-                          event_id: event.event_id,
-                          action: "finalize",
-                        });
-
-                        if (response.data.status === "success") {
-                          toast({
-                            title: "Success",
-                            description:
-                              "Event has been finalized and marked as confirmed.",
-                          });
-                          await onEventUpdate();
-                        } else {
-                          toast({
-                            title: "Error",
-                            description:
-                              response.data.message ||
-                              "Failed to finalize event",
-                            variant: "destructive",
-                          });
-                        }
-                      } catch (error) {
-                        console.error("Error finalizing event:", error);
-                        toast({
-                          title: "Error",
-                          description: "Failed to finalize event",
-                          variant: "destructive",
-                        });
-                      } finally {
-                        setLoading(false);
-                      }
-                    }}
-                    size="sm"
-                    className="bg-green-600 hover:bg-green-700"
-                    disabled={loading}
-                  >
-                    <Lock className="h-3 w-3 mr-1" />
-                    Finalize Event
-                  </Button>
-                )}
                 {completionPercentage === 100 && isEventFinalized && (
                   <span className="text-sm text-green-600 font-medium flex items-center gap-1">
                     <CheckCircle className="h-4 w-4" />
@@ -1837,61 +1331,6 @@ function PackageInclusionsManagement({
               </div>
             </div>
           )}
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            {event.package_id ? (
-              // Package event logic
-              totalInclusionsPrice < event.total_budget ? (
-                <>
-                  <div className="text-xs text-gray-500 mb-1">
-                    Organizer Fee / Margin
-                  </div>
-                  <div className="text-lg font-bold text-orange-600">
-                    ₱{formatCurrency(event.total_budget - totalInclusionsPrice)}
-                  </div>
-                </>
-              ) : totalInclusionsPrice > event.total_budget ? (
-                <>
-                  <div className="text-xs text-gray-500 mb-1">
-                    Add-on (Payable by Client)
-                  </div>
-                  <div className="text-lg font-bold text-red-600">
-                    ₱{formatCurrency(totalInclusionsPrice - event.total_budget)}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="text-xs text-gray-500 mb-1">
-                    No Margin / Add-on
-                  </div>
-                  <div className="text-lg font-bold text-gray-700">₱0.00</div>
-                </>
-              )
-            ) : // From scratch event logic
-            totalInclusionsPrice < event.total_budget ? (
-              <>
-                <div className="text-xs text-gray-500 mb-1">
-                  Available Budget
-                </div>
-                <div className="text-lg font-bold text-green-600">
-                  ₱{formatCurrency(event.total_budget - totalInclusionsPrice)}
-                </div>
-              </>
-            ) : totalInclusionsPrice > event.total_budget ? (
-              <>
-                <div className="text-xs text-gray-500 mb-1">Budget Overrun</div>
-                <div className="text-lg font-bold text-red-600">
-                  ₱{formatCurrency(totalInclusionsPrice - event.total_budget)}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="text-xs text-gray-500 mb-1">
-                  Budget Balanced
-                </div>
-                <div className="text-lg font-bold text-gray-700">₱0.00</div>
-              </>
-            )}
-          </div>
         </div>
         {/* --- END SUMMARY SECTION --- */}
 
@@ -2185,72 +1624,108 @@ function ComponentDisplay({
   };
 
   if (!isEditing) {
-    // Read-only display mode
+    // Read-only display mode with Accordion
     return (
-      <div>
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <h4 className="font-medium text-gray-900">
-              {component.component_name}
-              {component.is_custom && (
-                <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                  Custom
-                </span>
-              )}
-            </h4>
-            {component.component_description && (
-              <p className="text-sm text-gray-600 mt-1">
-                {component.component_description}
-              </p>
-            )}
-            <div className="flex items-center gap-4 mt-2">
+      <Accordion
+        type="single"
+        collapsible
+        className="w-full"
+        defaultValue={
+          component.subComponents && component.subComponents.length > 0
+            ? "component-details"
+            : undefined
+        }
+      >
+        <AccordionItem value="component-details" className="border-none">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <AccordionTrigger className="py-2 hover:no-underline">
+                <div className="flex items-center justify-between w-full pr-4">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium text-gray-900">
+                      {component.component_name}
+                      {component.is_custom && (
+                        <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                          Custom
+                        </span>
+                      )}
+                    </h4>
+                  </div>
+                </div>
+              </AccordionTrigger>
+
               {!component.is_custom && component.original_component_name && (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 block mb-2">
                   Original: {component.original_component_name}
                 </span>
               )}
+
+              {/* Payment Status */}
+              {component.is_included && (
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="text-xs text-gray-500">Payment Status:</div>
+                  <span
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${
+                      component.payment_status === "paid"
+                        ? "bg-green-100 text-green-800 border-green-300"
+                        : component.payment_status === "cancelled"
+                          ? "bg-red-100 text-red-800 border-red-300"
+                          : "bg-yellow-100 text-yellow-800 border-yellow-300"
+                    }`}
+                  >
+                    {component.payment_status === "paid" && (
+                      <>
+                        <CheckCircle className="h-3 w-3 mr-1" /> Paid
+                      </>
+                    )}
+                    {component.payment_status === "pending" && (
+                      <>
+                        <Clock className="h-3 w-3 mr-1" /> Pending
+                      </>
+                    )}
+                    {component.payment_status === "cancelled" && (
+                      <>
+                        <X className="h-3 w-3 mr-1" /> Cancelled
+                      </>
+                    )}
+                  </span>
+                  {component.payment_date &&
+                    component.payment_status === "paid" && (
+                      <span className="text-xs text-gray-500">
+                        Paid on{" "}
+                        {new Date(component.payment_date).toLocaleDateString()}
+                      </span>
+                    )}
+                </div>
+              )}
+
+              {/* Accordion Content - Component List */}
+              <AccordionContent>
+                <div className="ml-4 space-y-1">
+                  {component.subComponents &&
+                  component.subComponents.length > 0 ? (
+                    component.subComponents.map((subComp, idx) => {
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-2 text-sm text-gray-700 py-1"
+                        >
+                          <span className="text-[#028A75] font-bold">•</span>
+                          <span>{subComp.name}</span>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-sm text-gray-500 italic py-2">
+                      No component details available
+                    </div>
+                  )}
+                </div>
+              </AccordionContent>
             </div>
-            {/* Payment Status - static for clients (no dropdown) */}
-            {component.is_included && (
-              <div className="flex items-center gap-2 mt-3">
-                <div className="text-xs text-gray-500">Payment Status:</div>
-                <span
-                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${
-                    component.payment_status === "paid"
-                      ? "bg-green-100 text-green-800 border-green-300"
-                      : component.payment_status === "cancelled"
-                        ? "bg-red-100 text-red-800 border-red-300"
-                        : "bg-yellow-100 text-yellow-800 border-yellow-300"
-                  }`}
-                >
-                  {component.payment_status === "paid" && (
-                    <>
-                      <CheckCircle className="h-3 w-3 mr-1" /> Paid
-                    </>
-                  )}
-                  {component.payment_status === "pending" && (
-                    <>
-                      <Clock className="h-3 w-3 mr-1" /> Pending
-                    </>
-                  )}
-                  {component.payment_status === "cancelled" && (
-                    <>
-                      <X className="h-3 w-3 mr-1" /> Cancelled
-                    </>
-                  )}
-                </span>
-                {component.payment_date &&
-                  component.payment_status === "paid" && (
-                    <span className="text-xs text-gray-500">
-                      Paid on{" "}
-                      {new Date(component.payment_date).toLocaleDateString()}
-                    </span>
-                  )}
-              </div>
-            )}
           </div>
-        </div>
-      </div>
+        </AccordionItem>
+      </Accordion>
     );
   }
 
@@ -2309,30 +1784,6 @@ function ComponentDisplay({
               {(editedComponent.component_description || "").length}/500
               characters
             </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Price <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-gray-500">₱</span>
-              <input
-                type="number"
-                value={editedComponent.component_price}
-                onChange={(e) =>
-                  setEditedComponent({
-                    ...editedComponent,
-                    component_price: parseFloat(e.target.value) || 0,
-                  })
-                }
-                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="0.00"
-                min="0"
-                max="10000000"
-                step="0.01"
-              />
-            </div>
           </div>
         </div>
 
@@ -2617,7 +2068,7 @@ function EventTimeline({ event }: { event: Event }) {
         // Only mark completed when event has been explicitly finalized
         status: event.finalized_at
           ? "completed"
-          : allIncludedPaid || event.event_status === "confirmed"
+          : event.event_status === "confirmed"
             ? "in-progress"
             : "pending",
         icon: Edit,
@@ -2778,6 +2229,23 @@ function EventTimeline({ event }: { event: Event }) {
 
 // Client Profile Component
 function ClientProfile({ event }: { event: Event }) {
+  // Debug logging to see what client data we have
+  console.log("🔍 ClientProfile Debug:", {
+    client_name: event.client_name,
+    client_first_name: event.client_first_name,
+    client_last_name: event.client_last_name,
+    client_email: event.client_email,
+    client_contact: event.client_contact,
+    client_username: event.client_username,
+    client_joined_date: event.client_joined_date,
+    client_pfp: event.client_pfp,
+    user_id: event.user_id,
+  });
+
+  // Get current user data as fallback
+  const currentUser = secureStorage.getItem("user");
+  console.log("🔍 Current User Debug:", currentUser);
+
   const getClientInitials = (name: string) => {
     return name
       .split(" ")
@@ -2791,7 +2259,21 @@ function ClientProfile({ event }: { event: Event }) {
     if (event.client_first_name) fullName += event.client_first_name;
     if (event.client_last_name) fullName += ` ${event.client_last_name}`;
     if (event.client_suffix) fullName += ` ${event.client_suffix}`;
-    return fullName.trim() || event.client_name || "Unknown Client";
+
+    // Fallback to current user data if event client data is not available
+    if (!fullName.trim() && currentUser) {
+      if (currentUser.user_firstName) fullName += currentUser.user_firstName;
+      if (currentUser.user_lastName)
+        fullName += ` ${currentUser.user_lastName}`;
+      if (currentUser.user_suffix) fullName += ` ${currentUser.user_suffix}`;
+    }
+
+    return (
+      fullName.trim() ||
+      event.client_name ||
+      currentUser?.user_firstName ||
+      "Unknown Client"
+    );
   };
 
   const formatJoinDate = (dateString?: string) => {
@@ -2818,9 +2300,12 @@ function ClientProfile({ event }: { event: Event }) {
       <div className="flex items-start space-x-4">
         {/* Profile Picture */}
         <div className="relative flex-shrink-0">
-          {event.client_pfp ? (
+          {event.client_pfp || currentUser?.user_pfp ? (
             <img
-              src={getProfileImageUrl(event.client_pfp) || ""}
+              src={
+                getProfileImageUrl(event.client_pfp || currentUser?.user_pfp) ||
+                ""
+              }
               alt={`${getClientFullName()}'s profile`}
               className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
               onError={(e) => {
@@ -2838,7 +2323,7 @@ function ClientProfile({ event }: { event: Event }) {
           {/* Fallback initials (hidden if image loads successfully) */}
           <div
             className={`w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ${
-              event.client_pfp ? "hidden" : ""
+              event.client_pfp || currentUser?.user_pfp ? "hidden" : ""
             }`}
           >
             <span className="text-white font-semibold text-lg">
@@ -2862,11 +2347,11 @@ function ClientProfile({ event }: { event: Event }) {
           <div className="mb-4">
             <div className="flex items-center space-x-2 text-sm">
               <span className="text-gray-600">Client</span>
-              {event.client_username && (
+              {(event.client_username || currentUser?.user_username) && (
                 <>
                   <span className="text-gray-400">•</span>
                   <span className="text-gray-500">
-                    @{event.client_username}
+                    @{event.client_username || currentUser?.user_username}
                   </span>
                 </>
               )}
@@ -2875,23 +2360,28 @@ function ClientProfile({ event }: { event: Event }) {
 
           {/* Contact Information */}
           <div className="space-y-3 mb-4">
-            {event.client_email && (
+            {(event.client_email || currentUser?.user_email) && (
               <div className="flex items-center text-sm text-gray-600">
                 <Mail className="h-4 w-4 mr-3 text-gray-400 flex-shrink-0" />
-                <span className="truncate">{event.client_email}</span>
+                <span className="truncate">
+                  {event.client_email || currentUser?.user_email}
+                </span>
               </div>
             )}
-            {event.client_contact && (
+            {(event.client_contact || currentUser?.user_contact) && (
               <div className="flex items-center text-sm text-gray-600">
                 <Phone className="h-4 w-4 mr-3 text-gray-400 flex-shrink-0" />
-                <span>{event.client_contact}</span>
+                <span>{event.client_contact || currentUser?.user_contact}</span>
               </div>
             )}
-            {event.client_birthdate && (
+            {(event.client_birthdate || currentUser?.user_birthdate) && (
               <div className="flex items-center text-sm text-gray-600">
                 <Calendar className="h-4 w-4 mr-3 text-gray-400 flex-shrink-0" />
                 <span>
-                  Born {new Date(event.client_birthdate).toLocaleDateString()}
+                  Born{" "}
+                  {new Date(
+                    event.client_birthdate || currentUser?.user_birthdate
+                  ).toLocaleDateString()}
                 </span>
               </div>
             )}
@@ -2901,7 +2391,10 @@ function ClientProfile({ event }: { event: Event }) {
           <div className="pt-3 border-t border-gray-100">
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-500">
-                Client since {formatJoinDate(event.client_joined_date)}
+                Client since{" "}
+                {formatJoinDate(
+                  event.client_joined_date || currentUser?.user_joined_date
+                )}
               </span>
               <span className="text-green-600 font-medium bg-green-50 px-2 py-1 rounded-full text-xs">
                 Active
@@ -3102,13 +2595,15 @@ function PaymentHistoryTab({
     const today = getTodayString();
     if (evt.event_date === today) return "on_going";
     if (evt.event_date < today) return "done";
-    // Only treat as confirmed when explicitly finalized
-    if (evt.finalized_at) return "confirmed";
-    // Otherwise, map to non-confirmed statuses; treat stray 'confirmed' as planning
-    const status = (evt.event_status || "").toLowerCase().trim();
-    if (["draft", "pending", "planning"].includes(status)) return status;
-    if (["on_going", "done", "cancelled"].includes(status)) return status;
-    return "draft";
+
+    // For future events, only show as "confirmed" if explicitly set in database
+    // Don't automatically mark as confirmed based on payment status
+    if (evt.event_status === "confirmed") {
+      return "confirmed";
+    }
+
+    // Otherwise show as "planning" (yellow) for future events
+    return "planning";
   };
 
   const getHeaderBackground = (status: string) => {
@@ -3196,7 +2691,39 @@ function PaymentHistoryTab({
                   <h4 className="font-semibold text-blue-900 mb-3">
                     Payment Summary
                   </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                  <div
+                    className={`grid grid-cols-1 gap-3 text-sm ${(() => {
+                      // Use stored reserved_payment_total from event if available, otherwise calculate from payments
+                      const storedReservedPayment = Number(
+                        event.reserved_payment_total || 0
+                      );
+
+                      // Check for reserved payments by multiple criteria
+                      const hasReservedPayments =
+                        storedReservedPayment > 0 ||
+                        (paymentHistory &&
+                          (paymentHistory.some(
+                            (p: any) => p.payment_type === "reserved"
+                          ) ||
+                            paymentHistory.some((p: any) =>
+                              p.payment_notes
+                                ?.toLowerCase()
+                                .includes("reservation")
+                            ) ||
+                            paymentHistory.some((p: any) =>
+                              p.payment_notes
+                                ?.toLowerCase()
+                                .includes("reserved")
+                            ) ||
+                            paymentHistory.some((p: any) =>
+                              p.payment_notes?.toLowerCase().includes("booking")
+                            )));
+
+                      return hasReservedPayments
+                        ? "sm:grid-cols-4"
+                        : "sm:grid-cols-3";
+                    })()}`}
+                  >
                     <div>
                       <div className="text-blue-700">Package Price</div>
                       <div className="font-semibold text-blue-900">
@@ -3225,6 +2752,83 @@ function PaymentHistoryTab({
                         })}
                       </div>
                     </div>
+                    {(() => {
+                      // Use stored reserved_payment_total from event if available, otherwise calculate from payments
+                      const storedReservedPayment = Number(
+                        event.reserved_payment_total || 0
+                      );
+
+                      // Check for reserved payments by multiple criteria
+                      const hasReservedPayments =
+                        storedReservedPayment > 0 ||
+                        (paymentHistory &&
+                          (paymentHistory.some(
+                            (p: any) => p.payment_type === "reserved"
+                          ) ||
+                            paymentHistory.some((p: any) =>
+                              p.payment_notes
+                                ?.toLowerCase()
+                                .includes("reservation")
+                            ) ||
+                            paymentHistory.some((p: any) =>
+                              p.payment_notes
+                                ?.toLowerCase()
+                                .includes("reserved")
+                            ) ||
+                            paymentHistory.some((p: any) =>
+                              p.payment_notes?.toLowerCase().includes("booking")
+                            )));
+
+                      return hasReservedPayments;
+                    })() && (
+                      <div>
+                        <div className="text-blue-700">Reservation Fee</div>
+                        <div className="font-semibold text-blue-900">
+                          ₱
+                          {(() => {
+                            // Use stored reserved_payment_total from event if available
+                            const storedReservedPayment = Number(
+                              event.reserved_payment_total || 0
+                            );
+
+                            if (storedReservedPayment > 0) {
+                              return storedReservedPayment;
+                            }
+
+                            // Otherwise calculate from payments
+                            return Number(
+                              paymentHistory
+                                ?.filter((p: any) => {
+                                  const isReserved =
+                                    p.payment_type === "reserved" ||
+                                    p.payment_notes
+                                      ?.toLowerCase()
+                                      .includes("reservation") ||
+                                    p.payment_notes
+                                      ?.toLowerCase()
+                                      .includes("reserved") ||
+                                    p.payment_notes
+                                      ?.toLowerCase()
+                                      .includes("booking");
+                                  const isPaid =
+                                    p.payment_status === "completed" ||
+                                    p.payment_status === "paid" ||
+                                    p.payment_status === "confirmed";
+                                  return isReserved && isPaid;
+                                })
+                                .reduce(
+                                  (sum: number, p: any) =>
+                                    sum + Number(p.payment_amount || 0),
+                                  0
+                                ) || 0
+                            );
+                          })().toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <div className="text-blue-700">Balance Due</div>
                       <div className="font-semibold text-blue-900">
@@ -3600,25 +3204,75 @@ function PaymentHistoryTab({
               })}
             </div>
           </div>
-          <div>
-            <div className="text-blue-700">Reserved Fee</div>
-            <div className="font-semibold text-blue-900">
-              ₱
-              {Number(
-                paymentHistory?.reduce(
-                  (sum, p) =>
-                    p.payment_status === "completed" &&
-                    p.payment_type === "reserved"
-                      ? sum + p.payment_amount
-                      : sum,
-                  0
-                ) || 0
-              ).toLocaleString("en-PH", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
+          {(() => {
+            // Use stored reserved_payment_total from event if available, otherwise calculate from payments
+            const storedReservedPayment = Number(
+              event.reserved_payment_total || 0
+            );
+
+            // Check for reserved payments by multiple criteria
+            const hasReservedPayments =
+              storedReservedPayment > 0 ||
+              (paymentHistory &&
+                (paymentHistory.some(
+                  (p: any) => p.payment_type === "reserved"
+                ) ||
+                  paymentHistory.some((p: any) =>
+                    p.payment_notes?.toLowerCase().includes("reservation")
+                  ) ||
+                  paymentHistory.some((p: any) =>
+                    p.payment_notes?.toLowerCase().includes("reserved")
+                  ) ||
+                  paymentHistory.some((p: any) =>
+                    p.payment_notes?.toLowerCase().includes("booking")
+                  )));
+
+            return hasReservedPayments;
+          })() && (
+            <div>
+              <div className="text-blue-700">Reservation Fee</div>
+              <div className="font-semibold text-blue-900">
+                ₱
+                {(() => {
+                  // Use stored reserved_payment_total from event if available
+                  const storedReservedPayment = Number(
+                    event.reserved_payment_total || 0
+                  );
+
+                  if (storedReservedPayment > 0) {
+                    return storedReservedPayment;
+                  }
+
+                  // Otherwise calculate from payments
+                  return Number(
+                    paymentHistory
+                      ?.filter((p: any) => {
+                        const isReserved =
+                          p.payment_type === "reserved" ||
+                          p.payment_notes
+                            ?.toLowerCase()
+                            .includes("reservation") ||
+                          p.payment_notes?.toLowerCase().includes("reserved") ||
+                          p.payment_notes?.toLowerCase().includes("booking");
+                        const isPaid =
+                          p.payment_status === "completed" ||
+                          p.payment_status === "paid" ||
+                          p.payment_status === "confirmed";
+                        return isReserved && isPaid;
+                      })
+                      .reduce(
+                        (sum: number, p: any) =>
+                          sum + Number(p.payment_amount || 0),
+                        0
+                      ) || 0
+                  );
+                })().toLocaleString("en-PH", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </div>
             </div>
-          </div>
+          )}
           <div>
             <div className="text-blue-700">Down Payment</div>
             <div className="font-semibold text-blue-900">
@@ -3671,89 +3325,156 @@ function PaymentHistoryTab({
 
       {paymentHistory && paymentHistory.length > 0 ? (
         <div className="space-y-3">
-          {paymentHistory.map((payment: any, index: number) => (
-            <div
-              key={
-                payment?.payment_id
-                  ? `payment-${payment.payment_id}`
-                  : `payment-temp-${index}-${payment?.payment_reference || payment?.payment_date || ""}`
-              }
-              className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <CreditCard className="h-5 w-5 text-blue-600" />
+          {paymentHistory
+            .sort((a: any, b: any) => {
+              // More comprehensive reservation fee detection
+              const aIsReserved =
+                a.payment_type === "reserved" ||
+                a.payment_notes?.toLowerCase().includes("reservation") ||
+                a.payment_notes?.toLowerCase().includes("reserved") ||
+                a.payment_notes?.toLowerCase().includes("reservation fee") ||
+                (a.booking_id &&
+                  !a.payment_notes?.toLowerCase().includes("down payment") &&
+                  !a.payment_notes?.toLowerCase().includes("initial"));
+
+              const bIsReserved =
+                b.payment_type === "reserved" ||
+                b.payment_notes?.toLowerCase().includes("reservation") ||
+                b.payment_notes?.toLowerCase().includes("reserved") ||
+                b.payment_notes?.toLowerCase().includes("reservation fee") ||
+                (b.booking_id &&
+                  !b.payment_notes?.toLowerCase().includes("down payment") &&
+                  !b.payment_notes?.toLowerCase().includes("initial"));
+
+              // If one is reserved and the other isn't, reserved goes to bottom
+              if (aIsReserved && !bIsReserved) return 1;
+              if (!aIsReserved && bIsReserved) return -1;
+
+              // If both are reserved or both are not reserved, sort by date (newest first)
+              const aDate = new Date(a.payment_date).getTime();
+              const bDate = new Date(b.payment_date).getTime();
+              return bDate - aDate; // Newest first
+            })
+            .map((payment: any, index: number) => (
+              <div
+                key={
+                  payment?.payment_id
+                    ? `payment-${payment.payment_id}`
+                    : `payment-temp-${index}-${payment?.payment_reference || payment?.payment_date || ""}`
+                }
+                className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow"
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                      <CreditCard className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <h5 className="font-semibold text-gray-900">
+                        ₱
+                        {Number(payment.payment_amount || 0).toLocaleString(
+                          "en-PH",
+                          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                        )}
+                        {(payment.payment_type === "reserved" ||
+                          payment.payment_notes
+                            ?.toLowerCase()
+                            .includes("reservation") ||
+                          payment.payment_notes
+                            ?.toLowerCase()
+                            .includes("reserved") ||
+                          payment.payment_notes
+                            ?.toLowerCase()
+                            .includes("reservation fee") ||
+                          // Check if this payment was transferred from a booking (has booking_id but no event-specific notes)
+                          (payment.booking_id &&
+                            !payment.payment_notes
+                              ?.toLowerCase()
+                              .includes("down payment") &&
+                            !payment.payment_notes
+                              ?.toLowerCase()
+                              .includes("initial"))) && (
+                          <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                            Reservation Fee
+                          </span>
+                        )}
+                      </h5>
+                      <p className="text-sm text-gray-600 capitalize">
+                        {payment.payment_method || "N/A"}
+                        {payment.installment_number &&
+                          ` • Installment ${payment.installment_number}`}
+                        {payment.payment_type === "reserved" ||
+                          ((payment.payment_notes
+                            ?.toLowerCase()
+                            .includes("reservation") ||
+                            payment.payment_notes
+                              ?.toLowerCase()
+                              .includes("reserved") ||
+                            payment.payment_notes
+                              ?.toLowerCase()
+                              .includes("reservation fee") ||
+                            // Check if this payment was transferred from a booking (has booking_id but no event-specific notes)
+                            (payment.booking_id &&
+                              !payment.payment_notes
+                                ?.toLowerCase()
+                                .includes("down payment") &&
+                              !payment.payment_notes
+                                ?.toLowerCase()
+                                .includes("initial"))) && (
+                            <span className="text-blue-600">
+                              {" "}
+                              • From Booking
+                            </span>
+                          ))}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h5 className="font-semibold text-gray-900">
-                      ₱
-                      {Number(payment.payment_amount || 0).toLocaleString(
-                        "en-PH",
-                        { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                      )}
-                      {payment.payment_type === "reserved" && (
-                        <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                          Reserved Fee
-                        </span>
-                      )}
-                    </h5>
-                    <p className="text-sm text-gray-600 capitalize">
-                      {payment.payment_method || "N/A"}
-                      {payment.installment_number &&
-                        ` • Installment ${payment.installment_number}`}
-                      {payment.payment_type === "reserved" && (
-                        <span className="text-blue-600"> • From Booking</span>
-                      )}
+                  <div className="text-right">
+                    <span
+                      className={`inline-block px-2 py-1 rounded-full text-xs font-medium border ${getPaymentStatusColor(payment.payment_status)}`}
+                    >
+                      {payment.payment_status}
+                    </span>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {new Date(payment.payment_date).toLocaleDateString()}
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span
-                    className={`inline-block px-2 py-1 rounded-full text-xs font-medium border ${getPaymentStatusColor(payment.payment_status)}`}
-                  >
-                    {payment.payment_status}
-                  </span>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(payment.payment_date).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
 
-              {payment.payment_reference && (
-                <div className="text-sm text-gray-600 bg-gray-50 rounded px-3 py-2">
-                  <span className="font-medium">Reference:</span>{" "}
-                  {payment.payment_reference}
-                </div>
-              )}
-
-              {/* Attachments */}
-              {payment.payment_attachments &&
-                Array.isArray(payment.payment_attachments) &&
-                payment.payment_attachments.length > 0 && (
-                  <div className="mt-3">
-                    <div className="text-sm font-medium text-gray-900 mb-1">
-                      Attachments
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {payment.payment_attachments.map(
-                        (att: any, i: number) => (
-                          <a
-                            key={`${payment.payment_id}-${i}`}
-                            className="text-sm text-blue-600 hover:underline"
-                            href={`uploads/payment_proof/${att.filename || att.file_name}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {att.original_name || att.filename}
-                          </a>
-                        )
-                      )}
-                    </div>
+                {payment.payment_reference && (
+                  <div className="text-sm text-gray-600 bg-gray-50 rounded px-3 py-2">
+                    <span className="font-medium">Reference:</span>{" "}
+                    {payment.payment_reference}
                   </div>
                 )}
-            </div>
-          ))}
+
+                {/* Attachments */}
+                {payment.payment_attachments &&
+                  Array.isArray(payment.payment_attachments) &&
+                  payment.payment_attachments.length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-sm font-medium text-gray-900 mb-1">
+                        Attachments
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {payment.payment_attachments.map(
+                          (att: any, i: number) => (
+                            <a
+                              key={`${payment.payment_id}-${i}`}
+                              className="text-sm text-blue-600 hover:underline"
+                              href={`uploads/payment_proof/${att.filename || att.file_name}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {att.original_name || att.filename}
+                            </a>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+              </div>
+            ))}
         </div>
       ) : (
         <div className="text-center py-12">
@@ -3836,9 +3557,26 @@ export default function EventDetailsPage() {
     const today = getTodayStringLocal();
     if (evt.event_date === today) return "on_going";
     if (evt.event_date < today) return "done";
-    // Prompt requirement: finalized back -> confirmed; set to draft -> planning (yellow)
-    if (evt.finalized_at) return "confirmed";
-    // Non-finalized should be shown as Planning regardless of backend stray values
+
+    // Check if all inclusions are paid (same logic as admin side)
+    const allInclusionsPaid = (evt.components || []).every((component) => {
+      // Only check included components
+      if (!component.is_included) return true;
+      // Check if component payment status is "paid"
+      return component.payment_status === "paid";
+    });
+
+    // Also check organizer and venue payment status
+    const organizerPaid =
+      !evt.organizer_id || evt.organizer_payment_status === "paid";
+    const venuePaid = !evt.venue_id || evt.venue_payment_status === "paid";
+
+    // If all inclusions, organizer, and venue are paid, show as "confirmed" (green)
+    if (allInclusionsPaid && organizerPaid && venuePaid) {
+      return "confirmed";
+    }
+
+    // Otherwise show as "planning" (yellow) for future events
     return "planning";
   };
 
@@ -4377,6 +4115,17 @@ export default function EventDetailsPage() {
         if (status === "success" && eventPayload) {
           console.log("📊 Event payload received:", eventPayload);
           console.log("💳 Payments data:", eventPayload.payments);
+          console.log("👤 Client data:", {
+            client_name: eventPayload.client_name,
+            client_first_name: eventPayload.client_first_name,
+            client_last_name: eventPayload.client_last_name,
+            client_email: eventPayload.client_email,
+            client_contact: eventPayload.client_contact,
+            client_username: eventPayload.client_username,
+            client_joined_date: eventPayload.client_joined_date,
+            client_pfp: eventPayload.client_pfp,
+            user_id: eventPayload.user_id,
+          });
           setEvent(eventPayload);
         } else {
           const errorMessage = message || "Failed to load event details";
@@ -4597,6 +4346,7 @@ export default function EventDetailsPage() {
 
   const tabs = [
     { id: "overview", label: "Overview", icon: Eye },
+    { id: "schedule", label: "Schedule", icon: Calendar },
     { id: "payments", label: "Payments", icon: CreditCard },
     { id: "attachments", label: "Files", icon: Paperclip },
     // Only show nuptial tab for wedding events
@@ -4795,54 +4545,42 @@ export default function EventDetailsPage() {
             <BudgetProgress event={event} />
             <EventTimeline event={event} />
             <EventCountdown event={event} />
-            {!isClient && (
-              <EventFinalization
-                event={event}
-                onEventUpdate={fetchEventDetails}
-              />
-            )}
-            {isClient && (
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    Status Updates
-                  </h3>
-                </div>
-                {loadingNotifications ? (
-                  <div className="text-sm text-gray-500">
-                    Loading updates...
-                  </div>
-                ) : eventNotifications.length > 0 ? (
-                  <div className="space-y-3">
-                    {eventNotifications
-                      .slice(0, 6)
-                      .map((n: any, idx: number) => (
-                        <div
-                          key={`event-notification-${n.notification_id || "temp"}-${idx}-${Date.now()}`}
-                          className="border rounded p-3 bg-gray-50"
-                        >
-                          <div className="text-sm font-medium text-gray-900">
-                            {n.notification_title}
-                          </div>
-                          <div className="text-xs text-gray-700 mt-1">
-                            {n.notification_message}
-                          </div>
-                          <div className="text-[11px] text-gray-500 mt-1">
-                            {n.created_at
-                              ? new Date(n.created_at).toLocaleString()
-                              : ""}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                ) : (
-                  <div className="text-sm text-gray-600">
-                    No server notifications yet. Recent inclusion changes will
-                    appear here once processed.
-                  </div>
-                )}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Status Updates
+                </h3>
               </div>
-            )}
+              {loadingNotifications ? (
+                <div className="text-sm text-gray-500">Loading updates...</div>
+              ) : eventNotifications.length > 0 ? (
+                <div className="space-y-3">
+                  {eventNotifications.slice(0, 6).map((n: any, idx: number) => (
+                    <div
+                      key={`event-notification-${n.notification_id || "temp"}-${idx}-${Date.now()}`}
+                      className="border rounded p-3 bg-gray-50"
+                    >
+                      <div className="text-sm font-medium text-gray-900">
+                        {n.notification_title}
+                      </div>
+                      <div className="text-xs text-gray-700 mt-1">
+                        {n.notification_message}
+                      </div>
+                      <div className="text-[11px] text-gray-500 mt-1">
+                        {n.created_at
+                          ? new Date(n.created_at).toLocaleString()
+                          : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-600">
+                  No server notifications yet. Recent inclusion changes will
+                  appear here once processed.
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Main Content */}
@@ -5055,11 +4793,17 @@ export default function EventDetailsPage() {
                     </div>
                   )}
 
-                  {/* Package Inclusions Management */}
+                  {/* Package Inclusions */}
                   <PackageInclusionsManagement
                     event={event}
                     onEventUpdate={fetchEventDetails}
-                    readOnly={isClient}
+                    readOnly={true}
+                  />
+
+                  {/* Venue Selection */}
+                  <VenueSelection
+                    event={event}
+                    onEventUpdate={fetchEventDetails}
                   />
 
                   {/* Organizer Section */}
@@ -5112,7 +4856,7 @@ export default function EventDetailsPage() {
                                     ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                         organizerDetails.profile_picture
                                       )}`
-                                    : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
+                                    : "/default_pfp.png"
                                 }
                                 alt="Organizer"
                                 className="h-8 w-8 rounded-full object-cover"
@@ -5153,20 +4897,27 @@ export default function EventDetailsPage() {
                             <span className="font-medium">Status:</span>
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${
-                                event.organizer_assignment_status === "accepted"
+                                (organizerDetails?.assignment_status ||
+                                  event.organizer_assignment_status) ===
+                                "accepted"
                                   ? "bg-green-50 text-green-800 border-green-200"
-                                  : event.organizer_assignment_status ===
+                                  : (organizerDetails?.assignment_status ||
+                                        event.organizer_assignment_status) ===
                                       "rejected"
                                     ? "bg-red-50 text-red-800 border-red-200"
                                     : "bg-yellow-50 text-yellow-800 border-yellow-200"
                               }`}
                             >
-                              {event.organizer_assignment_status === "accepted"
+                              {(organizerDetails?.assignment_status ||
+                                event.organizer_assignment_status) ===
+                              "accepted"
                                 ? "Accepted"
-                                : event.organizer_assignment_status ===
+                                : (organizerDetails?.assignment_status ||
+                                      event.organizer_assignment_status) ===
                                     "rejected"
                                   ? "Rejected"
-                                  : event.organizer_assignment_status ===
+                                  : (organizerDetails?.assignment_status ||
+                                        event.organizer_assignment_status) ===
                                       "assigned"
                                     ? "Assigned"
                                     : "Pending"}
@@ -5544,7 +5295,7 @@ export default function EventDetailsPage() {
                                           ? `${endpoints.serveImage}?path=${encodeURIComponent(
                                               o.profile_picture
                                             )}`
-                                          : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
+                                          : "/default_pfp.png"
                                       }
                                       alt="pfp"
                                       className="h-8 w-8 rounded-full object-cover"
@@ -5614,6 +5365,13 @@ export default function EventDetailsPage() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {activeTab === "schedule" && (
+                <ClientScheduleTab
+                  event={event}
+                  onEventUpdate={fetchEventDetails}
+                />
               )}
 
               {activeTab === "payments" && (

@@ -583,31 +583,43 @@ export default function ClientLayout({
               >
                 {/* Profile Picture */}
                 <div className="h-10 w-10 border border-[#D2D2D2] rounded-full overflow-hidden">
-                  {user.user_pfp && user.user_pfp.trim() !== "" ? (
+                  {user.user_pfp &&
+                  user.user_pfp.trim() !== "" &&
+                  !user.user_pfp.includes("default_pfp.png") ? (
                     <Image
                       src={
-                        api.getServeImageUrl(user.user_pfp) ||
-                        "/placeholder.svg"
+                        api.getServeImageUrl(user.user_pfp) ??
+                        "/default_pfp.png"
                       }
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       width={40}
                       height={40}
                       className="h-full w-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = "/default_pfp.png";
+                      }}
                     />
                   ) : user.profilePicture ? (
                     <Image
-                      src={user.profilePicture || "/placeholder.svg"}
+                      src={user.profilePicture}
+                      alt={`${user.user_firstName} ${user.user_lastName}`}
+                      width={40}
+                      height={40}
+                      className="h-full w-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = "/default_pfp.png";
+                      }}
+                    />
+                  ) : (
+                    <Image
+                      src="/default_pfp.png"
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       width={40}
                       height={40}
                       className="h-full w-full object-cover"
                     />
-                  ) : (
-                    <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-                      <span className="text-sm font-medium text-gray-600">
-                        {user?.user_firstName.charAt(0)}
-                      </span>
-                    </div>
                   )}
                 </div>
 
@@ -791,31 +803,43 @@ export default function ClientLayout({
                 className="flex items-center gap-2 p-1 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <div className="h-8 w-8 border border-gray-300 rounded-full overflow-hidden">
-                  {user.user_pfp && user.user_pfp.trim() !== "" ? (
+                  {user.user_pfp &&
+                  user.user_pfp.trim() !== "" &&
+                  !user.user_pfp.includes("default_pfp.png") ? (
                     <Image
                       src={
-                        api.getServeImageUrl(user.user_pfp) ||
-                        "/placeholder.svg"
+                        api.getServeImageUrl(user.user_pfp) ??
+                        "/default_pfp.png"
                       }
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       width={32}
                       height={32}
                       className="h-full w-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = "/default_pfp.png";
+                      }}
                     />
                   ) : user.profilePicture ? (
                     <Image
-                      src={user.profilePicture || "/placeholder.svg"}
+                      src={user.profilePicture}
+                      alt={`${user.user_firstName} ${user.user_lastName}`}
+                      width={32}
+                      height={32}
+                      className="h-full w-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = "/default_pfp.png";
+                      }}
+                    />
+                  ) : (
+                    <Image
+                      src="/default_pfp.png"
                       alt={`${user.user_firstName} ${user.user_lastName}`}
                       width={32}
                       height={32}
                       className="h-full w-full object-cover"
                     />
-                  ) : (
-                    <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-                      <span className="text-xs font-medium text-gray-600">
-                        {user?.user_firstName.charAt(0)}
-                      </span>
-                    </div>
                   )}
                 </div>
               </button>

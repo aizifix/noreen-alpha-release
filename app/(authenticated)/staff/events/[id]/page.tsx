@@ -2605,7 +2605,10 @@ function EventTimeline({ event }: { event: Event }) {
       derivedIncludedCount > 0 && derivedPaidCount === derivedIncludedCount;
     return base.map((s) =>
       s.id === "planning"
-        ? { ...s, status: planningComplete ? "completed" : s.status }
+        ? {
+            ...s,
+            status: event.event_status === "confirmed" ? "completed" : s.status,
+          }
         : s
     );
   })();

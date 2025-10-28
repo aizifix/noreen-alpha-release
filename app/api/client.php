@@ -875,7 +875,9 @@ function getClientEvents($userId) {
                 v.venue_title as venue_name,
                 p.package_title as package_name,
                 COALESCE(SUM(CASE WHEN pay.payment_status = 'completed' THEN pay.payment_amount ELSE 0 END), 0) as total_paid,
-                COUNT(pay.payment_id) as payment_count
+                COUNT(pay.payment_id) as payment_count,
+                eoa.payment_status as organizer_payment_status,
+                CASE WHEN e.venue_id IS NOT NULL THEN 'paid' ELSE NULL END as venue_payment_status
                 FROM tbl_events e
                 LEFT JOIN tbl_users a ON e.admin_id = a.user_id
                 LEFT JOIN tbl_users org ON e.organizer_id = org.user_id
@@ -883,6 +885,7 @@ function getClientEvents($userId) {
                 LEFT JOIN tbl_venue v ON e.venue_id = v.venue_id
                 LEFT JOIN tbl_packages p ON e.package_id = p.package_id
                 LEFT JOIN tbl_payments pay ON e.event_id = pay.event_id
+                LEFT JOIN tbl_event_organizer_assignments eoa ON e.event_id = eoa.event_id
                 WHERE e.user_id = :user_id
                 GROUP BY e.event_id
                 ORDER BY e.event_date ASC";
@@ -892,7 +895,7 @@ function getClientEvents($userId) {
         $stmt->execute();
         $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Calculate payment percentages and remaining balance
+        // Calculate payment percentages and remaining balance, and fetch components
         foreach ($events as &$event) {
             $event['total_paid'] = (float)$event['total_paid'];
             $event['total_budget'] = (float)$event['total_budget'];
@@ -900,6 +903,15 @@ function getClientEvents($userId) {
             $event['payment_percentage'] = $event['total_budget'] > 0
                 ? round(($event['total_paid'] / $event['total_budget']) * 100, 2)
                 : 0;
+
+            // Fetch components for payment status calculation
+            $componentsSql = "SELECT component_id, is_included, payment_status
+                             FROM tbl_event_components
+                             WHERE event_id = :event_id";
+            $componentsStmt = $pdo->prepare($componentsSql);
+            $componentsStmt->bindParam(':event_id', $event['event_id'], PDO::PARAM_INT);
+            $componentsStmt->execute();
+            $event['components'] = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
         }
 
         return ["status" => "success", "events" => $events];
@@ -985,6 +997,14 @@ function getClientEventDetails($userId, $eventId) {
             SELECT
                 e.*,
                 CONCAT(u.user_firstName, ' ', u.user_lastName) as client_name,
+                u.user_firstName as client_first_name,
+                u.user_lastName as client_last_name,
+                u.user_suffix as client_suffix,
+                u.user_email as client_email,
+                u.user_contact as client_contact,
+                u.user_username as client_username,
+                u.user_birthdate as client_birthdate,
+                u.created_at as client_joined_date,
                 u.user_pfp as client_pfp,
                 et.event_name as event_type_name,
                 p.package_title,
@@ -1019,7 +1039,7 @@ function getClientEventDetails($userId, $eventId) {
             return ["status" => "error", "message" => "Event not found"];
         }
 
-        // Components/inclusions
+        // Components/inclusions with sub-components parsing
         $stmt = $pdo->prepare("
             SELECT
                 ec.*,
@@ -1031,7 +1051,86 @@ function getClientEventDetails($userId, $eventId) {
             ORDER BY ec.display_order
         ");
         $stmt->execute([$eventId]);
-        $event['components'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $eventComponents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Parse component_description into subComponents array for each component
+        // Fetch real components from tbl_inclusion_components table
+        foreach ($eventComponents as &$component) {
+            $subComponents = [];
+
+            // If this component has an original_package_component_id, fetch real components
+            if (!empty($component['original_package_component_id'])) {
+                $componentsSql = "SELECT component_id, component_name, component_description, component_price, display_order
+                                FROM tbl_inclusion_components
+                                WHERE inclusion_id = :inclusion_id
+                                ORDER BY display_order";
+                $componentsStmt = $pdo->prepare($componentsSql);
+                $componentsStmt->execute([':inclusion_id' => $component['original_package_component_id']]);
+                $realComponents = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                if (!empty($realComponents)) {
+                    // Use real components from database
+                    foreach ($realComponents as $realComponent) {
+                        $subComponents[] = [
+                            'name' => $realComponent['component_name'],
+                            'price' => (float)$realComponent['component_price']
+                        ];
+                    }
+                }
+            }
+
+            // If no real components found, fall back to parsing component_description
+            if (empty($subComponents)) {
+                $rawDescription = isset($component['original_component_description']) ? trim((string)$component['original_component_description']) : '';
+
+                // If original_component_description is empty, try component_description
+                if (empty($rawDescription)) {
+                    $rawDescription = isset($component['component_description']) ? trim((string)$component['component_description']) : '';
+                }
+
+                if ($rawDescription !== '') {
+                    // Normalize common delimiters to commas (supports comma, semicolon, newline, bullet)
+                    $normalized = preg_replace('/[\r\n;•]+/u', ',', $rawDescription);
+                    $parts = array_filter(array_map('trim', explode(',', (string)$normalized)), function($p) { return $p !== ''; });
+
+                    foreach ($parts as $part) {
+                        $subComponents[] = [
+                            'name' => $part,
+                            'price' => 0
+                        ];
+                    }
+                }
+            }
+
+            // If still no components found, try to get components_list from tbl_package_inclusions
+            if (empty($subComponents) && !empty($component['original_package_component_id'])) {
+                $inclusionSql = "SELECT components_list FROM tbl_package_inclusions WHERE inclusion_id = :inclusion_id";
+                $inclusionStmt = $pdo->prepare($inclusionSql);
+                $inclusionStmt->execute([':inclusion_id' => $component['original_package_component_id']]);
+                $inclusionData = $inclusionStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($inclusionData && !empty($inclusionData['components_list'])) {
+                    $componentsList = trim($inclusionData['components_list']);
+                    if ($componentsList !== '') {
+                        // Parse comma-separated components list
+                        $normalized = preg_replace('/[\r\n;•]+/u', ',', $componentsList);
+                        $parts = array_filter(array_map('trim', explode(',', $normalized)), function($p) { return $p !== ''; });
+
+                        foreach ($parts as $part) {
+                            $subComponents[] = [
+                                'name' => $part,
+                                'price' => 0
+                            ];
+                        }
+                    }
+                }
+            }
+
+            $component['subComponents'] = $subComponents;
+        }
+        unset($component); // Break reference
+
+        $event['components'] = $eventComponents;
 
         // Timeline
         $stmt = $pdo->prepare("
@@ -2115,6 +2214,13 @@ if (empty($operation) && isset($_GET['action'])) {
     $operation = $_GET['action'];
 }
 
+// Log all requests to client.php
+error_log("Client.php - Request received. Method: $method");
+error_log("Client.php - Operation from GET: $operation");
+error_log("Client.php - Raw input: " . file_get_contents('php://input'));
+error_log("Client.php - POST data: " . json_encode($_POST));
+error_log("Client.php - GET data: " . json_encode($_GET));
+
 // For POST requests, check if operation is in the request body
 if ($method === 'POST') {
     $jsonInput = file_get_contents('php://input');
@@ -2124,6 +2230,10 @@ if ($method === 'POST') {
     error_log("Raw POST input: " . $jsonInput);
     error_log("JSON decode result: " . json_encode($data));
     error_log("JSON last error: " . json_last_error_msg());
+
+    // Get operation from POST data
+    $operation = $data['operation'] ?? '';
+    error_log("Client.php - Operation from POST data: $operation");
 
     if (!$data || json_last_error() !== JSON_ERROR_NONE) {
         // If JSON parsing fails, try to get form data
@@ -2520,6 +2630,9 @@ switch ($method) {
 
     case 'POST':
         // Make sure we have an operation
+        error_log("POST request received. Operation: " . ($operation ?? 'not_set'));
+        error_log("POST data: " . json_encode($data ?? []));
+
         if (empty($operation)) {
             echo json_encode([
                 "status" => "error",
@@ -2528,7 +2641,32 @@ switch ($method) {
             break;
         }
 
+        // Debug before switch
+        error_log("Client.php - About to process POST operation: $operation");
+        error_log("Client.php - Available data keys: " . implode(', ', array_keys($data ?? [])));
+
         switch ($operation) {
+            case 'schedules':
+                // Handle schedule operations for clients (read-only)
+                error_log("Client.php - Schedules case hit in POST section");
+                error_log("Client.php - POST data: " . json_encode($_POST));
+                error_log("Client.php - data array: " . json_encode($data));
+
+                // Define constant to indicate schedule.php is being included
+                if (!defined('SCHEDULE_PHP_INCLUDED')) {
+                    define('SCHEDULE_PHP_INCLUDED', true);
+                }
+
+                // For clients, we need to modify the data to include user_id for security
+                if (isset($data['user_id'])) {
+                    $_POST['user_id'] = $data['user_id'];
+                    $_POST['event_id'] = $data['event_id'];
+                    $_POST['subaction'] = $data['subaction'];
+                }
+
+                include_once 'schedule.php';
+                break;
+
             case 'createBooking':
             case 'create-booking': // For backward compatibility
                 // Log the incoming request for debugging
@@ -2975,3 +3113,6 @@ function getPaymentSettings() {
         return ["status" => "error", "message" => "Database error: " . $e->getMessage()];
     }
 }
+
+// Function to get event schedule for clients (read-only) - REMOVED
+// Now using schedule.php directly for better consistency

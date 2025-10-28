@@ -1304,21 +1304,7 @@ try {
             }
             break;
 
-        case "updateComponentDeliveryStatus":
-            echo $organizer->updateComponentDeliveryStatus($data);
-            break;
-
-         case "getEventDeliveryProgress":
-             $eventId = (int)($_GET['event_id'] ?? ($data['event_id'] ?? 0));
-             $organizerId = (int)($_GET['organizer_id'] ?? ($data['organizer_id'] ?? 0));
-             if ($eventId <= 0 || $organizerId <= 0) {
-                 echo json_encode(["status" => "error", "message" => "Valid event ID and organizer ID required"]);
-             } else {
-                 echo $organizer->getEventDeliveryProgress($eventId, $organizerId);
-             }
-             break;
-
-         case "getWeddingDetails":
+        case "getWeddingDetails":
              $eventId = (int)($_GET['event_id'] ?? ($data['event_id'] ?? 0));
              $organizerId = (int)($_GET['organizer_id'] ?? ($data['organizer_id'] ?? 0));
              if ($eventId <= 0 || $organizerId <= 0) {

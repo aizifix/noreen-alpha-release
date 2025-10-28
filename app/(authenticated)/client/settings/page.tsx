@@ -448,9 +448,10 @@ export default function ClientSettingsPage() {
                   <img
                     src={
                       userProfile?.user_pfp &&
-                      userProfile.user_pfp.trim() !== ""
+                      userProfile.user_pfp.trim() !== "" &&
+                      !userProfile.user_pfp.includes("default_pfp.png")
                         ? `${endpoints.serveImage}?path=${encodeURIComponent(userProfile.user_pfp)}`
-                        : `${endpoints.serveImage}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`
+                        : "/default_pfp.png"
                     }
                     alt="Profile"
                     className="h-20 w-20 sm:h-24 sm:w-24 rounded-full object-cover border-4 border-gray-200"

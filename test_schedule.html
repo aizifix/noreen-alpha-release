@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Schedule System Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .test-section {
+        margin: 20px 0;
+        padding: 15px;
+        border: 1px solid #ccc;
+      }
+      .success {
+        color: green;
+      }
+      .error {
+        color: red;
+      }
+      .info {
+        color: blue;
+      }
+      pre {
+        background: #f5f5f5;
+        padding: 10px;
+        overflow-x: auto;
+      }
+      button {
+        padding: 10px 15px;
+        margin: 5px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Schedule System Test</h1>
+
+    <div class="test-section">
+      <h2>Test Schedule API</h2>
+      <p>
+        This will test the schedule API endpoints to ensure they're working
+        correctly.
+      </p>
+
+      <div>
+        <label>Event ID: </label>
+        <input
+          type="number"
+          id="eventId"
+          value="1"
+          placeholder="Enter event ID"
+        />
+        <button onclick="testGetSchedule()">Test Get Schedule</button>
+        <button onclick="testSeedSchedule()">Test Seed Schedule</button>
+      </div>
+
+      <div id="results"></div>
+    </div>
+
+    <script>
+      async function testGetSchedule() {
+        const eventId = document.getElementById("eventId").value;
+        const resultsDiv = document.getElementById("results");
+
+        if (!eventId) {
+          resultsDiv.innerHTML =
+            '<p class="error">Please enter an event ID</p>';
+          return;
+        }
+
+        try {
+          resultsDiv.innerHTML = '<p class="info">Testing get schedule...</p>';
+
+          const response = await fetch("app/api/admin.php", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              operation: "schedules",
+              subaction: "get",
+              event_id: eventId,
+            }),
+          });
+
+          const data = await response.json();
+
+          resultsDiv.innerHTML = `
+                    <h3>Get Schedule Results:</h3>
+                    <p class="${data.status === "success" ? "success" : "error"}">
+                        Status: ${data.status}
+                    </p>
+                    <p>Message: ${data.message || "No message"}</p>
+                    <p>Data count: ${data.data ? data.data.length : 0}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+        } catch (error) {
+          resultsDiv.innerHTML = `
+                    <h3>Error:</h3>
+                    <p class="error">${error.message}</p>
+                `;
+        }
+      }
+
+      async function testSeedSchedule() {
+        const eventId = document.getElementById("eventId").value;
+        const resultsDiv = document.getElementById("results");
+
+        if (!eventId) {
+          resultsDiv.innerHTML =
+            '<p class="error">Please enter an event ID</p>';
+          return;
+        }
+
+        try {
+          resultsDiv.innerHTML = '<p class="info">Testing seed schedule...</p>';
+
+          const response = await fetch("app/api/admin.php", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              operation: "schedules",
+              subaction: "seed",
+              event_id: eventId,
+            }),
+          });
+
+          const data = await response.json();
+
+          resultsDiv.innerHTML = `
+                    <h3>Seed Schedule Results:</h3>
+                    <p class="${data.status === "success" ? "success" : "error"}">
+                        Status: ${data.status}
+                    </p>
+                    <p>Message: ${data.message || "No message"}</p>
+                    <p>Seeded count: ${data.seeded_count || 0}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+        } catch (error) {
+          resultsDiv.innerHTML = `
+                    <h3>Error:</h3>
+                    <p class="error">${error.message}</p>
+                `;
+        }
+      }
+    </script>
+  </body>
+</html>

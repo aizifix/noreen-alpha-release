@@ -57,6 +57,15 @@ interface Event {
   package_title?: string;
   admin_name?: string;
   organizer_name?: string;
+  organizer_id?: number;
+  organizer_payment_status?: "unpaid" | "partial" | "paid" | "cancelled";
+  venue_payment_status?: "unpaid" | "partial" | "paid" | "cancelled";
+  components?: Array<{
+    component_id: number;
+    is_included: boolean;
+    payment_status?: "pending" | "paid" | "cancelled";
+  }>;
+  total_paid?: number;
 }
 
 export default function ClientEventsPage() {
@@ -250,13 +259,15 @@ export default function ClientEventsPage() {
     const today = getTodayString();
     if (event.event_date === today) return "on_going";
     if (event.event_date < today) return "done";
-    if (event.finalized_at) return "confirmed";
-    const status = (event.event_status || "").toLowerCase().trim();
-    if (["draft", "pending", "planning"].includes(status))
-      return status as typeof event.event_status;
-    if (["on_going", "done", "cancelled", "confirmed"].includes(status))
-      return status as typeof event.event_status;
-    return "draft";
+
+    // For future events, only show as "confirmed" if explicitly set in database
+    // Don't automatically mark as confirmed based on payment status
+    if (event.event_status === "confirmed") {
+      return "confirmed";
+    }
+
+    // Otherwise show as "planning" (yellow) for future events
+    return "planning";
   };
 
   // Calendar Component
@@ -476,7 +487,7 @@ export default function ClientEventsPage() {
                   <span
                     className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-2 ${colors.bg} ${colors.text}`}
                   >
-                    {event.event_status}
+                    {derivedStatus}
                   </span>
                 </div>
               );
@@ -758,9 +769,6 @@ export default function ClientEventsPage() {
 
           {events.length === 0 && (
             <div className="col-span-full text-center py-12">
-              <div className="text-gray-400 mb-4">
-                <Calendar className="h-12 w-12 mx-auto" />
-              </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">
                 No events found
               </h3>

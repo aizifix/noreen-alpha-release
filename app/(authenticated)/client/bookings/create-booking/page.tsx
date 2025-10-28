@@ -359,8 +359,7 @@ export default function EnhancedCreateBookingPage() {
 
   // Helper function to get proper image URL - matches admin implementation
   const getImageUrl = (imagePath: string | null) => {
-    if (!imagePath || imagePath.trim() === "")
-      return `${endpoints.client.replace("/client.php", "/serve-image.php")}?path=${encodeURIComponent("uploads/user_profile/default_pfp.png")}`;
+    if (!imagePath || imagePath.trim() === "") return "/default_pfp.png";
 
     // If already a full URL, return as is
     if (imagePath.startsWith("http")) return imagePath;

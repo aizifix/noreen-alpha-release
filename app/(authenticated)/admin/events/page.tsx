@@ -441,27 +441,14 @@ export default function EventsPage() {
     // Past events are "done" (purple)
     if (event.event_date < today) return "done";
 
-    // For future events, check payment completion to determine status
-    // Check if all inclusions are paid
-    const allInclusionsPaid = (event.components || []).every((component) => {
-      // Only check included components
-      if (!component.is_included) return true;
-
-      // Check if component payment status is "paid"
-      return component.payment_status === "paid";
-    });
-
-    // Also check organizer and venue payment status
-    const organizerPaid =
-      !event.organizer_id || event.organizer_payment_status === "paid";
-    const venuePaid = !event.venue_id || event.venue_payment_status === "paid";
-
-    // If all inclusions, organizer, and venue are paid, show as "confirmed" (green)
-    if (allInclusionsPaid && organizerPaid && venuePaid) {
+    // For future events, only show as "confirmed" if:
+    // 1. Explicitly set as confirmed in database AND
+    // 2. Payment status is "paid" (100% completion)
+    if (event.event_status === "confirmed" && event.payment_status === "paid") {
       return "confirmed";
     }
 
-    // Otherwise show as "planning" (yellow) for future events
+    // All other future events show as "planning" (yellow)
     return "planning";
   };
 

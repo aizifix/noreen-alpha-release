@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Default Profile Picture Generator</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        background: #f0f0f0;
+        font-family: Arial, sans-serif;
+      }
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .avatar {
+        width: 200px;
+        height: 200px;
+        margin: 20px auto;
+        display: block;
+      }
+      .instructions {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 20px 0;
+      }
+      .instructions h3 {
+        margin-top: 0;
+        color: #495057;
+      }
+      .instructions ol {
+        margin: 10px 0;
+        padding-left: 20px;
+      }
+      .instructions li {
+        margin: 5px 0;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        margin: 10px 5px;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Default Profile Picture Generator</h1>
+
+      <div class="instructions">
+        <h3>Instructions:</h3>
+        <ol>
+          <li>Right-click on the avatar below</li>
+          <li>Select "Save image as..." or "Save picture as..."</li>
+          <li>Save it as "default_pfp.png" in your public folder</li>
+          <li>
+            Make sure it's saved in:
+            <code>event-planning-system/public/default_pfp.png</code>
+          </li>
+        </ol>
+      </div>
+
+      <svg
+        class="avatar"
+        viewBox="0 0 200 200"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <!-- Background circle -->
+        <circle cx="100" cy="100" r="100" fill="#E5E7EB" />
+
+        <!-- Person icon -->
+        <g fill="#9CA3AF">
+          <!-- Head -->
+          <circle cx="100" cy="75" r="25" />
+
+          <!-- Body -->
+          <path
+            d="M60 140 Q60 120 100 120 Q140 120 140 140 L140 160 Q140 180 120 180 L80 180 Q60 180 60 160 Z"
+          />
+        </g>
+      </svg>
+
+      <div style="text-align: center">
+        <button onclick="downloadPNG()">Download as PNG</button>
+        <button onclick="copySVG()">Copy SVG Code</button>
+      </div>
+
+      <div class="instructions">
+        <h3>Alternative: Use any of your existing profile pictures</h3>
+        <p>
+          If you prefer, you can also copy one of your existing profile pictures
+          and rename it to <code>default_pfp.png</code>. Looking at your file
+          list, these might work well:
+        </p>
+        <ul>
+          <li><code>profile_1_1752505614.jpg</code> - 145.58 KB</li>
+          <li><code>profile_20_1752461113.jpg</code> - 273.03 KB</li>
+          <li><code>profile_21_1752549645.jpg</code> - 13.28 KB</li>
+        </ul>
+      </div>
+    </div>
+
+    <script>
+      function downloadPNG() {
+        const svg = document.querySelector("svg");
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+
+        canvas.width = 200;
+        canvas.height = 200;
+
+        const svgData = new XMLSerializer().serializeToString(svg);
+        const img = new Image();
+
+        img.onload = function () {
+          ctx.drawImage(img, 0, 0);
+          const pngData = canvas.toDataURL("image/png");
+
+          const link = document.createElement("a");
+          link.download = "default_pfp.png";
+          link.href = pngData;
+          link.click();
+        };
+
+        img.src = "data:image/svg+xml;base64," + btoa(svgData);
+      }
+
+      function copySVG() {
+        const svg = document.querySelector("svg").outerHTML;
+        navigator.clipboard.writeText(svg).then(() => {
+          alert("SVG code copied to clipboard!");
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -33,6 +33,8 @@ import {
   endOfMonth,
   eachDayOfInterval,
   isSameDay,
+  addDays,
+  isBefore,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import ComponentsStep from "./ComponentsStep";
@@ -323,6 +325,23 @@ export default function EnhancedCreateBookingPage() {
     setGuestCountInput(formData.guestCount.toString());
   }, [formData.guestCount]);
 
+  // Clear venue selection if guest count exceeds selected venue capacity
+  useEffect(() => {
+    if (selectedVenue && selectedVenue.venue_capacity && formData.guestCount > selectedVenue.venue_capacity) {
+      // Clear venue selection if capacity is exceeded
+      setFormData((prev) => ({
+        ...prev,
+        venueId: null,
+      }));
+      setSelectedVenue(null);
+      toast({
+        title: "Venue Selection Cleared",
+        description: `The selected venue "${selectedVenue.venue_title}" has a capacity of ${selectedVenue.venue_capacity} guests, but you've selected ${formData.guestCount} guests. Please select a venue with higher capacity or reduce the guest count.`,
+        variant: "destructive",
+      });
+    }
+  }, [formData.guestCount, selectedVenue]);
+
   // Load edit data if in edit mode
   useEffect(() => {
     if (isEditMode && !isEditModeLoaded) {
@@ -562,12 +581,7 @@ export default function EnhancedCreateBookingPage() {
       description: "Review your booking",
       completed: false,
     },
-    {
-      id: 6,
-      title: "Payment Information",
-      description: "View payment options",
-      completed: false,
-    },
+
   ];
 
   // Initialize client info and load data
@@ -990,15 +1004,18 @@ export default function EnhancedCreateBookingPage() {
     }
   }, []);
 
-  // Check for event conflicts - updated to only check date, not time
+  // Check for event conflicts using date and start time
   const checkForConflicts = useCallback(async () => {
-    if (!formData.eventDate) return;
+    if (!formData.eventDate || !formData.startTime) return;
 
     setIsCheckingConflicts(true);
     try {
       const response = await axios.post(`${endpoints.client}`, {
-        operation: "checkEventDateConflicts",
+        operation: "checkEventConflicts",
         event_date: formData.eventDate,
+        start_time: formData.startTime,
+        // API requires end_time; when only start time is provided, use start time for both
+        end_time: formData.startTime,
       });
 
       if (response.data.status === "success") {
@@ -1010,7 +1027,14 @@ export default function EnhancedCreateBookingPage() {
     } finally {
       setIsCheckingConflicts(false);
     }
-  }, [formData.eventDate]);
+  }, [formData.eventDate, formData.startTime]);
+
+  // Re-check conflicts when time changes after date selection
+  useEffect(() => {
+    if (formData.eventDate && formData.startTime) {
+      checkForConflicts();
+    }
+  }, [formData.startTime, formData.eventDate, checkForConflicts]);
 
   // Recalculate total price when relevant factors change
   // Formula: EstimatedTotal = PackagePrice + VenueExcess - RemovedInclusions + CustomInclusions + SupplierServices + ExternalCustomizations
@@ -1102,13 +1126,19 @@ export default function EnhancedCreateBookingPage() {
   const handleDateSelect = async (date: Date | undefined) => {
     if (!date) return;
 
-    // Prevent selection of past dates
+    // Prevent selection of dates within 7-day gap
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    if (date < today) {
+    const minimumAllowedDate = addDays(today, 7);
+    minimumAllowedDate.setHours(0, 0, 0, 0);
+
+    const dateStart = new Date(date);
+    dateStart.setHours(0, 0, 0, 0);
+
+    if (isBefore(dateStart, minimumAllowedDate)) {
       toast({
         title: "Invalid Date",
-        description: "Please select a future date for your event.",
+        description: "Please select a date that is at least 7 days from today.",
         variant: "destructive",
       });
       return;
@@ -1169,6 +1199,16 @@ export default function EnhancedCreateBookingPage() {
     }));
     setGuestCountInput(val.toString());
 
+    // Check if guest count exceeds selected venue capacity
+    const venue = selectedVenue || (formData.venueId ? venues.find(v => v.venue_id === formData.venueId) : null);
+    if (venue && venue.venue_capacity && val > venue.venue_capacity) {
+      toast({
+        title: "Capacity Exceeded",
+        description: `The selected venue "${venue.venue_title}" has a capacity of ${venue.venue_capacity} guests, but you've selected ${val} guests. Please select a venue with higher capacity or reduce the guest count.`,
+        variant: "destructive",
+      });
+    }
+
     // Simulate a brief delay for UX (calculation happens automatically via useEffect)
     setTimeout(() => {
       setIsCalculating(false);
@@ -1197,7 +1237,7 @@ export default function EnhancedCreateBookingPage() {
         event_name: formData.eventName,
         event_date: formData.eventDate,
         start_time: formData.startTime,
-        end_time: formData.endTime,
+        // omit end_time when not used so backend can treat it as null
         guest_count: formData.guestCount,
         package_id: formData.packageId,
         venue_id: formData.venueId,
@@ -1584,8 +1624,17 @@ export default function EnhancedCreateBookingPage() {
           !hasConflicts
         );
       case 3:
-        // Venue selection step
-        return formData.venueId !== null;
+        // Venue selection step - must have venue selected AND guest count must not exceed venue capacity
+        if (formData.venueId === null) {
+          return false;
+        }
+        // Find the selected venue and check if guest count exceeds capacity
+        const venue = selectedVenue || venues.find(v => v.venue_id === formData.venueId);
+        if (venue && venue.venue_capacity) {
+          // Guest count must be <= venue capacity
+          return formData.guestCount <= venue.venue_capacity;
+        }
+        return true; // If venue capacity info is missing, allow proceeding (fallback)
       case 4:
         // Inclusions step - always allow proceeding
         return true;
@@ -2103,6 +2152,27 @@ export default function EnhancedCreateBookingPage() {
                         </Dialog>
                       </div>
 
+                      {/* Time Selection */}
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="space-y-2">
+                          <Label>Start Time *</Label>
+                          <input
+                            type="time"
+                            value={formData.startTime}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                startTime: e.target.value,
+                              }))
+                            }
+                            className={cn(
+                              "w-full h-12 px-3 border rounded-md",
+                              !formData.startTime && "border-red-200 focus:ring-red-500"
+                            )}
+                          />
+                        </div>
+                      </div>
+
                       {/* Guest count input removed from Step 2; handled in Step 3 */}
 
                       {/* Conflict checking indicator */}
@@ -2227,16 +2297,31 @@ export default function EnhancedCreateBookingPage() {
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 items-stretch">
-                          {venues.map((venue, index) => (
+                          {venues.map((venue, index) => {
+                            const exceedsCapacity = venue.venue_capacity && formData.guestCount > venue.venue_capacity;
+                            return (
                             <Card
                               key={venue.venue_id}
                               className={cn(
-                                "cursor-pointer transition-all duration-200 hover:shadow-md animate-fadeSlideIn h-full flex flex-col",
+                                "transition-all duration-200 animate-fadeSlideIn h-full flex flex-col",
                                 `animation-delay-${(index + 2) * 150}`,
+                                exceedsCapacity
+                                  ? "opacity-60 cursor-not-allowed border-red-200 bg-red-50/30"
+                                  : "cursor-pointer hover:shadow-md",
                                 formData.venueId === venue.venue_id &&
+                                  !exceedsCapacity &&
                                   "ring-2 ring-[#028A75] border-[#028A75]"
                               )}
                               onClick={() => {
+                                // Prevent selection if venue capacity is exceeded
+                                if (exceedsCapacity) {
+                                  toast({
+                                    title: "Capacity Exceeded",
+                                    description: `This venue "${venue.venue_title}" has a capacity of ${venue.venue_capacity} guests, but you've selected ${formData.guestCount} guests. Please reduce the guest count to ${venue.venue_capacity} or less, or select a different venue.`,
+                                    variant: "destructive",
+                                  });
+                                  return;
+                                }
                                 setFormData((prev) => ({
                                   ...prev,
                                   venueId: venue.venue_id,
@@ -2338,7 +2423,8 @@ export default function EnhancedCreateBookingPage() {
                                 )}
                               </CardContent>
                             </Card>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -2505,7 +2591,7 @@ export default function EnhancedCreateBookingPage() {
                                     Time
                                   </span>
                                   <span className="font-medium text-gray-900">
-                                    {formData.startTime} – {formData.endTime}
+                                    {formData.startTime}
                                   </span>
                                 </div>
                                 <div className="flex flex-col space-y-1">
@@ -3116,157 +3202,7 @@ export default function EnhancedCreateBookingPage() {
             </div>
           </div>
 
-          {/* Step 6: Payment Step */}
-          {currentStep === 6 && (
-            <div className="space-y-6 animate-fadeSlideIn">
-              <Card className="border shadow-sm rounded-xl">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CreditCard className="h-5 w-5" />
-                    Payment Information
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    View available payment methods. You can make a payment to
-                    reserve your slot, or pay later. Staff will record your
-                    payment when received.
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Payment Information Display */}
-                  {(paymentSettings.gcash_name ||
-                    paymentSettings.bank_name) && (
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-semibold">
-                        Payment Information
-                      </h3>
 
-                      {paymentSettings.gcash_name && (
-                        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                          <h4 className="font-semibold text-green-800 mb-2">
-                            GCash
-                          </h4>
-                          <p className="text-sm text-green-700">
-                            <strong>Name:</strong> {paymentSettings.gcash_name}
-                          </p>
-                          {paymentSettings.gcash_number && (
-                            <p className="text-sm text-green-700">
-                              <strong>Number:</strong>{" "}
-                              {paymentSettings.gcash_number}
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {paymentSettings.bank_name && (
-                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                          <h4 className="font-semibold text-blue-800 mb-2">
-                            Bank Transfer
-                          </h4>
-                          <p className="text-sm text-blue-700">
-                            <strong>Bank:</strong> {paymentSettings.bank_name}
-                          </p>
-                          {paymentSettings.bank_account_name && (
-                            <p className="text-sm text-blue-700">
-                              <strong>Account Name:</strong>{" "}
-                              {paymentSettings.bank_account_name}
-                            </p>
-                          )}
-                          {paymentSettings.bank_account_number && (
-                            <p className="text-sm text-blue-700">
-                              <strong>Account Number:</strong>{" "}
-                              {paymentSettings.bank_account_number}
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {paymentSettings.payment_instructions && (
-                        <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                          <h4 className="font-semibold text-gray-800 mb-2">
-                            Instructions
-                          </h4>
-                          <p className="text-sm text-gray-700">
-                            {paymentSettings.payment_instructions}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Payment Options */}
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">
-                      Available Payment Methods
-                    </h3>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* GCash Option */}
-                      <div className="p-4 border border-green-200 rounded-lg bg-green-50">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
-                            <span className="text-white text-sm font-bold">
-                              G
-                            </span>
-                          </div>
-                          <h4 className="font-semibold text-green-800">
-                            GCash
-                          </h4>
-                        </div>
-                        <p className="text-sm text-green-700">
-                          Send payment via GCash to the number provided above
-                        </p>
-                      </div>
-
-                      {/* Bank Transfer Option */}
-                      <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-                            <span className="text-white text-sm font-bold">
-                              B
-                            </span>
-                          </div>
-                          <h4 className="font-semibold text-blue-800">
-                            Bank Transfer
-                          </h4>
-                        </div>
-                        <p className="text-sm text-blue-700">
-                          Transfer to the bank account details provided above
-                        </p>
-                      </div>
-
-                      {/* Cash on Site Option */}
-                      <div className="p-4 border border-orange-200 rounded-lg bg-orange-50">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-8 h-8 bg-orange-600 rounded-full flex items-center justify-center">
-                            <span className="text-white text-sm font-bold">
-                              ₱
-                            </span>
-                          </div>
-                          <h4 className="font-semibold text-orange-800">
-                            Cash on Site
-                          </h4>
-                        </div>
-                        <p className="text-sm text-orange-700">
-                          Pay in cash when you visit our office
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Payment Process Note */}
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-sm text-blue-800">
-                      <strong>How it works:</strong> After creating your
-                      booking, you can make a payment using any of the methods
-                      above. Once you make a payment, contact our staff to
-                      record the transaction. This helps secure your booking
-                      slot and speeds up the confirmation process.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
 
           {/* Navigation Buttons */}
           <div className="flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4 mt-8 animate-fadeIn">

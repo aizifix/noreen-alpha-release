@@ -21,6 +21,7 @@ import {
   Gift,
   Copy,
   AlertTriangle,
+  DollarSign,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BudgetBreakdown } from "../package-builder/budget-breakdown";
@@ -70,6 +71,7 @@ interface PackageDetails {
   event_type_ids?: number[];
   event_type_names?: string[];
   venue_fee_buffer?: number | null;
+  profit_margin?: number | null;
 }
 
 interface Inclusion {
@@ -195,12 +197,14 @@ export default function PackageDetailsPage() {
     package_price: string;
     guest_capacity: number;
     venue_fee_buffer: string;
+    profit_margin: string;
   }>({
     package_title: "",
     package_description: "",
     package_price: "",
     guest_capacity: 0,
     venue_fee_buffer: "",
+    profit_margin: "",
   });
   const [draggedItem, setDraggedItem] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -357,6 +361,7 @@ export default function PackageDetailsPage() {
           freebies: pkg.freebies || [],
           event_types: pkg.event_types || [],
           event_type_ids: pkg.event_type_ids || [],
+          profit_margin: pkg.profit_margin ?? null,
         };
 
         setPackageDetails(safePackage);
@@ -381,6 +386,7 @@ export default function PackageDetailsPage() {
           package_price: safePackage.package_price.toString(),
           guest_capacity: safePackage.guest_capacity,
           venue_fee_buffer: (safePackage.venue_fee_buffer ?? 0).toString(),
+          profit_margin: (safePackage.profit_margin ?? 0).toString(),
         });
         // Initialize selected venues, freebies, and event types
         setSelectedVenues(safePackage.venues.map((v: Venue) => v.venue_id));
@@ -662,6 +668,7 @@ export default function PackageDetailsPage() {
       package_price: packageDetails!.package_price.toString(),
       guest_capacity: packageDetails!.guest_capacity,
       venue_fee_buffer: (packageDetails!.venue_fee_buffer ?? 0).toString(),
+      profit_margin: (packageDetails!.profit_margin ?? 0).toString(),
     });
 
     // Preserve supplier selections from existing inclusions
@@ -722,6 +729,8 @@ export default function PackageDetailsPage() {
         guest_capacity: editedPackage.guest_capacity,
         venue_fee_buffer:
           parsePrice(editedPackage.venue_fee_buffer.replace(/,/g, "")) || 0,
+        profit_margin:
+          parsePrice(editedPackage.profit_margin.replace(/,/g, "")) || 0,
         components: [
           ...editedInHouseInclusions,
           ...editedSupplierInclusions,
@@ -807,6 +816,9 @@ export default function PackageDetailsPage() {
                   parsePrice(
                     editedPackage.venue_fee_buffer.replace(/,/g, "")
                   ) || 0,
+                profit_margin:
+                  parsePrice(editedPackage.profit_margin.replace(/,/g, "")) ||
+                  0,
                 inclusions: [
                   ...editedInHouseInclusions,
                   ...editedSupplierInclusions,
@@ -872,6 +884,10 @@ export default function PackageDetailsPage() {
                       venue_fee_buffer:
                         parsePrice(
                           editedPackage.venue_fee_buffer.replace(/,/g, "")
+                        ) || 0,
+                      profit_margin:
+                        parsePrice(
+                          editedPackage.profit_margin.replace(/,/g, "")
                         ) || 0,
                       inclusions: [
                         ...editedInHouseInclusions,
@@ -1902,106 +1918,223 @@ export default function PackageDetailsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Inclusions and Venues */}
           <div className="lg:col-span-2 space-y-8">
-            {/* Venue Fee Section */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2">
-                  <MapPin className="h-6 w-6" />
-                  Venue Fee Management
-                </h2>
+            {/* Budget Management Section */}
+            <div className="space-y-6">
+              {/* Venue Fee Section */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2">
+                    <MapPin className="h-6 w-6" />
+                    Venue Fee Management
+                  </h2>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Venue Fee Buffer Display */}
+                  <div className="bg-white rounded-lg p-6 border border-blue-100">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          Venue Fee Buffer
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Maximum amount allocated for venue costs
+                        </p>
+                        <p className="text-xs text-gray-500 mt-2">
+                          This amount is separate from the main package price
+                          and covers venue-related expenses only.
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        {isEditing ? (
+                          <div className="flex items-center space-x-2">
+                            <Edit className="h-4 w-4 text-gray-400" />
+                            <span className="text-sm text-gray-500">₱</span>
+                            <input
+                              type="text"
+                              value={editedPackage.venue_fee_buffer}
+                              onChange={(e) => {
+                                // Remove non-numeric characters except decimal point
+                                let value = e.target.value.replace(
+                                  /[^\d.]/g,
+                                  ""
+                                );
+
+                                // Ensure only one decimal point
+                                const parts = value.split(".");
+                                if (parts.length > 2) {
+                                  value =
+                                    parts[0] + "." + parts.slice(1).join("");
+                                }
+
+                                // Format with commas automatically as user types
+                                if (value && value !== ".") {
+                                  const numericValue = parseFloat(value);
+                                  if (!isNaN(numericValue)) {
+                                    const formattedValue =
+                                      numericValue.toLocaleString("en-US", {
+                                        minimumFractionDigits: 0,
+                                        maximumFractionDigits: 2,
+                                      });
+                                    setEditedPackage((prev) => ({
+                                      ...prev,
+                                      venue_fee_buffer: formattedValue,
+                                    }));
+                                    markAsChanged();
+                                    toast.info("Venue fee buffer updated", {
+                                      description: `New buffer: ₱${formattedValue}`,
+                                      duration: 2000,
+                                    });
+                                    return;
+                                  }
+                                }
+
+                                setEditedPackage((prev) => ({
+                                  ...prev,
+                                  venue_fee_buffer: value,
+                                }));
+                                markAsChanged();
+                              }}
+                              onFocus={(e) => {
+                                // Remove commas on focus for easier editing
+                                const numericValue =
+                                  parseFloat(
+                                    e.target.value.replace(/,/g, "")
+                                  ) || 0;
+                                setEditedPackage((prev) => ({
+                                  ...prev,
+                                  venue_fee_buffer: numericValue.toString(),
+                                }));
+                              }}
+                              className="text-3xl font-bold text-blue-600 bg-white border border-gray-300 rounded px-3 py-2 w-48 text-right"
+                              placeholder="0"
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="text-3xl font-bold text-blue-600">
+                              ₱
+                              {(
+                                packageDetails.venue_fee_buffer || 0
+                              ).toLocaleString()}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Client pays additional if venue costs exceed this
+                              buffer
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-4">
-                {/* Venue Fee Buffer Display */}
-                <div className="bg-white rounded-lg p-6 border border-blue-100">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        Venue Fee Buffer
-                      </h3>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Maximum amount allocated for venue costs
-                      </p>
-                      <p className="text-xs text-gray-500 mt-2">
-                        This amount is separate from the main package price and
-                        covers venue-related expenses only.
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      {isEditing ? (
-                        <div className="flex items-center space-x-2">
-                          <Edit className="h-4 w-4 text-gray-400" />
-                          <span className="text-sm text-gray-500">₱</span>
-                          <input
-                            type="text"
-                            value={editedPackage.venue_fee_buffer}
-                            onChange={(e) => {
-                              // Remove non-numeric characters except decimal point
-                              let value = e.target.value.replace(/[^\d.]/g, "");
+              {/* Profit Margin Section */}
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-green-900 flex items-center gap-2">
+                    <DollarSign className="h-6 w-6" />
+                    Profit Margin Management
+                  </h2>
+                </div>
 
-                              // Ensure only one decimal point
-                              const parts = value.split(".");
-                              if (parts.length > 2) {
-                                value =
-                                  parts[0] + "." + parts.slice(1).join("");
-                              }
+                <div className="space-y-4">
+                  {/* Profit Margin Display */}
+                  <div className="bg-white rounded-lg p-6 border border-green-100">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          Admin Profit Margin
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Reserved profit buffer for the head organizer
+                        </p>
+                        <p className="text-xs text-gray-500 mt-2">
+                          This amount is allocated as profit margin and will be
+                          included in the budget breakdown. Visible to admins
+                          only.
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        {isEditing ? (
+                          <div className="flex items-center space-x-2">
+                            <Edit className="h-4 w-4 text-gray-400" />
+                            <span className="text-sm text-gray-500">₱</span>
+                            <input
+                              type="text"
+                              value={editedPackage.profit_margin}
+                              onChange={(e) => {
+                                // Remove non-numeric characters except decimal point
+                                let value = e.target.value.replace(
+                                  /[^\d.]/g,
+                                  ""
+                                );
 
-                              // Format with commas automatically as user types
-                              if (value && value !== ".") {
-                                const numericValue = parseFloat(value);
-                                if (!isNaN(numericValue)) {
-                                  const formattedValue =
-                                    numericValue.toLocaleString("en-US", {
-                                      minimumFractionDigits: 0,
-                                      maximumFractionDigits: 2,
-                                    });
-                                  setEditedPackage((prev) => ({
-                                    ...prev,
-                                    venue_fee_buffer: formattedValue,
-                                  }));
-                                  markAsChanged();
-                                  toast.info("Venue fee buffer updated", {
-                                    description: `New buffer: ₱${formattedValue}`,
-                                    duration: 2000,
-                                  });
-                                  return;
+                                // Ensure only one decimal point
+                                const parts = value.split(".");
+                                if (parts.length > 2) {
+                                  value =
+                                    parts[0] + "." + parts.slice(1).join("");
                                 }
-                              }
 
-                              setEditedPackage((prev) => ({
-                                ...prev,
-                                venue_fee_buffer: value,
-                              }));
-                              markAsChanged();
-                            }}
-                            onFocus={(e) => {
-                              // Remove commas on focus for easier editing
-                              const numericValue =
-                                parseFloat(e.target.value.replace(/,/g, "")) ||
-                                0;
-                              setEditedPackage((prev) => ({
-                                ...prev,
-                                venue_fee_buffer: numericValue.toString(),
-                              }));
-                            }}
-                            className="text-3xl font-bold text-blue-600 bg-white border border-gray-300 rounded px-3 py-2 w-48 text-right"
-                            placeholder="0"
-                          />
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="text-3xl font-bold text-blue-600">
-                            ₱
-                            {(
-                              packageDetails.venue_fee_buffer || 0
-                            ).toLocaleString()}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            Client pays additional if venue costs exceed this
-                            buffer
-                          </p>
-                        </div>
-                      )}
+                                // Format with commas automatically as user types
+                                if (value && value !== ".") {
+                                  const numericValue = parseFloat(value);
+                                  if (!isNaN(numericValue)) {
+                                    const formattedValue =
+                                      numericValue.toLocaleString("en-US", {
+                                        minimumFractionDigits: 0,
+                                        maximumFractionDigits: 2,
+                                      });
+                                    setEditedPackage((prev) => ({
+                                      ...prev,
+                                      profit_margin: formattedValue,
+                                    }));
+                                    markAsChanged();
+                                    toast.info("Profit margin updated", {
+                                      description: `New margin: ₱${formattedValue}`,
+                                      duration: 2000,
+                                    });
+                                    return;
+                                  }
+                                }
+
+                                setEditedPackage((prev) => ({
+                                  ...prev,
+                                  profit_margin: value,
+                                }));
+                                markAsChanged();
+                              }}
+                              onFocus={(e) => {
+                                // Remove commas on focus for easier editing
+                                const numericValue =
+                                  parseFloat(
+                                    e.target.value.replace(/,/g, "")
+                                  ) || 0;
+                                setEditedPackage((prev) => ({
+                                  ...prev,
+                                  profit_margin: numericValue.toString(),
+                                }));
+                              }}
+                              className="text-3xl font-bold text-green-600 bg-white border border-gray-300 rounded px-3 py-2 w-48 text-right"
+                              placeholder="0"
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="text-3xl font-bold text-green-600">
+                              ₱
+                              {(
+                                packageDetails.profit_margin || 0
+                              ).toLocaleString()}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Reserved profit for head organizer
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2922,7 +3055,19 @@ export default function PackageDetailsPage() {
                   ? editedFreebies || []
                   : packageDetails?.freebies || []
               }
-              venueFeeBuffer={packageDetails?.venue_fee_buffer ?? 0}
+              venueFeeBuffer={
+                isEditing
+                  ? parsePrice(
+                      editedPackage.venue_fee_buffer.replace(/,/g, "")
+                    ) || 0
+                  : (packageDetails?.venue_fee_buffer ?? 0)
+              }
+              profitMargin={
+                isEditing
+                  ? parsePrice(editedPackage.profit_margin.replace(/,/g, "")) ||
+                    0
+                  : (packageDetails?.profit_margin ?? 0)
+              }
             />
           </div>
         </div>
@@ -3179,12 +3324,14 @@ export default function PackageDetailsPage() {
                     selectedVenue={packageDetails?.venues?.[0] || null}
                     components={[
                       // Current inclusions
-                      ...allEditedInclusions.map((inc) => ({
-                        name: inc?.supplier_id
-                          ? `[Supplier] ${inc?.name || "Unknown"}`
-                          : inc?.name || "Unknown",
-                        price: inc?.price || 0,
-                      })),
+                      ...allEditedInclusions
+                        .filter((inc) => inc?.name !== "Venue Fee")
+                        .map((inc) => ({
+                          name: inc?.supplier_id
+                            ? `[Supplier] ${inc?.name || "Unknown"}`
+                            : inc?.name || "Unknown",
+                          price: inc?.price || 0,
+                        })),
                       // Preview new inclusion if it has a name and price
                       ...(newInclusion.name.trim() && newInclusion.price > 0
                         ? [
@@ -3200,7 +3347,20 @@ export default function PackageDetailsPage() {
                         ? editedFreebies || []
                         : packageDetails?.freebies || []
                     }
-                    venueFeeBuffer={packageDetails?.venue_fee_buffer ?? 0}
+                    venueFeeBuffer={
+                      isEditing
+                        ? parsePrice(
+                            editedPackage.venue_fee_buffer.replace(/,/g, "")
+                          ) || 0
+                        : (packageDetails?.venue_fee_buffer ?? 0)
+                    }
+                    profitMargin={
+                      isEditing
+                        ? parsePrice(
+                            editedPackage.profit_margin.replace(/,/g, "")
+                          ) || 0
+                        : (packageDetails?.profit_margin ?? 0)
+                    }
                   />
                 </div>
 
@@ -3904,12 +4064,14 @@ export default function PackageDetailsPage() {
                       selectedVenue={null}
                       components={[
                         // Current inclusions
-                        ...allEditedInclusions.map((inc) => ({
-                          name: inc?.supplier_id
-                            ? `[Supplier] ${inc?.name || "Unknown"}`
-                            : inc?.name || "Unknown",
-                          price: inc?.price || 0,
-                        })),
+                        ...allEditedInclusions
+                          .filter((inc) => inc?.name !== "Venue Fee")
+                          .map((inc) => ({
+                            name: inc?.supplier_id
+                              ? `[Supplier] ${inc?.name || "Unknown"}`
+                              : inc?.name || "Unknown",
+                            price: inc?.price || 0,
+                          })),
                         // Preview selected suppliers
                         ...Object.values(selectedSuppliers).map(
                           ({ supplier, offer }) => ({
@@ -3927,7 +4089,20 @@ export default function PackageDetailsPage() {
                           ? editedFreebies || []
                           : packageDetails?.freebies || []
                       }
-                      venueFeeBuffer={packageDetails?.venue_fee_buffer ?? 0}
+                      venueFeeBuffer={
+                        isEditing
+                          ? parsePrice(
+                              editedPackage.venue_fee_buffer.replace(/,/g, "")
+                            ) || 0
+                          : (packageDetails?.venue_fee_buffer ?? 0)
+                      }
+                      profitMargin={
+                        isEditing
+                          ? parsePrice(
+                              editedPackage.profit_margin.replace(/,/g, "")
+                            ) || 0
+                          : (packageDetails?.profit_margin ?? 0)
+                      }
                     />
                   </div>
 

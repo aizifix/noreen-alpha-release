@@ -3951,6 +3951,7 @@ This is an automated message. Please do not reply.
                 'package_price' => $package['package_price'],
                 'guest_capacity' => $package['guest_capacity'],
                 'venue_fee_buffer' => $package['venue_fee_buffer'],
+                'profit_margin' => isset($package['profit_margin']) ? $package['profit_margin'] : null,
                 'is_active' => $package['is_active'],
                 'components' => $components,
                 'freebies' => $freebies,
@@ -4165,6 +4166,7 @@ This is an automated message. Please do not reply.
                 'package_price' => (float)$package['package_price'],
                 'guest_capacity' => (int)$package['guest_capacity'],
                 'venue_fee_buffer' => (float)($package['venue_fee_buffer'] ?? 0),
+                'profit_margin' => isset($package['profit_margin']) ? (float)$package['profit_margin'] : null,
                 'created_at' => $package['created_at'],
                 'user_firstName' => $package['user_firstName'],
                 'user_lastName' => $package['user_lastName'],
@@ -4259,23 +4261,35 @@ This is an automated message. Please do not reply.
             }
 
             // Check for overage warnings if components are being updated
+            // Account for venue_fee_buffer and profit_margin when calculating available budget
             if (isset($data['components'])) {
                 $totalComponentCost = 0;
                 foreach ($data['components'] as $component) {
                     $totalComponentCost += floatval($component['component_price'] ?? 0);
                 }
 
-                if ($totalComponentCost > $newPrice) {
-                    $overage = $totalComponentCost - $newPrice;
+                // Calculate reserved amounts (venue buffer + profit margin)
+                $venueFeeBuffer = floatval($data['venue_fee_buffer'] ?? 0);
+                $profitMargin = floatval($data['profit_margin'] ?? 0);
+                $reservedAmount = $venueFeeBuffer + $profitMargin;
+
+                // Available budget for inclusions = package price - reserved amounts
+                $availableBudget = $newPrice - $reservedAmount;
+
+                if ($totalComponentCost > $availableBudget) {
+                    $overage = $totalComponentCost - $availableBudget;
                     if (!isset($data['confirm_overage']) || !$data['confirm_overage']) {
                         if ($transactionStarted && $this->conn->inTransaction()) {
                             $this->conn->rollback();
                         }
-                        error_log("updatePackage: Budget overage detected - package: $newPrice, inclusions: $totalComponentCost, overage: $overage");
+                        error_log("updatePackage: Budget overage detected - package: $newPrice, reserved: $reservedAmount, available: $availableBudget, inclusions: $totalComponentCost, overage: $overage");
                         return json_encode([
                             "status" => "warning",
-                            "message" => "Budget overage detected: Inclusions total exceeds package price",
+                            "message" => "Budget overage detected: Inclusions total exceeds available budget (package price minus venue buffer and profit margin)",
                             "package_price" => $newPrice,
+                            "venue_fee_buffer" => $venueFeeBuffer,
+                            "profit_margin" => $profitMargin,
+                            "available_budget" => $availableBudget,
                             "inclusions_total" => $totalComponentCost,
                             "overage_amount" => $overage,
                             "requires_confirmation" => true
@@ -4291,6 +4305,7 @@ This is an automated message. Please do not reply.
                         package_price = :price,
                         guest_capacity = :capacity,
                         venue_fee_buffer = :venue_fee_buffer,
+                        profit_margin = :profit_margin,
                         is_price_locked = 1,
                         price_lock_date = CASE
                             WHEN is_price_locked = 0 THEN CURRENT_TIMESTAMP
@@ -4314,6 +4329,7 @@ This is an automated message. Please do not reply.
                 ':price' => $newPrice,
                 ':capacity' => $data['guest_capacity'],
                 ':venue_fee_buffer' => $data['venue_fee_buffer'] ?? 0.00,
+                ':profit_margin' => isset($data['profit_margin']) ? ($data['profit_margin'] ?? null) : null,
                 ':package_id' => $data['package_id']
             ]);
 
@@ -6902,8 +6918,8 @@ This is an automated message. Please do not reply.
             }
 
             // Insert main package
-            $sql = "INSERT INTO tbl_packages (package_title, package_description, package_price, guest_capacity, venue_fee_buffer, created_by, is_active)
-                    VALUES (:title, :description, :price, :capacity, :venue_fee_buffer, :created_by, 1)";
+            $sql = "INSERT INTO tbl_packages (package_title, package_description, package_price, guest_capacity, venue_fee_buffer, profit_margin, created_by, is_active)
+                    VALUES (:title, :description, :price, :capacity, :venue_fee_buffer, :profit_margin, :created_by, 1)";
 
             $stmt = $this->conn->prepare($sql);
             $stmt->execute([
@@ -6912,6 +6928,7 @@ This is an automated message. Please do not reply.
                 ':price' => $packageData['package_price'],
                 ':capacity' => $packageData['guest_capacity'],
                 ':venue_fee_buffer' => $packageData['venue_fee_buffer'] ?? 0.00,
+                ':profit_margin' => $packageData['profit_margin'] ?? null,
                 ':created_by' => $packageData['created_by']
             ]);
 
@@ -10191,11 +10208,10 @@ This is an automated message. Please do not reply.
         try {
             $this->pdo->beginTransaction();
 
-            // Get current venue data
-            $stmt = $this->pdo->prepare("SELECT COALESCE(vp.venue_price_min, 0) as venue_price
-                                         FROM tbl_venue v
-                                         LEFT JOIN tbl_venue_price vp ON v.venue_id = vp.venue_id
-                                         WHERE v.venue_id = ?");
+            // Get current venue data - use extra_pax_rate from tbl_venue
+            $stmt = $this->pdo->prepare("SELECT venue_id, extra_pax_rate
+                                         FROM tbl_venue
+                                         WHERE venue_id = ?");
             $stmt->execute([$_POST['venue_id']]);
             $currentVenue = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -10203,20 +10219,27 @@ This is an automated message. Please do not reply.
                 throw new Exception("Venue not found");
             }
 
-            // If price is changing, record it in price history
-            if (floatval($currentVenue['venue_price']) != floatval($_POST['venue_price'])) {
-                $sql = "INSERT INTO tbl_venue_price_history (
-                    venue_id, old_price, new_price
-                ) VALUES (
-                    :venue_id, :old_price, :new_price
-                )";
+            // If price is changing, record it in price history (if table exists)
+            $currentPrice = floatval($currentVenue['extra_pax_rate'] ?? 0);
+            $newPrice = floatval($_POST['venue_price'] ?? 0);
+            if ($currentPrice != $newPrice) {
+                try {
+                    $sql = "INSERT INTO tbl_venue_price_history (
+                        venue_id, old_price, new_price
+                    ) VALUES (
+                        :venue_id, :old_price, :new_price
+                    )";
 
-                $stmt = $this->pdo->prepare($sql);
-                $stmt->execute([
-                    ':venue_id' => $_POST['venue_id'],
-                    ':old_price' => $currentVenue['venue_price'],
-                    ':new_price' => $_POST['venue_price']
-                ]);
+                    $stmt = $this->pdo->prepare($sql);
+                    $stmt->execute([
+                        ':venue_id' => $_POST['venue_id'],
+                        ':old_price' => $currentPrice,
+                        ':new_price' => $newPrice
+                    ]);
+                } catch (Exception $e) {
+                    // Price history table doesn't exist or error occurred - log but continue
+                    error_log("Price history insert failed (table may not exist): " . $e->getMessage());
+                }
             }
 
             // Handle file uploads
@@ -10248,7 +10271,7 @@ This is an automated message. Please do not reply.
                 venue_location = :venue_location,
                 venue_contact = :venue_contact,
                 venue_capacity = :venue_capacity,
-                venue_price = :venue_price,
+                extra_pax_rate = :extra_pax_rate,
                 venue_type = :venue_type";
 
             // Only include files in update if they were uploaded
@@ -10269,7 +10292,7 @@ This is an automated message. Please do not reply.
                 ':venue_location' => $_POST['venue_location'],
                 ':venue_contact' => $_POST['venue_contact'],
                 ':venue_capacity' => $_POST['venue_capacity'],
-                ':venue_price' => $_POST['venue_price'],
+                ':extra_pax_rate' => $_POST['venue_price'],
                 ':venue_type' => $_POST['venue_type'],
                 ':venue_id' => $_POST['venue_id']
             ];

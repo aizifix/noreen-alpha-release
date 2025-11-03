@@ -5,6 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -30,6 +37,12 @@ import {
   isToday,
   startOfWeek,
   endOfWeek,
+  addDays,
+  isBefore,
+  setMonth,
+  setYear,
+  getMonth,
+  getYear,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import axios from "axios";
@@ -158,6 +171,46 @@ export default function ResponsiveCalendar({
   const prevMonth = () => setCurrentDate(subMonths(currentDate, 1));
   const nextMonth = () => setCurrentDate(addMonths(currentDate, 1));
 
+  // Handle month change from dropdown
+  const handleMonthChange = (monthIndex: number) => {
+    setCurrentDate(setMonth(currentDate, monthIndex));
+  };
+
+  // Handle year change from dropdown
+  const handleYearChange = (year: number) => {
+    setCurrentDate(setYear(currentDate, year));
+  };
+
+  // Generate month options
+  const monthOptions = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+
+  // Generate year options (from minimum allowed date year to 5 years in the future)
+  const getYearOptions = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const minimumAllowedDate = addDays(today, 7);
+    const startYear = getYear(minimumAllowedDate);
+    const endYear = startYear + 5; // 5 years into the future
+    const years = [];
+    for (let year = startYear; year <= endYear; year++) {
+      years.push(year);
+    }
+    return years;
+  };
+
   // Get calendar days for the current month
   const getCalendarDays = () => {
     const monthStart = startOfMonth(currentDate);
@@ -198,7 +251,17 @@ export default function ResponsiveCalendar({
     const isSelected = selectedDate && isSameDay(day, selectedDate);
     const isCurrentMonth = isSameMonth(day, currentDate);
     const isTodayDate = isToday(day);
-    const isPastDate = day < new Date(new Date().setHours(0, 0, 0, 0));
+
+    // Calculate minimum allowed date (today + 7 days)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const minimumAllowedDate = addDays(today, 7);
+    minimumAllowedDate.setHours(0, 0, 0, 0);
+
+    // Check if date is in the past or within the 7-day gap
+    const dayStart = new Date(day);
+    dayStart.setHours(0, 0, 0, 0);
+    const isPastDate = isBefore(dayStart, minimumAllowedDate);
 
     const eventCount = dayData?.eventCount || 0;
     const hasWedding = dayData?.hasWedding || false;
@@ -226,8 +289,8 @@ export default function ResponsiveCalendar({
           }
         }}
         disabled={isPastDate}
-        aria-label={`${format(day, "MMMM d, yyyy")}${eventCount > 0 ? ` - ${eventCount} events` : ""}${isPastDate ? " - Past date" : ""}`}
-        title={`${format(day, "MMMM d, yyyy")}${eventCount > 0 ? ` - ${eventCount} events` : ""}${isPastDate ? " - Past date" : ""}`}
+        aria-label={`${format(day, "MMMM d, yyyy")}${eventCount > 0 ? ` - ${eventCount} events` : ""}${isPastDate ? " - Date must be at least 7 days in advance" : ""}`}
+        title={`${format(day, "MMMM d, yyyy")}${eventCount > 0 ? ` - ${eventCount} events` : ""}${isPastDate ? " - Date must be at least 7 days in advance" : ""}`}
       >
         <span className="font-semibold leading-none">
           {format(day, "d")}
@@ -250,7 +313,7 @@ export default function ResponsiveCalendar({
     <>
       <Card className={cn("w-full max-w-full overflow-hidden mx-auto", className)}>
         <CardHeader className="pb-2 px-2 sm:px-4">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 mb-2">
             <CardTitle className="text-sm sm:text-base font-semibold text-[#028A75] flex items-center flex-shrink-0">
               <CalendarIcon className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
               <span className="hidden sm:inline">Event Calendar</span>
@@ -275,10 +338,38 @@ export default function ResponsiveCalendar({
               </Button>
             </div>
           </div>
-          <div className="text-center mt-1">
-            <h3 className="text-sm sm:text-base font-bold text-gray-900">
-              {format(currentDate, "MMMM yyyy")}
-            </h3>
+          {/* Month and Year Selectors */}
+          <div className="flex items-center justify-center gap-2 mt-2">
+            <Select
+              value={getMonth(currentDate).toString()}
+              onValueChange={(value) => handleMonthChange(parseInt(value))}
+            >
+              <SelectTrigger className="h-7 sm:h-8 text-xs sm:text-sm w-[100px] sm:w-[120px]">
+                <SelectValue placeholder="Month" />
+              </SelectTrigger>
+              <SelectContent>
+                {monthOptions.map((month, index) => (
+                  <SelectItem key={index} value={index.toString()}>
+                    {month}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={getYear(currentDate).toString()}
+              onValueChange={(value) => handleYearChange(parseInt(value))}
+            >
+              <SelectTrigger className="h-7 sm:h-8 text-xs sm:text-sm w-[80px] sm:w-[90px]">
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
+              <SelectContent>
+                {getYearOptions().map((year) => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardHeader>
 

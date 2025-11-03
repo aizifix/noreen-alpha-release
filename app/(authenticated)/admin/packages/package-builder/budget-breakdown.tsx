@@ -26,6 +26,7 @@ interface BudgetBreakdownProps {
   components: Component[];
   freebies: string[];
   venueFeeBuffer?: number | null; // Add venue fee buffer, can be null
+  profitMargin?: number | null; // Add profit margin, admin-only
   actualVenueCost?: number; // Add actual venue cost calculation
   remainingVenueBudget?: number; // Add remaining venue budget
   clientAdditionalPayment?: number; // Add client additional payment
@@ -54,6 +55,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
   components,
   freebies,
   venueFeeBuffer = null,
+  profitMargin = null,
   actualVenueCost = 0,
   remainingVenueBudget = 0,
   clientAdditionalPayment = 0,
@@ -77,8 +79,13 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
   );
   const venueFeeCost = venueFeeComponent?.price || venueFeeBuffer || 0;
 
+  // Calculate profit margin cost (admin-only)
+  const profitMarginCost = profitMargin || 0;
+
   // Calculate remaining budget or overage
-  const totalInclusionsCost = totalNonVenueComponentCost + venueFeeCost;
+  // Package Price = Venue Fee Buffer + Profit Margin + Inclusions + Remaining Buffer
+  const totalInclusionsCost =
+    totalNonVenueComponentCost + venueFeeCost + profitMarginCost;
   const budgetDifference = packagePrice - totalInclusionsCost;
 
   // Determine budget status
@@ -94,7 +101,7 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
     }
   }, [isOverBudget, overageAmount, onOverageWarning]);
 
-  // Prepare data for pie chart - use total package price as base minus venue buffer and remaining inclusion buffer
+  // Prepare data for pie chart - use total package price as base minus venue buffer, profit margin, and remaining inclusion buffer
   const chartData = [
     // Venue Fee Buffer (allocated budget for venue costs)
     ...(venueFeeCost > 0
@@ -107,11 +114,22 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
           },
         ]
       : []),
+    // Profit Margin (admin-only, reserved profit)
+    ...(profitMarginCost > 0
+      ? [
+          {
+            name: "Profit Margin",
+            value: profitMarginCost,
+            color: "#10B981", // Green for profit
+            category: "profit_margin",
+          },
+        ]
+      : []),
     // Non-venue components
     ...nonVenueComponents.map((component, index) => ({
       name: component?.name || "Unknown",
       value: component?.price || 0,
-      color: COLORS[(index + 1) % COLORS.length],
+      color: COLORS[(index + 2) % COLORS.length], // Shift index to account for profit margin
       category: "inclusion",
     })),
     // Remaining inclusion buffer (available for admin to add components)
@@ -145,6 +163,8 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
           ).toFixed(1);
           const isBufferItem = entry?.payload?.category === "buffer";
           const isVenueBufferItem = entry?.payload?.category === "venue_buffer";
+          const isProfitMarginItem =
+            entry?.payload?.category === "profit_margin";
           const isInclusionItem = entry?.payload?.category === "inclusion";
 
           return (
@@ -155,9 +175,11 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
                   ? "text-green-600 font-medium"
                   : isVenueBufferItem
                     ? "text-blue-600 font-medium"
-                    : isInclusionItem
-                      ? "text-gray-600"
-                      : "text-gray-600"
+                    : isProfitMarginItem
+                      ? "text-green-700 font-medium"
+                      : isInclusionItem
+                        ? "text-gray-600"
+                        : "text-gray-600"
               }`}
             >
               <div
@@ -173,6 +195,9 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
               )}
               {isVenueBufferItem && (
                 <DollarSign className="w-3 h-3 text-blue-500" />
+              )}
+              {isProfitMarginItem && (
+                <DollarSign className="w-3 h-3 text-green-600" />
               )}
             </div>
           );
@@ -299,11 +324,13 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
                     `₱${(value || 0).toLocaleString()}.00`,
                     props?.payload?.category === "venue_buffer"
                       ? "Venue Fee Buffer"
-                      : props?.payload?.category === "buffer"
-                        ? "Remaining Buffer"
-                        : props?.payload?.category === "inclusion"
-                          ? "Inclusion Cost"
-                          : "Component Cost",
+                      : props?.payload?.category === "profit_margin"
+                        ? "Profit Margin (Admin)"
+                        : props?.payload?.category === "buffer"
+                          ? "Remaining Buffer"
+                          : props?.payload?.category === "inclusion"
+                            ? "Inclusion Cost"
+                            : "Component Cost",
                   ]}
                   labelStyle={{ color: "#374151" }}
                   contentStyle={{
@@ -378,6 +405,15 @@ export const BudgetBreakdown: React.FC<BudgetBreakdownProps> = ({
                   : "Not set"}
               </span>
             )}
+          </div>
+
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">Profit Margin:</span>
+            <span className="font-semibold text-green-600">
+              {profitMarginCost > 0
+                ? `₱${(profitMarginCost || 0).toLocaleString()}`
+                : "Not set"}
+            </span>
           </div>
 
           <div className="flex justify-between items-center">

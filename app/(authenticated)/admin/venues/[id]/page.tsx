@@ -511,12 +511,11 @@ export default function VenueDetailsPage() {
     formData.append("operation", "updateVenue");
     formData.append("venue_id", venue.venue_id.toString());
     formData.append("venue_title", editForm.venue_title);
-    formData.append("venue_owner", venue.venue_owner || ""); // Add missing venue_owner field
-    formData.append("venue_details", editForm.venue_details);
+    formData.append("venue_details", editForm.venue_details || "");
     formData.append("venue_location", editForm.venue_location);
     formData.append("venue_contact", editForm.venue_contact);
     formData.append("venue_capacity", editForm.venue_capacity.toString());
-    formData.append("extra_pax_rate", editForm.extra_pax_rate.toString());
+    formData.append("venue_price", editForm.extra_pax_rate.toString());
     formData.append("venue_type", editForm.venue_type);
 
     if (editForm.venue_profile_picture) {
@@ -531,9 +530,20 @@ export default function VenueDetailsPage() {
         method: "POST",
         body: formData,
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log("Update venue response:", data);
+
       if (data.status === "success") {
-        toast.success("Venue updated successfully", { id: toastId });
+        // Dismiss loading toast and show success toast
+        toast.dismiss(toastId);
+        toast.success("Venue updated successfully", {
+          duration: 3000,
+        });
 
         // Close all modals
         setIsEditModalOpen(false);
@@ -547,18 +557,22 @@ export default function VenueDetailsPage() {
         setProfilePreview("");
         setCoverPreview("");
 
-        fetchVenueDetails(); // Refresh the data
-
-        // Navigate back to venues list to show updated data
-        setTimeout(() => {
-          router.push("/admin/venues");
-        }, 1000); // Small delay to show success message
+        // Refresh the data to show updated venue
+        await fetchVenueDetails();
       } else {
-        toast.error(data.message || "Failed to update venue", { id: toastId });
+        toast.dismiss(toastId);
+        const errorMessage = data.message || "Failed to update venue";
+        console.error("Venue update failed:", errorMessage);
+        toast.error(errorMessage, {
+          duration: 3000,
+        });
       }
     } catch (error) {
       console.error("Error updating venue:", error);
-      toast.error("Failed to update venue", { id: toastId });
+      toast.dismiss(toastId);
+      toast.error(`Failed to update venue: ${error instanceof Error ? error.message : "Unknown error"}`, {
+        duration: 3000,
+      });
     }
   };
 
@@ -1038,19 +1052,19 @@ export default function VenueDetailsPage() {
 
       {/* Edit Modal */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Venue</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-6">
+          <DialogHeader className="pb-4 border-b">
+            <DialogTitle className="text-2xl font-semibold">Edit Venue</DialogTitle>
+            <DialogDescription className="mt-2 text-gray-600">
               Update the venue information including basic details, images, and
               description.
             </DialogDescription>
           </DialogHeader>
           {editForm && (
-            <div className="space-y-6">
+            <div className="space-y-6 pt-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label htmlFor="venue_title">Venue Name</Label>
+                  <Label htmlFor="venue_title" className="text-sm font-medium">Venue Name</Label>
                   <Input
                     id="venue_title"
                     value={editForm.venue_title}
@@ -1061,7 +1075,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_type">Venue Type</Label>
+                  <Label htmlFor="venue_type" className="text-sm font-medium">Venue Type</Label>
                   <Select
                     value={editForm.venue_type}
                     onValueChange={(value) =>
@@ -1079,7 +1093,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_capacity">Capacity</Label>
+                  <Label htmlFor="venue_capacity" className="text-sm font-medium">Capacity</Label>
                   <Input
                     id="venue_capacity"
                     type="number"
@@ -1094,7 +1108,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="extra_pax_rate">Extra Pax Rate (₱)</Label>
+                  <Label htmlFor="extra_pax_rate" className="text-sm font-medium">Extra Pax Rate (₱)</Label>
                   <Input
                     id="extra_pax_rate"
                     type="number"
@@ -1109,7 +1123,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_location">Location</Label>
+                  <Label htmlFor="venue_location" className="text-sm font-medium">Location</Label>
                   <Input
                     id="venue_location"
                     value={editForm.venue_location}
@@ -1123,7 +1137,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_contact">Contact</Label>
+                  <Label htmlFor="venue_contact" className="text-sm font-medium">Contact</Label>
                   <Input
                     id="venue_contact"
                     value={editForm.venue_contact}
@@ -1137,7 +1151,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_profile_picture">Profile Picture</Label>
+                  <Label htmlFor="venue_profile_picture" className="text-sm font-medium">Profile Picture</Label>
                   <Input
                     id="venue_profile_picture"
                     type="file"
@@ -1148,13 +1162,13 @@ export default function VenueDetailsPage() {
                     <img
                       src={profilePreview}
                       alt="Profile preview"
-                      className="w-20 h-20 object-cover rounded"
+                      className="w-20 h-20 object-cover rounded mt-2"
                     />
                   )}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_cover_photo">Cover Photo</Label>
+                  <Label htmlFor="venue_cover_photo" className="text-sm font-medium">Cover Photo</Label>
                   <Input
                     id="venue_cover_photo"
                     type="file"
@@ -1165,14 +1179,14 @@ export default function VenueDetailsPage() {
                     <img
                       src={coverPreview}
                       alt="Cover preview"
-                      className="w-full h-32 object-cover rounded"
+                      className="w-full h-32 object-cover rounded mt-2"
                     />
                   )}
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="venue_details">Description</Label>
+                <Label htmlFor="venue_details" className="text-sm font-medium">Description</Label>
                 <Textarea
                   id="venue_details"
                   value={editForm.venue_details}
@@ -1180,20 +1194,21 @@ export default function VenueDetailsPage() {
                     setEditForm({ ...editForm, venue_details: e.target.value })
                   }
                   rows={4}
+                  className="resize-none"
                 />
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button
                   variant="outline"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="border-gray-300 hover:bg-gray-50"
+                  className="border-gray-300 hover:bg-gray-50 px-6"
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleSave}
-                  className="bg-[#028A75] hover:bg-[#027a68] text-white"
+                  className="bg-[#028A75] hover:bg-[#027a68] text-white px-6"
                 >
                   <Save className="h-4 w-4 mr-2" />
                   Save Changes
@@ -1209,19 +1224,19 @@ export default function VenueDetailsPage() {
         open={isBasicInfoModalOpen}
         onOpenChange={setIsBasicInfoModalOpen}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Edit Basic Information</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-w-2xl p-6">
+          <DialogHeader className="pb-4 border-b">
+            <DialogTitle className="text-2xl font-semibold">Edit Basic Information</DialogTitle>
+            <DialogDescription className="mt-2 text-gray-600">
               Update the basic venue information such as name, type, capacity,
               price, location, and contact details.
             </DialogDescription>
           </DialogHeader>
           {editForm && (
-            <div className="space-y-6">
+            <div className="space-y-6 pt-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label htmlFor="venue_title">Venue Name</Label>
+                  <Label htmlFor="venue_title" className="text-sm font-medium">Venue Name</Label>
                   <Input
                     id="venue_title"
                     value={editForm.venue_title}
@@ -1232,7 +1247,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_type">Venue Type</Label>
+                  <Label htmlFor="venue_type" className="text-sm font-medium">Venue Type</Label>
                   <Select
                     value={editForm.venue_type}
                     onValueChange={(value) =>
@@ -1250,7 +1265,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_capacity">Capacity</Label>
+                  <Label htmlFor="venue_capacity" className="text-sm font-medium">Capacity</Label>
                   <Input
                     id="venue_capacity"
                     type="number"
@@ -1265,7 +1280,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="extra_pax_rate">Extra Pax Rate (₱)</Label>
+                  <Label htmlFor="extra_pax_rate" className="text-sm font-medium">Extra Pax Rate (₱)</Label>
                   <Input
                     id="extra_pax_rate"
                     type="number"
@@ -1280,7 +1295,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_location">Location</Label>
+                  <Label htmlFor="venue_location" className="text-sm font-medium">Location</Label>
                   <Input
                     id="venue_location"
                     value={editForm.venue_location}
@@ -1294,7 +1309,7 @@ export default function VenueDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="venue_contact">Contact</Label>
+                  <Label htmlFor="venue_contact" className="text-sm font-medium">Contact</Label>
                   <Input
                     id="venue_contact"
                     value={editForm.venue_contact}
@@ -1308,17 +1323,17 @@ export default function VenueDetailsPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button
                   variant="outline"
                   onClick={() => setIsBasicInfoModalOpen(false)}
-                  className="border-gray-300 hover:bg-gray-50"
+                  className="border-gray-300 hover:bg-gray-50 px-6"
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleSave}
-                  className="bg-[#028A75] hover:bg-[#027a68] text-white"
+                  className="bg-[#028A75] hover:bg-[#027a68] text-white px-6"
                 >
                   <Save className="h-4 w-4 mr-2" />
                   Save Changes
@@ -1334,16 +1349,16 @@ export default function VenueDetailsPage() {
         open={isProfilePictureModalOpen}
         onOpenChange={setIsProfilePictureModalOpen}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Edit Profile Picture</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-w-2xl p-6">
+          <DialogHeader className="pb-4 border-b">
+            <DialogTitle className="text-2xl font-semibold">Edit Profile Picture</DialogTitle>
+            <DialogDescription className="mt-2 text-gray-600">
               Upload a new profile picture for the venue. You can crop the image
               to fit properly.
             </DialogDescription>
           </DialogHeader>
           {editForm && (
-            <div className="space-y-6">
+            <div className="space-y-6 pt-6">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-medium">Profile Picture</h3>
@@ -1363,7 +1378,7 @@ export default function VenueDetailsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Current Profile Picture */}
                   <div className="space-y-2">
-                    <Label>Current Profile Picture</Label>
+                    <Label className="text-sm font-medium">Current Profile Picture</Label>
                     <div className="w-32 h-32 border-2 border-gray-200 rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
                       {venue?.venue_profile_picture ? (
                         <img
@@ -1385,7 +1400,7 @@ export default function VenueDetailsPage() {
 
                   {/* Upload New Profile Picture */}
                   <div className="space-y-2">
-                    <Label htmlFor="venue_profile_picture">
+                    <Label htmlFor="venue_profile_picture" className="text-sm font-medium">
                       Upload New Profile Picture
                     </Label>
                     <Input
@@ -1480,20 +1495,20 @@ export default function VenueDetailsPage() {
               {/* Hidden canvas for cropping */}
               <canvas ref={canvasRef} style={{ display: "none" }} />
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button
                   variant="outline"
                   onClick={() => {
                     setIsProfilePictureModalOpen(false);
                     setProfilePreview("");
                   }}
-                  className="border-gray-300 hover:bg-gray-50"
+                  className="border-gray-300 hover:bg-gray-50 px-6"
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleSave}
-                  className="bg-[#028A75] hover:bg-[#027a68] text-white"
+                  className="bg-[#028A75] hover:bg-[#027a68] text-white px-6"
                 >
                   <Save className="h-4 w-4 mr-2" />
                   Save Changes
@@ -1509,16 +1524,16 @@ export default function VenueDetailsPage() {
         open={isCoverPhotoModalOpen}
         onOpenChange={setIsCoverPhotoModalOpen}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Edit Cover Photo</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-w-2xl p-6">
+          <DialogHeader className="pb-4 border-b">
+            <DialogTitle className="text-2xl font-semibold">Edit Cover Photo</DialogTitle>
+            <DialogDescription className="mt-2 text-gray-600">
               Upload a new cover photo for the venue. You can crop the image to
               fit properly.
             </DialogDescription>
           </DialogHeader>
           {editForm && (
-            <div className="space-y-6">
+            <div className="space-y-6 pt-6">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-medium">Cover Photo</h3>
@@ -1538,7 +1553,7 @@ export default function VenueDetailsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Current Cover Photo */}
                   <div className="space-y-2">
-                    <Label>Current Cover Photo</Label>
+                    <Label className="text-sm font-medium">Current Cover Photo</Label>
                     <div className="w-full h-32 border-2 border-gray-200 rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
                       {venue?.venue_cover_photo ? (
                         <img
@@ -1559,7 +1574,7 @@ export default function VenueDetailsPage() {
 
                   {/* Upload New Cover Photo */}
                   <div className="space-y-2">
-                    <Label htmlFor="venue_cover_photo">
+                    <Label htmlFor="venue_cover_photo" className="text-sm font-medium">
                       Upload New Cover Photo
                     </Label>
                     <Input
@@ -1650,20 +1665,20 @@ export default function VenueDetailsPage() {
               {/* Hidden canvas for cropping */}
               <canvas ref={canvasRef} style={{ display: "none" }} />
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button
                   variant="outline"
                   onClick={() => {
                     setIsCoverPhotoModalOpen(false);
                     setCoverPreview("");
                   }}
-                  className="border-gray-300 hover:bg-gray-50"
+                  className="border-gray-300 hover:bg-gray-50 px-6"
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleSave}
-                  className="bg-[#028A75] hover:bg-[#027a68] text-white"
+                  className="bg-[#028A75] hover:bg-[#027a68] text-white px-6"
                 >
                   <Save className="h-4 w-4 mr-2" />
                   Save Changes
@@ -1679,18 +1694,18 @@ export default function VenueDetailsPage() {
         open={isDescriptionModalOpen}
         onOpenChange={setIsDescriptionModalOpen}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Edit Description</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-w-2xl p-6">
+          <DialogHeader className="pb-4 border-b">
+            <DialogTitle className="text-2xl font-semibold">Edit Description</DialogTitle>
+            <DialogDescription className="mt-2 text-gray-600">
               Update the venue description to provide more details about the
               venue.
             </DialogDescription>
           </DialogHeader>
           {editForm && (
-            <div className="space-y-6">
+            <div className="space-y-6 pt-6">
               <div className="space-y-2">
-                <Label htmlFor="venue_details">Description</Label>
+                <Label htmlFor="venue_details" className="text-sm font-medium">Description</Label>
                 <Textarea
                   id="venue_details"
                   value={editForm.venue_details}
@@ -1699,20 +1714,21 @@ export default function VenueDetailsPage() {
                   }
                   rows={6}
                   placeholder="Enter venue description..."
+                  className="resize-none"
                 />
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button
                   variant="outline"
                   onClick={() => setIsDescriptionModalOpen(false)}
-                  className="border-gray-300 hover:bg-gray-50"
+                  className="border-gray-300 hover:bg-gray-50 px-6"
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleSave}
-                  className="bg-[#028A75] hover:bg-[#027a68] text-white"
+                  className="bg-[#028A75] hover:bg-[#027a68] text-white px-6"
                 >
                   <Save className="h-4 w-4 mr-2" />
                   Save Changes

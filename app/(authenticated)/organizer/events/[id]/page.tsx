@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { secureStorage } from "@/app/utils/encryption";
 import { protectRoute } from "@/app/utils/routeProtection";
@@ -107,6 +107,13 @@ export default function OrganizerEventDetailsPage() {
   const [showGanttModal, setShowGanttModal] = useState(false);
   const [weddingDetails, setWeddingDetails] = useState<any | null>(null);
   const [weddingLoading, setWeddingLoading] = useState(false);
+  const [groupedSchedules, setGroupedSchedules] = useState<
+    Record<string, any[]>
+  >({});
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [selectedScheduleDate, setSelectedScheduleDate] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -305,6 +312,24 @@ export default function OrganizerEventDetailsPage() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Fetch schedule data used by the calendar modal
+  const fetchScheduleData = async () => {
+    if (!event?.event_id) return;
+    try {
+      const requestData = {
+        operation: "schedules",
+        subaction: "get",
+        event_id: event.event_id,
+      };
+      const response = await axios.post(endpoints.admin, requestData);
+      if (response.data?.status === "success") {
+        setGroupedSchedules(response.data.grouped_data || {});
+      }
+    } catch (error) {
+      console.error("Error fetching schedule data:", error);
     }
   };
 
@@ -747,7 +772,10 @@ export default function OrganizerEventDetailsPage() {
             Event Countdown
           </h3>
           <button
-            onClick={() => setShowGanttModal(true)}
+            onClick={async () => {
+              await fetchScheduleData();
+              setShowGanttModal(true);
+            }}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             title="View Gantt Chart Timeline"
           >
@@ -787,13 +815,22 @@ export default function OrganizerEventDetailsPage() {
     event,
     isOpen,
     onClose,
+    groupedSchedules: externalGroupedSchedules,
+    onDateClick,
   }: {
     event: Event;
     isOpen: boolean;
     onClose: () => void;
+    groupedSchedules: Record<string, any[]>;
+    onDateClick: (dateKey: string) => void;
   }) => {
     const todayRef = useRef<HTMLDivElement>(null);
     const modalContentRef = useRef<HTMLDivElement>(null);
+    const [localGroupedSchedules, setLocalGroupedSchedules] = useState<
+      Record<string, any[]>
+    >({});
+    const groupedKeyRef = useRef<string>("");
+    const openedTodayRef = useRef<string>("");
 
     const calculateDaysLeft = () => {
       const eventDate = new Date(event.event_date);
@@ -804,8 +841,51 @@ export default function OrganizerEventDetailsPage() {
     };
 
     const daysLeft = calculateDaysLeft();
-    const today = new Date();
-    const eventDate = new Date(event.event_date);
+    const today = useMemo(() => new Date(), []);
+    const eventDate = useMemo(
+      () => new Date(event.event_date),
+      [event.event_date]
+    );
+
+    // Build stable strings for date comparisons
+    const toYmd = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const da = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${da}`;
+    };
+    // Capture today's date once per modal open to avoid churn
+    useEffect(() => {
+      if (isOpen) {
+        openedTodayRef.current = toYmd(new Date());
+      } else {
+        openedTodayRef.current = "";
+      }
+    }, [isOpen]);
+    const todayString = openedTodayRef.current || toYmd(today);
+    const eventDateString = toYmd(eventDate);
+
+    // Schedule helpers
+    const dateHasSchedule = (date: Date | null): boolean => {
+      if (!date) return false;
+      const key = toYmd(date);
+      return (
+        Array.isArray(localGroupedSchedules[key]) &&
+        localGroupedSchedules[key].length > 0
+      );
+    };
+    const getSchedulesForDate = (date: Date | null): any[] => {
+      if (!date) return [];
+      const key = toYmd(date);
+      return localGroupedSchedules[key] || [];
+    };
+    const handleDateClick = (date: Date | null) => {
+      if (!date) return;
+      const key = toYmd(date);
+      if (dateHasSchedule(date)) {
+        onDateClick(key);
+      }
+    };
 
     // Auto-scroll to current date when modal opens
     useEffect(() => {
@@ -876,6 +956,7 @@ export default function OrganizerEventDetailsPage() {
             isToday: boolean;
             isEventDay: boolean;
             isInRange: boolean;
+            hasSchedule?: boolean;
           }>,
         };
 
@@ -887,15 +968,18 @@ export default function OrganizerEventDetailsPage() {
             isToday: false,
             isEventDay: false,
             isInRange: false,
+            hasSchedule: false,
           });
         }
 
         // Add days of the month
         for (let day = 1; day <= daysInMonth; day++) {
           const date = new Date(year, month, day);
-          const isToday = date.toDateString() === today.toDateString();
-          const isEventDay = date.toDateString() === eventDate.toDateString();
+          const key = toYmd(date);
+          const isToday = key === todayString;
+          const isEventDay = key === eventDateString;
           const isInRange = date >= today && date <= eventDate;
+          const hasSchedule = dateHasSchedule(date);
 
           monthData.days.push({
             day,
@@ -903,6 +987,7 @@ export default function OrganizerEventDetailsPage() {
             isToday,
             isEventDay,
             isInRange,
+            hasSchedule,
           });
         }
 
@@ -913,7 +998,24 @@ export default function OrganizerEventDetailsPage() {
       return months;
     };
 
-    const calendarData = generateCalendarData();
+    // Keep a local snapshot from externalGroupedSchedules when modal opens or data changes
+    useEffect(() => {
+      if (!isOpen) return;
+      const newKey = JSON.stringify(externalGroupedSchedules || {});
+      if (newKey !== groupedKeyRef.current) {
+        groupedKeyRef.current = newKey;
+        setLocalGroupedSchedules(externalGroupedSchedules || {});
+      }
+    }, [isOpen, externalGroupedSchedules]);
+
+    const schedulesKey = useMemo(
+      () => JSON.stringify(localGroupedSchedules),
+      [localGroupedSchedules]
+    );
+    const calendarData = useMemo(
+      () => generateCalendarData(),
+      [schedulesKey, todayString, eventDateString]
+    );
 
     if (!isOpen) return null;
 
@@ -936,7 +1038,7 @@ export default function OrganizerEventDetailsPage() {
                   Event Calendar
                 </h2>
                 <p className="text-sm text-gray-600">
-                  {event.event_title} -{" "}
+                  {event.event_title} - {" "}
                   {format(new Date(event.event_date), "MMM dd, yyyy")}
                 </p>
               </div>
@@ -997,33 +1099,54 @@ export default function OrganizerEventDetailsPage() {
 
                     {/* Calendar Days */}
                     <div className="grid grid-cols-7 gap-1">
-                      {month.days.map((dayData, dayIndex) => (
-                        <div
-                          key={dayIndex}
-                          ref={dayData.isToday ? todayRef : null}
-                          className={`
-                            aspect-square flex items-center justify-center text-sm font-medium rounded-lg border-2 transition-all
-                            ${
-                              !dayData.day
-                                ? "invisible"
-                                : dayData.isEventDay
-                                  ? "bg-red-500 text-white border-red-600 shadow-lg"
-                                  : dayData.isToday
-                                    ? "bg-blue-500 text-white border-blue-600 shadow-lg"
-                                    : dayData.isInRange
-                                      ? "bg-green-100 text-green-700 border-green-300"
-                                      : "bg-gray-50 text-gray-600 border-gray-200"
+                      {month.days.map((dayData, dayIndex) => {
+                        const dateKey = dayData.date
+                          ? toYmd(dayData.date)
+                          : `empty-${dayIndex}`;
+                        const hasSchedule = dayData.date
+                          ? dateHasSchedule(dayData.date)
+                          : false;
+                        const schedulesCount =
+                          hasSchedule && dayData.date
+                            ? getSchedulesForDate(dayData.date).length
+                            : 0;
+                        return (
+                          <div
+                            key={dateKey}
+                            ref={dayData.isToday ? todayRef : null}
+                            onClick={() =>
+                              hasSchedule && handleDateClick(dayData.date)
                             }
-                          `}
-                          title={
-                            dayData.date
-                              ? `${dayData.date.toLocaleDateString()}${dayData.isEventDay ? " (Event Day)" : dayData.isToday ? " (Today)" : dayData.isInRange ? " (In Range)" : ""}`
-                              : ""
-                          }
-                        >
-                          {dayData.day}
-                        </div>
-                      ))}
+                            className={`
+                              aspect-square flex flex-col items-center justify-center text-sm font-medium rounded-lg border-2 transition-all relative
+                              ${
+                                !dayData.day
+                                  ? "invisible"
+                                  : dayData.isEventDay
+                                    ? "bg-red-500 text-white border-red-600 shadow-lg"
+                                    : dayData.isToday
+                                      ? "bg-blue-500 text-white border-blue-600 shadow-lg"
+                                      : dayData.isInRange
+                                        ? "bg-green-100 text-green-700 border-green-300"
+                                        : "bg-gray-50 text-gray-600 border-gray-200"
+                              }
+                              ${hasSchedule ? "cursor-pointer hover:ring-2 hover:ring-brand-400 hover:ring-offset-1" : ""}
+                            `}
+                            title={
+                              dayData.date
+                                ? `${dayData.date.toLocaleDateString()}${dayData.isEventDay ? " (Event Day)" : dayData.isToday ? " (Today)" : dayData.isInRange ? " (In Range)" : ""}${hasSchedule ? ` - ${schedulesCount} schedule${schedulesCount !== 1 ? "s" : ""}` : ""}`
+                                : ""
+                            }
+                          >
+                            <span>{dayData.day}</span>
+                            {hasSchedule && (
+                              <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2">
+                                <div className="w-1.5 h-1.5 bg-orange-500 rounded-full"></div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -1050,7 +1173,135 @@ export default function OrganizerEventDetailsPage() {
                 <div className="w-4 h-4 bg-gray-50 border-2 border-gray-200 rounded"></div>
                 <span className="text-gray-600">Other Days</span>
               </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 relative">
+                  <div className="w-4 h-4 bg-green-100 border-2 border-green-300 rounded"></div>
+                  <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 bg-orange-500 rounded-full"></div>
+                </div>
+                <span className="text-gray-600">
+                  Has Schedule (Click to view)
+                </span>
+              </div>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Schedule Details Modal Component
+  const ScheduleDetailsModal = ({
+    isOpen,
+    onClose,
+    selectedDate,
+  }: {
+    isOpen: boolean;
+    onClose: () => void;
+    selectedDate: string | null;
+  }) => {
+    if (!isOpen || !selectedDate) return null;
+
+    const schedules = groupedSchedules[selectedDate] || [];
+    const dateObj = new Date(selectedDate);
+
+    const formatTime = (time: string) => {
+      if (!time) return "-";
+      const [h, m] = time.split(":");
+      const hour = parseInt(h);
+      const ampm = hour >= 12 ? "PM" : "AM";
+      const display = hour % 12 || 12;
+      return `${display}:${m} ${ampm}`;
+    };
+    const getScheduleStatusColor = (status: string) => {
+      switch (status) {
+        case "Done":
+          return "bg-green-100 text-green-700 border-green-300";
+        case "Delivered":
+          return "bg-blue-100 text-blue-700 border-blue-300";
+        case "Cancelled":
+          return "bg-red-100 text-red-700 border-red-300";
+        default:
+          return "bg-yellow-100 text-yellow-700 border-yellow-300";
+      }
+    };
+
+    // Close on ESC key
+    useEffect(() => {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === "Escape") onClose();
+      };
+      document.addEventListener("keydown", onKey);
+      return () => document.removeEventListener("keydown", onKey);
+    }, [onClose]);
+
+    return (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center">
+        <div
+          className="absolute inset-0 bg-black bg-opacity-50"
+          onClick={onClose}
+        />
+        <div className="relative bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between p-6 border-b border-gray-200 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <Calendar className="h-6 w-6 text-brand-500" />
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Schedule Details
+                </h2>
+                <p className="text-sm text-gray-600">
+                  {format(dateObj, "EEEE, MMMM d, yyyy")}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="p-6 overflow-y-auto flex-1">
+            {schedules.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">No schedules</div>
+            ) : (
+              <div className="space-y-3">
+                {schedules.map((item, index) => (
+                  <div
+                    key={item.schedule_id || index}
+                    className="bg-gray-50 rounded-lg p-4 border border-gray-200"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="h-4 w-4 text-gray-400" />
+                          <span className="text-sm font-medium text-gray-900">
+                            {formatTime(item.scheduled_time)}
+                          </span>
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${getScheduleStatusColor(item.status)}`}
+                          >
+                            {item.status}
+                          </span>
+                        </div>
+                        <div className="font-semibold text-gray-900 mb-1">
+                          {item.component_name}
+                        </div>
+                        {item.inclusion_name && (
+                          <div className="text-sm text-gray-600 mb-1">
+                            Inclusion: {item.inclusion_name}
+                          </div>
+                        )}
+                        {item.remarks && (
+                          <div className="text-sm text-gray-500 mt-2 italic">
+                            {item.remarks}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1943,6 +2194,21 @@ export default function OrganizerEventDetailsPage() {
         event={event}
         isOpen={showGanttModal}
         onClose={() => setShowGanttModal(false)}
+        groupedSchedules={groupedSchedules}
+        onDateClick={(dateKey) => {
+          setSelectedScheduleDate(dateKey);
+          setShowScheduleModal(true);
+        }}
+      />
+
+      {/* Schedule Details Modal */}
+      <ScheduleDetailsModal
+        isOpen={showScheduleModal}
+        onClose={() => {
+          setShowScheduleModal(false);
+          setSelectedScheduleDate(null);
+        }}
+        selectedDate={selectedScheduleDate}
       />
     </div>
   );

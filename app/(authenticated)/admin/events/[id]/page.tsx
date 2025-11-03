@@ -3999,19 +3999,65 @@ function EventTimeline({
     const today = getTodayString();
     const eventDate = event.event_date;
 
+    // Calculate budget progress percentage using the same logic as calculateDerivedPaymentStatus
+    const totalBudget = Number(event.total_budget || 0);
+    let paymentsTotal = 0;
+
+    // Try to get from mainPaymentHistory first (fetched by main component)
+    if (mainPaymentHistory && mainPaymentHistory.length > 0) {
+      paymentsTotal = mainPaymentHistory.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
+      }, 0);
+    } else if (event.payments && Array.isArray(event.payments)) {
+      // Fallback: try to get from event data
+      paymentsTotal = event.payments.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
+      }, 0);
+    }
+
+    // Include down payment (reservation fee) if not already included in payments
+    const downPayment = Number(event.down_payment || 0);
+    const downPaymentIncluded =
+      (mainPaymentHistory || event.payments || []).some(
+        (payment: any) =>
+          payment.payment_type === "down_payment" ||
+          payment.payment_type === "reserved" ||
+          payment.payment_notes?.toLowerCase().includes("down payment") ||
+          payment.payment_notes?.toLowerCase().includes("reservation")
+      ) || false;
+
+    const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+
+    // Add reserved payment total if it exists and is separate from down payment
+    const reservedPaymentTotal = Number(event.reserved_payment_total || 0);
+    const finalTotalPaid = totalPaid + reservedPaymentTotal;
+
+    const budgetProgressPercentage =
+      totalBudget > 0 ? (finalTotalPaid / totalBudget) * 100 : 0;
+    const isBudgetFullyPaid = budgetProgressPercentage >= 100;
+
     // Determine execution status based on date comparison
     let executionStatus: "completed" | "in-progress" | "pending" = "pending";
     if (event.event_status === "done") {
-      // Only mark as completed if explicitly set to done
       executionStatus = "completed";
-    } else if (eventDate === today) {
-      // Event is happening today
-      executionStatus = "in-progress";
-    } else if (eventDate < today) {
-      // Past event that's not marked as done - show as in-progress
-      executionStatus = "in-progress";
+    } else if (eventDate <= today) {
+      // Event day has been reached or passed
+      executionStatus = "completed";
     } else {
-      // Future event - always pending
       executionStatus = "pending";
     }
 
@@ -4020,7 +4066,7 @@ function EventTimeline({
         id: "booking",
         title: "Event Booked",
         date: event.created_at,
-        status: "completed",
+        status: "completed", // Always green when event exists
         icon: Calendar,
         description: "Event booking confirmed",
       },
@@ -4028,28 +4074,26 @@ function EventTimeline({
         id: "payment",
         title: "Initial Payment",
         date: event.payments?.[0]?.payment_date,
-        status: event.down_payment > 0 ? "completed" : "pending",
+        status: event.down_payment > 0 ? "completed" : "pending", // Green when down payment exists
         icon: CreditCard,
         description: `Down payment: ₱${formatCurrency(Number(event.down_payment || 0))}`,
       },
       {
         id: "planning",
-        title: "Event Planning",
+        title: "Event Planned", // Changed from "Event Planning" to "Event Planned"
         date: null,
-        status: allIncludedPaid ? "completed" : "pending",
+        status: event.down_payment > 0 ? "completed" : "pending", // Green when down payment exists
         icon: Edit,
-        description: allIncludedPaid
-          ? "All inclusions paid. Event ready."
-          : "Planning event details",
+        description:
+          event.down_payment > 0
+            ? "Event planning completed with down payment"
+            : "Planning event details",
       },
       {
         id: "final-payment",
         title: "Final Payment",
         date: null,
-        status:
-          calculateDerivedPaymentStatus() === "paid" && allIncludedPaid
-            ? "completed"
-            : "pending",
+        status: isBudgetFullyPaid ? "completed" : "pending", // Green when budget progress is 100%
         icon: DollarSign,
         description: "Complete payment settlement",
       },
@@ -4057,7 +4101,7 @@ function EventTimeline({
         id: "execution",
         title: "Event Day",
         date: event.event_date,
-        status: executionStatus,
+        status: executionStatus, // Green when target event date is reached
         icon: Users,
         description: "Event execution",
       },
@@ -4087,20 +4131,69 @@ function EventTimeline({
       (venuePaid ? 1 : 0);
     const planningComplete =
       derivedIncludedCount > 0 && derivedPaidCount === derivedIncludedCount;
+
+    // Calculate budget progress for final payment using the same logic as getTimelineSteps
+    const totalBudget = Number(event.total_budget || 0);
+    let paymentsTotal = 0;
+
+    // Try to get from mainPaymentHistory first (fetched by main component)
+    if (mainPaymentHistory && mainPaymentHistory.length > 0) {
+      paymentsTotal = mainPaymentHistory.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
+      }, 0);
+    } else if (event.payments && Array.isArray(event.payments)) {
+      // Fallback: try to get from event data
+      paymentsTotal = event.payments.reduce((sum, p) => {
+        const isPaid =
+          p.payment_status === "completed" ||
+          p.payment_status === "paid" ||
+          p.payment_status === "confirmed" ||
+          p.payment_status === "processed" ||
+          p.payment_status === "successful";
+        const amount = Number(p.payment_amount) || 0;
+        return isPaid ? sum + amount : sum;
+      }, 0);
+    }
+
+    // Include down payment (reservation fee) if not already included in payments
+    const downPayment = Number(event.down_payment || 0);
+    const downPaymentIncluded =
+      (mainPaymentHistory || event.payments || []).some(
+        (payment: any) =>
+          payment.payment_type === "down_payment" ||
+          payment.payment_type === "reserved" ||
+          payment.payment_notes?.toLowerCase().includes("down payment") ||
+          payment.payment_notes?.toLowerCase().includes("reservation")
+      ) || false;
+
+    const totalPaid = paymentsTotal + (downPaymentIncluded ? 0 : downPayment);
+
+    // Add reserved payment total if it exists and is separate from down payment
+    const reservedPaymentTotal = Number(event.reserved_payment_total || 0);
+    const finalTotalPaid = totalPaid + reservedPaymentTotal;
+
+    const budgetProgressPercentage =
+      totalBudget > 0 ? (finalTotalPaid / totalBudget) * 100 : 0;
+    const isBudgetFullyPaid = budgetProgressPercentage >= 100;
+
     return base.map((s) => {
       if (s.id === "planning") {
         return {
           ...s,
-          status: planningComplete ? "completed" : "pending",
+          status: event.down_payment > 0 ? "completed" : "pending",
         };
       }
       if (s.id === "final-payment") {
         return {
           ...s,
-          status:
-            calculateDerivedPaymentStatus() === "paid" && planningComplete
-              ? "completed"
-              : "pending",
+          status: isBudgetFullyPaid ? "completed" : "pending",
         };
       }
       if (s.id === "execution") {
@@ -4112,10 +4205,9 @@ function EventTimeline({
 
         if (event.event_status === "done") {
           executionStatus = "completed";
-        } else if (eventDate === today) {
-          executionStatus = "in-progress";
-        } else if (eventDate < today) {
-          executionStatus = "in-progress";
+        } else if (eventDate <= today) {
+          // Event day has been reached or passed
+          executionStatus = "completed";
         } else {
           executionStatus = "pending";
         }
@@ -4353,6 +4445,10 @@ function ClientProfile({ event }: { event: Event }) {
 
 // Payment History Component
 function PaymentHistoryTab({ event }: { event: Event }) {
+  // Surcharge helpers
+  const SURCHARGE_TAG = "[SURCHARGE]";
+  const isSurchargePayment = (p: any): boolean =>
+    (p?.payment_notes || "").toString().toUpperCase().includes(SURCHARGE_TAG);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryItem[]>(
     []
   );
@@ -4369,6 +4465,8 @@ function PaymentHistoryTab({ event }: { event: Event }) {
     next_due_date: "",
     payment_reference: "",
     payment_notes: "",
+    is_surcharge: false as boolean,
+    surcharge_reason: "" as string,
   });
   const [paymentAmountDisplay, setPaymentAmountDisplay] = useState("");
   const paymentInputRef = useRef<HTMLInputElement>(null);
@@ -4615,22 +4713,25 @@ function PaymentHistoryTab({ event }: { event: Event }) {
       };
     }
 
-    const paidAmount = calculatePaidAmount();
-    const remainingBalance = event.total_budget - paidAmount;
+    // For surcharges, skip remaining balance checks
+    if (!newPayment.is_surcharge) {
+      const paidAmount = calculatePaidAmount();
+      const remainingBalance = event.total_budget - paidAmount;
 
-    if (remainingBalance <= 0) {
-      return {
-        isValid: false,
-        message:
-          "This event is already fully paid. No additional payments needed.",
-      };
-    }
+      if (remainingBalance <= 0) {
+        return {
+          isValid: false,
+          message:
+            "This event is already fully paid. No additional payments needed.",
+        };
+      }
 
-    if (amount > remainingBalance) {
-      return {
-        isValid: false,
-        message: `Payment amount (₱${formatCurrency(amount)}) exceeds remaining balance (₱${formatCurrency(remainingBalance)}). Maximum allowed: ₱${formatCurrency(remainingBalance)}`,
-      };
+      if (amount > remainingBalance) {
+        return {
+          isValid: false,
+          message: `Payment amount (₱${formatCurrency(amount)}) exceeds remaining balance (₱${formatCurrency(remainingBalance)}). Maximum allowed: ₱${formatCurrency(remainingBalance)}`,
+        };
+      }
     }
 
     return { isValid: true };
@@ -4663,8 +4764,8 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         return;
       }
 
-      // Additional validation: Check if event is fully paid
-      if (isEventFullyPaid()) {
+      // Additional validation: For non-surcharge, block if fully paid
+      if (!newPayment.is_surcharge && isEventFullyPaid()) {
         toast({
           title: "Event Fully Paid",
           description:
@@ -4681,7 +4782,9 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         client_id: event.user_id,
         payment_method: newPayment.payment_method,
         payment_amount: paymentAmount,
-        payment_notes: newPayment.payment_notes || "",
+        payment_notes: newPayment.is_surcharge
+          ? `${SURCHARGE_TAG} ${newPayment.surcharge_reason || newPayment.payment_notes || ""}`.trim()
+          : newPayment.payment_notes || "",
         payment_status: newPayment.payment_status,
         payment_date: newPayment.payment_date,
         payment_reference: newPayment.payment_reference || "",
@@ -4701,7 +4804,9 @@ function PaymentHistoryTab({ event }: { event: Event }) {
       }
 
       // Check if this payment makes the event fully paid
-      const newPaidAmount = calculatePaidAmount() + paymentAmount;
+      const newPaidAmount = newPayment.is_surcharge
+        ? calculatePaidAmount()
+        : calculatePaidAmount() + paymentAmount;
       const isNowFullyPaid = newPaidAmount >= event.total_budget;
 
       toast({
@@ -4722,6 +4827,8 @@ function PaymentHistoryTab({ event }: { event: Event }) {
         next_due_date: "",
         payment_reference: "",
         payment_notes: "",
+        is_surcharge: false,
+        surcharge_reason: "",
       });
       setPaymentAmountDisplay("");
       setIsPaymentModalOpen(false);
@@ -4814,6 +4921,7 @@ function PaymentHistoryTab({ event }: { event: Event }) {
 
     if (paymentHistory && paymentHistory.length > 0) {
       paymentsTotal = paymentHistory.reduce((sum, p) => {
+        if (isSurchargePayment(p)) return sum;
         const isPaid =
           p.payment_status === "completed" ||
           p.payment_status === "paid" ||
@@ -4827,6 +4935,7 @@ function PaymentHistoryTab({ event }: { event: Event }) {
     } else if (event.payments && Array.isArray(event.payments)) {
       // Fallback: try to get from event data
       paymentsTotal = event.payments.reduce((sum, p) => {
+        if (isSurchargePayment(p)) return sum;
         const isPaid =
           p.payment_status === "completed" ||
           p.payment_status === "paid" ||
@@ -5165,32 +5274,32 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                           onBlur={handlePaymentAmountBlur}
                           onKeyDown={handlePaymentAmountKeyDown}
                           className={`w-full pl-8 pr-3 py-2 border rounded-md focus:ring-2 focus:border-blue-500 ${
-                            isEventFullyPaid()
+                            !newPayment.is_surcharge && isEventFullyPaid()
                               ? "border-gray-200 bg-gray-50 cursor-not-allowed"
-                              : newPayment.payment_amount >
+                              : !newPayment.is_surcharge && newPayment.payment_amount >
                                   getRemainingBalance()
                                 ? "border-red-300 bg-red-50 focus:ring-red-500"
                                 : "border-gray-300 focus:ring-blue-500"
                           }`}
                           placeholder={
-                            isEventFullyPaid() ? "Event fully paid" : "0.00"
+                            !newPayment.is_surcharge && isEventFullyPaid() ? "Event fully paid" : "0.00"
                           }
                           disabled={
                             newPayment.payment_type === "full" ||
-                            isEventFullyPaid()
+                            (!newPayment.is_surcharge && isEventFullyPaid())
                           }
                         />
                       </div>
                       {/* Validation Message */}
                       {newPayment.payment_amount > 0 && (
                         <div className="mt-2">
-                          {newPayment.payment_amount > getRemainingBalance() ? (
+                          {!newPayment.is_surcharge && newPayment.payment_amount > getRemainingBalance() ? (
                             <p className="text-sm text-red-600 flex items-center gap-1">
                               <AlertCircle className="h-4 w-4" />
                               Amount exceeds remaining balance (₱
                               {formatCurrency(getRemainingBalance())})
                             </p>
-                          ) : isEventFullyPaid() ? (
+                          ) : (!newPayment.is_surcharge && isEventFullyPaid()) ? (
                             <p className="text-sm text-green-600 flex items-center gap-1">
                               <CheckCircle className="h-4 w-4" />
                               Event is fully paid
@@ -5305,6 +5414,46 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                       placeholder="Additional payment notes or comments..."
                     />
                   </div>
+
+                  {/* Surcharge controls */}
+                  <div className="mt-4 p-3 border rounded-md bg-orange-50/40 border-orange-200">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-800 mb-2">
+                      <input
+                        type="checkbox"
+                        checked={newPayment.is_surcharge}
+                        onChange={(e) =>
+                          setNewPayment((p) => ({
+                            ...p,
+                            is_surcharge: e.target.checked,
+                            payment_status: e.target.checked ? "pending" : p.payment_status,
+                          }))
+                        }
+                      />
+                      Treat this as a Surcharge (not included in budget progress)
+                    </label>
+                    {newPayment.is_surcharge && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Surcharge Reason *
+                        </label>
+                        <textarea
+                          value={newPayment.surcharge_reason}
+                          onChange={(e) =>
+                            setNewPayment((p) => ({
+                              ...p,
+                              surcharge_reason: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-3 border border-orange-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500 min-h-20 resize-vertical bg-white"
+                          rows={3}
+                          placeholder="e.g., Hotel overtime (2 hrs), Additional corkage, Damages, etc."
+                        />
+                        <p className="text-xs text-orange-700 mt-1">
+                          Client will see this surcharge entry and its status.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {/* File attachments removed - simplified payment process */}
               </div>
@@ -5327,8 +5476,8 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                 disabled={
                   isCreating ||
                   newPayment.payment_amount <= 0 ||
-                  isEventFullyPaid() ||
-                  newPayment.payment_amount > getRemainingBalance()
+                  (!newPayment.is_surcharge && (isEventFullyPaid() || newPayment.payment_amount > getRemainingBalance())) ||
+                  (newPayment.is_surcharge && !newPayment.surcharge_reason.trim())
                 }
                 className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2 min-w-[140px] disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
@@ -5480,6 +5629,7 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                     return 0;
                   }
                   const paid = paymentHistory.reduce((sum, p) => {
+                    if (isSurchargePayment(p)) return sum;
                     const isPaid =
                       p.payment_status === "completed" ||
                       p.payment_status === "paid" ||
@@ -5511,6 +5661,7 @@ function PaymentHistoryTab({ event }: { event: Event }) {
                     return totalBudget;
                   }
                   const paid = paymentHistory.reduce((sum, p) => {
+                    if (isSurchargePayment(p)) return sum;
                     const isPaid =
                       p.payment_status === "completed" ||
                       p.payment_status === "paid" ||
@@ -5537,7 +5688,72 @@ function PaymentHistoryTab({ event }: { event: Event }) {
 
       {paymentHistory && paymentHistory.length > 0 ? (
         <div className="space-y-4">
-          {paymentHistory.map((payment: any, index: number) => (
+          {/* Surcharges */}
+          {paymentHistory.some((p: any) => isSurchargePayment(p)) && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+              <h5 className="font-semibold text-orange-900 mb-2 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                Surcharges
+              </h5>
+              <div className="space-y-3">
+                {paymentHistory
+                  .filter((p: any) => isSurchargePayment(p))
+                  .map((payment: any, index: number) => (
+                    <div
+                      key={
+                        payment?.payment_id && payment.payment_id !== 0
+                          ? `payment-${payment.payment_id}`
+                          : `temp-surcharge-${index}-${payment?.payment_reference || payment?.payment_date || "placeholder"}`
+                      }
+                      className="bg-white border border-orange-200 rounded-lg p-4"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-bold text-gray-900">
+                            ₱{formatCurrency(Number(payment.payment_amount || 0))}
+                            <span className="ml-2 text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded-full">Surcharge</span>
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">
+                            {(payment.payment_notes || "").replace(SURCHARGE_TAG, "").trim() || "No reason provided"}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {new Date(payment.payment_date).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+                          </div>
+                        </div>
+                        <div>
+                          <select
+                            value={payment.payment_status}
+                            onChange={async (e) => {
+                              try {
+                                await axios.post(endpoints.admin, {
+                                  operation: "updatePaymentStatus",
+                                  payment_id: payment.payment_id,
+                                  status: e.target.value,
+                                });
+                                await fetchPaymentHistory();
+                                toast({ title: "Updated", description: "Surcharge status updated" });
+                              } catch (err) {
+                                toast({ title: "Error", description: "Failed to update status", variant: "destructive" });
+                              }
+                            }}
+                            className="px-3 py-1 border rounded text-xs"
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Regular payments */}
+          {paymentHistory
+            .filter((payment: any) => !isSurchargePayment(payment))
+            .map((payment: any, index: number) => (
             <div
               key={
                 payment?.payment_id && payment.payment_id !== 0

@@ -69,6 +69,13 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { api } from "@/app/config/api";
 
 interface Booking {
   booking_id: number;
@@ -100,6 +107,7 @@ interface Booking {
   converted_event_id?: number | null;
   total_price?: number;
   payments?: PaymentHistoryItem[];
+  rejection_reason?: string | null;
 }
 
 interface PaymentHistoryItem {
@@ -173,13 +181,13 @@ function PaymentHistoryTab({
         venueExcess,
         customTotal,
         recalculatedTotal,
-        originalTotal: bookingDetails?.total_price || booking.total_price,
+        originalTotal: bookingDetails?.total_price || booking?.total_price || 0,
       });
 
       return recalculatedTotal;
     } catch (error) {
       console.error("Error recalculating total price:", error);
-      return bookingDetails?.total_price || booking.total_price || 0;
+      return bookingDetails?.total_price || booking?.total_price || 0;
     }
   };
 
@@ -592,6 +600,7 @@ export default function AdminBookingsPage() {
     overflowCharge: number;
     estimatedTotal: number;
   } | null>(null);
+  const [venueDetails, setVenueDetails] = useState<any | null>(null);
   const [convertingBookingId, setConvertingBookingId] = useState<number | null>(
     null
   );
@@ -624,6 +633,12 @@ export default function AdminBookingsPage() {
     payment_notes: "",
   });
   const [paymentAmountDisplay, setPaymentAmountDisplay] = useState("");
+
+  // Rejection modal state
+  const [isRejectionModalOpen, setIsRejectionModalOpen] = useState(false);
+  const [bookingToReject, setBookingToReject] = useState<Booking | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isRejecting, setIsRejecting] = useState(false);
 
   useEffect(() => {
     try {
@@ -957,6 +972,7 @@ export default function AdminBookingsPage() {
       setBookingDetails(null);
       setPackageDetails(null);
       setVenuePricingInfo(null);
+      setVenueDetails(null);
       setClientStats(null);
       setClientEventHistory([]);
       try {
@@ -1000,9 +1016,15 @@ export default function AdminBookingsPage() {
                 },
               })
             );
+            // Fetch venue details with image
+            requests.push(
+              axios.get("/admin.php", {
+                params: { operation: "getVenueById", venue_id: venueId },
+              })
+            );
           }
         }
-        const [bookingRes, pkgRes, venuesRes] = (await Promise.allSettled(
+        const [bookingRes, pkgRes, venuesRes, venueDetailsRes] = (await Promise.allSettled(
           requests
         )) as any;
 
@@ -1043,6 +1065,14 @@ export default function AdminBookingsPage() {
               estimatedTotal: base + extras,
             });
           }
+        }
+
+        // Set venue details with image
+        if (
+          venueDetailsRes?.status === "fulfilled" &&
+          venueDetailsRes.value?.data?.status === "success"
+        ) {
+          setVenueDetails(venueDetailsRes.value.data.venue);
         }
       } catch (e) {
         // silent; modal still shows base info
@@ -1140,7 +1170,7 @@ export default function AdminBookingsPage() {
       // Use recalculated total instead of stored total_price for consistency
       result.submittedTotal = selectedBooking
         ? recalculateTotalPrice(selectedBooking)
-        : null;
+        : bookingDetails?.total_price || null;
 
       // Venue estimates
       if (venuePricingInfo) {
@@ -1195,27 +1225,41 @@ export default function AdminBookingsPage() {
     }
   };
 
-  const handleRejectBooking = async (booking: Booking) => {
-    if (
-      !confirm(
-        `Are you sure you want to reject booking ${booking.booking_reference}? This action cannot be undone.`
-      )
-    ) {
+  const handleRejectBooking = (booking: Booking) => {
+    setBookingToReject(booking);
+    setRejectionReason("");
+    setIsRejectionModalOpen(true);
+  };
+
+  const confirmRejectBooking = async () => {
+    if (!bookingToReject) return;
+
+    if (!rejectionReason.trim()) {
+      toast({
+        title: "Rejection Reason Required",
+        description: "Please provide a reason for rejecting this booking.",
+        variant: "destructive",
+      });
       return;
     }
 
     try {
+      setIsRejecting(true);
       const response = await axios.post("/admin.php", {
         operation: "updateBookingStatus",
-        booking_id: booking.booking_id,
+        booking_id: bookingToReject.booking_id,
         status: "cancelled",
+        rejection_reason: rejectionReason.trim(),
       });
 
       if (response.data.status === "success") {
         toast({
           title: "Booking Rejected",
-          description: `Booking ${booking.booking_reference} has been cancelled.`,
+          description: `Booking ${bookingToReject.booking_reference} has been cancelled.`,
         });
+        setIsRejectionModalOpen(false);
+        setBookingToReject(null);
+        setRejectionReason("");
         fetchBookings(); // Refresh the list
       } else {
         toast({
@@ -1231,6 +1275,8 @@ export default function AdminBookingsPage() {
         description: "Failed to connect to server",
         variant: "destructive",
       });
+    } finally {
+      setIsRejecting(false);
     }
   };
 
@@ -1507,9 +1553,13 @@ export default function AdminBookingsPage() {
   };
 
   // Recalculate total price based on current booking data
-  const recalculateTotalPrice = (booking: Booking): number => {
+  const recalculateTotalPrice = (booking: Booking | null): number => {
+    if (!booking) {
+      return 0;
+    }
+
     if (!bookingDetails || !packageDetails) {
-      return bookingDetails?.total_price || booking.total_price || 0;
+      return bookingDetails?.total_price || booking?.total_price || 0;
     }
 
     try {
@@ -1548,13 +1598,13 @@ export default function AdminBookingsPage() {
         venueExcess,
         customTotal,
         recalculatedTotal,
-        originalTotal: bookingDetails?.total_price || booking.total_price,
+        originalTotal: bookingDetails?.total_price || booking?.total_price || 0,
       });
 
       return recalculatedTotal;
     } catch (error) {
       console.error("Error recalculating total price:", error);
-      return bookingDetails?.total_price || booking.total_price || 0;
+      return bookingDetails?.total_price || booking?.total_price || 0;
     }
   };
 
@@ -2448,51 +2498,37 @@ export default function AdminBookingsPage() {
                   {/* Sticky Tab Navigation */}
                   <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
                     <div className="px-2 sm:px-4 py-2">
-                      <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 h-auto bg-gray-100 p-1">
+                      <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-1 h-auto bg-gray-100 p-1">
                         <TabsTrigger
                           value="summary"
                           className="text-xs sm:text-sm px-2 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm"
                         >
-                          <span className="hidden sm:inline">Summary</span>
-                          <span className="sm:hidden">Summary</span>
+                          Summary
                         </TabsTrigger>
                         <TabsTrigger
                           value="client"
                           className="text-xs sm:text-sm px-2 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm"
                         >
-                          <span className="hidden sm:inline">Client</span>
-                          <span className="sm:hidden">Client</span>
+                          Client
                         </TabsTrigger>
                         <TabsTrigger
                           value="event"
                           className="text-xs sm:text-sm px-2 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm"
                         >
-                          <span className="hidden sm:inline">Event</span>
-                          <span className="sm:hidden">Event</span>
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="booking"
-                          className="text-xs sm:text-sm px-2 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm"
-                        >
-                          <span className="hidden sm:inline">Booking</span>
-                          <span className="sm:hidden">Booking</span>
+                          Event Details
                         </TabsTrigger>
                         <TabsTrigger
                           value="package"
                           className="text-xs sm:text-sm px-2 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm"
                         >
-                          <span className="hidden lg:inline">
-                            Package & Inclusions
-                          </span>
+                          <span className="hidden lg:inline">Package</span>
                           <span className="lg:hidden">Package</span>
                         </TabsTrigger>
                         <TabsTrigger
                           value="payments"
                           className="text-xs sm:text-sm px-2 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm"
                         >
-                          <span className="hidden lg:inline">
-                            Payment History
-                          </span>
+                          <span className="hidden lg:inline">Payments</span>
                           <span className="lg:hidden">Payments</span>
                         </TabsTrigger>
                       </TabsList>
@@ -3020,271 +3056,479 @@ export default function AdminBookingsPage() {
                     </TabsContent>
 
                     <TabsContent value="event" className="pt-4 px-4 sm:px-6">
-                      <div className="bg-white border rounded-lg p-4 space-y-3">
-                        <div>
-                          <strong>Event Name:</strong>{" "}
-                          {selectedBooking?.event_name}
-                        </div>
-                        <div>
-                          <strong>Event Type:</strong>{" "}
-                          {selectedBooking?.event_type_name}
-                        </div>
-                        <div>
-                          <strong>Date:</strong>{" "}
-                          {selectedBooking?.event_date
-                            ? new Date(
-                                selectedBooking.event_date
-                              ).toLocaleDateString()
-                            : "-"}
-                        </div>
-                        <div>
-                          <strong>Time:</strong> {selectedBooking?.event_time}
-                        </div>
-                        <div>
-                          <strong>Guest Count:</strong>{" "}
-                          {selectedBooking?.guest_count}
-                        </div>
-                        {selectedBooking?.venue_name && (
-                          <div>
-                            <strong>Venue:</strong>{" "}
-                            {selectedBooking?.venue_name}
-                          </div>
-                        )}
-                        {selectedBooking?.package_name && (
-                          <div>
-                            <strong>Package:</strong>{" "}
-                            {selectedBooking?.package_name}
-                          </div>
-                        )}
-                        {selectedBooking?.notes && (
-                          <div>
-                            <strong>Notes:</strong> {selectedBooking?.notes}
-                          </div>
-                        )}
-                      </div>
-                    </TabsContent>
+                      <div className="space-y-4">
+                        {/* Event Information Card */}
+                        <Card className="border shadow-sm">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-lg flex items-center gap-2">
+                              <Calendar className="h-5 w-5 text-blue-600" />
+                              Event Information
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Event Name
+                                </label>
+                                <p className="text-sm font-semibold text-gray-900">
+                                  {selectedBooking?.event_name || "-"}
+                                </p>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Event Type
+                                </label>
+                                <p className="text-sm font-semibold text-gray-900">
+                                  {selectedBooking?.event_type_name || "-"}
+                                </p>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Date
+                                </label>
+                                <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                                  <Calendar className="h-4 w-4 text-gray-400" />
+                                  {selectedBooking?.event_date
+                                    ? new Date(
+                                        selectedBooking.event_date
+                                      ).toLocaleDateString("en-US", {
+                                        weekday: "long",
+                                        year: "numeric",
+                                        month: "long",
+                                        day: "numeric",
+                                      })
+                                    : "-"}
+                                </p>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Time
+                                </label>
+                                <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                                  <Clock className="h-4 w-4 text-gray-400" />
+                                  {selectedBooking?.event_time || "-"}
+                                </p>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Guest Count
+                                </label>
+                                <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                                  <Users className="h-4 w-4 text-gray-400" />
+                                  {selectedBooking?.guest_count || 0} guests
+                                </p>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Package
+                                </label>
+                                <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                                  <Package className="h-4 w-4 text-gray-400" />
+                                  {selectedBooking?.package_name || "-"}
+                                </p>
+                              </div>
+                            </div>
+                            {selectedBooking?.notes && (
+                              <div className="pt-4 border-t">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
+                                  Notes
+                                </label>
+                                <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
+                                  {selectedBooking.notes}
+                                </p>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
 
-                    <TabsContent value="booking" className="pt-4 px-4 sm:px-6">
-                      <div className="bg-white border rounded-lg p-4 space-y-3">
-                        <div>
-                          <strong>Reference:</strong>{" "}
-                          {selectedBooking?.booking_reference}
-                        </div>
-                        <div>
-                          <strong>Created:</strong>{" "}
-                          {selectedBooking?.created_at
-                            ? new Date(
-                                selectedBooking.created_at
-                              ).toLocaleDateString()
-                            : "-"}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <strong>Status:</strong>
-                          <Badge
-                            className={`${getStatusColor(selectedBooking?.booking_status || "pending")} flex items-center gap-1`}
-                          >
-                            {getStatusIcon(
-                              selectedBooking?.booking_status || "pending"
-                            )}
-                            {selectedBooking?.booking_status || "pending"}
-                          </Badge>
-                        </div>
-                        {selectedBooking?.converted_event_id && (
-                          <div>
-                            <strong>Event ID:</strong>{" "}
-                            {selectedBooking?.converted_event_id}
-                          </div>
-                        )}
-                        {selectedBooking && (
-                          <div>
-                            <strong>Booking Total Price:</strong> ₱
-                            {Number(
-                              recalculateTotalPrice(selectedBooking)
-                            ).toLocaleString("en-PH", {
-                              minimumFractionDigits: 2,
-                            })}
-                          </div>
-                        )}
-                        {!selectedBooking && venuePricingInfo && (
-                          <div>
-                            <strong>Estimated Venue Total:</strong> ₱
-                            {venuePricingInfo.estimatedTotal.toLocaleString(
-                              "en-PH",
-                              { minimumFractionDigits: 2 }
-                            )}
-                          </div>
-                        )}
+                        {/* Booking Information Card */}
+                        <Card className="border shadow-sm">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-lg flex items-center gap-2">
+                              <Settings className="h-5 w-5 text-green-600" />
+                              Booking Information
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Booking Reference
+                                </label>
+                                <p className="text-sm font-mono font-semibold text-gray-900">
+                                  {selectedBooking?.booking_reference || "-"}
+                                </p>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Status
+                                </label>
+                                <div>
+                                  <Badge
+                                    className={`${getStatusColor(selectedBooking?.booking_status || "pending")} flex items-center gap-1 w-fit`}
+                                  >
+                                    {getStatusIcon(
+                                      selectedBooking?.booking_status || "pending"
+                                    )}
+                                    {selectedBooking?.booking_status || "pending"}
+                                  </Badge>
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Created Date
+                                </label>
+                                <p className="text-sm font-semibold text-gray-900">
+                                  {selectedBooking?.created_at
+                                    ? new Date(
+                                        selectedBooking.created_at
+                                      ).toLocaleDateString("en-US", {
+                                        year: "numeric",
+                                        month: "long",
+                                        day: "numeric",
+                                      })
+                                    : "-"}
+                                </p>
+                              </div>
+                              {selectedBooking?.converted_event_id && (
+                                <div className="space-y-1">
+                                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                    Converted Event ID
+                                  </label>
+                                  <p className="text-sm font-semibold text-blue-600">
+                                    #{selectedBooking.converted_event_id}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="pt-4 border-t">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                  Total Price
+                                </label>
+                                <p className="text-lg font-bold text-gray-900">
+                                  ₱
+                                  {selectedBooking
+                                    ? Number(
+                                        recalculateTotalPrice(selectedBooking)
+                                      ).toLocaleString("en-PH", {
+                                        minimumFractionDigits: 2,
+                                      })
+                                    : "0.00"}
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
                       </div>
                     </TabsContent>
 
                     <TabsContent value="package" className="pt-4 px-4 sm:px-6">
                       {packageDetails || bookingDetails ? (
-                        <div className="bg-white border rounded-lg p-4 space-y-4">
-                          {packageDetails && (
-                            <div className="text-sm">
-                              <div>
-                                <strong>Package:</strong>{" "}
-                                {packageDetails.package_title} (₱
-                                {Number(
-                                  packageDetails.package_price
-                                ).toLocaleString("en-PH", {
-                                  minimumFractionDigits: 2,
-                                })}
-                                )
-                              </div>
-                              {selectedBooking?.venue_name && (
-                                <div className="mt-1">
-                                  <strong>Venue:</strong>{" "}
-                                  {selectedBooking?.venue_name}
-                                  {venuePricingInfo && (
-                                    <span className="text-gray-600">
-                                      {" "}
-                                      — Base ₱
-                                      {venuePricingInfo.basePrice.toLocaleString()}{" "}
-                                      {venuePricingInfo.extraPaxRate > 0 &&
-                                      selectedBooking?.guest_count &&
-                                      selectedBooking.guest_count > 100
-                                        ? `+ Overflow ₱${venuePricingInfo.overflowCharge.toLocaleString()}`
-                                        : ""}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                              {Array.isArray(packageDetails.freebies) &&
-                                packageDetails.freebies.length > 0 && (
-                                  <div className="mt-3">
-                                    <strong>Freebies:</strong>
-                                    <div className="mt-1 flex flex-wrap gap-2">
-                                      {packageDetails.freebies.map(
-                                        (f: any, i: number) => (
-                                          <span
-                                            key={`package-freebie-chip-${i}`}
-                                            className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700 border"
-                                          >
-                                            {typeof f === "string"
-                                              ? f
-                                              : f.freebie_name}
-                                          </span>
-                                        )
-                                      )}
+                        <div className="space-y-4">
+                          {/* Package Overview Card */}
+                          <Card className="border shadow-sm">
+                            <CardHeader className="pb-3">
+                              <CardTitle className="text-lg flex items-center gap-2">
+                                <Package className="h-5 w-5 text-purple-600" />
+                                Package Information
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                              {packageDetails && (
+                                <div className="space-y-4">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <h3 className="text-lg font-semibold text-gray-900">
+                                        {packageDetails.package_title}
+                                      </h3>
+                                      <p className="text-sm text-gray-600 mt-1">
+                                        {packageDetails.package_description || ""}
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <div className="text-2xl font-bold text-purple-600">
+                                        ₱
+                                        {Number(
+                                          packageDetails.package_price
+                                        ).toLocaleString("en-PH", {
+                                          minimumFractionDigits: 2,
+                                        })}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        Package Price
+                                      </div>
                                     </div>
                                   </div>
-                                )}
-                            </div>
-                          )}
 
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            <div>
-                              <div className="font-medium mb-1">Included</div>
-                              <ul className="text-sm list-disc pl-5 space-y-1 max-h-48 overflow-auto bg-gray-50 p-3 rounded border">
-                                {detailsSummary.includedNames
-                                  .slice(0, 100)
-                                  .map((n, i) => (
-                                    <li key={`inc-${i}`}>{n}</li>
-                                  ))}
-                                {detailsSummary.includedNames.length === 0 && (
-                                  <li className="text-gray-500">No data</li>
-                                )}
-                              </ul>
-                            </div>
-                            <div>
-                              <div className="font-medium mb-1">
-                                Removed / Unchecked
-                              </div>
-                              <ul className="text-sm list-disc pl-5 space-y-1 max-h-48 overflow-auto bg-gray-50 p-3 rounded border">
-                                {detailsSummary.removedNames
-                                  .slice(0, 100)
-                                  .map((n, i) => (
-                                    <li key={`rem-${i}`}>{n}</li>
-                                  ))}
-                                {detailsSummary.removedNames.length === 0 && (
-                                  <li className="text-gray-500">
-                                    None indicated
-                                  </li>
-                                )}
-                              </ul>
-                            </div>
-                          </div>
-
-                          {(detailsSummary.supplierServices.length > 0 ||
-                            detailsSummary.customAddOns.length > 0) && (
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                              {detailsSummary.supplierServices.length > 0 && (
-                                <div>
-                                  <div className="font-medium mb-1">
-                                    Supplier Services
-                                  </div>
-                                  <ul className="text-sm list-disc pl-5 space-y-1 max-h-48 overflow-auto bg-gray-50 p-3 rounded border">
-                                    {detailsSummary.supplierServices.map(
-                                      (c: any, i: number) => (
-                                        <li key={`supp-${i}`}>
-                                          {(c.supplier_name
-                                            ? `${c.supplier_name} — `
-                                            : "") +
-                                            (c.name ||
-                                              c.component_name ||
-                                              c.inclusion_name ||
-                                              "Service")}{" "}
-                                          — ₱
-                                          {Number(
-                                            c.price ||
-                                              c.component_price ||
-                                              c.inclusion_price ||
-                                              0
-                                          ).toLocaleString()}
-                                        </li>
-                                      )
+                                  {/* Freebies */}
+                                  {Array.isArray(packageDetails.freebies) &&
+                                    packageDetails.freebies.length > 0 && (
+                                      <div className="pt-3 border-t">
+                                        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
+                                          Freebies
+                                        </label>
+                                        <div className="flex flex-wrap gap-2">
+                                          {packageDetails.freebies.map(
+                                            (f: any, i: number) => (
+                                              <Badge
+                                                key={`package-freebie-chip-${i}`}
+                                                variant="secondary"
+                                                className="text-xs"
+                                              >
+                                                {typeof f === "string"
+                                                  ? f
+                                                  : f.freebie_name}
+                                              </Badge>
+                                            )
+                                          )}
+                                        </div>
+                                      </div>
                                     )}
-                                  </ul>
-                                  <div className="text-sm text-gray-700 mt-1">
-                                    <strong>Total:</strong> ₱
-                                    {detailsSummary.supplierServicesTotal.toLocaleString(
-                                      "en-PH",
-                                      { minimumFractionDigits: 2 }
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+
+                          {/* Venue Card with Image */}
+                          {selectedBooking?.venue_name && (
+                            <Card className="border shadow-sm">
+                              <CardHeader className="pb-3">
+                                <CardTitle className="text-lg flex items-center gap-2">
+                                  <MapPin className="h-5 w-5 text-red-600" />
+                                  Venue Information
+                                </CardTitle>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  {venueDetails?.venue_cover && (
+                                    <div className="md:col-span-1">
+                                      <img
+                                        src={
+                                          venueDetails.venue_cover.startsWith(
+                                            "http"
+                                          )
+                                            ? venueDetails.venue_cover
+                                            : api.getServeImageUrl(
+                                                venueDetails.venue_cover
+                                              )
+                                        }
+                                        alt={selectedBooking.venue_name}
+                                        className="w-full h-48 object-cover rounded-lg border"
+                                      />
+                                    </div>
+                                  )}
+                                  <div
+                                    className={`${venueDetails?.venue_cover ? "md:col-span-2" : "md:col-span-3"}`}
+                                  >
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                                      {selectedBooking.venue_name}
+                                    </h3>
+                                    {venuePricingInfo && (
+                                      <div className="space-y-2 text-sm">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-gray-600">
+                                            Base Price:
+                                          </span>
+                                          <span className="font-semibold">
+                                            ₱
+                                            {venuePricingInfo.basePrice.toLocaleString(
+                                              "en-PH",
+                                              {
+                                                minimumFractionDigits: 2,
+                                              }
+                                            )}
+                                          </span>
+                                        </div>
+                                        {venuePricingInfo.extraPaxRate > 0 &&
+                                          selectedBooking?.guest_count &&
+                                          selectedBooking.guest_count > 100 && (
+                                            <>
+                                              <div className="flex items-center justify-between">
+                                                <span className="text-gray-600">
+                                                  Extra Guests (
+                                                  {selectedBooking.guest_count -
+                                                    100}{" "}
+                                                  guests):
+                                                </span>
+                                                <span className="font-semibold">
+                                                  ₱
+                                                  {venuePricingInfo.overflowCharge.toLocaleString(
+                                                    "en-PH",
+                                                    {
+                                                      minimumFractionDigits: 2,
+                                                    }
+                                                  )}
+                                                </span>
+                                              </div>
+                                              <div className="text-xs text-gray-500">
+                                                Rate: ₱
+                                                {venuePricingInfo.extraPaxRate.toLocaleString()}{" "}
+                                                per extra guest
+                                              </div>
+                                            </>
+                                          )}
+                                        <Separator />
+                                        <div className="flex items-center justify-between text-base font-bold">
+                                          <span>Total Venue Cost:</span>
+                                          <span className="text-green-600">
+                                            ₱
+                                            {venuePricingInfo.estimatedTotal.toLocaleString(
+                                              "en-PH",
+                                              {
+                                                minimumFractionDigits: 2,
+                                              }
+                                            )}
+                                          </span>
+                                        </div>
+                                      </div>
                                     )}
                                   </div>
                                 </div>
-                              )}
-                              {detailsSummary.customAddOns.length > 0 && (
-                                <div>
-                                  <div className="font-medium mb-1">
-                                    Custom Add-ons
-                                  </div>
-                                  <ul className="text-sm list-disc pl-5 space-y-1 max-h-48 overflow-auto bg-gray-50 p-3 rounded border">
-                                    {detailsSummary.customAddOns.map(
-                                      (c: any, i: number) => (
-                                        <li key={`cust-${i}`}>
-                                          {c.name ||
-                                            c.component_name ||
-                                            c.inclusion_name ||
-                                            "Item"}{" "}
-                                          — ₱
-                                          {Number(
-                                            c.price ||
-                                              c.component_price ||
-                                              c.inclusion_price ||
-                                              0
-                                          ).toLocaleString()}
-                                        </li>
-                                      )
-                                    )}
-                                  </ul>
-                                  <div className="text-sm text-gray-700 mt-1">
-                                    <strong>Total:</strong> ₱
-                                    {detailsSummary.customAddOnsTotal.toLocaleString(
-                                      "en-PH",
-                                      { minimumFractionDigits: 2 }
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
+                              </CardContent>
+                            </Card>
                           )}
+
+                          {/* Inclusions Accordion */}
+                          <Card className="border shadow-sm">
+                            <CardHeader className="pb-3">
+                              <CardTitle className="text-lg">Components & Inclusions</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <Accordion type="multiple" className="w-full">
+                                {detailsSummary.includedNames.length > 0 && (
+                                  <AccordionItem value="included">
+                                    <AccordionTrigger className="text-sm font-semibold">
+                                      Included Components ({detailsSummary.includedNames.length})
+                                    </AccordionTrigger>
+                                    <AccordionContent>
+                                      <ul className="text-sm space-y-2 list-disc pl-5 bg-gray-50 p-4 rounded-lg max-h-64 overflow-auto">
+                                        {detailsSummary.includedNames.map(
+                                          (n, i) => (
+                                            <li key={`inc-${i}`} className="text-gray-700">
+                                              {n}
+                                            </li>
+                                          )
+                                        )}
+                                      </ul>
+                                    </AccordionContent>
+                                  </AccordionItem>
+                                )}
+
+                                {detailsSummary.removedNames.length > 0 && (
+                                  <AccordionItem value="removed">
+                                    <AccordionTrigger className="text-sm font-semibold">
+                                      Removed / Unchecked ({detailsSummary.removedNames.length})
+                                    </AccordionTrigger>
+                                    <AccordionContent>
+                                      <ul className="text-sm space-y-2 list-disc pl-5 bg-red-50 p-4 rounded-lg max-h-64 overflow-auto">
+                                        {detailsSummary.removedNames.map(
+                                          (n, i) => (
+                                            <li key={`rem-${i}`} className="text-red-700">
+                                              {n}
+                                            </li>
+                                          )
+                                        )}
+                                      </ul>
+                                    </AccordionContent>
+                                  </AccordionItem>
+                                )}
+
+                                {detailsSummary.supplierServices.length > 0 && (
+                                  <AccordionItem value="supplier">
+                                    <AccordionTrigger className="text-sm font-semibold">
+                                      Supplier Services ({detailsSummary.supplierServices.length}) -
+                                      ₱{detailsSummary.supplierServicesTotal.toLocaleString("en-PH", {
+                                        minimumFractionDigits: 2,
+                                      })}
+                                    </AccordionTrigger>
+                                    <AccordionContent>
+                                      <ul className="text-sm space-y-2 bg-blue-50 p-4 rounded-lg max-h-64 overflow-auto">
+                                        {detailsSummary.supplierServices.map(
+                                          (c: any, i: number) => (
+                                            <li
+                                              key={`supp-${i}`}
+                                              className="flex items-center justify-between p-2 bg-white rounded border"
+                                            >
+                                              <span className="text-gray-700">
+                                                {c.supplier_name
+                                                  ? `${c.supplier_name} — `
+                                                  : ""}
+                                                {c.name ||
+                                                  c.component_name ||
+                                                  c.inclusion_name ||
+                                                  "Service"}
+                                              </span>
+                                              <span className="font-semibold text-gray-900">
+                                                ₱
+                                                {Number(
+                                                  c.price ||
+                                                    c.component_price ||
+                                                    c.inclusion_price ||
+                                                    0
+                                                ).toLocaleString("en-PH", {
+                                                  minimumFractionDigits: 2,
+                                                })}
+                                              </span>
+                                            </li>
+                                          )
+                                        )}
+                                      </ul>
+                                    </AccordionContent>
+                                  </AccordionItem>
+                                )}
+
+                                {detailsSummary.customAddOns.length > 0 && (
+                                  <AccordionItem value="custom">
+                                    <AccordionTrigger className="text-sm font-semibold">
+                                      Custom Add-ons ({detailsSummary.customAddOns.length}) -
+                                      ₱{detailsSummary.customAddOnsTotal.toLocaleString("en-PH", {
+                                        minimumFractionDigits: 2,
+                                      })}
+                                    </AccordionTrigger>
+                                    <AccordionContent>
+                                      <ul className="text-sm space-y-2 bg-green-50 p-4 rounded-lg max-h-64 overflow-auto">
+                                        {detailsSummary.customAddOns.map(
+                                          (c: any, i: number) => (
+                                            <li
+                                              key={`cust-${i}`}
+                                              className="flex items-center justify-between p-2 bg-white rounded border"
+                                            >
+                                              <span className="text-gray-700">
+                                                {c.name ||
+                                                  c.component_name ||
+                                                  c.inclusion_name ||
+                                                  "Item"}
+                                              </span>
+                                              <span className="font-semibold text-gray-900">
+                                                ₱
+                                                {Number(
+                                                  c.price ||
+                                                    c.component_price ||
+                                                    c.inclusion_price ||
+                                                    0
+                                                ).toLocaleString("en-PH", {
+                                                  minimumFractionDigits: 2,
+                                                })}
+                                              </span>
+                                            </li>
+                                          )
+                                        )}
+                                      </ul>
+                                    </AccordionContent>
+                                  </AccordionItem>
+                                )}
+                              </Accordion>
+                            </CardContent>
+                          </Card>
                         </div>
                       ) : (
-                        <div className="text-sm text-gray-500">
-                          No package data.
-                        </div>
+                        <Card className="border">
+                          <CardContent className="py-8 text-center text-gray-500">
+                            No package data available.
+                          </CardContent>
+                        </Card>
                       )}
                     </TabsContent>
 
@@ -3436,7 +3680,9 @@ export default function AdminBookingsPage() {
                         Total Price
                       </div>
                       <div className="font-bold text-lg text-blue-900">
-                        {formatCurrency(recalculateTotalPrice(selectedBooking))}
+                        {selectedBooking
+                          ? formatCurrency(recalculateTotalPrice(selectedBooking))
+                          : formatCurrency(0)}
                       </div>
                     </div>
                     <div className="bg-white rounded-lg p-3 border">
@@ -3714,6 +3960,114 @@ export default function AdminBookingsPage() {
                       <>
                         <Wallet className="h-4 w-4 mr-2" />
                         Record Payment
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Rejection Reason Modal */}
+          <Dialog
+            open={isRejectionModalOpen}
+            onOpenChange={(open) => {
+              if (!isRejecting) {
+                setIsRejectionModalOpen(open);
+                if (!open) {
+                  setBookingToReject(null);
+                  setRejectionReason("");
+                }
+              }
+            }}
+          >
+            <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+              <DialogHeader className="px-6 py-4 shrink-0 border-b bg-white">
+                <DialogTitle className="text-xl">Reject Booking</DialogTitle>
+                <DialogDescription className="text-sm">
+                  Please provide a reason for rejecting booking{" "}
+                  {bookingToReject?.booking_reference}. This reason will be
+                  visible to the client.
+                </DialogDescription>
+              </DialogHeader>
+
+              {/* Booking Info */}
+              {bookingToReject && (
+                <div className="px-6 py-4 bg-gray-50 border-b">
+                  <div className="space-y-2 text-sm">
+                    <div>
+                      <span className="font-medium">Event:</span>{" "}
+                      {bookingToReject.event_name}
+                    </div>
+                    <div>
+                      <span className="font-medium">Client:</span>{" "}
+                      {bookingToReject.client_name}
+                    </div>
+                    <div>
+                      <span className="font-medium">Date:</span>{" "}
+                      {new Date(bookingToReject.event_date).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 bg-gray-50">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Rejection Reason <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="Enter the reason for rejecting this booking..."
+                      rows={6}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
+                      style={{
+                        minHeight: "120px",
+                        maxHeight: "120px",
+                        height: "120px",
+                      }}
+                      disabled={isRejecting}
+                    />
+                    <p className="text-xs text-gray-500 mt-2">
+                      This reason will be displayed to the client on their
+                      booking card.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="px-6 py-4 border-t bg-white shrink-0 mt-0">
+                <div className="flex flex-row justify-end gap-3 w-full">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (!isRejecting) {
+                        setIsRejectionModalOpen(false);
+                        setBookingToReject(null);
+                        setRejectionReason("");
+                      }
+                    }}
+                    disabled={isRejecting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={confirmRejectBooking}
+                    disabled={isRejecting || !rejectionReason.trim()}
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    {isRejecting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Rejecting...
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Reject Booking
                       </>
                     )}
                   </Button>

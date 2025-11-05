@@ -5775,7 +5775,7 @@ This is an automated message. Please do not reply.
         }
     }
 
-    public function updateBookingStatus($bookingId, $status) {
+    public function updateBookingStatus($bookingId, $status, $rejectionReason = null) {
         try {
             // Validate booking status
             $validStatuses = ['pending', 'confirmed', 'converted', 'cancelled', 'completed'];
@@ -5793,13 +5793,25 @@ This is an automated message. Please do not reply.
                 return json_encode(["status" => "error", "message" => "Booking not found"]);
             }
 
-            // Update booking status
-            $sql = "UPDATE tbl_bookings SET booking_status = :status, updated_at = NOW() WHERE booking_id = :booking_id";
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute([
-                ':status' => $status,
-                ':booking_id' => $bookingId
-            ]);
+            // Update booking status with optional rejection reason
+            // Only set rejection_reason if status is 'cancelled' and reason is provided
+            if ($status === 'cancelled' && !empty($rejectionReason)) {
+                $sql = "UPDATE tbl_bookings SET booking_status = :status, rejection_reason = :rejection_reason, updated_at = NOW() WHERE booking_id = :booking_id";
+                $stmt = $this->conn->prepare($sql);
+                $stmt->execute([
+                    ':status' => $status,
+                    ':rejection_reason' => $rejectionReason,
+                    ':booking_id' => $bookingId
+                ]);
+            } else {
+                // Clear rejection reason if status is not cancelled
+                $sql = "UPDATE tbl_bookings SET booking_status = :status, rejection_reason = NULL, updated_at = NOW() WHERE booking_id = :booking_id";
+                $stmt = $this->conn->prepare($sql);
+                $stmt->execute([
+                    ':status' => $status,
+                    ':booking_id' => $bookingId
+                ]);
+            }
 
             // Create typed notification for client via stored procedure
             $titleByStatus = [
@@ -5810,7 +5822,9 @@ This is an automated message. Please do not reply.
 
             $messageByStatus = [
                 'confirmed' => "Your booking {$booking['booking_reference']} has been accepted! You can now proceed with event planning.",
-                'cancelled' => "Your booking {$booking['booking_reference']} has been cancelled.",
+                'cancelled' => !empty($rejectionReason)
+                    ? "Your booking {$booking['booking_reference']} has been cancelled. Reason: {$rejectionReason}"
+                    : "Your booking {$booking['booking_reference']} has been cancelled.",
                 'completed' => "Your booking {$booking['booking_reference']} has been completed.",
             ];
 
@@ -6150,6 +6164,7 @@ This is an automated message. Please do not reply.
                         p.package_title as package_name,
                         b.notes,
                         b.booking_status,
+                        b.rejection_reason,
                         b.total_price,
                         b.created_at,
                         b.updated_at,
@@ -14066,7 +14081,8 @@ if (!defined('ADMIN_PHP_INCLUDED')) {
     case "updateBookingStatus":
         $bookingId = $_GET['booking_id'] ?? ($data['booking_id'] ?? 0);
         $status = $_GET['status'] ?? ($data['status'] ?? '');
-        echo $admin->updateBookingStatus($bookingId, $status);
+        $rejectionReason = $_GET['rejection_reason'] ?? ($data['rejection_reason'] ?? null);
+        echo $admin->updateBookingStatus($bookingId, $status, $rejectionReason);
         break;
     case "acceptBooking":
         $bookingId = $_GET['booking_id'] ?? ($data['booking_id'] ?? 0);

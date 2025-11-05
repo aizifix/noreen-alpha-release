@@ -58,6 +58,7 @@ interface DbBooking {
   created_at: string;
   total_price?: number;
   payments?: PaymentHistoryItem[];
+  rejection_reason?: string | null;
 }
 
 interface PaymentHistoryItem {
@@ -724,6 +725,33 @@ export default function BookingsPage() {
                 </div>
               )}
 
+              {b.booking_status === "cancelled" && b.rejection_reason && (
+                <div className="p-4 bg-red-50 rounded-lg border-2 border-red-300 shadow-sm">
+                  <div className="flex items-center gap-2 text-red-900 text-sm mb-3">
+                    <X className="h-5 w-5 text-red-600" />
+                    <span className="font-semibold text-base">Booking Rejected</span>
+                  </div>
+                  <div className="text-sm text-red-800">
+                    <p className="font-semibold mb-2 text-red-900">Rejection Reason:</p>
+                    <div className="bg-white p-3 rounded border border-red-200">
+                      <p className="whitespace-pre-wrap leading-relaxed">{b.rejection_reason}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {b.booking_status === "cancelled" && !b.rejection_reason && (
+                <div className="p-3 bg-red-100 rounded-lg border border-red-200">
+                  <div className="flex items-center gap-2 text-red-800 text-sm">
+                    <X className="h-4 w-4" />
+                    <span className="font-medium">Booking Cancelled</span>
+                  </div>
+                  <p className="text-xs text-red-700 mt-1">
+                    This booking has been cancelled.
+                  </p>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="flex gap-2 mt-auto">
                 {b.booking_status === "converted" ? (
@@ -1191,6 +1219,22 @@ export default function BookingsPage() {
                     <p className="text-gray-700">{selectedBooking.notes}</p>
                   </div>
                 )}
+
+                {/* Rejection Reason */}
+                {selectedBooking.booking_status === "cancelled" &&
+                  selectedBooking.rejection_reason && (
+                    <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <X className="h-5 w-5 text-red-600" />
+                        <h4 className="font-medium text-red-900">
+                          Rejection Reason
+                        </h4>
+                      </div>
+                      <p className="text-sm text-red-800 whitespace-pre-wrap">
+                        {selectedBooking.rejection_reason}
+                      </p>
+                    </div>
+                  )}
               </div>
             </div>
           </div>
